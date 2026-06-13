@@ -210,7 +210,7 @@ app.get('/api/telemetry', (req, res) => {
 });
 
 // Unified Frontend Router (Dev vs Prod vs Test)
-if (process.env.NODE_ENV !== 'production' && process.env.NODE_ENV !== 'test') {
+async function setupDevMode() {
   logger.info('Starting DentAI in DEVELOPMENT mode with Vite Middleware...');
   const { createServer } = await import('vite');
   
@@ -233,6 +233,12 @@ if (process.env.NODE_ENV !== 'production' && process.env.NODE_ENV !== 'test') {
       vite.ssrFixStacktrace(err as Error);
       next(err);
     }
+  });
+}
+
+if (process.env.NODE_ENV !== 'production' && process.env.NODE_ENV !== 'test') {
+  setupDevMode().catch(err => {
+    logger.error('Failed to start development mode with Vite:', err);
   });
 } else {
   logger.info('Starting DentAI in PRODUCTION mode serving built files...');
