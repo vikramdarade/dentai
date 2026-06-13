@@ -90,8 +90,8 @@ var logger = {
 // server.ts
 dotenv.config({ path: ".env.local" });
 dotenv.config();
-var __filename = fileURLToPath(import.meta.url);
-var __dirname = path.dirname(__filename);
+var __filename = typeof import.meta !== "undefined" && import.meta.url ? fileURLToPath(import.meta.url) : "";
+var __dirname = __filename ? path.dirname(__filename) : process.cwd();
 var app = express();
 app.use(
   helmet({
