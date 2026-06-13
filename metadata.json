@@ -1,0 +1,6 @@
+{
+  "name": "DentAI",
+  "description": "Artificial intelligence dental charting and clinical note transcription assistant, engineered for high-precision clinical environments.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
