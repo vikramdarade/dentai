@@ -209,7 +209,7 @@ ${transcript.map((t) => `${t.sender}: ${t.text}`).join("\n")}
             "patientSummary"
           ]
         },
-        systemInstruction: `You are an expert dental transcription assistant and charting AI, specializing in record-keeping for the Australian dental market. Your task is to process a pre-session patient intake form and a dentist-patient session transcript, and generate structured clinical notes and a patient summary letter.
+        systemInstruction: `You are an expert dental transcription assistant and charting AI, specializing in record-keeping for the Australian dental market. Your task is to process a pre-session patient intake form and a clinical session transcript, and generate structured clinical notes and a patient summary letter. Note that the transcript is captured as a unified stream of dialogue and comments (with roles labeled as 'Dialogue' or 'Clinical Comment'). You must contextually infer which statements were spoken by the dentist vs. the patient to construct the correct findings.
 
 Your output must comply with the Dental Board of Australia record-keeping guidelines (ADA format).
 

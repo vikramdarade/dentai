@@ -1,5 +1,5 @@
 export interface TranscriptItem {
-  sender: 'Dentist' | 'Patient';
+  sender: 'Dentist' | 'Patient' | 'Dialogue' | 'Clinical Comment';
   text: string;
 }
 

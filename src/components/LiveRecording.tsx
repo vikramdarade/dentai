@@ -25,15 +25,164 @@ export default function LiveRecording({
   const [isListening, setIsListening] = useState(false);
   const [interimTranscript, setInterimTranscript] = useState('');
   const [recognitionError, setRecognitionError] = useState<string | null>(null);
-  const [activeSpeaker, setActiveSpeaker] = useState<'Dentist' | 'Patient'>('Dentist');
 
   const recognitionRef = useRef<any>(null);
-  const activeSpeakerRef = useRef(activeSpeaker);
 
-  // Sync active speaker ref
+  // VocalBridge Web Audio API nodes & states
+  const [vocalBridgeActive, setVocalBridgeActive] = useState(true);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const animationFrameIdRef = useRef<number | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  // Draw flat line on visualizer canvas
+  const drawFlatLine = () => {
+    if (!canvasRef.current) return;
+    const canvas = canvasRef.current;
+    const canvasCtx = canvas.getContext('2d');
+    if (!canvasCtx) return;
+
+    canvasCtx.fillStyle = '#faf9f7';
+    canvasCtx.fillRect(0, 0, canvas.width, canvas.height);
+    canvasCtx.lineWidth = 2.5;
+    canvasCtx.strokeStyle = '#cbd5e1'; // light slate line
+    canvasCtx.beginPath();
+    canvasCtx.moveTo(0, canvas.height / 2);
+    canvasCtx.lineTo(canvas.width, canvas.height / 2);
+    canvasCtx.stroke();
+  };
+
+  // Live frequency/waveform animation visualizer
+  const drawVisualizer = () => {
+    if (!canvasRef.current || !analyserRef.current) return;
+    const canvas = canvasRef.current;
+    const canvasCtx = canvas.getContext('2d');
+    if (!canvasCtx) return;
+
+    const analyser = analyserRef.current;
+    const bufferLength = analyser.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+
+    const draw = () => {
+      animationFrameIdRef.current = requestAnimationFrame(draw);
+      analyser.getByteTimeDomainData(dataArray);
+
+      canvasCtx.fillStyle = '#faf9f7';
+      canvasCtx.fillRect(0, 0, canvas.width, canvas.height);
+
+      canvasCtx.lineWidth = 2.5;
+      // Blue/cyan if VocalBridge active, purple if off
+      canvasCtx.strokeStyle = vocalBridgeActive ? '#004ac6' : '#8b5cf6';
+      canvasCtx.beginPath();
+
+      const sliceWidth = canvas.width * 1.0 / bufferLength;
+      let x = 0;
+
+      for (let i = 0; i < bufferLength; i++) {
+        const v = dataArray[i] / 128.0;
+        const y = v * canvas.height / 2;
+
+        if (i === 0) {
+          canvasCtx.moveTo(x, y);
+        } else {
+          canvasCtx.lineTo(x, y);
+        }
+
+        x += sliceWidth;
+      }
+
+      canvasCtx.lineTo(canvas.width, canvas.height / 2);
+      canvasCtx.stroke();
+    };
+
+    draw();
+  };
+
+  // Start noise suppression audio pipeline
+  const startAudioPipeline = async () => {
+    try {
+      if (!audioContextRef.current) {
+        audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+      }
+
+      if (audioContextRef.current.state === 'suspended') {
+        await audioContextRef.current.resume();
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+
+      const source = audioContextRef.current.createMediaStreamSource(stream);
+      const analyser = audioContextRef.current.createAnalyser();
+      analyser.fftSize = 256;
+      analyserRef.current = analyser;
+
+      if (vocalBridgeActive) {
+        // High-pass filter to block low frequency hums (<150Hz)
+        const hpFilter = audioContextRef.current.createBiquadFilter();
+        hpFilter.type = 'highpass';
+        hpFilter.frequency.value = 150;
+
+        // Low-pass filter to block high frequency drill shrieks (>3400Hz)
+        const lpFilter = audioContextRef.current.createBiquadFilter();
+        lpFilter.type = 'lowpass';
+        lpFilter.frequency.value = 3400;
+
+        source.connect(hpFilter);
+        hpFilter.connect(lpFilter);
+        lpFilter.connect(analyser);
+      } else {
+        source.connect(analyser);
+      }
+
+      drawVisualizer();
+    } catch (err) {
+      console.warn('Web Audio capture failed or blocked:', err);
+      // Fallback gracefully without crashing transcription
+    }
+  };
+
+  // Stop audio filter pipeline
+  const stopAudioPipeline = () => {
+    if (animationFrameIdRef.current) {
+      cancelAnimationFrame(animationFrameIdRef.current);
+      animationFrameIdRef.current = null;
+    }
+
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+
+    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+      try {
+        audioContextRef.current.suspend();
+      } catch (e) {}
+    }
+
+    drawFlatLine();
+  };
+
+
+
+  // Initial draw flat line
   useEffect(() => {
-    activeSpeakerRef.current = activeSpeaker;
-  }, [activeSpeaker]);
+    drawFlatLine();
+    return () => {
+      stopAudioPipeline();
+    };
+  }, []);
+
+  // Sync VocalBridge toggle settings
+  useEffect(() => {
+    if (isListening) {
+      stopAudioPipeline();
+      startAudioPipeline();
+    } else {
+      drawFlatLine();
+    }
+  }, [vocalBridgeActive]);
 
   // Initialize SpeechRecognition
   useEffect(() => {
@@ -47,6 +196,7 @@ export default function LiveRecording({
       rec.onstart = () => {
         setIsListening(true);
         setRecognitionError(null);
+        startAudioPipeline();
       };
 
       rec.onerror = (event: any) => {
@@ -57,10 +207,12 @@ export default function LiveRecording({
           setRecognitionError(`Speech recognition error: ${event.error}`);
         }
         setIsListening(false);
+        stopAudioPipeline();
       };
 
       rec.onend = () => {
         setIsListening(false);
+        stopAudioPipeline();
       };
 
       rec.onresult = (event: any) => {
@@ -70,7 +222,7 @@ export default function LiveRecording({
           if (result.isFinal) {
             const text = result[0].transcript.trim();
             if (text) {
-              setTranscript((prev) => [...prev, { sender: activeSpeakerRef.current, text }]);
+              setTranscript((prev) => [...prev, { sender: 'Dialogue', text }]);
             }
           } else {
             interim += result[0].transcript;
@@ -95,8 +247,11 @@ export default function LiveRecording({
 
   // Sync isRecording state with SpeechRecognition
   useEffect(() => {
-    if (!isRecording && isListening && recognitionRef.current) {
-      recognitionRef.current.stop();
+    if (!isRecording && isListening) {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
+      stopAudioPipeline();
     }
   }, [isRecording, isListening]);
 
@@ -119,25 +274,9 @@ export default function LiveRecording({
     }
   };
 
-  // Initial transcription items matching screen layout
-  const [transcript, setTranscript] = useState<TranscriptItem[]>([
-    {
-      sender: 'Patient',
-      text: "I've been having this sharp pain in the upper right quadrant for about two days now. It gets worse when I drink anything cold."
-    },
-    {
-      sender: 'Dentist',
-      text: "Understood. Does the pain linger after the cold stimulus is removed, or is it just a quick flash?"
-    },
-    {
-      sender: 'Patient',
-      text: "It lingers for maybe 30 seconds to a minute. It's a throbbing sensation."
-    },
-    {
-      sender: 'Dentist',
-      text: "Okay, let's take a look. I'm going to perform a percussion test on tooth number 16 and 15."
-    }
-  ]);
+
+  // Initial transcription items matching screen layout (Starts empty for live clinical capture)
+  const [transcript, setTranscript] = useState<TranscriptItem[]>([]);
 
   // Simulated transcription lines that users can trigger to append to the conversation!
   const presetPhrases = [
@@ -149,7 +288,6 @@ export default function LiveRecording({
 
   const [nextPresetIndex, setNextPresetIndex] = useState(0);
   const [customInput, setCustomInput] = useState('');
-  const [customSender, setCustomSender] = useState<'Dentist' | 'Patient'>('Dentist');
 
   const transcriptEndRef = useRef<HTMLDivElement>(null);
 
@@ -177,7 +315,7 @@ export default function LiveRecording({
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const handleAppendPhrase = (sender: 'Dentist' | 'Patient', text: string) => {
+  const handleAppendPhrase = (sender: 'Dentist' | 'Patient' | 'Dialogue' | 'Clinical Comment', text: string) => {
     if (!text.trim()) return;
     setTranscript((prev) => [...prev, { sender, text }]);
   };
@@ -193,7 +331,7 @@ export default function LiveRecording({
   const handleSendCustom = (e: React.FormEvent) => {
     e.preventDefault();
     if (!customInput.trim()) return;
-    handleAppendPhrase(customSender, customInput);
+    handleAppendPhrase('Clinical Comment', customInput);
     setCustomInput('');
   };
 
@@ -298,34 +436,87 @@ export default function LiveRecording({
 
         {/* Conversation flow */}
         <div className="flex flex-col gap-4">
-          {transcript.map((item, idx) => (
-            <motion.div
-              key={idx}
-              initial={{ opacity: 0, y: 15 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.3 }}
-              className={`flex flex-col max-w-[85%] ${
-                item.sender === 'Dentist' ? 'self-end items-end' : 'self-start items-start'
-              }`}
-            >
-              <span className={`text-xs font-bold text-slate-400 mb-1 px-1 ${
-                item.sender === 'Dentist' ? 'mr-1' : 'ml-1'
-              }`}>
-                {item.sender}
-              </span>
-              <div
-                className={`p-4 rounded-xl shadow-sm ${
-                  item.sender === 'Dentist'
-                    ? 'bg-blue-50/90 border border-blue-200 text-slate-800 rounded-tr-none'
-                    : 'bg-slate-200/90 text-slate-800 rounded-tl-none'
-                }`}
-              >
-                <p className="font-transcription-text text-slate-800 leading-relaxed text-[15px]">
-                  {item.text}
-                </p>
+          {transcript.length === 0 && (
+            <div className="flex flex-col items-center justify-center p-8 bg-white border border-dashed border-slate-300 rounded-2xl text-center text-slate-500 my-4 shadow-sm max-w-md mx-auto w-full">
+              <Mic className="w-8 h-8 text-primary mb-3 animate-pulse" />
+              <h4 className="font-bold text-sm text-slate-700">Ready to Capture Session</h4>
+              <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
+                Click the microphone button to start recording the live dentist-patient interaction, or type comments manually.
+              </p>
+              <div className="mt-4 pt-4 border-t border-slate-100 w-full flex flex-col items-center">
+                <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider mb-2">Or test the flow immediately:</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTranscript([
+                      {
+                        sender: 'Patient',
+                        text: "I've been having this sharp pain in the upper right quadrant for about two days now. It gets worse when I drink anything cold."
+                      },
+                      {
+                        sender: 'Dentist',
+                        text: "Understood. Does the pain linger after the cold stimulus is removed, or is it just a quick flash?"
+                      },
+                      {
+                        sender: 'Patient',
+                        text: "It lingers for maybe 30 seconds to a minute. It's a throbbing sensation."
+                      },
+                      {
+                        sender: 'Dentist',
+                        text: "Okay, let's take a look. I'm going to perform a percussion test on tooth number 16 and 15."
+                      }
+                    ]);
+                  }}
+                  className="px-4 py-2 bg-indigo-50 border border-indigo-150 hover:bg-indigo-100 text-primary font-bold text-xs rounded-lg transition-all cursor-pointer shadow-sm"
+                >
+                  Load Demo Case
+                </button>
               </div>
-            </motion.div>
-          ))}
+            </div>
+          )}
+
+          {transcript.map((item, idx) => {
+            const isComment = item.sender === 'Clinical Comment';
+            const isLegacyDentist = item.sender === 'Dentist';
+            const isLegacyPatient = item.sender === 'Patient';
+
+            let badgeBg = 'bg-slate-100 text-slate-600 border-slate-200';
+            let badgeLabel = 'Session Audio';
+            if (isComment) {
+              badgeBg = 'bg-blue-50 text-blue-700 border-blue-150';
+              badgeLabel = 'Clinical Comment';
+            } else if (isLegacyDentist) {
+              badgeBg = 'bg-indigo-50 text-indigo-700 border-indigo-150';
+              badgeLabel = 'Dentist';
+            } else if (isLegacyPatient) {
+              badgeBg = 'bg-amber-50 text-amber-700 border-amber-150';
+              badgeLabel = 'Patient';
+            }
+
+            return (
+              <motion.div
+                key={idx}
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.25 }}
+                className="flex flex-col w-full"
+              >
+                <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-sm hover:shadow-md transition-all flex flex-col gap-2">
+                  <div className="flex justify-between items-center text-[10px] font-bold uppercase tracking-wider">
+                    <span className={`px-2 py-0.5 rounded-full border ${badgeBg}`}>
+                      {badgeLabel}
+                    </span>
+                    <span className="text-slate-400 font-mono">
+                      {formatTime(seconds - Math.max(0, transcript.length - idx) * 3)}
+                    </span>
+                  </div>
+                  <p className="font-transcription-text text-slate-800 leading-relaxed text-[14.5px]">
+                    {item.text}
+                  </p>
+                </div>
+              </motion.div>
+            );
+          })}
 
           {/* AI Captured Insights notification triggers! */}
           {transcript.length >= 4 && (
@@ -351,23 +542,16 @@ export default function LiveRecording({
             <motion.div
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              className={`flex flex-col max-w-[85%] ${
-                activeSpeaker === 'Dentist' ? 'self-end items-end' : 'self-start items-start'
-              }`}
+              className="flex flex-col w-full opacity-85"
             >
-              <span className={`text-xs font-bold text-slate-400 mb-1 px-1 ${
-                activeSpeaker === 'Dentist' ? 'mr-1' : 'ml-1'
-              }`}>
-                {activeSpeaker} (transcribing...)
-              </span>
-              <div
-                className={`p-4 rounded-xl shadow-sm italic text-slate-550 bg-white/70 border border-outline-variant ${
-                  activeSpeaker === 'Dentist'
-                    ? 'rounded-tr-none border-blue-100'
-                    : 'rounded-tl-none border-slate-100'
-                }`}
-              >
-                <p className="font-transcription-text leading-relaxed text-[15px]">
+              <div className="bg-white border border-dashed border-red-200 rounded-2xl p-4 shadow-inner flex flex-col gap-2">
+                <div className="flex justify-between items-center text-[10px] font-bold uppercase tracking-wider">
+                  <span className="px-2 py-0.5 rounded-full border bg-red-50 text-red-700 border-red-150 animate-pulse flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 bg-red-650 rounded-full animate-ping"></span>
+                    <span>Transcribing Voice...</span>
+                  </span>
+                </div>
+                <p className="font-transcription-text text-slate-700 italic leading-relaxed text-[14.5px]">
                   {interimTranscript}
                 </p>
               </div>
@@ -462,34 +646,64 @@ export default function LiveRecording({
                     )}
                   </button>
 
-                  {/* Speaker Toggle (Who is speaking) */}
+                  {/* Speaker Status Info */}
                   <div className="flex-grow flex flex-col gap-1">
-                    <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Record as Speaker:</span>
-                    <div className="flex border border-slate-250 rounded-lg p-0.5 bg-slate-50">
-                      <button
-                        type="button"
-                        onClick={() => setActiveSpeaker('Dentist')}
-                        className={`flex-1 py-1 rounded text-[10px] font-bold transition-all cursor-pointer ${
-                          activeSpeaker === 'Dentist'
-                            ? 'bg-blue-600 text-white shadow-sm'
-                            : 'text-slate-600 hover:bg-slate-150'
-                        }`}
-                      >
-                        Dentist
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setActiveSpeaker('Patient')}
-                        className={`flex-1 py-1 rounded text-[10px] font-bold transition-all cursor-pointer ${
-                          activeSpeaker === 'Patient'
-                            ? 'bg-slate-700 text-white shadow-sm'
-                            : 'text-slate-650 hover:bg-slate-150'
-                        }`}
-                      >
-                        Patient
-                      </button>
-                    </div>
+                    <span className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wide">Status:</span>
+                    <span className="text-xs text-slate-600 font-semibold flex items-center gap-1.5 mt-1">
+                      {isListening ? (
+                        <>
+                          <span className="w-2 h-2 bg-red-600 rounded-full animate-ping"></span>
+                          <span className="text-red-700">Capturing live conversation...</span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="w-2 h-2 bg-slate-400 rounded-full"></span>
+                          <span>Microphone on standby</span>
+                        </>
+                      )}
+                    </span>
                   </div>
+                </div>
+
+                {/* VocalBridge Active Noise Cancellation / Filter toggle */}
+                <div className="flex items-center justify-between mt-1 pt-1.5 border-t border-slate-100">
+                  <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider flex items-center gap-1">
+                    <Sparkles className="w-3 h-3 text-primary" />
+                    <span>VocalBridge Ambient Filter</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setVocalBridgeActive(prev => !prev)}
+                    className={`px-2.5 py-0.5 rounded text-[8px] font-extrabold uppercase tracking-wide transition-all border cursor-pointer ${
+                      vocalBridgeActive
+                        ? 'bg-emerald-50 border-emerald-250 text-emerald-700 shadow-sm'
+                        : 'bg-slate-50 border-slate-200 text-slate-650'
+                    }`}
+                  >
+                    {vocalBridgeActive ? 'ACTIVE (150Hz - 3.4kHz)' : 'INACTIVE'}
+                  </button>
+                </div>
+
+                {/* Web Audio API Waveform Visualizer Canvas */}
+                <div className="bg-slate-100 rounded-lg overflow-hidden border border-slate-200 h-10 relative flex items-center justify-center">
+                  <canvas
+                    ref={canvasRef}
+                    width={300}
+                    height={40}
+                    className="w-full h-full block"
+                  />
+                  {!isListening && (
+                    <span className="absolute text-[8px] text-slate-400 font-extrabold uppercase tracking-widest pointer-events-none">
+                      Microphone Suspended
+                    </span>
+                  )}
+                  {isListening && (
+                    <span className={`absolute top-1 left-1 px-1.5 py-0.5 rounded text-[7px] font-extrabold tracking-wider uppercase leading-none shadow-sm ${
+                      vocalBridgeActive ? 'bg-blue-600 text-white animate-pulse' : 'bg-purple-600 text-white'
+                    }`}>
+                      {vocalBridgeActive ? 'VocalBridge Noise Gate' : 'Raw Audio Feed'}
+                    </span>
+                  )}
                 </div>
                 
                 {isListening && (
@@ -528,19 +742,6 @@ export default function LiveRecording({
             <div className="border-t border-slate-100 pt-3 mt-1 flex flex-col gap-2">
               <span className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wide">Or Type Manual Clinical Comments</span>
               <form onSubmit={handleSendCustom} className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => setCustomSender((prev) => (prev === 'Dentist' ? 'Patient' : 'Dentist'))}
-                  className={`px-3 rounded-xl text-[10px] font-extrabold flex items-center gap-1.5 border transition-all cursor-pointer h-10 ${
-                    customSender === 'Dentist'
-                      ? 'bg-blue-55 border-blue-200 text-blue-700'
-                      : 'bg-slate-150 border-slate-350 text-slate-700'
-                  }`}
-                  title="Toggle sender role for typing input"
-                >
-                  <ArrowUpDown className="w-3.5 h-3.5" />
-                  <span>As: {customSender}</span>
-                </button>
                 <div className="flex-grow relative">
                   <input
                     type="text"
@@ -594,7 +795,13 @@ export default function LiveRecording({
             {/* Finish notes trigger */}
             <button
               onClick={handleFinishNote}
-              className="bg-primary-container hover:bg-opacity-95 text-white px-7 h-12 rounded-full font-bold text-xs uppercase tracking-widest flex items-center gap-2 shadow-lg active:scale-95 transition-all cursor-pointer"
+              disabled={transcript.length === 0}
+              className={`px-7 h-12 rounded-full font-bold text-xs uppercase tracking-widest flex items-center gap-2 shadow-lg transition-all cursor-pointer ${
+                transcript.length === 0
+                  ? 'bg-slate-200 text-slate-400 border border-slate-300 cursor-not-allowed shadow-none active:scale-100'
+                  : 'bg-primary-container hover:bg-opacity-95 text-white active:scale-95'
+              }`}
+              title={transcript.length === 0 ? "Record or type dialogue first" : "Generate clinical notes"}
             >
               <span>Finish Note</span>
               <ArrowRight className="w-4 h-4" />

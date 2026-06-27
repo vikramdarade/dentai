@@ -1,1 +1,27 @@
 @import "tailwindcss";
+
+@media print {
+  body {
+    background-color: white !important;
+    color: black !important;
+  }
+  .no-print,
+  header,
+  footer,
+  nav,
+  button,
+  form,
+  aside,
+  #speech-simulation-board {
+    display: none !important;
+  }
+  .print-only {
+    display: block !important;
+  }
+}
+
+@media screen {
+  .print-only {
+    display: none !important;
+  }
+}

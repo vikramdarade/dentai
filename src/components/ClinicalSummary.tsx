@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Menu, User, CheckCircle, Copy, Check, Save, ClipboardList } from 'lucide-react';
+import { Menu, User, CheckCircle, Copy, Check, Save, ClipboardList, FileText } from 'lucide-react';
 import { Consultation } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -61,7 +61,8 @@ export default function ClinicalSummary({
   };
 
   return (
-    <div id="clinical-summary-container" className="min-h-screen bg-[#F8F7F5] pb-24 text-on-surface">
+    <>
+      <div id="clinical-summary-container" className="min-h-screen bg-[#F8F7F5] pb-24 text-on-surface no-print">
       {/* Top App Bar App Header */}
       <header className="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-4 h-16 bg-white border-b border-outline-variant shadow-sm">
         <div className="flex items-center gap-3">
@@ -272,26 +273,36 @@ export default function ClinicalSummary({
                   <h3 className="font-bold text-slate-850 text-base">Patient Care Summary</h3>
                 </div>
 
-                <button
-                  onClick={handleCopySummary}
-                  className={`flex items-center gap-2 border px-4 h-9 rounded-full font-bold text-xs transition-all active:scale-95 cursor-pointer ${
-                    copied
-                      ? 'bg-emerald-600 border-transparent text-white'
-                      : 'bg-white border-outline-variant hover:shadow-md text-primary'
-                  }`}
-                >
-                  {copied ? (
-                    <>
-                      <Check className="w-3.5 h-3.5 stroke-[3]" />
-                      <span>Copied!</span>
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="w-3.5 h-3.5" />
-                      <span>Copy Letter</span>
-                    </>
-                  )}
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleCopySummary}
+                    className={`flex items-center gap-2 border px-4 h-9 rounded-full font-bold text-xs transition-all active:scale-95 cursor-pointer ${
+                      copied
+                        ? 'bg-emerald-600 border-transparent text-white'
+                        : 'bg-white border-outline-variant hover:shadow-md text-primary'
+                    }`}
+                  >
+                    {copied ? (
+                      <>
+                        <Check className="w-3.5 h-3.5 stroke-[3]" />
+                        <span>Copied!</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3.5 h-3.5" />
+                        <span>Copy Letter</span>
+                      </>
+                    )}
+                  </button>
+
+                  <button
+                    onClick={() => window.print()}
+                    className="flex items-center gap-2 border border-outline-variant bg-white hover:shadow-md text-primary px-4 h-9 rounded-full font-bold text-xs transition-all active:scale-95 cursor-pointer"
+                  >
+                    <FileText className="w-3.5 h-3.5" />
+                    <span>Export PDF</span>
+                  </button>
+                </div>
               </div>
 
               {/* Dynamic Editable Correspondence text frame */}
@@ -374,6 +385,112 @@ export default function ClinicalSummary({
           </motion.div>
         )}
       </AnimatePresence>
-    </div>
+      </div>
+
+      {/* Print-Only Professional Medical Report Template */}
+      <div className="print-only w-full max-w-4xl mx-auto p-10 font-sans bg-white text-slate-900 border border-slate-200 rounded shadow-sm">
+        {/* Letterhead Header */}
+        <div className="flex justify-between items-start border-b-2 border-[#004ac6] pb-4 mb-6">
+          <div>
+            <h1 className="text-3xl font-extrabold tracking-tight text-[#004ac6]">DentAI</h1>
+            <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold mt-0.5">Clinical & Patient Care Copilot</p>
+          </div>
+          <div className="text-right">
+            <h2 className="text-sm font-bold text-slate-800">ANZ Dental Care Pilot</h2>
+            <p className="text-[10px] text-slate-400">Recordkeeping ID: DENTAI-CONS-{consultation.id}</p>
+            <p className="text-[10px] text-slate-550 mt-0.5">Provider: Dr. Sarah Jenkins</p>
+          </div>
+        </div>
+
+        {/* Patient Demographics Table */}
+        <div className="mb-6">
+          <h3 className="text-[10px] font-extrabold uppercase text-slate-400 tracking-wider mb-2 border-b border-slate-100 pb-1">Patient Details</h3>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
+            <div>
+              <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block">Full Name</span>
+              <span className="text-xs font-bold text-slate-800">{consultation.firstName} {consultation.lastName}</span>
+            </div>
+            <div>
+              <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block">Date of Birth</span>
+              <span className="text-xs font-semibold text-slate-800">{consultation.dob}</span>
+            </div>
+            <div>
+              <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block">Appointment Type</span>
+              <span className="text-xs font-extrabold uppercase tracking-wide text-[#004ac6]">{consultation.appointmentType.replace('_', ' ')}</span>
+            </div>
+            <div>
+              <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block">Date & Time</span>
+              <span className="text-xs font-semibold text-slate-800">{consultation.date} at {consultation.time}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Structured SOAP Findings */}
+        <div className="mb-6">
+          <h3 className="text-[10px] font-extrabold uppercase text-slate-400 tracking-wider mb-3 border-b border-slate-100 pb-1">Clinical SOAP Record</h3>
+          <div className="space-y-4">
+            <div className="border-l-4 border-[#004ac6] pl-3 py-0.5">
+              <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block">Chief Complaint</span>
+              <p className="text-xs text-slate-800 leading-relaxed mt-0.5">{chiefComplaint}</p>
+            </div>
+            <div className="border-l-4 border-slate-300 pl-3 py-0.5">
+              <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block">History</span>
+              <p className="text-xs text-slate-800 leading-relaxed mt-0.5">{history}</p>
+            </div>
+            <div className="border-l-4 border-slate-300 pl-3 py-0.5">
+              <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block">Examination Findings</span>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-1 bg-slate-50 p-3 rounded-lg border border-slate-150">
+                <div>
+                  <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block">Tooth Findings (FDI Notation)</span>
+                  <p className="text-[11px] text-slate-850 mt-0.5 whitespace-pre-wrap">{toothFindings}</p>
+                </div>
+                <div>
+                  <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block">Gingival State</span>
+                  <p className="text-[11px] text-slate-850 mt-0.5 whitespace-pre-wrap">{findingsGingival}</p>
+                </div>
+              </div>
+            </div>
+            <div className="border-l-4 border-[#004ac6] pl-3 py-0.5">
+              <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block">Clinical Diagnosis</span>
+              <p className="text-xs text-slate-800 font-semibold leading-relaxed mt-0.5">{diagnosis}</p>
+            </div>
+            <div className="border-l-4 border-slate-300 pl-3 py-0.5">
+              <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block">Treatment Performed</span>
+              <p className="text-xs text-slate-800 leading-relaxed mt-0.5">{treatmentPerformed}</p>
+            </div>
+            <div className="border-l-4 border-slate-300 pl-3 py-0.5">
+              <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block">Patient Home Care Recommendations</span>
+              <p className="text-xs text-slate-800 leading-relaxed mt-0.5">{recommendations}</p>
+            </div>
+            <div className="border-l-4 border-[#004ac6] pl-3 py-0.5">
+              <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block">Recall Interval</span>
+              <p className="text-xs text-[#004ac6] font-bold mt-0.5">{recall}</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Correspondence Summary */}
+        <div className="mb-8 font-sans" style={{ pageBreakBefore: 'always' }}>
+          <h3 className="text-[10px] font-extrabold uppercase text-slate-400 tracking-wider mb-2 border-b border-slate-100 pb-1">Patient Care Summary Letter (en-AU)</h3>
+          <div className="bg-slate-50 p-5 rounded-xl border border-slate-200">
+            <p className="text-xs text-slate-800 whitespace-pre-wrap leading-relaxed">{patientLetter}</p>
+          </div>
+        </div>
+
+        {/* Signatures */}
+        <div className="mt-12 flex justify-between items-center border-t border-slate-200 pt-6">
+          <div className="flex items-center gap-2">
+            <span className="w-2.5 h-2.5 bg-emerald-600 rounded-full"></span>
+            <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">AI Verified Compliance Record</span>
+          </div>
+          <div className="text-right">
+            <p className="text-xs font-bold text-slate-700">Dr. Sarah Jenkins</p>
+            <p className="text-[9px] text-slate-400 uppercase tracking-widest font-semibold">Registered Dentist</p>
+            <div className="w-48 border-b border-slate-300 mt-6 inline-block"></div>
+            <p className="text-[8px] text-slate-400 mt-1 uppercase tracking-wide">Signature / Authorization</p>
+          </div>
+        </div>
+      </div>
+    </>
   );
 }
