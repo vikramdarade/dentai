@@ -8,6 +8,7 @@ import { GoogleGenAI, Type } from '@google/genai';
 import { logger } from './logger';
 import fs from 'fs';
 import crypto from 'crypto';
+import { kv } from '@vercel/kv';
 
 // Load environment variables
 dotenv.config({ path: '.env.local' });
@@ -65,7 +66,21 @@ const CONSULTATIONS_FILE = path.resolve(__dirname, 'data', 'consultations.json')
 let cachedUsersData: any = null;
 let cachedConsultationsData: any = null;
 
-function readUsersDb() {
+const isKvConfigured = !!(process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN);
+
+async function readUsersDb() {
+  if (isKvConfigured) {
+    try {
+      const data = await kv.get('dentai:users');
+      if (data) {
+        cachedUsersData = data;
+        return data;
+      }
+    } catch (err) {
+      logger.error('Failed to read users from Vercel KV:', err);
+    }
+  }
+
   if (cachedUsersData) return cachedUsersData;
   try {
     const data = JSON.parse(fs.readFileSync(USERS_FILE, 'utf-8'));
@@ -77,8 +92,17 @@ function readUsersDb() {
   }
 }
 
-function writeUsersDb(data: any) {
+async function writeUsersDb(data: any) {
   cachedUsersData = data;
+  if (isKvConfigured) {
+    try {
+      await kv.set('dentai:users', data);
+      return;
+    } catch (err) {
+      logger.error('Failed to write users to Vercel KV:', err);
+    }
+  }
+
   try {
     fs.writeFileSync(USERS_FILE, JSON.stringify(data, null, 2));
   } catch (err: any) {
@@ -86,7 +110,19 @@ function writeUsersDb(data: any) {
   }
 }
 
-function readConsultationsDb() {
+async function readConsultationsDb() {
+  if (isKvConfigured) {
+    try {
+      const data = await kv.get('dentai:consultations');
+      if (data) {
+        cachedConsultationsData = data;
+        return data;
+      }
+    } catch (err) {
+      logger.error('Failed to read consultations from Vercel KV:', err);
+    }
+  }
+
   if (cachedConsultationsData) return cachedConsultationsData;
   try {
     const data = JSON.parse(fs.readFileSync(CONSULTATIONS_FILE, 'utf-8'));
@@ -98,8 +134,17 @@ function readConsultationsDb() {
   }
 }
 
-function writeConsultationsDb(data: any) {
+async function writeConsultationsDb(data: any) {
   cachedConsultationsData = data;
+  if (isKvConfigured) {
+    try {
+      await kv.set('dentai:consultations', data);
+      return;
+    } catch (err) {
+      logger.error('Failed to write consultations to Vercel KV:', err);
+    }
+  }
+
   try {
     fs.writeFileSync(CONSULTATIONS_FILE, JSON.stringify(data, null, 2));
   } catch (err: any) {
@@ -112,7 +157,7 @@ function writeConsultationsDb(data: any) {
 const activeSessions: Record<string, string> = {};
 
 // Helper to ensure data files exist
-function initDb() {
+async function initDb() {
   const dataDir = path.resolve(__dirname, 'data');
   try {
     if (!fs.existsSync(dataDir)) {
@@ -130,7 +175,7 @@ function initDb() {
 
   // Pre-populate default dentists if file is empty or cache is uninitialized
   try {
-    const data = readUsersDb();
+    const data = await readUsersDb();
     if (!data.dentists || data.dentists.length === 0) {
       const defaultDentists = [
         { name: 'Dr. Sarah Jenkins', specialty: 'General Dentistry', pin: '1234' },
@@ -150,7 +195,7 @@ function initDb() {
         };
       });
 
-      writeUsersDb(data);
+      await writeUsersDb(data);
       logger.info('Pre-populated default pilot dentist accounts in users.json');
     }
   } catch (err) {
@@ -158,10 +203,10 @@ function initDb() {
   }
 }
 
-initDb();
+initDb().catch(err => logger.error('Async DB initialization failed:', err));
 
 // Authentication Middleware
-function authenticateToken(req: express.Request, res: express.Response, next: express.NextFunction) {
+async function authenticateToken(req: express.Request, res: express.Response, next: express.NextFunction) {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1]; // Bearer <token>
 
@@ -176,7 +221,7 @@ function authenticateToken(req: express.Request, res: express.Response, next: ex
 
   // Attach dentist details to request object
   try {
-    const usersData = readUsersDb();
+    const usersData = await readUsersDb();
     const dentist = usersData.dentists.find((d: any) => d.id === dentistId);
     if (!dentist) {
       return res.status(403).json({ error: 'Dentist profile not found.' });
@@ -190,9 +235,9 @@ function authenticateToken(req: express.Request, res: express.Response, next: ex
 }
 
 // Authentication & Profile Endpoints
-app.get('/api/auth/profiles', (req, res) => {
+app.get('/api/auth/profiles', async (req, res) => {
   try {
-    const usersData = readUsersDb();
+    const usersData = await readUsersDb();
     const profiles = usersData.dentists.map((d: any) => ({
       id: d.id,
       name: d.name,
@@ -205,7 +250,7 @@ app.get('/api/auth/profiles', (req, res) => {
   }
 });
 
-app.post('/api/auth/register', (req, res) => {
+app.post('/api/auth/register', async (req, res) => {
   try {
     const { name, specialty, pin } = req.body;
     if (!name || typeof name !== 'string' || name.trim().length === 0) {
@@ -218,7 +263,7 @@ app.post('/api/auth/register', (req, res) => {
       return res.status(400).json({ error: 'PIN must be exactly 4 digits.' });
     }
 
-    const usersData = readUsersDb();
+    const usersData = await readUsersDb();
     const exists = usersData.dentists.some((d: any) => d.name.toLowerCase() === name.toLowerCase());
     if (exists) {
       return res.status(409).json({ error: 'A dentist with this name is already registered.' });
@@ -235,7 +280,7 @@ app.post('/api/auth/register', (req, res) => {
     };
 
     usersData.dentists.push(newDentist);
-    writeUsersDb(usersData);
+    await writeUsersDb(usersData);
 
     const token = crypto.randomBytes(32).toString('hex');
     activeSessions[token] = newDentist.id;
@@ -254,7 +299,7 @@ app.post('/api/auth/register', (req, res) => {
   }
 });
 
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', async (req, res) => {
   try {
     const { dentistId, pin } = req.body;
     if (!dentistId || typeof dentistId !== 'string') {
@@ -264,7 +309,7 @@ app.post('/api/auth/login', (req, res) => {
       return res.status(400).json({ error: 'PIN is required.' });
     }
 
-    const usersData = readUsersDb();
+    const usersData = await readUsersDb();
     const dentist = usersData.dentists.find((d: any) => d.id === dentistId);
     if (!dentist) {
       return res.status(401).json({ error: 'Invalid dentist profile or PIN.' });
@@ -310,9 +355,9 @@ app.get('/api/auth/me', authenticateToken, (req: any, res) => {
 });
 
 // Consultation Persistence Endpoints
-app.get('/api/consultations', authenticateToken, (req: any, res) => {
+app.get('/api/consultations', authenticateToken, async (req: any, res) => {
   try {
-    const consultationsData = readConsultationsDb();
+    const consultationsData = await readConsultationsDb();
     const myConsultations = consultationsData.consultations.filter(
       (c: any) => c.dentistId === req.dentist.id
     );
@@ -323,7 +368,7 @@ app.get('/api/consultations', authenticateToken, (req: any, res) => {
   }
 });
 
-app.post('/api/consultations', authenticateToken, (req: any, res) => {
+app.post('/api/consultations', authenticateToken, async (req: any, res) => {
   try {
     const consultation = req.body;
     if (!consultation || typeof consultation !== 'object') {
@@ -338,7 +383,7 @@ app.post('/api/consultations', authenticateToken, (req: any, res) => {
       consultation.lastName = consultation.lastName.replace(/[<>]/g, '').trim();
     }
 
-    const consultationsData = readConsultationsDb();
+    const consultationsData = await readConsultationsDb();
     const newConsultation = {
       ...consultation,
       id: consultation.id || crypto.randomUUID(),
@@ -346,7 +391,7 @@ app.post('/api/consultations', authenticateToken, (req: any, res) => {
     };
 
     consultationsData.consultations.unshift(newConsultation);
-    writeConsultationsDb(consultationsData);
+    await writeConsultationsDb(consultationsData);
     res.status(201).json(newConsultation);
   } catch (err) {
     logger.error('Failed to save consultation:', err);
@@ -354,7 +399,7 @@ app.post('/api/consultations', authenticateToken, (req: any, res) => {
   }
 });
 
-app.put('/api/consultations/:id', authenticateToken, (req: any, res) => {
+app.put('/api/consultations/:id', authenticateToken, async (req: any, res) => {
   try {
     const { id } = req.params;
     const updatedPayload = req.body;
@@ -362,7 +407,7 @@ app.put('/api/consultations/:id', authenticateToken, (req: any, res) => {
       return res.status(400).json({ error: 'Invalid consultation payload.' });
     }
 
-    const consultationsData = readConsultationsDb();
+    const consultationsData = await readConsultationsDb();
     const index = consultationsData.consultations.findIndex(
       (c: any) => c.id === id && c.dentistId === req.dentist.id
     );
@@ -378,7 +423,7 @@ app.put('/api/consultations/:id', authenticateToken, (req: any, res) => {
       dentistId: req.dentist.id
     };
 
-    writeConsultationsDb(consultationsData);
+    await writeConsultationsDb(consultationsData);
     res.json(consultationsData.consultations[index]);
   } catch (err) {
     logger.error('Failed to update consultation:', err);
@@ -453,11 +498,25 @@ app.post('/api/generate-notes', authenticateToken, async (req: express.Request, 
     }
 
     const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey || apiKey === 'MY_GEMINI_API_KEY') {
-      return res.status(503).json({ error: 'Gemini API key is not configured on the server. Please check environment configuration.' });
+    const gcpProject = process.env.GCP_PROJECT_ID;
+    
+    let ai: GoogleGenAI;
+    if (gcpProject) {
+      logger.info('Initializing Vertex AI client for Australian sovereign clinical processing', {
+        project: gcpProject,
+        location: process.env.GCP_REGION || 'australia-southeast1'
+      });
+      ai = new GoogleGenAI({
+        vertexai: true,
+        project: gcpProject,
+        location: process.env.GCP_REGION || 'australia-southeast1'
+      });
+    } else {
+      if (!apiKey || apiKey === 'MY_GEMINI_API_KEY') {
+        return res.status(503).json({ error: 'Gemini API key is not configured on the server. Please check environment configuration.' });
+      }
+      ai = new GoogleGenAI({ apiKey });
     }
-
-    const ai = new GoogleGenAI({ apiKey });
 
     // Format the inputs cleanly into the prompt context
     const promptContext = `
