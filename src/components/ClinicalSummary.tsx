@@ -7,12 +7,14 @@ interface ClinicalSummaryProps {
   consultation: Consultation;
   onSave: (updatedConsultation: Consultation) => void;
   onBack: () => void;
+  dentistName?: string;
 }
 
 export default function ClinicalSummary({
   consultation,
   onSave,
-  onBack
+  onBack,
+  dentistName
 }: ClinicalSummaryProps) {
   // Local state representing findings, so users can edit any card directly!
   const [chiefComplaint, setChiefComplaint] = useState(consultation.findings.chiefComplaint);
@@ -76,7 +78,7 @@ export default function ClinicalSummary({
         </div>
         <div className="flex items-center gap-4">
           <div className="hidden md:flex flex-col items-end">
-            <span className="font-semibold text-sm text-slate-800">Dr. Sarah Jenkins</span>
+            <span className="font-semibold text-sm text-slate-800">{dentistName || 'Dr. Sarah Jenkins'}</span>
             <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest leading-none mt-0.5">
               General Dentistry
             </span>
@@ -138,119 +140,133 @@ export default function ClinicalSummary({
             {/* Editable findings form list stack */}
             <div className="space-y-4 pb-8">
               {/* Chief Complaint */}
-              <div className="bg-white border border-outline-variant rounded-xl p-4 shadow-sm hover:border-primary focus-within:ring-2 focus-within:ring-primary/10 transition-all">
-                <label className="font-bold text-[10px] uppercase tracking-wider text-slate-400 block mb-1">
-                  Chief Complaint
-                </label>
-                <textarea
-                  rows={2}
-                  value={chiefComplaint}
-                  onChange={(e) => setChiefComplaint(e.target.value)}
-                  className="w-full border-none p-0 focus:ring-0 text-slate-700 text-sm resize-none bg-transparent outline-none focus:outline-none"
-                />
+              <div className="p-1 bg-amber-500/5 hover:bg-amber-500/10 rounded-2xl transition-all duration-300 shadow-sm border border-amber-200/30 focus-within:ring-1 focus-within:ring-amber-500/20">
+                <div className="bg-white border border-amber-100/50 rounded-[calc(1rem-0.25rem)] p-4">
+                  <label className="font-bold text-[10px] uppercase tracking-wider text-amber-600 block mb-1">
+                    Chief Complaint
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={chiefComplaint}
+                    onChange={(e) => setChiefComplaint(e.target.value)}
+                    className="w-full border-none p-0 focus:ring-0 text-slate-700 text-sm resize-none bg-transparent outline-none"
+                  />
+                </div>
               </div>
 
               {/* History */}
-              <div className="bg-white border border-outline-variant rounded-xl p-4 shadow-sm hover:border-primary focus-within:ring-2 focus-within:ring-primary/10 transition-all">
-                <label className="font-bold text-[10px] uppercase tracking-wider text-slate-400 block mb-1">
-                  History
-                </label>
-                <textarea
-                  rows={2}
-                  value={history}
-                  onChange={(e) => setHistory(e.target.value)}
-                  className="w-full border-none p-0 focus:ring-0 text-slate-700 text-sm resize-none bg-transparent outline-none focus:outline-none"
-                />
+              <div className="p-1 bg-indigo-500/5 hover:bg-indigo-500/10 rounded-2xl transition-all duration-300 shadow-sm border border-indigo-200/30 focus-within:ring-1 focus-within:ring-indigo-500/20">
+                <div className="bg-white border border-indigo-100/50 rounded-[calc(1rem-0.25rem)] p-4">
+                  <label className="font-bold text-[10px] uppercase tracking-wider text-indigo-600 block mb-1">
+                    History
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={history}
+                    onChange={(e) => setHistory(e.target.value)}
+                    className="w-full border-none p-0 focus:ring-0 text-slate-700 text-sm resize-none bg-transparent outline-none"
+                  />
+                </div>
               </div>
 
               {/* Findings Split */}
-              <div className="bg-white border border-outline-variant rounded-xl p-4 shadow-sm hover:border-primary focus-within:ring-2 focus-within:ring-primary/10 transition-all">
-                <label className="font-bold text-[10px] uppercase tracking-wider text-slate-400 block mb-2">
-                  Clinical Examination Findings
-                </label>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-t border-slate-100 pt-3">
-                  <div className="flex flex-col">
-                    <span className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wide mb-1">
-                      Tooth Findings (FDI)
-                    </span>
-                    <textarea
-                      rows={3}
-                      value={toothFindings}
-                      onChange={(e) => setToothFindings(e.target.value)}
-                      className="w-full border-none p-0 focus:ring-0 text-slate-700 text-xs resize-none bg-transparent outline-none"
-                    />
-                  </div>
-                  <div className="flex flex-col border-t md:border-t-0 md:border-l border-slate-100 pt-3 md:pt-0 md:pl-4">
-                    <span className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wide mb-1">
-                      Gingival State
-                    </span>
-                    <textarea
-                      rows={3}
-                      value={findingsGingival}
-                      onChange={(e) => setFindingsGingival(e.target.value)}
-                      className="w-full border-none p-0 focus:ring-0 text-slate-700 text-xs resize-none bg-transparent outline-none"
-                    />
+              <div className="p-1 bg-slate-500/5 hover:bg-slate-500/10 rounded-2xl transition-all duration-300 shadow-sm border border-slate-200/30 focus-within:ring-1 focus-within:ring-primary/20">
+                <div className="bg-white border border-slate-100 rounded-[calc(1rem-0.25rem)] p-4">
+                  <label className="font-bold text-[10px] uppercase tracking-wider text-slate-500 block mb-2">
+                    Clinical Examination Findings
+                  </label>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-t border-slate-100 pt-3">
+                    <div className="flex flex-col">
+                      <span className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wide mb-1">
+                        Tooth Findings (FDI)
+                      </span>
+                      <textarea
+                        rows={3}
+                        value={toothFindings}
+                        onChange={(e) => setToothFindings(e.target.value)}
+                        className="w-full border-none p-0 focus:ring-0 text-slate-700 text-xs resize-none bg-transparent outline-none"
+                      />
+                    </div>
+                    <div className="flex flex-col border-t md:border-t-0 md:border-l border-slate-100 pt-3 md:pt-0 md:pl-4">
+                      <span className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wide mb-1">
+                        Gingival State
+                      </span>
+                      <textarea
+                        rows={3}
+                        value={findingsGingival}
+                        onChange={(e) => setFindingsGingival(e.target.value)}
+                        className="w-full border-none p-0 focus:ring-0 text-slate-700 text-xs resize-none bg-transparent outline-none"
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
 
               {/* Diagnosis */}
-              <div className="bg-white border border-outline-variant rounded-xl p-4 shadow-sm hover:border-primary focus-within:ring-2 focus-within:ring-primary/10 transition-all">
-                <label className="font-bold text-[10px] uppercase tracking-wider text-slate-400 block mb-1">
-                  Diagnosis
-                </label>
-                <textarea
-                  rows={2}
-                  value={diagnosis}
-                  onChange={(e) => setDiagnosis(e.target.value)}
-                  className="w-full border-none p-0 focus:ring-0 text-slate-700 text-sm resize-none bg-transparent outline-none focus:outline-none"
-                />
+              <div className="p-1 bg-emerald-500/5 hover:bg-emerald-500/10 rounded-2xl transition-all duration-300 shadow-sm border border-emerald-200/30 focus-within:ring-1 focus-within:ring-emerald-500/20">
+                <div className="bg-white border border-emerald-100/50 rounded-[calc(1rem-0.25rem)] p-4">
+                  <label className="font-bold text-[10px] uppercase tracking-wider text-emerald-600 block mb-1">
+                    Diagnosis
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={diagnosis}
+                    onChange={(e) => setDiagnosis(e.target.value)}
+                    className="w-full border-none p-0 focus:ring-0 text-slate-700 text-sm resize-none bg-transparent outline-none"
+                  />
+                </div>
               </div>
 
               {/* Treatment Performed */}
-              <div className="bg-white border border-outline-variant rounded-xl p-4 shadow-sm hover:border-primary focus-within:ring-2 focus-within:ring-primary/10 transition-all">
-                <label className="font-bold text-[10px] uppercase tracking-wider text-slate-400 block mb-1">
-                  Treatment Performed
-                </label>
-                <textarea
-                  rows={2}
-                  value={treatmentPerformed}
-                  onChange={(e) => setTreatmentPerformed(e.target.value)}
-                  className="w-full border-none p-0 focus:ring-0 text-slate-700 text-sm resize-none bg-transparent outline-none focus:outline-none"
-                />
+              <div className="p-1 bg-sky-500/5 hover:bg-sky-500/10 rounded-2xl transition-all duration-300 shadow-sm border border-sky-200/30 focus-within:ring-1 focus-within:ring-sky-500/20">
+                <div className="bg-white border border-sky-100/50 rounded-[calc(1rem-0.25rem)] p-4">
+                  <label className="font-bold text-[10px] uppercase tracking-wider text-sky-600 block mb-1">
+                    Treatment Performed
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={treatmentPerformed}
+                    onChange={(e) => setTreatmentPerformed(e.target.value)}
+                    className="w-full border-none p-0 focus:ring-0 text-slate-700 text-sm resize-none bg-transparent outline-none"
+                  />
+                </div>
               </div>
 
               {/* Recommendations */}
-              <div className="bg-white border border-outline-variant rounded-xl p-4 shadow-sm hover:border-primary focus-within:ring-2 focus-within:ring-primary/10 transition-all">
-                <label className="font-bold text-[10px] uppercase tracking-wider text-slate-400 block mb-1">
-                  Patient Home Care Recommendations
-                </label>
-                <textarea
-                  rows={2}
-                  value={recommendations}
-                  onChange={(e) => setRecommendations(e.target.value)}
-                  className="w-full border-none p-0 focus:ring-0 text-slate-700 text-sm resize-none bg-transparent outline-none focus:outline-none"
-                />
+              <div className="p-1 bg-violet-500/5 hover:bg-violet-500/10 rounded-2xl transition-all duration-300 shadow-sm border border-violet-200/30 focus-within:ring-1 focus-within:ring-violet-500/20">
+                <div className="bg-white border border-violet-100/50 rounded-[calc(1rem-0.25rem)] p-4">
+                  <label className="font-bold text-[10px] uppercase tracking-wider text-violet-600 block mb-1">
+                    Patient Home Care Recommendations
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={recommendations}
+                    onChange={(e) => setRecommendations(e.target.value)}
+                    className="w-full border-none p-0 focus:ring-0 text-slate-700 text-sm resize-none bg-transparent outline-none"
+                  />
+                </div>
               </div>
 
               {/* Recall Requirements */}
-              <div className="bg-white border border-outline-variant rounded-xl p-4 shadow-sm hover:border-primary focus-within:ring-2 focus-within:ring-primary/10 transition-all">
-                <label className="font-bold text-[10px] uppercase tracking-wider text-slate-400 block mb-2">
-                  Recall / Follow-up Requirements
-                </label>
-                <div className="flex flex-col md:flex-row md:items-center gap-3">
-                  <select
-                    value={recall}
-                    onChange={(e) => setRecall(e.target.value)}
-                    className="bg-indigo-50 border border-outline-variant text-[#004ac6] text-xs font-bold rounded-lg px-3 py-2 outline-none focus:ring-1 focus:ring-primary"
-                  >
-                    <option value="6 Months (Standard)">6 Months (Standard)</option>
-                    <option value="3 Months (Periodontal)">3 Months (Periodontal)</option>
-                    <option value="Next Available (Urgent)">Next Available (Urgent)</option>
-                  </select>
-                  <span className="text-secondary text-xs text-slate-400">
-                    Follow-up and schedule standard monitoring treatment check-in as defined above.
-                  </span>
+              <div className="p-1 bg-pink-500/5 hover:bg-pink-500/10 rounded-2xl transition-all duration-300 shadow-sm border border-pink-200/30 focus-within:ring-1 focus-within:ring-pink-500/20">
+                <div className="bg-white border border-pink-100/50 rounded-[calc(1rem-0.25rem)] p-4">
+                  <label className="font-bold text-[10px] uppercase tracking-wider text-pink-650 block mb-2">
+                    Recall / Follow-up Requirements
+                  </label>
+                  <div className="flex flex-col md:flex-row md:items-center gap-3">
+                    <select
+                      value={recall}
+                      onChange={(e) => setRecall(e.target.value)}
+                      className="bg-pink-50/50 border border-pink-100 text-pink-700 text-xs font-bold rounded-lg px-3 py-2 outline-none focus:ring-1 focus:ring-pink-500"
+                    >
+                      <option value="6 Months (Standard)">6 Months (Standard)</option>
+                      <option value="3 Months (Periodontal)">3 Months (Periodontal)</option>
+                      <option value="Next Available (Urgent)">Next Available (Urgent)</option>
+                    </select>
+                    <span className="text-secondary text-xs text-slate-400">
+                      Follow-up and schedule standard monitoring treatment check-in as defined above.
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -398,7 +414,7 @@ export default function ClinicalSummary({
           <div className="text-right">
             <h2 className="text-sm font-bold text-slate-800">ANZ Dental Care Pilot</h2>
             <p className="text-[10px] text-slate-400">Recordkeeping ID: DENTAI-CONS-{consultation.id}</p>
-            <p className="text-[10px] text-slate-550 mt-0.5">Provider: Dr. Sarah Jenkins</p>
+            <p className="text-[10px] text-slate-550 mt-0.5">Provider: {dentistName || 'Dr. Sarah Jenkins'}</p>
           </div>
         </div>
 
@@ -484,7 +500,7 @@ export default function ClinicalSummary({
             <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">AI Verified Compliance Record</span>
           </div>
           <div className="text-right">
-            <p className="text-xs font-bold text-slate-700">Dr. Sarah Jenkins</p>
+            <p className="text-xs font-bold text-slate-700">{dentistName || 'Dr. Sarah Jenkins'}</p>
             <p className="text-[9px] text-slate-400 uppercase tracking-widest font-semibold">Registered Dentist</p>
             <div className="w-48 border-b border-slate-300 mt-6 inline-block"></div>
             <p className="text-[8px] text-slate-400 mt-1 uppercase tracking-wide">Signature / Authorization</p>

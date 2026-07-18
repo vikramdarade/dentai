@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, UserRound, Pause, Play, ArrowRight, Sparkles, ArrowUpDown, CornerDownLeft, AlertCircle, X, Mic, MicOff } from 'lucide-react';
+import { ArrowLeft, UserRound, Pause, Play, ArrowRight, Sparkles, ArrowUpDown, CornerDownLeft, AlertCircle, X, Mic, MicOff, RotateCcw } from 'lucide-react';
 import { TranscriptItem } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -16,10 +16,17 @@ export default function LiveRecording({
   onBack,
   onFinish
 }: LiveRecordingProps) {
-  const [seconds, setSeconds] = useState(272); // Starts from 04:32 (272s)
+  const [seconds, setSeconds] = useState(() => {
+    const saved = sessionStorage.getItem('dentai_active_seconds');
+    return saved ? parseInt(saved, 10) : 0;
+  });
   const [isRecording, setIsRecording] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingState, setProcessingState] = useState('');
+
+  // Ambient Mode & Reset states
+  const [isAmbientMode, setIsAmbientMode] = useState(false);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
 
   // Voice transcription state
   const [isListening, setIsListening] = useState(false);
@@ -252,8 +259,18 @@ export default function LiveRecording({
         recognitionRef.current.stop();
       }
       stopAudioPipeline();
+    } else if (isRecording && !isListening) {
+      if (recognitionRef.current) {
+        setRecognitionError(null);
+        setInterimTranscript('');
+        try {
+          recognitionRef.current.start();
+        } catch (err) {
+          console.error('Failed to auto-start speech recognition:', err);
+        }
+      }
     }
-  }, [isRecording, isListening]);
+  }, [isRecording]);
 
   const toggleSpeechRecognition = () => {
     if (!recognitionRef.current) {
@@ -276,7 +293,10 @@ export default function LiveRecording({
 
 
   // Initial transcription items matching screen layout (Starts empty for live clinical capture)
-  const [transcript, setTranscript] = useState<TranscriptItem[]>([]);
+  const [transcript, setTranscript] = useState<TranscriptItem[]>(() => {
+    const saved = sessionStorage.getItem('dentai_active_transcript');
+    return saved ? JSON.parse(saved) : [];
+  });
 
   // Simulated transcription lines that users can trigger to append to the conversation!
   const presetPhrases = [
@@ -286,7 +306,10 @@ export default function LiveRecording({
     { sender: 'Patient' as const, text: "Alright, if it stops this throbbing pain, let's do it." }
   ];
 
-  const [nextPresetIndex, setNextPresetIndex] = useState(0);
+  const [nextPresetIndex, setNextPresetIndex] = useState(() => {
+    const saved = sessionStorage.getItem('dentai_active_preset_index');
+    return saved ? parseInt(saved, 10) : 0;
+  });
   const [customInput, setCustomInput] = useState('');
 
   const transcriptEndRef = useRef<HTMLDivElement>(null);
@@ -308,6 +331,19 @@ export default function LiveRecording({
   useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [transcript]);
+
+  // Sync recording session to sessionStorage to protect against accidental refreshes
+  useEffect(() => {
+    sessionStorage.setItem('dentai_active_transcript', JSON.stringify(transcript));
+  }, [transcript]);
+
+  useEffect(() => {
+    sessionStorage.setItem('dentai_active_seconds', seconds.toString());
+  }, [seconds]);
+
+  useEffect(() => {
+    sessionStorage.setItem('dentai_active_preset_index', nextPresetIndex.toString());
+  }, [nextPresetIndex]);
 
   const formatTime = (totalSeconds: number) => {
     const mins = Math.floor(totalSeconds / 60);
@@ -333,6 +369,35 @@ export default function LiveRecording({
     if (!customInput.trim()) return;
     handleAppendPhrase('Clinical Comment', customInput);
     setCustomInput('');
+  };
+
+  const handleResetSession = () => {
+    setTranscript([]);
+    setSeconds(0);
+    setIsRecording(true);
+    setShowResetConfirm(false);
+    setNextPresetIndex(0);
+    
+    sessionStorage.removeItem('dentai_active_transcript');
+    sessionStorage.removeItem('dentai_active_seconds');
+    sessionStorage.removeItem('dentai_active_preset_index');
+
+    if (recognitionRef.current && !isListening) {
+      setRecognitionError(null);
+      setInterimTranscript('');
+      try {
+        recognitionRef.current.start();
+      } catch (e) {
+        console.error('Failed to restart speech recognition during reset:', e);
+      }
+    }
+  };
+
+  const handleTactileTag = (tagText: string) => {
+    handleAppendPhrase('Clinical Comment', tagText);
+    if (typeof navigator !== 'undefined' && navigator.vibrate) {
+      navigator.vibrate([100]); // 100ms haptic feedback
+    }
   };
 
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -401,6 +466,13 @@ export default function LiveRecording({
           </div>
         </div>
         <div className="flex items-center gap-3">
+          <button
+            onClick={() => setIsAmbientMode(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-outline-variant bg-white hover:bg-slate-50 text-primary transition-all cursor-pointer mr-2 shadow-sm hover:shadow-md"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-primary animate-pulse" />
+            <span className="text-[10px] font-bold uppercase tracking-wider">Go Ambient</span>
+          </button>
           <button className="p-2 rounded-full hover:bg-slate-50 transition-colors text-slate-500 hover:text-primary">
             <UserRound className="w-5 h-5" />
           </button>
@@ -412,6 +484,21 @@ export default function LiveRecording({
 
       {/* Main Transcription Stream */}
       <main className="flex-grow pt-20 pb-48 px-4 overflow-y-auto w-full max-w-2xl mx-auto custom-scrollbar flex flex-col gap-4">
+        {recognitionError && (
+          <div className="w-full bg-amber-50 border border-amber-200 text-amber-900 px-4 py-3.5 rounded-xl flex items-start justify-between shadow-sm animate-fade-in mb-2 font-sans">
+            <div className="flex items-start gap-2.5">
+              <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+              <div className="flex flex-col">
+                <span className="font-bold text-xs uppercase tracking-wider text-amber-700">Microphone Status Alert</span>
+                <p className="text-xs text-amber-850 mt-0.5 leading-relaxed">{recognitionError}</p>
+              </div>
+            </div>
+            <button onClick={() => setRecognitionError(null)} className="p-1 text-amber-400 hover:text-amber-700 rounded-full transition-colors cursor-pointer">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
         {errorMsg && (
           <div className="w-full bg-red-50 border border-red-200 text-red-800 px-4 py-3.5 rounded-xl flex items-start justify-between shadow-sm animate-fade-in mb-2">
             <div className="flex items-start gap-2.5">
@@ -780,10 +867,19 @@ export default function LiveRecording({
 
           {/* Core Navigation triggers */}
           <div className="flex items-center gap-3">
+            {/* Reset button */}
+            <button
+              onClick={() => setShowResetConfirm(true)}
+              className="w-12 h-12 rounded-full border border-outline-variant flex items-center justify-center hover:bg-red-50 text-slate-650 hover:text-red-700 transition-colors cursor-pointer active:scale-95"
+              title="Reset Session"
+            >
+              <RotateCcw className="w-5 h-5" />
+            </button>
+
             {/* Play-Pause triggers */}
             <button
               onClick={() => setIsRecording(!isRecording)}
-              className="w-12 h-12 rounded-full border border-outline-variant flex items-center justify-center hover:bg-slate-50 transition-colors cursor-pointer"
+              className="w-12 h-12 rounded-full border border-outline-variant flex items-center justify-center hover:bg-slate-50 transition-colors cursor-pointer active:scale-95"
             >
               {isRecording ? (
                 <Pause className="text-slate-800 w-5 h-5" />
@@ -850,6 +946,219 @@ export default function LiveRecording({
                 {processingState}
               </div>
             </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Ambient "Smart Scribe" Screen Overlay */}
+      <AnimatePresence>
+        {isAmbientMode && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.3 }}
+            className="absolute inset-0 z-40 bg-gradient-to-b from-[#0b0f19] to-[#120f26] text-white flex flex-col justify-between p-6 select-none"
+          >
+            <div className="w-full max-w-2xl h-full flex flex-col justify-between mx-auto">
+            {/* Header */}
+            <div className="relative z-50 flex items-center justify-between h-16 border-b border-white/5">
+              <div className="flex flex-col">
+                <span className="text-[10px] text-indigo-400 font-extrabold uppercase tracking-widest leading-none font-bold">Smart Scribe</span>
+                <span className="text-sm font-bold text-slate-200 mt-1">{patientName}</span>
+              </div>
+              <button
+                onClick={() => setIsAmbientMode(false)}
+                className="px-3.5 h-8.5 rounded-full border border-white/10 hover:border-white/20 bg-white/5 hover:bg-white/10 font-bold text-[9px] uppercase tracking-wider transition-colors cursor-pointer"
+              >
+                Exit Ambient Mode
+              </button>
+            </div>
+
+            {/* Center visualizer orb */}
+            <div 
+              onClick={() => setIsRecording(!isRecording)}
+              className="flex-grow flex flex-col items-center justify-center gap-6 cursor-pointer relative z-10 group"
+              title={isRecording ? "Click to Pause" : "Click to Resume"}
+            >
+              {/* Pulsing Audio Orb (Aesthetic Circular Waveform) */}
+              <div className="relative flex items-center justify-center">
+                {/* Outer glowing layers */}
+                {isRecording && (
+                  <>
+                    <motion.div
+                      animate={{ scale: [1, 1.3, 1] }}
+                      transition={{ repeat: Infinity, duration: 3, ease: "easeInOut" }}
+                      className="absolute w-48 h-48 rounded-full bg-indigo-500/10 blur-xl"
+                    />
+                    <motion.div
+                      animate={{ scale: [1, 1.15, 1] }}
+                      transition={{ repeat: Infinity, duration: 2, ease: "easeInOut", delay: 0.5 }}
+                      className="absolute w-36 h-36 rounded-full bg-indigo-400/20 blur-lg"
+                    />
+                  </>
+                )}
+                {/* Core Orb circle */}
+                <div className={`w-28 h-28 rounded-full flex items-center justify-center transition-all duration-500 shadow-2xl border ${
+                  isRecording
+                    ? 'bg-gradient-to-br from-indigo-505 to-[#004ac6] border-indigo-400/50 shadow-indigo-500/30 shadow-2xl scale-105'
+                    : 'bg-[#2a293b] border-slate-700/85 hover:border-slate-655 scale-100'
+                }`}>
+                  <Mic className={`w-10 h-10 transition-colors duration-500 ${
+                    isRecording ? 'text-white' : 'text-slate-500'
+                  }`} />
+                </div>
+              </div>
+
+              {/* Scribing indicator */}
+              <div className="flex flex-col items-center">
+                <div className="flex items-center gap-2">
+                  {isRecording ? (
+                    <>
+                      <span className="w-2 h-2 bg-emerald-500 rounded-full animate-ping"></span>
+                      <span className="text-emerald-400 font-bold text-xs uppercase tracking-widest font-mono">Scribe Active</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="w-2 h-2 bg-slate-500 rounded-full"></span>
+                      <span className="text-slate-400 font-bold text-xs uppercase tracking-widest font-mono">Scribe Paused</span>
+                    </>
+                  )}
+                </div>
+                <span className="text-[10px] text-slate-400 font-medium mt-2">Tap orb to {isRecording ? 'pause' : 'resume'}</span>
+              </div>
+
+              {/* Tactile Quick Tag Cards */}
+              <div className="w-full max-w-sm px-4 flex flex-col gap-2 z-30">
+                <span className="text-[9px] text-[#5c5d7a] font-extrabold uppercase tracking-widest text-center mb-0.5">
+                  Tactile Quick Tags (Vibration Feedback)
+                </span>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleTactileTag('Note: Checked, overall state stable.');
+                    }}
+                    className="flex flex-col items-center justify-center p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 hover:bg-emerald-500/20 active:scale-[0.96] duration-150 transition-all text-center cursor-pointer font-sans"
+                  >
+                    <svg className="w-4.5 h-4.5 text-emerald-400 mb-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                    </svg>
+                    <span className="text-[9px] font-bold text-emerald-300">Stable</span>
+                    <span className="text-[8px] text-emerald-500/70 mt-0.5 leading-none">No Pathology</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleTactileTag('Note: Flagged potential active pathology.');
+                    }}
+                    className="flex flex-col items-center justify-center p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 hover:bg-amber-500/20 active:scale-[0.96] duration-150 transition-all text-center cursor-pointer font-sans"
+                  >
+                    <svg className="w-4.5 h-4.5 text-amber-400 mb-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                    <span className="text-[9px] font-bold text-amber-300">Pathology</span>
+                    <span className="text-[8px] text-amber-500/70 mt-0.5 leading-none">Alert Flag</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleTactileTag('Note: Bookmarked section for manual review.');
+                    }}
+                    className="flex flex-col items-center justify-center p-2.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20 hover:bg-indigo-500/20 active:scale-[0.96] duration-150 transition-all text-center cursor-pointer font-sans"
+                  >
+                    <svg className="w-4.5 h-4.5 text-indigo-400 mb-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+                    </svg>
+                    <span className="text-[9px] font-bold text-indigo-300">Bookmark</span>
+                    <span className="text-[8px] text-indigo-500/70 mt-0.5 leading-none">Manual Rev</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer with Timer and Quick Controls */}
+            <div className="relative z-50 flex items-center justify-between border-t border-white/5 pt-6 pb-4">
+              {/* Digital Clock */}
+              <div className="bg-[#121127] border border-white/5 px-6 py-3 rounded-full flex items-center gap-3.5 shadow-xl">
+                <div className={`w-2.5 h-2.5 bg-red-600 rounded-full ${isRecording ? 'animate-ping' : ''}`}></div>
+                <span className="font-mono text-2xl font-black tracking-widest text-indigo-100">{formatTime(seconds)}</span>
+              </div>
+
+              {/* Quick Controls */}
+              <div className="flex items-center gap-3.5">
+                <button
+                  onClick={() => setShowResetConfirm(true)}
+                  className="w-12 h-12 rounded-full border border-white/10 hover:border-white/20 bg-white/5 hover:bg-white/10 flex items-center justify-center transition-colors cursor-pointer text-slate-400 hover:text-white"
+                  title="Reset Recording"
+                >
+                  <RotateCcw className="w-5 h-5" />
+                </button>
+                <button
+                  onClick={handleFinishNote}
+                  disabled={transcript.length === 0}
+                  className={`px-7 h-12 rounded-full font-bold text-xs uppercase tracking-widest flex items-center gap-2 shadow-lg transition-all cursor-pointer ${
+                    transcript.length === 0
+                      ? 'bg-slate-800 text-slate-600 border border-slate-700/50 cursor-not-allowed shadow-none'
+                      : 'bg-white hover:bg-opacity-95 text-slate-900 active:scale-95'
+                  }`}
+                >
+                  <span>Finish Note</span>
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Confirmation Modal for Resetting */}
+      <AnimatePresence>
+        {showResetConfirm && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-indigo-950/40 backdrop-blur-sm px-4"
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 10 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 10 }}
+              className="bg-white rounded-2xl p-6 flex flex-col items-center text-center max-w-sm w-full mx-auto shadow-2xl border border-indigo-50"
+            >
+              <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mb-4 text-red-650">
+                <RotateCcw className="w-6 h-6 animate-spin duration-[1.5s]" style={{ animationIterationCount: 1 }} />
+              </div>
+              <h3 className="text-lg font-bold text-slate-800 mb-1.5">
+                Reset Recording Session?
+              </h3>
+              <p className="text-slate-500 text-xs mb-6 leading-relaxed">
+                This will permanently erase all transcribed conversation and clinical comments for this session. This action cannot be undone.
+              </p>
+              <div className="flex gap-3 w-full">
+                <button
+                  type="button"
+                  onClick={() => setShowResetConfirm(false)}
+                  className="flex-1 border border-slate-200 hover:bg-slate-50 text-slate-500 font-bold h-11 rounded-xl transition-all cursor-pointer text-xs"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleResetSession}
+                  className="flex-1 bg-red-600 hover:bg-red-750 text-white font-bold h-11 rounded-xl transition-all cursor-pointer text-xs"
+                >
+                  Reset Session
+                </button>
+              </div>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>

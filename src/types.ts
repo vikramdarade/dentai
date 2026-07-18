@@ -28,6 +28,22 @@ export interface Consultation {
   patientSummary: string;
 }
 
+export const getTodayStr = () => {
+  const dateObj = new Date();
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return `${months[dateObj.getMonth()]} ${dateObj.getDate()}`;
+};
+
+export const getYesterdayStr = () => {
+  const dateObj = new Date();
+  dateObj.setDate(dateObj.getDate() - 1);
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return `${months[dateObj.getMonth()]} ${dateObj.getDate()}`;
+};
+
+const todayStr = getTodayStr();
+const yesterdayStr = getYesterdayStr();
+
 export const INITIAL_CONSULTATIONS: Consultation[] = [
   {
     id: '1',
@@ -35,7 +51,7 @@ export const INITIAL_CONSULTATIONS: Consultation[] = [
     lastName: 'Jenkins',
     dob: '1988-04-12',
     appointmentType: 'emergency',
-    date: 'Oct 24',
+    date: todayStr,
     time: '09:45 AM',
     status: 'Completed',
     transcript: [
@@ -74,7 +90,7 @@ export const INITIAL_CONSULTATIONS: Consultation[] = [
     lastName: 'Thorne',
     dob: '1975-09-02',
     appointmentType: 'examination',
-    date: 'Oct 24',
+    date: todayStr,
     time: '08:15 AM',
     status: 'In Review',
     transcript: [
@@ -109,7 +125,7 @@ export const INITIAL_CONSULTATIONS: Consultation[] = [
     lastName: 'Rodriguez',
     dob: '1992-11-15',
     appointmentType: 'scale_clean',
-    date: 'Oct 23',
+    date: yesterdayStr,
     time: '04:30 PM',
     status: 'Completed',
     transcript: [

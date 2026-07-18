@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test": "vitest run tests/server.test.ts --test-timeout=30000",
+    "test": "vitest run --test-timeout=30000",
     "test:integration": "vitest run tests/server.test.ts --run --test-timeout=30000",
     "prepare": "husky"
   },

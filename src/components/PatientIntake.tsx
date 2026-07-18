@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X, User, ArrowLeft, ArrowRight, Mic, Info, Hammer, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { maskDobInput, isValidDob, parseDobToIso } from '../utils/date';
 
 interface PatientIntakeProps {
   onCancel: () => void;
@@ -25,7 +26,7 @@ export default function PatientIntake({ onCancel, onSubmit }: PatientIntakeProps
   // Simple validation for current step
   const canGoNext = () => {
     if (currentStep === 1) {
-      return firstName.trim() !== '' && lastName.trim() !== '' && dob !== '';
+      return firstName.trim() !== '' && lastName.trim() !== '' && isValidDob(dob);
     }
     if (currentStep === 2) {
       return appointmentType !== '';
@@ -48,7 +49,7 @@ export default function PatientIntake({ onCancel, onSubmit }: PatientIntakeProps
         onSubmit({
           firstName,
           lastName,
-          dob,
+          dob: parseDobToIso(dob),
           appointmentType
         });
       }
@@ -88,17 +89,46 @@ export default function PatientIntake({ onCancel, onSubmit }: PatientIntakeProps
       </header>
 
       {/* Main Content Form */}
-      <main className="flex-grow pt-20 pb-28 overflow-y-auto w-full max-w-lg mx-auto px-4">
-        <form onSubmit={handleNext} className="py-8 flex flex-col gap-6">
-          {/* Progress Bar Container */}
-          <div id="intake-progress-container" className="w-full h-1.5 bg-[#efecff] rounded-full overflow-hidden mb-2">
-            <motion.div
-              layout
-              className="h-full bg-primary-container"
-              style={{ width: `${(currentStep / totalSteps) * 100}%` }}
-              transition={{ duration: 0.4 }}
-            />
-          </div>
+      <main className="flex-grow pt-24 pb-28 overflow-y-auto w-full max-w-xl mx-auto px-4">
+        {/* Double-Bezel Card Outer Shell */}
+        <div className="p-2 bg-[#1a1a2e]/5 rounded-[2.5rem] border border-slate-200/30 shadow-xl">
+          <div className="bg-white rounded-[calc(2.5rem-0.5rem)] p-6 md:p-8 shadow-inner flex flex-col">
+            <form onSubmit={handleNext} className="flex flex-col gap-6">
+              {/* Progress Timeline Header */}
+              <div className="flex justify-between items-center mb-1">
+                {[1, 2, 3].map((step) => (
+                  <div key={step} className="flex items-center gap-1.5">
+                    <div
+                      className={`w-6 h-6 rounded-lg flex items-center justify-center font-bold text-xs border transition-all duration-300 ${
+                        currentStep === step
+                          ? 'bg-primary border-primary text-white shadow-sm'
+                          : currentStep > step
+                          ? 'bg-emerald-50 border-emerald-200 text-emerald-600'
+                          : 'bg-slate-50 border-slate-200 text-slate-400'
+                      }`}
+                    >
+                      {currentStep > step ? '✓' : step}
+                    </div>
+                    <span
+                      className={`text-[10px] font-extrabold uppercase tracking-wider hidden sm:inline ${
+                        currentStep === step ? 'text-primary' : 'text-slate-400'
+                      }`}
+                    >
+                      {step === 1 ? 'Identity' : step === 2 ? 'Context' : 'Consent'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Progress Line */}
+              <div id="intake-progress-container" className="w-full h-1 bg-[#efecff] rounded-full overflow-hidden mb-2">
+                <motion.div
+                  layout
+                  className="h-full bg-primary-container"
+                  style={{ width: `${(currentStep / totalSteps) * 100}%` }}
+                  transition={{ duration: 0.4 }}
+                />
+              </div>
 
           <AnimatePresence mode="wait">
             {currentStep === 1 && (
@@ -152,11 +182,28 @@ export default function PatientIntake({ onCancel, onSubmit }: PatientIntakeProps
                     </label>
                     <input
                       required
-                      type="date"
+                      type="text"
+                      inputMode="numeric"
+                      placeholder="DD/MM/YYYY"
+                      maxLength={10}
                       value={dob}
-                      onChange={(e) => setDob(e.target.value)}
-                      className="h-12 px-4 bg-[#fcf8ff] border border-outline-variant rounded-lg text-lg focus:border-primary-container focus:ring-1 focus:ring-primary-container outline-none transition-all text-on-surface"
+                      onChange={(e) => {
+                        const masked = maskDobInput(e.target.value);
+                        setDob(masked);
+                      }}
+                      className={`h-12 px-4 bg-[#fcf8ff] border rounded-lg text-lg focus:ring-1 outline-none transition-all text-on-surface ${
+                        dob.length === 10
+                          ? isValidDob(dob)
+                            ? 'border-emerald-300 focus:border-emerald-500 focus:ring-emerald-500/20'
+                            : 'border-red-300 focus:border-red-500 focus:ring-red-500/20'
+                          : 'border-outline-variant focus:border-primary-container focus:ring-primary-container'
+                      }`}
                     />
+                    {dob.length === 10 && !isValidDob(dob) && (
+                      <span className="text-[10px] text-red-600 font-bold uppercase tracking-wider mt-0.5 ml-1">
+                        Please enter a valid past date (DD/MM/YYYY)
+                      </span>
+                    )}
                   </div>
                 </div>
               </motion.section>
@@ -309,7 +356,9 @@ export default function PatientIntake({ onCancel, onSubmit }: PatientIntakeProps
               )}
             </button>
           </div>
-        </form>
+            </form>
+          </div>
+        </div>
       </main>
     </div>
   );

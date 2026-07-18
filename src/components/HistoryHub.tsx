@@ -1,19 +1,32 @@
 import React, { useState } from 'react';
 import { Search, Plus, FileText, User, ArrowRight, Menu } from 'lucide-react';
-import { Consultation } from '../types';
+import { Consultation, getTodayStr, getYesterdayStr } from '../types';
 import { motion } from 'motion/react';
 
 interface HistoryHubProps {
   consultations: Consultation[];
   onSelectConsultation: (consultation: Consultation) => void;
   onStartNewConsultation: () => void;
+  dentistName: string;
+  onLogout: () => void;
 }
 
 export default function HistoryHub({
   consultations,
   onSelectConsultation,
-  onStartNewConsultation
+  onStartNewConsultation,
+  dentistName,
+  onLogout
 }: HistoryHubProps) {
+  const getInitials = (name: string) => {
+    return name
+      .split(' ')
+      .filter(n => n.toLowerCase() !== 'dr.')
+      .map(n => n[0])
+      .join('')
+      .toUpperCase()
+      .slice(0, 2);
+  };
   const [searchQuery, setSearchQuery] = useState('');
 
   // Filtering based on search query
@@ -25,10 +38,10 @@ export default function HistoryHub({
     return fullName.includes(term) || type.includes(term) || notesHeading.includes(term);
   });
 
-  // Group by date
-  // Since we have a static set of dates, let's group dynamically or categorize
-  const todayConsultations = filtered.filter(c => c.date.includes('Oct 24'));
-  const yesterdayConsultations = filtered.filter(c => !c.date.includes('Oct 24'));
+  // Group by date dynamically
+  const todayStr = getTodayStr();
+  const yesterdayStr = getYesterdayStr();
+  const uniqueDates = Array.from(new Set(filtered.map(c => c.date)));
 
   // Utility to map type to label
   const getProcedureLabel = (type: string) => {
@@ -74,8 +87,19 @@ export default function HistoryHub({
             <Plus className="w-5 h-5" />
             <span>New Consultation</span>
           </button>
-          <div className="w-8 h-8 rounded-full bg-secondary-container flex items-center justify-center text-primary font-bold text-xs">
-            DH
+          <div className="flex items-center gap-3">
+            <div className="flex flex-col items-end">
+              <span className="text-xs font-bold text-slate-800">{dentistName}</span>
+              <button
+                onClick={onLogout}
+                className="text-[9px] text-red-650 hover:underline font-extrabold uppercase tracking-wider cursor-pointer bg-transparent border-none p-0"
+              >
+                Logout
+              </button>
+            </div>
+            <div className="w-8 h-8 rounded-full bg-secondary-container flex items-center justify-center text-primary font-bold text-xs shadow-sm">
+              {getInitials(dentistName)}
+            </div>
           </div>
         </div>
       </header>
@@ -117,139 +141,85 @@ export default function HistoryHub({
 
         {/* List of Consultations */}
         <section className="space-y-6 pt-2">
-          {/* Today's Section */}
-          {todayConsultations.length > 0 && (
-            <div className="space-y-3">
-              <div className="flex items-center gap-2 px-1">
-                <div className="h-px flex-1 bg-outline-variant"></div>
-                <span className="font-label-sm text-slate-400 uppercase tracking-widest text-[11px] font-bold">
-                  Today, Oct 24
-                </span>
-                <div className="h-px flex-1 bg-outline-variant"></div>
-              </div>
+          {uniqueDates.map((date, idx) => {
+            const dateConsultations = filtered.filter(c => c.date === date);
+            const isToday = date === todayStr;
+            const isYesterday = date === yesterdayStr;
+            const headerLabel = isToday
+              ? `Today, ${date}`
+              : isYesterday
+              ? `Yesterday, ${date}`
+              : date;
 
-              <div className="space-y-3">
-                {todayConsultations.map((c) => {
-                  const initials = `${c.firstName[0]}${c.lastName[0]}`;
-                  return (
-                    <motion.div
-                      key={c.id}
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      whileTap={{ scale: 0.98 }}
-                      onClick={() => onSelectConsultation(c)}
-                      className="bg-white border border-outline-variant rounded-xl p-4 flex items-center justify-between shadow-sm hover:border-primary transition-all cursor-pointer group"
-                    >
-                      <div className="flex items-center gap-4">
-                        <div
-                          className={`w-12 h-12 rounded-full ${getAvatarBg(
-                            initials
-                          )} flex items-center justify-center font-bold text-base`}
-                        >
-                          {initials}
+            return (
+              <div key={date} className="space-y-3">
+                <div className={`flex items-center gap-2 px-1 ${idx > 0 ? 'pt-2' : ''}`}>
+                  <div className="h-px flex-1 bg-outline-variant"></div>
+                  <span className="font-label-sm text-slate-400 uppercase tracking-widest text-[11px] font-bold">
+                    {headerLabel}
+                  </span>
+                  <div className="h-px flex-1 bg-outline-variant"></div>
+                </div>
+
+                <div className="space-y-3">
+                  {dateConsultations.map((c) => {
+                    const initials = `${c.firstName[0]}${c.lastName[0]}`;
+                    return (
+                      <motion.div
+                        key={c.id}
+                        initial={{ opacity: 0, y: 12 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        whileHover={{ y: -2, scale: 1.01 }}
+                        whileTap={{ scale: 0.99 }}
+                        onClick={() => onSelectConsultation(c)}
+                        className="p-1 bg-[#1a1a2e]/5 hover:bg-indigo-50/20 rounded-2xl cursor-pointer transition-all duration-300 hover:shadow-md border border-slate-200/40"
+                      >
+                        <div className="bg-white border border-slate-100 rounded-[calc(1rem-0.25rem)] p-4 flex items-center justify-between shadow-sm">
+                          <div className="flex items-center gap-4">
+                            <div
+                              className={`w-12 h-12 rounded-xl flex items-center justify-center font-bold text-base shadow-sm ${getAvatarBg(
+                                initials
+                              )}`}
+                            >
+                              {initials}
+                            </div>
+                            <div className="flex flex-col">
+                              <span className="font-bold text-slate-800 text-base group-hover:text-primary transition-colors">
+                                {c.firstName} {c.lastName}
+                              </span>
+                              <span className="text-secondary font-body-md text-slate-500 text-xs mt-0.5">
+                                {getProcedureLabel(c.appointmentType)}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="flex flex-col items-end gap-2 text-right">
+                            <span
+                              className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 ${
+                                c.status === 'Completed'
+                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
+                                  : 'bg-indigo-50 text-indigo-700 border border-indigo-100'
+                              }`}
+                            >
+                              <span
+                                className={`w-1.5 h-1.5 rounded-full ${
+                                  c.status === 'Completed' ? 'bg-emerald-600' : 'bg-indigo-600'
+                                }`}
+                              ></span>
+                              {c.status}
+                            </span>
+                            <span className="font-mono text-slate-400 text-xs">
+                              {c.time}
+                            </span>
+                          </div>
                         </div>
-                        <div className="flex flex-col">
-                          <span className="font-bold text-slate-800 text-lg group-hover:text-primary transition-colors">
-                            {c.firstName} {c.lastName}
-                          </span>
-                          <span className="text-secondary font-body-md text-slate-500">
-                            {getProcedureLabel(c.appointmentType)}
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="flex flex-col items-end gap-2 text-right">
-                        <span
-                          className={`px-3 py-1 rounded-full text-xs font-semibold flex items-center gap-1.5 ${
-                            c.status === 'Completed'
-                              ? 'bg-emerald-50 text-emerald-700'
-                              : 'bg-indigo-50 text-indigo-700 font-medium'
-                          }`}
-                        >
-                          <span
-                            className={`w-1.5 h-1.5 rounded-full ${
-                              c.status === 'Completed' ? 'bg-emerald-600' : 'bg-indigo-600'
-                            }`}
-                          ></span>
-                          {c.status}
-                        </span>
-                        <span className="font-label-sm text-slate-400 text-xs">
-                          {c.time}
-                        </span>
-                      </div>
-                    </motion.div>
-                  );
-                })}
+                      </motion.div>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          )}
-
-          {/* Yesterday's Section */}
-          {yesterdayConsultations.length > 0 && (
-            <div className="space-y-3">
-              <div className="flex items-center gap-2 px-1 pt-2">
-                <div className="h-px flex-1 bg-outline-variant"></div>
-                <span className="font-label-sm text-slate-400 uppercase tracking-widest text-[11px] font-bold">
-                  Yesterday, Oct 23
-                </span>
-                <div className="h-px flex-1 bg-outline-variant"></div>
-              </div>
-
-              <div className="space-y-3">
-                {yesterdayConsultations.map((c) => {
-                  const initials = `${c.firstName[0]}${c.lastName[0]}`;
-                  return (
-                    <motion.div
-                      key={c.id}
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      whileTap={{ scale: 0.98 }}
-                      onClick={() => onSelectConsultation(c)}
-                      className="bg-white border border-outline-variant rounded-xl p-4 flex items-center justify-between shadow-sm hover:border-primary transition-all cursor-pointer group"
-                    >
-                      <div className="flex items-center gap-4">
-                        <div
-                          className={`w-12 h-12 rounded-full ${getAvatarBg(
-                            initials
-                          )} flex items-center justify-center font-bold text-base`}
-                        >
-                          {initials}
-                        </div>
-                        <div className="flex flex-col">
-                          <span className="font-bold text-slate-800 text-lg group-hover:text-primary transition-colors">
-                            {c.firstName} {c.lastName}
-                          </span>
-                          <span className="text-secondary font-body-md text-slate-500">
-                            {getProcedureLabel(c.appointmentType)}
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="flex flex-col items-end gap-2 text-right">
-                        <span
-                          className={`px-3 py-1 rounded-full text-xs font-semibold flex items-center gap-1.5 ${
-                            c.status === 'Completed'
-                              ? 'bg-emerald-50 text-emerald-700'
-                              : 'bg-indigo-50 text-indigo-700 font-medium'
-                          }`}
-                        >
-                          <span
-                            className={`w-1.5 h-1.5 rounded-full ${
-                              c.status === 'Completed' ? 'bg-emerald-600' : 'bg-indigo-600'
-                            }`}
-                          ></span>
-                          {c.status}
-                        </span>
-                        <span className="font-label-sm text-slate-400 text-xs">
-                          {c.time}
-                        </span>
-                      </div>
-                    </motion.div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
+            );
+          })}
 
           {/* Empty State */}
           {filtered.length === 0 && (
