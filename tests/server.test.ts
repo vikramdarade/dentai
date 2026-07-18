@@ -53,11 +53,16 @@ vi.mock('@google/genai', () => {
 describe('DentAI Server - Mocked Unit Tests', () => {
   let authToken = '';
   const dbPath = path.join(__dirname, '..', 'data', 'consultations.json');
+  const usersDbPath = path.join(__dirname, '..', 'data', 'users.json');
   let dbBackup: string | null = null;
+  let usersDbBackup: string | null = null;
 
   beforeAll(async () => {
     if (fs.existsSync(dbPath)) {
       dbBackup = fs.readFileSync(dbPath, 'utf-8');
+    }
+    if (fs.existsSync(usersDbPath)) {
+      usersDbBackup = fs.readFileSync(usersDbPath, 'utf-8');
     }
     const profilesRes = await request(app).get('/api/auth/profiles');
     expect(profilesRes.status).toBe(200);
@@ -323,6 +328,9 @@ describe('DentAI Server - Mocked Unit Tests', () => {
   afterAll(() => {
     if (dbBackup !== null) {
       fs.writeFileSync(dbPath, dbBackup);
+    }
+    if (usersDbBackup !== null) {
+      fs.writeFileSync(usersDbPath, usersDbBackup);
     }
   });
 });
