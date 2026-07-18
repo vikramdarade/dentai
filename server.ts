@@ -152,9 +152,37 @@ async function writeConsultationsDb(data: any) {
   }
 }
 
-// Session storage (in-memory token map)
-// Map token string to dentist UUID
-const activeSessions: Record<string, string> = {};
+const SESSION_SECRET = process.env.SESSION_SECRET || 'dentai-secure-workstation-session-secret';
+
+function generateToken(payload: { dentistId: string }): string {
+  const payloadStr = JSON.stringify(payload);
+  const base64Payload = Buffer.from(payloadStr).toString('base64url');
+  const signature = crypto
+    .createHmac('sha256', SESSION_SECRET)
+    .update(base64Payload)
+    .digest('base64url');
+  return `${base64Payload}.${signature}`;
+}
+
+function verifyToken(token: string): { dentistId: string } | null {
+  const parts = token.split('.');
+  if (parts.length !== 2) return null;
+  const [base64Payload, signature] = parts;
+  
+  const expectedSignature = crypto
+    .createHmac('sha256', SESSION_SECRET)
+    .update(base64Payload)
+    .digest('base64url');
+    
+  if (signature !== expectedSignature) return null;
+  
+  try {
+    const payloadStr = Buffer.from(base64Payload, 'base64url').toString('utf8');
+    return JSON.parse(payloadStr);
+  } catch (e) {
+    return null;
+  }
+}
 
 // Helper to ensure data files exist
 async function initDb() {
@@ -214,10 +242,11 @@ async function authenticateToken(req: express.Request, res: express.Response, ne
     return res.status(401).json({ error: 'Access token required.' });
   }
 
-  const dentistId = activeSessions[token];
-  if (!dentistId) {
+  const decoded = verifyToken(token);
+  if (!decoded) {
     return res.status(403).json({ error: 'Session expired or invalid.' });
   }
+  const dentistId = decoded.dentistId;
 
   // Attach dentist details to request object
   try {
@@ -282,8 +311,7 @@ app.post('/api/auth/register', async (req, res) => {
     usersData.dentists.push(newDentist);
     await writeUsersDb(usersData);
 
-    const token = crypto.randomBytes(32).toString('hex');
-    activeSessions[token] = newDentist.id;
+    const token = generateToken({ dentistId: newDentist.id });
 
     res.status(201).json({
       token,
@@ -320,8 +348,7 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid dentist profile or PIN.' });
     }
 
-    const token = crypto.randomBytes(32).toString('hex');
-    activeSessions[token] = dentist.id;
+    const token = generateToken({ dentistId: dentist.id });
 
     res.json({
       token,
@@ -338,11 +365,6 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 app.post('/api/auth/logout', (req, res) => {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-  if (token && activeSessions[token]) {
-    delete activeSessions[token];
-  }
   res.sendStatus(204);
 });
 
