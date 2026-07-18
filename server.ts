@@ -177,21 +177,24 @@ async function initDb() {
     logger.warn('[Database] Read-only filesystem detected during initialization. Relying on in-memory caching.', err.message);
   }
 
-  // Pre-populate default dentists if file is empty or cache is uninitialized
+  // Pre-populate/Align default dentists to use deterministic IDs across environments
   try {
     const data = await readUsersDb();
-    if (!data.dentists || data.dentists.length === 0) {
+    const pilotIds = ['fa4f0084-25e4-4ffc-a3cf-e48f72a6b251', 'fb2a8f09-1a05-4c07-ba21-bf99a9a3b610', 'fc3b9d08-2b06-4d08-cb32-cf00b0b4c721'];
+    const hasPilots = data.dentists && data.dentists.length > 0 && data.dentists.every((d: any) => pilotIds.includes(d.id));
+
+    if (!hasPilots) {
       const defaultDentists = [
-        { name: 'Dr. Sarah Jenkins', specialty: 'General Dentistry', pin: '1234' },
-        { name: 'Dr. Vikram Darade', specialty: 'Orthodontics', pin: '5678' },
-        { name: 'Dr. Swati Sen', specialty: 'Periodontics', pin: '9012' }
+        { id: 'fa4f0084-25e4-4ffc-a3cf-e48f72a6b251', name: 'Dr. Sarah Jenkins', specialty: 'General Dentistry', pin: '1234' },
+        { id: 'fb2a8f09-1a05-4c07-ba21-bf99a9a3b610', name: 'Dr. Vikram Darade', specialty: 'Orthodontics', pin: '5678' },
+        { id: 'fc3b9d08-2b06-4d08-cb32-cf00b0b4c721', name: 'Dr. Swati Sen', specialty: 'Periodontics', pin: '9012' }
       ];
 
       data.dentists = defaultDentists.map(d => {
         const salt = crypto.randomBytes(16).toString('hex');
         const pinHash = crypto.pbkdf2Sync(d.pin, salt, 1000, 64, 'sha512').toString('hex');
         return {
-          id: crypto.randomUUID(),
+          id: d.id,
           name: d.name,
           specialty: d.specialty,
           pinHash,
@@ -200,7 +203,7 @@ async function initDb() {
       });
 
       await writeUsersDb(data);
-      logger.info('Pre-populated default pilot dentist accounts in users.json');
+      logger.info('Pre-populated and aligned default pilot dentist accounts in users.json');
     }
   } catch (err) {
     logger.error('Failed to initialize users database:', err);
