@@ -506,11 +506,22 @@ app.post('/api/generate-notes', authenticateToken, async (req: express.Request, 
         project: gcpProject,
         location: process.env.GCP_REGION || 'australia-southeast1'
       });
-      ai = new GoogleGenAI({
+      
+      const options: any = {
         vertexai: true,
         project: gcpProject,
         location: process.env.GCP_REGION || 'australia-southeast1'
-      });
+      };
+      
+      if (process.env.GCP_SERVICE_ACCOUNT_KEY) {
+        try {
+          options.credentials = JSON.parse(process.env.GCP_SERVICE_ACCOUNT_KEY);
+        } catch (e: any) {
+          logger.error('Failed to parse GCP_SERVICE_ACCOUNT_KEY JSON:', e.message);
+        }
+      }
+      
+      ai = new GoogleGenAI(options);
     } else {
       if (!apiKey || apiKey === 'MY_GEMINI_API_KEY') {
         return res.status(503).json({ error: 'Gemini API key is not configured on the server. Please check environment configuration.' });
