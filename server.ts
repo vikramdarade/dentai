@@ -63,93 +63,69 @@ const USERS_FILE = path.resolve(__dirname, 'data', 'users.json');
 const CONSULTATIONS_FILE = path.resolve(__dirname, 'data', 'consultations.json');
 
 // In-memory caching layer for read-only environments (like Vercel serverless)
-let cachedUsersData: any = null;
-let cachedConsultationsData: any = null;
+const dbCache: Record<string, any> = {
+  'dentai:users': null,
+  'dentai:consultations': null
+};
 
 const isKvConfigured = !!(process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN);
 
-async function readUsersDb() {
+async function readDb(kvKey: string, filePath: string, defaultValue: any) {
   if (isKvConfigured) {
     try {
-      const data = await kv.get('dentai:users');
+      const data = await kv.get(kvKey);
       if (data) {
-        cachedUsersData = data;
+        dbCache[kvKey] = data;
         return data;
       }
     } catch (err) {
-      logger.error('Failed to read users from Vercel KV:', err);
+      logger.error(`Failed to read ${kvKey} from Vercel KV:`, err);
     }
   }
 
-  if (cachedUsersData) return cachedUsersData;
+  if (dbCache[kvKey]) return dbCache[kvKey];
   try {
-    const data = JSON.parse(fs.readFileSync(USERS_FILE, 'utf-8'));
-    cachedUsersData = data;
+    const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+    dbCache[kvKey] = data;
     return data;
   } catch (err) {
-    logger.error('Failed to read users database:', err);
-    return cachedUsersData || { dentists: [] };
+    logger.error(`Failed to read database file ${filePath}:`, err);
+    return dbCache[kvKey] || defaultValue;
   }
+}
+
+async function writeDb(kvKey: string, filePath: string, data: any) {
+  dbCache[kvKey] = data;
+  if (isKvConfigured) {
+    try {
+      await kv.set(kvKey, data);
+      return;
+    } catch (err) {
+      logger.error(`Failed to write ${kvKey} to Vercel KV:`, err);
+    }
+  }
+
+  try {
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+  } catch (err: any) {
+    logger.warn(`[Database] Read-only filesystem detected. Saved ${kvKey} in-memory cache only.`, err.message);
+  }
+}
+
+async function readUsersDb() {
+  return readDb('dentai:users', USERS_FILE, { dentists: [] });
 }
 
 async function writeUsersDb(data: any) {
-  cachedUsersData = data;
-  if (isKvConfigured) {
-    try {
-      await kv.set('dentai:users', data);
-      return;
-    } catch (err) {
-      logger.error('Failed to write users to Vercel KV:', err);
-    }
-  }
-
-  try {
-    fs.writeFileSync(USERS_FILE, JSON.stringify(data, null, 2));
-  } catch (err: any) {
-    logger.warn('[Database] Read-only filesystem detected. Saved users in-memory cache only.', err.message);
-  }
+  return writeDb('dentai:users', USERS_FILE, data);
 }
 
 async function readConsultationsDb() {
-  if (isKvConfigured) {
-    try {
-      const data = await kv.get('dentai:consultations');
-      if (data) {
-        cachedConsultationsData = data;
-        return data;
-      }
-    } catch (err) {
-      logger.error('Failed to read consultations from Vercel KV:', err);
-    }
-  }
-
-  if (cachedConsultationsData) return cachedConsultationsData;
-  try {
-    const data = JSON.parse(fs.readFileSync(CONSULTATIONS_FILE, 'utf-8'));
-    cachedConsultationsData = data;
-    return data;
-  } catch (err) {
-    logger.error('Failed to read consultations database:', err);
-    return cachedConsultationsData || { consultations: [] };
-  }
+  return readDb('dentai:consultations', CONSULTATIONS_FILE, { consultations: [] });
 }
 
 async function writeConsultationsDb(data: any) {
-  cachedConsultationsData = data;
-  if (isKvConfigured) {
-    try {
-      await kv.set('dentai:consultations', data);
-      return;
-    } catch (err) {
-      logger.error('Failed to write consultations to Vercel KV:', err);
-    }
-  }
-
-  try {
-    fs.writeFileSync(CONSULTATIONS_FILE, JSON.stringify(data, null, 2));
-  } catch (err: any) {
-    logger.warn('[Database] Read-only filesystem detected. Saved consultations in-memory cache only.', err.message);
-  }
+  return writeDb('dentai:consultations', CONSULTATIONS_FILE, data);
 }
 
 const SESSION_SECRET = process.env.SESSION_SECRET || 'dentai-secure-workstation-session-secret';
