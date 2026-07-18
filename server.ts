@@ -61,6 +61,52 @@ app.use('/api/', apiLimiter);
 const USERS_FILE = path.resolve(__dirname, 'data', 'users.json');
 const CONSULTATIONS_FILE = path.resolve(__dirname, 'data', 'consultations.json');
 
+// In-memory caching layer for read-only environments (like Vercel serverless)
+let cachedUsersData: any = null;
+let cachedConsultationsData: any = null;
+
+function readUsersDb() {
+  if (cachedUsersData) return cachedUsersData;
+  try {
+    const data = JSON.parse(fs.readFileSync(USERS_FILE, 'utf-8'));
+    cachedUsersData = data;
+    return data;
+  } catch (err) {
+    logger.error('Failed to read users database:', err);
+    return cachedUsersData || { dentists: [] };
+  }
+}
+
+function writeUsersDb(data: any) {
+  cachedUsersData = data;
+  try {
+    fs.writeFileSync(USERS_FILE, JSON.stringify(data, null, 2));
+  } catch (err: any) {
+    logger.warn('[Database] Read-only filesystem detected. Saved users in-memory cache only.', err.message);
+  }
+}
+
+function readConsultationsDb() {
+  if (cachedConsultationsData) return cachedConsultationsData;
+  try {
+    const data = JSON.parse(fs.readFileSync(CONSULTATIONS_FILE, 'utf-8'));
+    cachedConsultationsData = data;
+    return data;
+  } catch (err) {
+    logger.error('Failed to read consultations database:', err);
+    return cachedConsultationsData || { consultations: [] };
+  }
+}
+
+function writeConsultationsDb(data: any) {
+  cachedConsultationsData = data;
+  try {
+    fs.writeFileSync(CONSULTATIONS_FILE, JSON.stringify(data, null, 2));
+  } catch (err: any) {
+    logger.warn('[Database] Read-only filesystem detected. Saved consultations in-memory cache only.', err.message);
+  }
+}
+
 // Session storage (in-memory token map)
 // Map token string to dentist UUID
 const activeSessions: Record<string, string> = {};
@@ -68,21 +114,23 @@ const activeSessions: Record<string, string> = {};
 // Helper to ensure data files exist
 function initDb() {
   const dataDir = path.resolve(__dirname, 'data');
-  if (!fs.existsSync(dataDir)) {
-    fs.mkdirSync(dataDir, { recursive: true });
-  }
-
-  if (!fs.existsSync(USERS_FILE)) {
-    fs.writeFileSync(USERS_FILE, JSON.stringify({ dentists: [] }, null, 2));
-  }
-
-  if (!fs.existsSync(CONSULTATIONS_FILE)) {
-    fs.writeFileSync(CONSULTATIONS_FILE, JSON.stringify({ consultations: [] }, null, 2));
-  }
-
-  // Pre-populate default dentists if file is empty
   try {
-    const data = JSON.parse(fs.readFileSync(USERS_FILE, 'utf-8'));
+    if (!fs.existsSync(dataDir)) {
+      fs.mkdirSync(dataDir, { recursive: true });
+    }
+    if (!fs.existsSync(USERS_FILE)) {
+      fs.writeFileSync(USERS_FILE, JSON.stringify({ dentists: [] }, null, 2));
+    }
+    if (!fs.existsSync(CONSULTATIONS_FILE)) {
+      fs.writeFileSync(CONSULTATIONS_FILE, JSON.stringify({ consultations: [] }, null, 2));
+    }
+  } catch (err: any) {
+    logger.warn('[Database] Read-only filesystem detected during initialization. Relying on in-memory caching.', err.message);
+  }
+
+  // Pre-populate default dentists if file is empty or cache is uninitialized
+  try {
+    const data = readUsersDb();
     if (!data.dentists || data.dentists.length === 0) {
       const defaultDentists = [
         { name: 'Dr. Sarah Jenkins', specialty: 'General Dentistry', pin: '1234' },
@@ -102,7 +150,7 @@ function initDb() {
         };
       });
 
-      fs.writeFileSync(USERS_FILE, JSON.stringify(data, null, 2));
+      writeUsersDb(data);
       logger.info('Pre-populated default pilot dentist accounts in users.json');
     }
   } catch (err) {
@@ -128,7 +176,7 @@ function authenticateToken(req: express.Request, res: express.Response, next: ex
 
   // Attach dentist details to request object
   try {
-    const usersData = JSON.parse(fs.readFileSync(USERS_FILE, 'utf-8'));
+    const usersData = readUsersDb();
     const dentist = usersData.dentists.find((d: any) => d.id === dentistId);
     if (!dentist) {
       return res.status(403).json({ error: 'Dentist profile not found.' });
@@ -144,7 +192,7 @@ function authenticateToken(req: express.Request, res: express.Response, next: ex
 // Authentication & Profile Endpoints
 app.get('/api/auth/profiles', (req, res) => {
   try {
-    const usersData = JSON.parse(fs.readFileSync(USERS_FILE, 'utf-8'));
+    const usersData = readUsersDb();
     const profiles = usersData.dentists.map((d: any) => ({
       id: d.id,
       name: d.name,
@@ -170,7 +218,7 @@ app.post('/api/auth/register', (req, res) => {
       return res.status(400).json({ error: 'PIN must be exactly 4 digits.' });
     }
 
-    const usersData = JSON.parse(fs.readFileSync(USERS_FILE, 'utf-8'));
+    const usersData = readUsersDb();
     const exists = usersData.dentists.some((d: any) => d.name.toLowerCase() === name.toLowerCase());
     if (exists) {
       return res.status(409).json({ error: 'A dentist with this name is already registered.' });
@@ -187,7 +235,7 @@ app.post('/api/auth/register', (req, res) => {
     };
 
     usersData.dentists.push(newDentist);
-    fs.writeFileSync(USERS_FILE, JSON.stringify(usersData, null, 2));
+    writeUsersDb(usersData);
 
     const token = crypto.randomBytes(32).toString('hex');
     activeSessions[token] = newDentist.id;
@@ -216,7 +264,7 @@ app.post('/api/auth/login', (req, res) => {
       return res.status(400).json({ error: 'PIN is required.' });
     }
 
-    const usersData = JSON.parse(fs.readFileSync(USERS_FILE, 'utf-8'));
+    const usersData = readUsersDb();
     const dentist = usersData.dentists.find((d: any) => d.id === dentistId);
     if (!dentist) {
       return res.status(401).json({ error: 'Invalid dentist profile or PIN.' });
@@ -264,7 +312,7 @@ app.get('/api/auth/me', authenticateToken, (req: any, res) => {
 // Consultation Persistence Endpoints
 app.get('/api/consultations', authenticateToken, (req: any, res) => {
   try {
-    const consultationsData = JSON.parse(fs.readFileSync(CONSULTATIONS_FILE, 'utf-8'));
+    const consultationsData = readConsultationsDb();
     const myConsultations = consultationsData.consultations.filter(
       (c: any) => c.dentistId === req.dentist.id
     );
@@ -290,7 +338,7 @@ app.post('/api/consultations', authenticateToken, (req: any, res) => {
       consultation.lastName = consultation.lastName.replace(/[<>]/g, '').trim();
     }
 
-    const consultationsData = JSON.parse(fs.readFileSync(CONSULTATIONS_FILE, 'utf-8'));
+    const consultationsData = readConsultationsDb();
     const newConsultation = {
       ...consultation,
       id: consultation.id || crypto.randomUUID(),
@@ -298,7 +346,7 @@ app.post('/api/consultations', authenticateToken, (req: any, res) => {
     };
 
     consultationsData.consultations.unshift(newConsultation);
-    fs.writeFileSync(CONSULTATIONS_FILE, JSON.stringify(consultationsData, null, 2));
+    writeConsultationsDb(consultationsData);
     res.status(201).json(newConsultation);
   } catch (err) {
     logger.error('Failed to save consultation:', err);
@@ -314,7 +362,7 @@ app.put('/api/consultations/:id', authenticateToken, (req: any, res) => {
       return res.status(400).json({ error: 'Invalid consultation payload.' });
     }
 
-    const consultationsData = JSON.parse(fs.readFileSync(CONSULTATIONS_FILE, 'utf-8'));
+    const consultationsData = readConsultationsDb();
     const index = consultationsData.consultations.findIndex(
       (c: any) => c.id === id && c.dentistId === req.dentist.id
     );
@@ -330,7 +378,7 @@ app.put('/api/consultations/:id', authenticateToken, (req: any, res) => {
       dentistId: req.dentist.id
     };
 
-    fs.writeFileSync(CONSULTATIONS_FILE, JSON.stringify(consultationsData, null, 2));
+    writeConsultationsDb(consultationsData);
     res.json(consultationsData.consultations[index]);
   } catch (err) {
     logger.error('Failed to update consultation:', err);
