@@ -325,6 +325,29 @@ describe('DentAI Server - Mocked Unit Tests', () => {
     expect(listRes.body.length).toBe(0);
   });
 
+  it('should validate active session via /api/auth/me for logged-in dentist', async () => {
+    const profilesRes = await request(app).get('/api/auth/profiles');
+    const sarah = profilesRes.body.find((p: any) => p.name === 'Dr. Sarah Jenkins');
+    
+    const loginRes = await request(app)
+      .post('/api/auth/login')
+      .send({ dentistId: sarah.id, pin: '1234' });
+    expect(loginRes.status).toBe(200);
+    const token = loginRes.body.token;
+
+    const meRes = await request(app)
+      .get('/api/auth/me')
+      .set('Authorization', `Bearer ${token}`);
+    expect(meRes.status).toBe(200);
+    expect(meRes.body.id).toBe(sarah.id);
+    expect(meRes.body.name).toBe('Dr. Sarah Jenkins');
+
+    const invalidMeRes = await request(app)
+      .get('/api/auth/me')
+      .set('Authorization', 'Bearer invalid.token.signature');
+    expect(invalidMeRes.status).toBe(403);
+  });
+
   afterAll(() => {
     if (dbBackup !== null) {
       fs.writeFileSync(dbPath, dbBackup);

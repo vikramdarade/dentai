@@ -1,26 +1,34 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
 import React, { useState, useEffect } from 'react';
 import { AnimatePresence } from 'motion/react';
-import { Consultation, TranscriptItem, ClinicalFindings } from './types';
+import { Consultation, TranscriptItem, ClinicalFindings, getTodayStr, getCurrentTimeStr } from './types';
 import HistoryHub from './components/HistoryHub';
 import PatientIntake from './components/PatientIntake';
 import LiveRecording from './components/LiveRecording';
 import ClinicalSummary from './components/ClinicalSummary';
 import Login from './components/Login';
+import {
+  saveAuth,
+  getAuth,
+  clearAuth,
+  saveLocalConsultations,
+  getLocalConsultations,
+  saveActiveIntake,
+  getActiveIntake,
+  clearActiveIntake,
+  AuthUser
+} from './utils/storage';
 
 type ViewType = 'history' | 'intake' | 'record' | 'summary';
 
 export default function App() {
   const [view, setView] = useState<ViewType>('history');
-  const [consultations, setConsultations] = useState<Consultation[]>([]);
+  const [consultations, setConsultations] = useState<Consultation[]>(() => {
+    return getLocalConsultations() || [];
+  });
   const [selectedConsultation, setSelectedConsultation] = useState<Consultation | null>(null);
 
   // Authentication State
-  const [currentUser, setCurrentUser] = useState<{ id: string; name: string; specialty: string } | null>(null);
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [authToken, setAuthToken] = useState<string | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
 
@@ -36,23 +44,31 @@ export default function App() {
     appointmentType: 'examination' | 'scale_clean' | 'emergency';
   } | null>(null);
 
-  // Load token and currentUser from sessionStorage on mount
+  // Load token and currentUser from persistent storage on mount
   useEffect(() => {
-    const savedToken = sessionStorage.getItem('dentai_token');
-    const savedUser = sessionStorage.getItem('dentai_user');
-    if (savedToken && savedUser) {
-      try {
-        setAuthToken(savedToken);
-        setCurrentUser(JSON.parse(savedUser));
+    const { token, user } = getAuth();
+    if (token && user) {
+      setAuthToken(token);
+      setCurrentUser(user);
 
-        // Restore active in-progress recording session if present!
-        const savedIntake = sessionStorage.getItem('dentai_active_intake');
-        if (savedIntake) {
-          setActiveIntake(JSON.parse(savedIntake));
-          setView('record');
-        }
-      } catch (e) {
-        console.error('Failed to parse sessionStorage user credentials', e);
+      // Verify token with backend silently
+      fetch('/api/auth/me', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+        .then(res => {
+          if (res.status === 401 || res.status === 403) {
+            handleLogout();
+          }
+        })
+        .catch(err => {
+          console.warn('[Auth] Silent token verification failed (offline/serverless cold start):', err);
+        });
+
+      // Restore active in-progress recording session if present!
+      const savedIntake = getActiveIntake();
+      if (savedIntake) {
+        setActiveIntake(savedIntake);
+        setView('record');
       }
     }
     setIsAuthLoading(false);
@@ -131,19 +147,23 @@ export default function App() {
       if (res.ok) {
         const data = await res.json();
         setConsultations(data);
+        saveLocalConsultations(data);
       } else if (res.status === 401 || res.status === 403) {
         handleLogout();
       }
     } catch (err) {
-      console.error('Failed to fetch consultations:', err);
+      console.warn('Failed to fetch consultations from server, falling back to local cache:', err);
+      const cached = getLocalConsultations();
+      if (cached && cached.length > 0) {
+        setConsultations(cached);
+      }
     }
   };
 
   const handleLoginSuccess = (token: string, dentist: any) => {
     setAuthToken(token);
     setCurrentUser(dentist);
-    sessionStorage.setItem('dentai_token', token);
-    sessionStorage.setItem('dentai_user', JSON.stringify(dentist));
+    saveAuth(token, dentist);
     setView('history');
   };
 
@@ -160,8 +180,8 @@ export default function App() {
     }
     setAuthToken(null);
     setCurrentUser(null);
-    sessionStorage.removeItem('dentai_token');
-    sessionStorage.removeItem('dentai_user');
+    clearAuth();
+    clearActiveIntake();
     setConsultations([]);
     setSelectedConsultation(null);
     setView('history');
@@ -183,7 +203,7 @@ export default function App() {
     appointmentType: 'examination' | 'scale_clean' | 'emergency';
   }) => {
     setActiveIntake(intakeData);
-    sessionStorage.setItem('dentai_active_intake', JSON.stringify(intakeData));
+    saveActiveIntake(intakeData);
     setView('record');
   };
 
@@ -210,26 +230,14 @@ export default function App() {
 
       const parsedData = await response.json();
 
-      // Create consultation item
-      const dateObj = new Date();
-      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-      const dateStr = `${months[dateObj.getMonth()]} ${dateObj.getDate()}`;
-
-      let minutes = dateObj.getMinutes().toString().padStart(2, '0');
-      let hoursStr = dateObj.getHours();
-      let ampm = hoursStr >= 12 ? 'PM' : 'AM';
-      hoursStr = hoursStr % 12;
-      hoursStr = hoursStr ? hoursStr : 12; // 0 becomes 12
-      const timeStr = `${hoursStr.toString().padStart(2, '0')}:${minutes} ${ampm}`;
-
       const newConsult: Consultation = {
         id: Math.random().toString(36).substring(2, 9),
         firstName: activeIntake.firstName,
         lastName: activeIntake.lastName,
         dob: activeIntake.dob,
         appointmentType: activeIntake.appointmentType,
-        date: dateStr,
-        time: timeStr,
+        date: getTodayStr(),
+        time: getCurrentTimeStr(),
         status: 'In Review',
         transcript: finalTranscript,
         findings: {
@@ -245,27 +253,37 @@ export default function App() {
         patientSummary: parsedData.patientSummary || '',
       };
 
-      // Persist to server
-      const saveRes = await fetch('/api/consultations', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${authToken}`
-        },
-        body: JSON.stringify(newConsult)
-      });
+      // Always save to local cache immediately to prevent data loss
+      const updatedConsultations = [newConsult, ...consultations];
+      setConsultations(updatedConsultations);
+      saveLocalConsultations(updatedConsultations);
+      clearActiveIntake();
+      sessionStorage.removeItem('dentai_active_transcript');
+      sessionStorage.removeItem('dentai_active_seconds');
+      sessionStorage.removeItem('dentai_active_preset_index');
+      setSelectedConsultation(newConsult);
+      setView('summary');
 
-      if (saveRes.ok) {
-        const saved = await saveRes.json();
-        sessionStorage.removeItem('dentai_active_intake');
-        sessionStorage.removeItem('dentai_active_transcript');
-        sessionStorage.removeItem('dentai_active_seconds');
-        sessionStorage.removeItem('dentai_active_preset_index');
-        setSelectedConsultation(saved);
-        setConsultations(prev => [saved, ...prev]);
-        setView('summary');
-      } else {
-        throw new Error('Failed to persist consultation to server.');
+      // Persist to server in background or sync
+      try {
+        const saveRes = await fetch('/api/consultations', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${authToken}`
+          },
+          body: JSON.stringify(newConsult)
+        });
+
+        if (saveRes.ok) {
+          const saved = await saveRes.json();
+          const syncedList = [saved, ...consultations.filter(c => c.id !== newConsult.id)];
+          setConsultations(syncedList);
+          saveLocalConsultations(syncedList);
+          setSelectedConsultation(saved);
+        }
+      } catch (saveErr) {
+        console.warn('Network issue while syncing consultation to backend; local copy preserved safely.', saveErr);
       }
     } catch (err) {
       console.error('Failed to generate clinical findings:', err);
@@ -274,6 +292,20 @@ export default function App() {
   };
 
   const handleSaveConsultation = async (updated: Consultation) => {
+    // Immediately persist locally
+    const index = consultations.findIndex((c) => c.id === updated.id);
+    let newList = [...consultations];
+
+    if (index >= 0) {
+      newList[index] = updated;
+    } else {
+      newList = [updated, ...newList];
+    }
+
+    setConsultations(newList);
+    saveLocalConsultations(newList);
+    setSelectedConsultation(updated);
+
     if (!authToken) return;
 
     try {
@@ -288,20 +320,15 @@ export default function App() {
 
       if (res.ok) {
         const saved = await res.json();
-        const index = consultations.findIndex((c) => c.id === saved.id);
-        let newList = [...consultations];
-
-        if (index >= 0) {
-          newList[index] = saved;
-        } else {
-          newList = [saved, ...newList];
+        const serverIndex = newList.findIndex((c) => c.id === saved.id);
+        if (serverIndex >= 0) {
+          newList[serverIndex] = saved;
         }
-
         setConsultations(newList);
-        setSelectedConsultation(saved);
+        saveLocalConsultations(newList);
       }
     } catch (err) {
-      console.error('Failed to save consultation updates:', err);
+      console.error('Failed to save consultation updates to server, preserved locally:', err);
     }
   };
 
@@ -337,7 +364,7 @@ export default function App() {
       {view === 'intake' && (
         <PatientIntake
           onCancel={() => {
-            sessionStorage.removeItem('dentai_active_intake');
+            clearActiveIntake();
             sessionStorage.removeItem('dentai_active_transcript');
             sessionStorage.removeItem('dentai_active_seconds');
             sessionStorage.removeItem('dentai_active_preset_index');

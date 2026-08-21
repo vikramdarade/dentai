@@ -41,6 +41,15 @@ export const getYesterdayStr = () => {
   return `${months[dateObj.getMonth()]} ${dateObj.getDate()}`;
 };
 
+export const getCurrentTimeStr = () => {
+  const dateObj = new Date();
+  const minutes = dateObj.getMinutes().toString().padStart(2, '0');
+  let hours = dateObj.getHours();
+  const ampm = hours >= 12 ? 'PM' : 'AM';
+  hours = hours % 12 || 12;
+  return `${hours.toString().padStart(2, '0')}:${minutes} ${ampm}`;
+};
+
 const todayStr = getTodayStr();
 const yesterdayStr = getYesterdayStr();
 
