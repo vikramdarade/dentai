@@ -130,6 +130,14 @@ async function writeConsultationsDb(data: any) {
 
 const SESSION_SECRET = process.env.SESSION_SECRET || 'dentai-secure-workstation-session-secret';
 
+function getDentistSalt(dentistId: string): string {
+  return crypto.createHmac('sha256', SESSION_SECRET).update(`dentist-salt-${dentistId}`).digest('hex');
+}
+
+function getPinHash(pin: string, salt: string): string {
+  return crypto.pbkdf2Sync(pin, salt, 1000, 64, 'sha512').toString('hex');
+}
+
 function generateToken(payload: { dentistId: string; name?: string; specialty?: string; exp?: number }): string {
   const finalPayload = {
     ...payload,
@@ -203,8 +211,8 @@ async function initDb() {
     for (const d of defaultDentists) {
       const exists = data.dentists.some((existing: any) => existing.id === d.id || existing.name.toLowerCase() === d.name.toLowerCase());
       if (!exists) {
-        const salt = crypto.randomBytes(16).toString('hex');
-        const pinHash = crypto.pbkdf2Sync(d.pin, salt, 1000, 64, 'sha512').toString('hex');
+        const salt = getDentistSalt(d.id);
+        const pinHash = getPinHash(d.pin, salt);
         data.dentists.push({
           id: d.id,
           name: d.name,
@@ -312,10 +320,11 @@ app.post('/api/auth/register', async (req, res) => {
       return res.status(409).json({ error: 'A dentist with this name is already registered.' });
     }
 
-    const salt = crypto.randomBytes(16).toString('hex');
-    const pinHash = crypto.pbkdf2Sync(pin, salt, 1000, 64, 'sha512').toString('hex');
+    const newId = crypto.randomUUID();
+    const salt = getDentistSalt(newId);
+    const pinHash = getPinHash(pin, salt);
     const newDentist = {
-      id: crypto.randomUUID(),
+      id: newId,
       name,
       specialty,
       pinHash,
@@ -336,7 +345,9 @@ app.post('/api/auth/register', async (req, res) => {
       dentist: {
         id: newDentist.id,
         name: newDentist.name,
-        specialty: newDentist.specialty
+        specialty: newDentist.specialty,
+        pinHash: newDentist.pinHash,
+        salt: newDentist.salt
       }
     });
   } catch (err) {
@@ -355,18 +366,19 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(400).json({ error: 'PIN is required.' });
     }
 
+    const salt = getDentistSalt(dentistId);
+    const expectedPinHash = getPinHash(pin, salt);
+
     const usersData = await readUsersDb();
     let dentist = usersData.dentists.find((d: any) => d.id === dentistId);
 
-    // If serverless container cold-started and doesn't have custom profile in memory, recover from customProfile info
+    // If serverless container cold-started and doesn't have custom profile in memory yet
     if (!dentist && customProfile && customProfile.name) {
-      const salt = crypto.randomBytes(16).toString('hex');
-      const pinHash = crypto.pbkdf2Sync(pin, salt, 1000, 64, 'sha512').toString('hex');
       dentist = {
         id: dentistId,
         name: customProfile.name,
         specialty: customProfile.specialty || 'General Dentistry',
-        pinHash,
+        pinHash: expectedPinHash,
         salt
       };
       usersData.dentists.push(dentist);
@@ -377,8 +389,10 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid dentist profile or PIN.' });
     }
 
-    const hash = crypto.pbkdf2Sync(pin, dentist.salt, 1000, 64, 'sha512').toString('hex');
-    if (hash !== dentist.pinHash) {
+    const computedHash = crypto.pbkdf2Sync(pin, dentist.salt || salt, 1000, 64, 'sha512').toString('hex');
+    const isValid = computedHash === dentist.pinHash || dentist.pinHash === expectedPinHash || computedHash === expectedPinHash;
+
+    if (!isValid) {
       return res.status(401).json({ error: 'Invalid dentist profile or PIN.' });
     }
 
@@ -393,7 +407,9 @@ app.post('/api/auth/login', async (req, res) => {
       dentist: {
         id: dentist.id,
         name: dentist.name,
-        specialty: dentist.specialty
+        specialty: dentist.specialty,
+        pinHash: dentist.pinHash || expectedPinHash,
+        salt: dentist.salt || salt
       }
     });
   } catch (err) {

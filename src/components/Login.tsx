@@ -59,11 +59,17 @@ export default function Login({ onLoginSuccess }: LoginProps) {
       const localProfiles: DentistProfile[] = localProfilesStr ? JSON.parse(localProfilesStr) : [];
       
       const profileMap = new Map<string, DentistProfile>();
-      serverProfiles.forEach(p => profileMap.set(p.id, p));
-      localProfiles.forEach(p => {
-        if (!profileMap.has(p.id)) {
-          profileMap.set(p.id, p);
-        }
+      // First populate from localProfiles (which contain pinHash & salt)
+      localProfiles.forEach(p => profileMap.set(p.id, p));
+      
+      // Then merge server profiles, preserving local pinHash & salt
+      serverProfiles.forEach(p => {
+        const existing = profileMap.get(p.id);
+        profileMap.set(p.id, {
+          ...p,
+          pinHash: existing?.pinHash,
+          salt: existing?.salt
+        });
       });
 
       const merged = Array.from(profileMap.values());
