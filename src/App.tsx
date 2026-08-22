@@ -50,6 +50,10 @@ export default function App() {
     if (token && user) {
       setAuthToken(token);
       setCurrentUser(user);
+      const local = getLocalConsultations(user.id);
+      if (local) {
+        setConsultations(local);
+      }
 
       // Verify token with backend silently without aggressive session drop
       fetch('/api/auth/me', {
@@ -132,38 +136,41 @@ export default function App() {
 
   // Fetch consultations whenever the authentication token changes
   useEffect(() => {
-    if (authToken) {
+    if (authToken && currentUser) {
       fetchConsultations();
     } else {
       setConsultations([]);
     }
-  }, [authToken]);
+  }, [authToken, currentUser?.id]);
 
   const fetchConsultations = async () => {
+    if (!currentUser || !authToken) return;
     try {
       const res = await fetch('/api/consultations', {
         headers: { 'Authorization': `Bearer ${authToken}` }
       });
       if (res.ok) {
         const data = await res.json();
-        // Merge server data with local cache without losing local records
-        const local = getLocalConsultations() || [];
+        // Only keep consultations that belong to the current dentist
+        const myServerData = Array.isArray(data)
+          ? data.filter((c: Consultation) => !c.dentistId || c.dentistId === currentUser.id)
+          : [];
+        const local = getLocalConsultations(currentUser.id) || [];
+        const myLocal = local.filter((c: Consultation) => !c.dentistId || c.dentistId === currentUser.id);
+
         const mergedMap = new Map<string, Consultation>();
-        if (Array.isArray(data)) {
-          data.forEach((c: Consultation) => mergedMap.set(c.id, c));
-        }
-        if (Array.isArray(local)) {
-          local.forEach((c: Consultation) => mergedMap.set(c.id, c));
-        }
+        myServerData.forEach((c: Consultation) => mergedMap.set(c.id, { ...c, dentistId: c.dentistId || currentUser.id }));
+        myLocal.forEach((c: Consultation) => mergedMap.set(c.id, { ...c, dentistId: c.dentistId || currentUser.id }));
+
         const merged = Array.from(mergedMap.values());
         setConsultations(merged);
-        saveLocalConsultations(merged);
+        saveLocalConsultations(merged, currentUser.id);
       }
     } catch (err) {
       console.warn('Failed to fetch consultations from server, falling back to local cache:', err);
-      const cached = getLocalConsultations();
+      const cached = getLocalConsultations(currentUser?.id);
       if (cached && cached.length > 0) {
-        setConsultations(cached);
+        setConsultations(cached.filter((c: Consultation) => !c.dentistId || c.dentistId === currentUser?.id));
       }
     }
   };
@@ -172,6 +179,12 @@ export default function App() {
     setAuthToken(token);
     setCurrentUser(dentist);
     saveAuth(token, dentist);
+    const local = getLocalConsultations(dentist.id);
+    if (local) {
+      setConsultations(local);
+    } else {
+      setConsultations([]);
+    }
     setView('history');
   };
 
@@ -216,7 +229,7 @@ export default function App() {
   };
 
   const handleRecordFinish = async (finalTranscript: TranscriptItem[]) => {
-    if (!activeIntake || !authToken) return;
+    if (!activeIntake || !authToken || !currentUser) return;
 
     try {
       const response = await fetch('/api/generate-notes', {
@@ -240,6 +253,7 @@ export default function App() {
 
       const newConsult: Consultation = {
         id: Math.random().toString(36).substring(2, 9),
+        dentistId: currentUser.id,
         firstName: activeIntake.firstName,
         lastName: activeIntake.lastName,
         dob: activeIntake.dob,
@@ -261,10 +275,10 @@ export default function App() {
         patientSummary: parsedData.patientSummary || '',
       };
 
-      // Always save to local cache immediately to prevent data loss
+      // Always save to scoped local cache immediately to prevent data loss
       const updatedConsultations = [newConsult, ...consultations];
       setConsultations(updatedConsultations);
-      saveLocalConsultations(updatedConsultations);
+      saveLocalConsultations(updatedConsultations, currentUser.id);
       clearActiveIntake();
       sessionStorage.removeItem('dentai_active_transcript');
       sessionStorage.removeItem('dentai_active_seconds');
@@ -287,7 +301,7 @@ export default function App() {
           const saved = await saveRes.json();
           const syncedList = [saved, ...consultations.filter(c => c.id !== newConsult.id)];
           setConsultations(syncedList);
-          saveLocalConsultations(syncedList);
+          saveLocalConsultations(syncedList, currentUser.id);
           setSelectedConsultation(saved);
         }
       } catch (saveErr) {
@@ -300,43 +314,48 @@ export default function App() {
   };
 
   const handleSaveConsultation = async (updated: Consultation) => {
+    const updatedWithDentist = {
+      ...updated,
+      dentistId: updated.dentistId || currentUser?.id
+    };
     // Immediately persist locally
-    const index = consultations.findIndex((c) => c.id === updated.id);
+    const index = consultations.findIndex((c) => c.id === updatedWithDentist.id);
     let newList = [...consultations];
 
     if (index >= 0) {
-      newList[index] = updated;
+      newList[index] = updatedWithDentist;
     } else {
-      newList = [updated, ...newList];
+      newList = [updatedWithDentist, ...newList];
     }
 
     setConsultations(newList);
-    saveLocalConsultations(newList);
-    setSelectedConsultation(updated);
+    if (currentUser?.id) {
+      saveLocalConsultations(newList, currentUser.id);
+    }
+    setSelectedConsultation(updatedWithDentist);
 
     if (!authToken) return;
 
     try {
-      const res = await fetch(`/api/consultations/${updated.id}`, {
+      const res = await fetch(`/api/consultations/${updatedWithDentist.id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${authToken}`
         },
-        body: JSON.stringify(updated)
+        body: JSON.stringify(updatedWithDentist)
       });
 
       if (res.ok) {
         const saved = await res.json();
-        const serverIndex = newList.findIndex((c) => c.id === saved.id);
-        if (serverIndex >= 0) {
-          newList[serverIndex] = saved;
+        const syncedList = newList.map(c => c.id === saved.id ? saved : c);
+        setConsultations(syncedList);
+        if (currentUser?.id) {
+          saveLocalConsultations(syncedList, currentUser.id);
         }
-        setConsultations(newList);
-        saveLocalConsultations(newList);
       }
     } catch (err) {
-      console.error('Failed to save consultation updates to server, preserved locally:', err);
+      console.warn('Failed to sync consultation update to backend; local copy preserved safely.', err);
     }
   };
 

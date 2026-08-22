@@ -56,19 +56,33 @@ export function clearAuth(): void {
   }
 }
 
-export function saveLocalConsultations(consultations: Consultation[]): void {
+export function saveLocalConsultations(consultations: Consultation[], dentistId?: string): void {
   try {
-    localStorage.setItem(STORAGE_KEYS.CONSULTATIONS, JSON.stringify(consultations));
+    if (dentistId) {
+      localStorage.setItem(`${STORAGE_KEYS.CONSULTATIONS}_${dentistId}`, JSON.stringify(consultations));
+    } else {
+      localStorage.setItem(STORAGE_KEYS.CONSULTATIONS, JSON.stringify(consultations));
+    }
   } catch (err) {
     console.error('[Storage] Failed to save consultations to local cache:', err);
   }
 }
 
-export function getLocalConsultations(): Consultation[] | null {
+export function getLocalConsultations(dentistId?: string): Consultation[] | null {
   try {
+    if (dentistId) {
+      const scopedData = localStorage.getItem(`${STORAGE_KEYS.CONSULTATIONS}_${dentistId}`);
+      if (scopedData) {
+        return JSON.parse(scopedData);
+      }
+    }
     const data = localStorage.getItem(STORAGE_KEYS.CONSULTATIONS);
     if (!data) return null;
-    return JSON.parse(data);
+    const all: Consultation[] = JSON.parse(data);
+    if (dentistId) {
+      return all.filter(c => !c.dentistId || c.dentistId === dentistId);
+    }
+    return all;
   } catch (err) {
     console.error('[Storage] Failed to load consultations from local cache:', err);
     return null;

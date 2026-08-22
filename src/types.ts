@@ -16,6 +16,7 @@ export interface ClinicalFindings {
 
 export interface Consultation {
   id: string;
+  dentistId?: string;
   firstName: string;
   lastName: string;
   dob: string;
