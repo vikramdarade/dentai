@@ -51,12 +51,12 @@ export default function App() {
       setAuthToken(token);
       setCurrentUser(user);
 
-      // Verify token with backend silently
+      // Verify token with backend silently without aggressive session drop
       fetch('/api/auth/me', {
         headers: { 'Authorization': `Bearer ${token}` }
       })
         .then(res => {
-          if (res.status === 401 || res.status === 403) {
+          if (res.status === 401) {
             handleLogout();
           }
         })
@@ -146,10 +146,18 @@ export default function App() {
       });
       if (res.ok) {
         const data = await res.json();
-        setConsultations(data);
-        saveLocalConsultations(data);
-      } else if (res.status === 401 || res.status === 403) {
-        handleLogout();
+        // Merge server data with local cache without losing local records
+        const local = getLocalConsultations() || [];
+        const mergedMap = new Map<string, Consultation>();
+        if (Array.isArray(data)) {
+          data.forEach((c: Consultation) => mergedMap.set(c.id, c));
+        }
+        if (Array.isArray(local)) {
+          local.forEach((c: Consultation) => mergedMap.set(c.id, c));
+        }
+        const merged = Array.from(mergedMap.values());
+        setConsultations(merged);
+        saveLocalConsultations(merged);
       }
     } catch (err) {
       console.warn('Failed to fetch consultations from server, falling back to local cache:', err);

@@ -6,6 +6,8 @@ interface DentistProfile {
   id: string;
   name: string;
   specialty: string;
+  pinHash?: string;
+  salt?: string;
 }
 
 interface LoginProps {
@@ -132,12 +134,25 @@ export default function Login({ onLoginSuccess }: LoginProps) {
         body: JSON.stringify({
           dentistId: selectedProfile.id,
           pin: completedPin,
-          customProfile: matchedProfile ? { name: matchedProfile.name, specialty: matchedProfile.specialty } : undefined
+          customProfile: matchedProfile ? {
+            id: matchedProfile.id,
+            name: matchedProfile.name,
+            specialty: matchedProfile.specialty,
+            pinHash: matchedProfile.pinHash,
+            salt: matchedProfile.salt
+          } : undefined
         })
       });
 
       const data = await res.json();
       if (res.ok) {
+        try {
+          const updatedLocal = localProfiles.map(p => p.id === data.dentist.id ? { ...p, ...data.dentist } : p);
+          if (!updatedLocal.some(p => p.id === data.dentist.id)) {
+            updatedLocal.push(data.dentist);
+          }
+          localStorage.setItem('dentai_saved_profiles', JSON.stringify(updatedLocal));
+        } catch {}
         onLoginSuccess(data.token, data.dentist);
       } else {
         setLoginError(data.error || 'Invalid passcode. Please try again.');
@@ -179,14 +194,20 @@ export default function Login({ onLoginSuccess }: LoginProps) {
 
       const data = await res.json();
       if (res.ok) {
-        // Save new profile to local saved profiles
+        // Save new profile to local saved profiles with pinHash and salt
         try {
           const localProfilesStr = localStorage.getItem('dentai_saved_profiles');
           const localProfiles: DentistProfile[] = localProfilesStr ? JSON.parse(localProfilesStr) : [];
-          if (!localProfiles.some(p => p.id === data.dentist.id)) {
-            localProfiles.push(data.dentist);
-            localStorage.setItem('dentai_saved_profiles', JSON.stringify(localProfiles));
-          }
+          const profileWithCreds = {
+            id: data.dentist.id,
+            name: data.dentist.name,
+            specialty: data.dentist.specialty,
+            pinHash: data.dentist.pinHash,
+            salt: data.dentist.salt
+          };
+          const filtered = localProfiles.filter(p => p.id !== data.dentist.id);
+          filtered.push(profileWithCreds);
+          localStorage.setItem('dentai_saved_profiles', JSON.stringify(filtered));
         } catch {
           // Ignore cache errors
         }
