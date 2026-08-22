@@ -40,12 +40,36 @@ export default function Login({ onLoginSuccess }: LoginProps) {
     setLoading(true);
     try {
       const res = await fetch('/api/auth/profiles');
+      let serverProfiles: DentistProfile[] = [];
       if (res.ok) {
-        const data = await res.json();
-        setProfiles(data);
+        serverProfiles = await res.json();
       }
+
+      // Merge server profiles with any locally saved registered profiles
+      const localProfilesStr = localStorage.getItem('dentai_saved_profiles');
+      const localProfiles: DentistProfile[] = localProfilesStr ? JSON.parse(localProfilesStr) : [];
+      
+      const profileMap = new Map<string, DentistProfile>();
+      serverProfiles.forEach(p => profileMap.set(p.id, p));
+      localProfiles.forEach(p => {
+        if (!profileMap.has(p.id)) {
+          profileMap.set(p.id, p);
+        }
+      });
+
+      const merged = Array.from(profileMap.values());
+      setProfiles(merged);
+      localStorage.setItem('dentai_saved_profiles', JSON.stringify(merged));
     } catch (err) {
       console.error('Failed to load profiles:', err);
+      const localProfilesStr = localStorage.getItem('dentai_saved_profiles');
+      if (localProfilesStr) {
+        try {
+          setProfiles(JSON.parse(localProfilesStr));
+        } catch {
+          // Ignore parse errors
+        }
+      }
     } finally {
       setLoading(false);
     }
@@ -142,6 +166,17 @@ export default function Login({ onLoginSuccess }: LoginProps) {
 
       const data = await res.json();
       if (res.ok) {
+        // Save new profile to local saved profiles
+        try {
+          const localProfilesStr = localStorage.getItem('dentai_saved_profiles');
+          const localProfiles: DentistProfile[] = localProfilesStr ? JSON.parse(localProfilesStr) : [];
+          if (!localProfiles.some(p => p.id === data.dentist.id)) {
+            localProfiles.push(data.dentist);
+            localStorage.setItem('dentai_saved_profiles', JSON.stringify(localProfiles));
+          }
+        } catch {
+          // Ignore cache errors
+        }
         onLoginSuccess(data.token, data.dentist);
       } else {
         setRegError(data.error || 'Failed to register account.');

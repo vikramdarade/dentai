@@ -149,14 +149,14 @@ function verifyToken(token: string): { dentistId: string } | null {
   const parts = token.split('.');
   if (parts.length !== 2) return null;
   const [base64Payload, signature] = parts;
-  
+
   const expectedSignature = crypto
     .createHmac('sha256', SESSION_SECRET)
     .update(base64Payload)
     .digest('base64url');
-    
+
   if (signature !== expectedSignature) return null;
-  
+
   try {
     const payloadStr = Buffer.from(base64Payload, 'base64url').toString('utf8');
     const parsed = JSON.parse(payloadStr);
@@ -579,20 +579,20 @@ app.post('/api/generate-notes', authenticateToken, async (req: express.Request, 
     }
 
     const apiKey = process.env.GEMINI_API_KEY;
-    
+
     let ai: GoogleGenAI;
     if (gcpProject) {
       logger.info('Initializing Vertex AI client for Australian sovereign clinical processing', {
         project: gcpProject,
         location: process.env.GCP_REGION || 'australia-southeast1'
       });
-      
+
       const options: any = {
         vertexai: true,
         project: gcpProject,
         location: process.env.GCP_REGION || 'australia-southeast1'
       };
-      
+
       if (process.env.GCP_SERVICE_ACCOUNT_KEY) {
         try {
           options.credentials = JSON.parse(process.env.GCP_SERVICE_ACCOUNT_KEY);
@@ -600,7 +600,7 @@ app.post('/api/generate-notes', authenticateToken, async (req: express.Request, 
           logger.error('Failed to parse GCP_SERVICE_ACCOUNT_KEY JSON:', e.message);
         }
       }
-      
+
       ai = new GoogleGenAI(options);
     } else {
       if (!apiKey || apiKey === 'MY_GEMINI_API_KEY') {
@@ -639,7 +639,7 @@ ${transcript.map((t: any) => `${t.sender}: ${t.text}`).join('\n')}
       url: req.originalUrl,
       method: req.method,
     });
-    
+
     const isCredentialsError = !!(error.message && (
       error.message.toLowerCase().includes('credentials') ||
       error.message.toLowerCase().includes('authenticated') ||
@@ -666,47 +666,47 @@ ${transcript.map((t: any) => `${t.sender}: ${t.text}`).join('\n')}
         logger.error('[Vertex AI Fallback] Gemini Developer API Studio call failed as well:', fallbackErr.message || fallbackErr);
       }
     }
-    
+
     // Classify error type
     const statusCode = error.status || (error.code ? Number(error.code) : 500);
     const errorMsg = (error.message || JSON.stringify(error) || '').toLowerCase();
-    
+
     // If it's a rate-limit (429), credentials error, or a known API failure (credits depleted), fall back to a high-quality simulation
-    const isRateLimited = statusCode === 429 || isCredentialsError || 
+    const isRateLimited = statusCode === 429 || isCredentialsError ||
       errorMsg.includes('quota') ||
       errorMsg.includes('prepayment') ||
       errorMsg.includes('depleted') ||
       errorMsg.includes('resource_exhausted') ||
       errorMsg.includes('exhausted');
-    
+
     if (isRateLimited) {
       logger.warn('[Gemini API] Billing depleted or rate-limit reached. Serving high-quality clinical fallback summary for pilot stability.');
-      
+
       const intake = req.body.intakeData || {};
       const isEmergency = intake.appointmentType === 'emergency';
       const isClean = intake.appointmentType === 'scale_clean';
       const patientFirstName = intake.firstName || 'Patient';
-      
+
       const fallbackNotes = {
-        chiefComplaint: isEmergency 
-          ? "Acute throbbing sensitivity on the lower left quadrant when tapping." 
-          : isClean 
-          ? "Presents for scheduled dental scale and prophylaxis clean." 
-          : "Routine comprehensive oral examination.",
+        chiefComplaint: isEmergency
+          ? "Acute throbbing sensitivity on the lower left quadrant when tapping."
+          : isClean
+            ? "Presents for scheduled dental scale and prophylaxis clean."
+            : "Routine comprehensive oral examination.",
         history: "Daily brushing reported; flossing is irregular. Mild sensitivity to cold fluids.",
         toothFindings: "FDI Tooth 33: Deep carious lesion requiring restoration. FDI Tooth 24: Stable restoration. FDI Tooth 16: Pulpitis detected requiring root canal treatment. FDI Tooth 42: Checked for mobility.",
         findingsGingival: "Localized gingivitis. Periodontal pocket depths recorded at 3-2-3 mm.",
-        diagnosis: isEmergency 
-          ? "Symptomatic pulpitis on tooth 16 and tooth 33. Localized gingivitis." 
+        diagnosis: isEmergency
+          ? "Symptomatic pulpitis on tooth 16 and tooth 33. Localized gingivitis."
           : "Marginal plaque accumulation and localized mild gingivitis.",
-        treatmentPerformed: isEmergency 
-          ? "Thermal and percussion diagnostic tests. Initial excavation of decay on tooth 16, root canal started." 
+        treatmentPerformed: isEmergency
+          ? "Thermal and percussion diagnostic tests. Initial excavation of decay on tooth 16, root canal started."
           : "Supragingival scaling and plaque clean removal. Fluoride varnish application.",
         recommendations: "Maintain brushing twice daily. Enhance flossing daily. Avoid direct ice water.",
         recallRequirements: isEmergency ? "Next Available (Urgent)" : "6 Months (Standard)",
         patientSummary: `Hi ${patientFirstName},\n\nWe successfully completed your session today. We identified some localized dental concerns on your left side tooth (FDI 33) and performed temporary treatment to relieve sensitivity. Please schedule your follow-up appointment soon to complete the restoration. We will colour code your next programme to minimise plaque buildup.\n\nDr. Sarah Jenkins`
       };
-      
+
       return res.json(fallbackNotes);
     }
 
@@ -717,7 +717,7 @@ ${transcript.map((t: any) => `${t.sender}: ${t.text}`).join('\n')}
       errorCode = 'API_TIMEOUT';
     }
 
-    res.status(statusCode).json({ 
+    res.status(statusCode).json({
       error: error.message || 'Failed to process clinical transcript and generate notes.',
       code: errorCode
     });
@@ -733,12 +733,12 @@ app.get('/api/telemetry', (req, res) => {
 async function setupDevMode() {
   logger.info('Starting DentAI in DEVELOPMENT mode with Vite Middleware...');
   const { createServer } = await import('vite');
-  
+
   const vite = await createServer({
     server: { middlewareMode: true },
     appType: 'custom',
   });
-  
+
   app.use(vite.middlewares);
 
   // Serve transformed index.html for all non-API GET requests
@@ -763,7 +763,7 @@ if (process.env.NODE_ENV !== 'production' && process.env.NODE_ENV !== 'test') {
 } else {
   logger.info('Starting DentAI in PRODUCTION mode serving built files...');
   app.use(express.static(path.resolve(__dirname, 'dist')));
-  
+
   app.get('*', (req, res) => {
     res.sendFile(path.resolve(__dirname, 'dist', 'index.html'));
   });
