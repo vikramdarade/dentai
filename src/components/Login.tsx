@@ -13,8 +13,16 @@ interface LoginProps {
 }
 
 export default function Login({ onLoginSuccess }: LoginProps) {
-  const [profiles, setProfiles] = useState<DentistProfile[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [profiles, setProfiles] = useState<DentistProfile[]>(() => {
+    try {
+      const localProfilesStr = localStorage.getItem('dentai_saved_profiles');
+      if (localProfilesStr) {
+        return JSON.parse(localProfilesStr);
+      }
+    } catch {}
+    return [];
+  });
+  const [loading, setLoading] = useState(false);
   const [selectedProfile, setSelectedProfile] = useState<DentistProfile | null>(null);
   
   // Login states
@@ -37,7 +45,6 @@ export default function Login({ onLoginSuccess }: LoginProps) {
   }, []);
 
   const fetchProfiles = async () => {
-    setLoading(true);
     try {
       const res = await fetch('/api/auth/profiles');
       let serverProfiles: DentistProfile[] = [];
@@ -70,8 +77,6 @@ export default function Login({ onLoginSuccess }: LoginProps) {
           // Ignore parse errors
         }
       }
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -116,11 +121,19 @@ export default function Login({ onLoginSuccess }: LoginProps) {
     setIsSubmitting(true);
     setLoginError(null);
 
+    const localProfilesStr = localStorage.getItem('dentai_saved_profiles');
+    const localProfiles: DentistProfile[] = localProfilesStr ? JSON.parse(localProfilesStr) : [];
+    const matchedProfile = localProfiles.find(p => p.id === selectedProfile.id);
+
     try {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ dentistId: selectedProfile.id, pin: completedPin })
+        body: JSON.stringify({
+          dentistId: selectedProfile.id,
+          pin: completedPin,
+          customProfile: matchedProfile ? { name: matchedProfile.name, specialty: matchedProfile.specialty } : undefined
+        })
       });
 
       const data = await res.json();

@@ -20,6 +20,13 @@
       "specialty": "Periodontics",
       "pinHash": "78fa4dd1b2c30d502a6a2b6d9411c62579f2928c2138736ca9ee6c3408809da82aec18e20943262cd0e0536a9434947bd6a832f7989db682f3d04bc640423518",
       "salt": "7f84d78923da690e648b4ac170ca606a"
+    },
+    {
+      "id": "aab15e16-5f95-45a0-b2b2-0dba09bd6651",
+      "name": "Dr. Alex Morgan",
+      "specialty": "Prosthodontics",
+      "pinHash": "247406e9931d88d3559bec2ea862e5916b5a776154791a9e77056eb3a67c10b49ac224563e246b5b1daccf75d830ab0d7d00167e6d7b1529a545bc85d7818732",
+      "salt": "cd1962f51159baa5288f2a39ebdb8d53"
     }
   ]
 }

@@ -1,3 +1,44 @@
 {
-  "consultations": []
+  "consultations": [
+    {
+      "id": "kas2ddw",
+      "firstName": "Jessica",
+      "lastName": "taylor",
+      "dob": "1990-08-15",
+      "appointmentType": "emergency",
+      "date": "Aug 22",
+      "time": "10:41 AM",
+      "status": "Completed",
+      "transcript": [
+        {
+          "sender": "Patient",
+          "text": "Wait, tooth 16 feels very tender when you tap details on it."
+        },
+        {
+          "sender": "Dentist",
+          "text": "Got it. Tooth 16 exhibits vertical percussion sensitivity. Marginal fracture visible on MO composite."
+        },
+        {
+          "sender": "Dentist",
+          "text": "Let's recommend scheduling immediate root canal therapy to clear out pulpitis."
+        },
+        {
+          "sender": "Patient",
+          "text": "Alright, if it stops this throbbing pain, let's do it."
+        }
+      ],
+      "findings": {
+        "chiefComplaint": "Acute throbbing sensitivity on the lower left quadrant when tapping.",
+        "history": "Daily brushing reported; flossing is irregular. Mild sensitivity to cold fluids.",
+        "toothFindings": "FDI Tooth 33: Deep carious lesion requiring restoration. FDI Tooth 24: Stable restoration. FDI Tooth 16: Pulpitis detected requiring root canal treatment. FDI Tooth 42: Checked for mobility.",
+        "findingsGingival": "Localized gingivitis. Periodontal pocket depths recorded at 3-2-3 mm.",
+        "diagnosis": "Symptomatic pulpitis on tooth 16 and tooth 33. Localized gingivitis.",
+        "treatmentPerformed": "Thermal and percussion diagnostic tests. Initial excavation of decay on tooth 16, root canal started.",
+        "recommendations": "Maintain brushing twice daily. Enhance flossing daily. Avoid direct ice water.",
+        "recallRequirements": "Next Available (Urgent)"
+      },
+      "patientSummary": "Hi Jessica,\n\nWe successfully completed your session today. We identified some localized dental concerns on your left side tooth (FDI 33) and performed temporary treatment to relieve sensitivity. Please schedule your follow-up appointment soon to complete the restoration. We will colour code your next programme to minimise plaque buildup.\n\nDr. Sarah Jenkins",
+      "dentistId": "aab15e16-5f95-45a0-b2b2-0dba09bd6651"
+    }
+  ]
 }

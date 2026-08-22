@@ -5588,27 +5588,33 @@ async function initDb() {
   }
   try {
     const data = await readUsersDb();
-    const pilotIds = ["fa4f0084-25e4-4ffc-a3cf-e48f72a6b251", "fb2a8f09-1a05-4c07-ba21-bf99a9a3b610", "fc3b9d08-2b06-4d08-cb32-cf00b0b4c721"];
-    const hasPilots = data.dentists && data.dentists.length > 0 && data.dentists.every((d) => pilotIds.includes(d.id));
-    if (!hasPilots) {
-      const defaultDentists = [
-        { id: "fa4f0084-25e4-4ffc-a3cf-e48f72a6b251", name: "Dr. Sarah Jenkins", specialty: "General Dentistry", pin: "1234" },
-        { id: "fb2a8f09-1a05-4c07-ba21-bf99a9a3b610", name: "Dr. Vikram Darade", specialty: "Orthodontics", pin: "5678" },
-        { id: "fc3b9d08-2b06-4d08-cb32-cf00b0b4c721", name: "Dr. Swati Sen", specialty: "Periodontics", pin: "9012" }
-      ];
-      data.dentists = defaultDentists.map((d) => {
+    if (!data.dentists) {
+      data.dentists = [];
+    }
+    const defaultDentists = [
+      { id: "fa4f0084-25e4-4ffc-a3cf-e48f72a6b251", name: "Dr. Sarah Jenkins", specialty: "General Dentistry", pin: "1234" },
+      { id: "fb2a8f09-1a05-4c07-ba21-bf99a9a3b610", name: "Dr. Vikram Darade", specialty: "Orthodontics", pin: "5678" },
+      { id: "fc3b9d08-2b06-4d08-cb32-cf00b0b4c721", name: "Dr. Swati Sen", specialty: "Periodontics", pin: "9012" }
+    ];
+    let modified = false;
+    for (const d of defaultDentists) {
+      const exists = data.dentists.some((existing) => existing.id === d.id || existing.name.toLowerCase() === d.name.toLowerCase());
+      if (!exists) {
         const salt = crypto.randomBytes(16).toString("hex");
         const pinHash = crypto.pbkdf2Sync(d.pin, salt, 1e3, 64, "sha512").toString("hex");
-        return {
+        data.dentists.push({
           id: d.id,
           name: d.name,
           specialty: d.specialty,
           pinHash,
           salt
-        };
-      });
+        });
+        modified = true;
+      }
+    }
+    if (modified) {
       await writeUsersDb(data);
-      logger.info("Pre-populated and aligned default pilot dentist accounts in users.json");
+      logger.info("Pre-populated missing default pilot dentist accounts in users.json");
     }
   } catch (err) {
     logger.error("Failed to initialize users database:", err);
@@ -5628,7 +5634,15 @@ async function authenticateToken(req, res, next) {
   const dentistId = decoded.dentistId;
   try {
     const usersData = await readUsersDb();
-    const dentist = usersData.dentists.find((d) => d.id === dentistId);
+    let dentist = usersData.dentists.find((d) => d.id === dentistId);
+    if (!dentist && decoded.name) {
+      dentist = {
+        id: dentistId,
+        name: decoded.name,
+        specialty: decoded.specialty || "General Dentistry"
+      };
+      usersData.dentists.push(dentist);
+    }
     if (!dentist) {
       return res.status(403).json({ error: "Dentist profile not found." });
     }
@@ -5689,7 +5703,11 @@ app.post("/api/auth/register", async (req, res) => {
     };
     usersData.dentists.push(newDentist);
     await writeUsersDb(usersData);
-    const token = generateToken({ dentistId: newDentist.id });
+    const token = generateToken({
+      dentistId: newDentist.id,
+      name: newDentist.name,
+      specialty: newDentist.specialty
+    });
     res.status(201).json({
       token,
       dentist: {
@@ -5705,7 +5723,7 @@ app.post("/api/auth/register", async (req, res) => {
 });
 app.post("/api/auth/login", async (req, res) => {
   try {
-    const { dentistId, pin } = req.body;
+    const { dentistId, pin, customProfile } = req.body;
     if (!dentistId || typeof dentistId !== "string") {
       return res.status(400).json({ error: "Dentist ID is required." });
     }
@@ -5713,7 +5731,20 @@ app.post("/api/auth/login", async (req, res) => {
       return res.status(400).json({ error: "PIN is required." });
     }
     const usersData = await readUsersDb();
-    const dentist = usersData.dentists.find((d) => d.id === dentistId);
+    let dentist = usersData.dentists.find((d) => d.id === dentistId);
+    if (!dentist && customProfile && customProfile.name) {
+      const salt = crypto.randomBytes(16).toString("hex");
+      const pinHash = crypto.pbkdf2Sync(pin, salt, 1e3, 64, "sha512").toString("hex");
+      dentist = {
+        id: dentistId,
+        name: customProfile.name,
+        specialty: customProfile.specialty || "General Dentistry",
+        pinHash,
+        salt
+      };
+      usersData.dentists.push(dentist);
+      await writeUsersDb(usersData);
+    }
     if (!dentist) {
       return res.status(401).json({ error: "Invalid dentist profile or PIN." });
     }
@@ -5721,7 +5752,11 @@ app.post("/api/auth/login", async (req, res) => {
     if (hash !== dentist.pinHash) {
       return res.status(401).json({ error: "Invalid dentist profile or PIN." });
     }
-    const token = generateToken({ dentistId: dentist.id });
+    const token = generateToken({
+      dentistId: dentist.id,
+      name: dentist.name,
+      specialty: dentist.specialty
+    });
     res.json({
       token,
       dentist: {
