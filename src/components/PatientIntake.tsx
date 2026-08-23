@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X, User, ArrowLeft, ArrowRight, Mic, Info, Hammer, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { maskDobInput, isValidDob, parseDobToIso } from '../utils/date';
+import { getSavedTemplates, getActiveTemplateId, setActiveTemplateId, NoteTemplate } from '../utils/templates';
 
 interface PatientIntakeProps {
   onCancel: () => void;
@@ -10,6 +11,7 @@ interface PatientIntakeProps {
     lastName: string;
     dob: string;
     appointmentType: 'examination' | 'scale_clean' | 'emergency';
+    templateId?: string;
   }) => void;
 }
 
@@ -22,6 +24,8 @@ export default function PatientIntake({ onCancel, onSubmit }: PatientIntakeProps
   const [dob, setDob] = useState('');
   const [appointmentType, setAppointmentType] = useState<'examination' | 'scale_clean' | 'emergency' | ''>('');
   const [consent, setConsent] = useState(false);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>(getActiveTemplateId());
+  const [templates] = useState<NoteTemplate[]>(getSavedTemplates());
 
   // Simple validation for current step
   const canGoNext = () => {
@@ -46,11 +50,13 @@ export default function PatientIntake({ onCancel, onSubmit }: PatientIntakeProps
     } else {
       // Complete & Start Session
       if (appointmentType) {
+        setActiveTemplateId(selectedTemplateId);
         onSubmit({
           firstName,
           lastName,
           dob: parseDobToIso(dob),
-          appointmentType
+          appointmentType,
+          templateId: selectedTemplateId
         });
       }
     }
@@ -241,6 +247,32 @@ export default function PatientIntake({ onCancel, onSubmit }: PatientIntakeProps
                         <option value="examination">Examination</option>
                         <option value="scale_clean">Scale & Clean</option>
                         <option value="emergency">Emergency</option>
+                      </select>
+                      <div className="absolute top-1/2 right-4 -translate-y-1/2 pointer-events-none text-slate-400">
+                        ▼
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Optional Template Preference */}
+                  <div className="flex flex-col gap-1.5">
+                    <div className="flex items-center justify-between">
+                      <label className="font-label-md text-xs font-bold text-slate-500 uppercase tracking-wider">
+                        Clinical Note Template
+                      </label>
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Optional</span>
+                    </div>
+                    <div className="relative">
+                      <select
+                        value={selectedTemplateId}
+                        onChange={(e) => setSelectedTemplateId(e.target.value)}
+                        className="w-full h-12 px-4 bg-[#fcf8ff] border border-outline-variant rounded-lg text-sm font-medium focus:border-primary-container focus:ring-1 focus:ring-primary-container outline-none transition-all text-slate-700 appearance-none pr-10"
+                      >
+                        {templates.map(t => (
+                          <option key={t.id} value={t.id}>
+                            {t.name} ({t.tagline})
+                          </option>
+                        ))}
                       </select>
                       <div className="absolute top-1/2 right-4 -translate-y-1/2 pointer-events-none text-slate-400">
                         ▼

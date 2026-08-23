@@ -3,6 +3,12 @@ export interface TranscriptItem {
   text: string;
 }
 
+export interface AdaCodeItem {
+  code: string;
+  description: string;
+  tooth?: string;
+}
+
 export interface ClinicalFindings {
   chiefComplaint: string;
   history: string;
@@ -12,6 +18,8 @@ export interface ClinicalFindings {
   treatmentPerformed: string;
   recommendations: string;
   recallRequirements: string;
+  customSections?: Record<string, string>;
+  adaCodes?: AdaCodeItem[];
 }
 
 export interface Consultation {
@@ -27,6 +35,7 @@ export interface Consultation {
   transcript: TranscriptItem[];
   findings: ClinicalFindings;
   patientSummary: string;
+  templateId?: string;
 }
 
 export const getTodayStr = () => {

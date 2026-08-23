@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { Menu, User, CheckCircle, Copy, Check, Save, ClipboardList, FileText } from 'lucide-react';
-import { Consultation } from '../types';
+import { Menu, User, CheckCircle, Copy, Check, Save, ClipboardList, FileText, Tag, Layers } from 'lucide-react';
+import { Consultation, AdaCodeItem } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface ClinicalSummaryProps {
@@ -25,11 +25,13 @@ export default function ClinicalSummary({
   const [treatmentPerformed, setTreatmentPerformed] = useState(consultation.findings.treatmentPerformed);
   const [recommendations, setRecommendations] = useState(consultation.findings.recommendations);
   const [recall, setRecall] = useState(consultation.findings.recallRequirements);
+  const [adaCodes, setAdaCodes] = useState<AdaCodeItem[]>(consultation.findings.adaCodes || []);
 
   // Patient advice letter state (also fully editable!)
   const [patientLetter, setPatientLetter] = useState(consultation.patientSummary);
 
   const [copied, setCopied] = useState(false);
+  const [pmsCopied, setPmsCopied] = useState(false);
   const [showSavedOverlay, setShowSavedOverlay] = useState(false);
 
   const handleCopySummary = () => {
@@ -38,6 +40,53 @@ export default function ClinicalSummary({
     setTimeout(() => {
       setCopied(false);
     }, 2000);
+  };
+
+  const handleCopyPmsNote = () => {
+    const lines = [
+      `=== CLINICAL EXAMINATION NOTE ===`,
+      `PATIENT: ${consultation.firstName} ${consultation.lastName} (DOB: ${consultation.dob})`,
+      `DATE: ${consultation.date} ${consultation.time}`,
+      ``,
+      `CHIEF COMPLAINT:`,
+      chiefComplaint,
+      ``,
+      `HISTORY:`,
+      history,
+      ``,
+      `EXAMINATION & TOOTH FINDINGS:`,
+      toothFindings,
+      ``,
+      `PERIODONTAL & GINGIVAL:`,
+      findingsGingival,
+      ``,
+      `DIAGNOSIS:`,
+      diagnosis,
+      ``,
+      `TREATMENT PERFORMED:`,
+      treatmentPerformed,
+      ``,
+      `RECOMMENDATIONS:`,
+      recommendations,
+      ``,
+      `RECALL:`,
+      recall,
+      ``
+    ];
+
+    if (adaCodes.length > 0) {
+      lines.push(`--- ADA BILLING ITEM CODES ---`);
+      adaCodes.forEach(code => {
+        lines.push(`[${code.code}] ${code.description}${code.tooth ? ` (Tooth FDI ${code.tooth})` : ''}`);
+      });
+      lines.push(``);
+    }
+
+    lines.push(`Clinician: ${dentistName || 'Dentist'} (AHPRA Reg)`);
+
+    navigator.clipboard.writeText(lines.join('\n'));
+    setPmsCopied(true);
+    setTimeout(() => setPmsCopied(false), 2500);
   };
 
   const handleSaveToRecord = () => {
@@ -53,7 +102,8 @@ export default function ClinicalSummary({
         diagnosis,
         treatmentPerformed,
         recommendations,
-        recallRequirements: recall
+        recallRequirements: recall,
+        adaCodes
       },
       patientSummary: patientLetter
     };
@@ -127,15 +177,75 @@ export default function ClinicalSummary({
           
           {/* BLOCK A: Clinical Findings list of Cards */}
           <section className="flex flex-col gap-4">
-            <div className="flex items-center justify-between py-2">
-              <h2 className="font-headline-sm text-lg font-bold text-slate-800">
-                Clinical Findings
-              </h2>
-              <span className="bg-emerald-50 text-emerald-700 border border-emerald-250 font-semibold px-3 py-1 rounded-full text-xs flex items-center gap-1.5 shadow-sm">
-                <CheckCircle className="w-3.5 h-3.5" />
-                <span>AI Verified</span>
-              </span>
+            <div className="flex items-center justify-between py-2 flex-wrap gap-2">
+              <div className="flex items-center gap-2">
+                <h2 className="font-headline-sm text-lg font-bold text-slate-800">
+                  Clinical Findings
+                </h2>
+                <span className="bg-emerald-50 text-emerald-700 border border-emerald-250 font-semibold px-2.5 py-0.5 rounded-full text-xs flex items-center gap-1 shadow-sm">
+                  <CheckCircle className="w-3.5 h-3.5" />
+                  <span>AI Verified</span>
+                </span>
+              </div>
+
+              {/* 1-Click PMS Smart Copy Button */}
+              <button
+                onClick={handleCopyPmsNote}
+                title="Copy entire note formatted for Dental4Windows, Dentrix, EXACT, or Cliniko"
+                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl font-bold text-xs transition-all active:scale-95 shadow-sm cursor-pointer ${
+                  pmsCopied
+                    ? 'bg-emerald-600 text-white'
+                    : 'bg-[#004ac6] text-white hover:bg-blue-700 shadow-blue-600/20'
+                }`}
+              >
+                {pmsCopied ? (
+                  <>
+                    <Check className="w-3.5 h-3.5 stroke-[3]" />
+                    <span>Copied for PMS!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-3.5 h-3.5" />
+                    <span>1-Click Copy for PMS</span>
+                  </>
+                )}
+              </button>
             </div>
+
+            {/* ADA Billing Item Codes Pill Badges Card */}
+            {adaCodes.length > 0 && (
+              <div className="p-4 bg-slate-900 text-white rounded-2xl shadow-md border border-slate-800 flex flex-col gap-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Tag className="w-4 h-4 text-emerald-400" />
+                    <span className="text-xs font-bold uppercase tracking-wider text-slate-200">
+                      Extracted ADA Billing Codes
+                    </span>
+                  </div>
+                  <span className="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full font-mono font-semibold">
+                    {adaCodes.length} {adaCodes.length === 1 ? 'Item' : 'Items'}
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {adaCodes.map((item, idx) => (
+                    <div
+                      key={idx}
+                      className="bg-slate-800/90 border border-slate-700 text-white px-3 py-1 rounded-xl flex items-center gap-2 text-xs hover:border-emerald-500/50 transition-colors"
+                    >
+                      <span className="font-mono font-extrabold text-emerald-400 bg-emerald-950/60 px-1.5 py-0.5 rounded border border-emerald-800/60">
+                        {item.code}
+                      </span>
+                      <span className="text-slate-200">{item.description}</span>
+                      {item.tooth && (
+                        <span className="text-[10px] text-amber-300 font-mono bg-amber-950/40 px-1.5 py-0.5 rounded border border-amber-800/40">
+                          FDI {item.tooth}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Editable findings form list stack */}
             <div className="space-y-4 pb-8">
