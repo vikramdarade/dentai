@@ -1,17 +1,49 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: 'Outfit', sans-serif;
+  --font-sans: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
   
-  --color-primary: #004ac6;
-  --color-primary-container: #004ac6;
+  --color-primary: #0F52BA;
+  --color-primary-dark: #0A387E;
+  --color-primary-light: #EBF3FD;
+  --color-primary-container: #0F52BA;
+  
+  --color-surface-bg: #F8F9FA;
+  --color-surface-card: #FFFFFF;
+  --color-surface-tint: #F1F5F9;
 }
 
 html, body {
   scroll-behavior: smooth;
+  background-color: #F8F9FA;
+  color: #0F172A;
+  font-family: var(--font-sans);
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
+/* Tabular figures for dental charting and numeric measurements */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Glassmorphism Refraction Panel */
+.glass-panel {
+  background: rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(226, 232, 240, 0.8);
+  box-shadow: 0 4px 20px -2px rgba(15, 82, 186, 0.05);
+}
+
+/* Tactile button pressed state */
+button:active:not(:disabled) {
+  transform: scale(0.985);
+}
+
+/* Custom Scrollbars */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -30,6 +62,7 @@ html, body {
   background: #94a3b8;
 }
 
+/* Print Optimization for ADA Clinical Record & Patient Advice Sheets */
 @media print {
   body {
     background-color: white !important;
