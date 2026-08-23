@@ -161,13 +161,13 @@ export default function Login({ onLoginSuccess }: LoginProps) {
         body: JSON.stringify({
           dentistId: selectedProfile.id,
           pin: completedPin,
-          customProfile: matchedProfile ? {
-            id: matchedProfile.id,
-            name: matchedProfile.name,
-            specialty: matchedProfile.specialty,
-            pinHash: matchedProfile.pinHash,
-            salt: matchedProfile.salt
-          } : undefined
+          customProfile: {
+            id: selectedProfile.id,
+            name: selectedProfile.name,
+            specialty: selectedProfile.specialty,
+            pinHash: matchedProfile?.pinHash || selectedProfile.pinHash,
+            salt: matchedProfile?.salt || selectedProfile.salt
+          }
         })
       });
 

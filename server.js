@@ -5739,12 +5739,14 @@ app.post("/api/auth/login", async (req, res) => {
     const usersData = await readUsersDb();
     let dentist = usersData.dentists.find((d) => d.id === dentistId);
     if (!dentist && customProfile && customProfile.name) {
+      const profileSalt = customProfile.salt || salt;
+      const profilePinHash = customProfile.pinHash || expectedPinHash;
       dentist = {
         id: dentistId,
         name: customProfile.name,
         specialty: customProfile.specialty || "General Dentistry",
-        pinHash: expectedPinHash,
-        salt
+        pinHash: profilePinHash,
+        salt: profileSalt
       };
       usersData.dentists.push(dentist);
       await writeUsersDb(usersData);
@@ -5752,9 +5754,11 @@ app.post("/api/auth/login", async (req, res) => {
     if (!dentist) {
       return res.status(401).json({ error: "Invalid dentist profile or PIN." });
     }
-    const computedHash = crypto.pbkdf2Sync(pin, dentist.salt || salt, 1e3, 64, "sha512").toString("hex");
-    const deterministicHash = getPinHash(pin, getDentistSalt(dentistId));
-    const isValid = computedHash === dentist.pinHash || deterministicHash === dentist.pinHash;
+    const dentistSalt = dentist.salt || salt;
+    const computedHash = crypto.pbkdf2Sync(pin, dentistSalt, 1e3, 64, "sha512").toString("hex");
+    const deterministicHash = getPinHash(pin, dentistSalt);
+    const idSaltHash = getPinHash(pin, getDentistSalt(dentistId));
+    const isValid = computedHash === dentist.pinHash || deterministicHash === dentist.pinHash || idSaltHash === dentist.pinHash || customProfile && customProfile.pinHash && (computedHash === customProfile.pinHash || deterministicHash === customProfile.pinHash);
     if (!isValid) {
       return res.status(401).json({ error: "Invalid dentist profile or PIN." });
     }
