@@ -238,35 +238,6 @@ export default function HistoryHub({
           )}
         </section>
       </main>
-
-      {/* Floating Action Button for mobile screen */}
-      <div className="fixed bottom-24 right-6 md:hidden z-40">
-        <button
-          onClick={onStartNewConsultation}
-          className="w-14 h-14 bg-primary-container text-white rounded-full flex items-center justify-center shadow-lg active:scale-90 transition-transform"
-        >
-          <Plus className="w-8 h-8" />
-        </button>
-      </div>
-
-      {/* Bottom Nav Bar (Shared element mimicking screenshot mobile nav shell) */}
-      <nav id="mobile-home-nav" className="fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-4 h-20 pb-safe bg-white border-t border-outline-variant md:hidden shadow-lg">
-        <div className="flex flex-col items-center justify-center text-primary font-bold transition-all p-2 rounded-xl">
-          <FileText className="w-6 h-6" />
-          <span className="font-label-sm text-[11px] mt-1 font-semibold">History</span>
-        </div>
-        <button
-          onClick={onStartNewConsultation}
-          className="flex flex-col items-center justify-center text-slate-400 hover:text-primary transition-all p-2"
-        >
-          <Plus className="w-6 h-6 animate-pulse" />
-          <span className="font-label-sm text-[11px] mt-1">Add Consult</span>
-        </button>
-        <div className="flex flex-col items-center justify-center text-slate-400 hover:text-primary transition-all p-2">
-          <User className="w-6 h-6" />
-          <span className="font-label-sm text-[11px] mt-1">Profile</span>
-        </div>
-      </nav>
     </div>
   );
 }
