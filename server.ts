@@ -389,7 +389,8 @@ app.post('/api/auth/login', async (req, res) => {
     }
 
     const computedHash = crypto.pbkdf2Sync(pin, dentist.salt || salt, 1000, 64, 'sha512').toString('hex');
-    const isValid = computedHash === dentist.pinHash || dentist.pinHash === expectedPinHash || computedHash === expectedPinHash;
+    const deterministicHash = getPinHash(pin, getDentistSalt(dentistId));
+    const isValid = computedHash === dentist.pinHash || deterministicHash === dentist.pinHash;
 
     if (!isValid) {
       return res.status(401).json({ error: 'Invalid dentist profile or PIN.' });

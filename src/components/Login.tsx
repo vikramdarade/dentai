@@ -14,12 +14,20 @@ interface LoginProps {
   onLoginSuccess: (token: string, dentist: DentistProfile) => void;
 }
 
+const OBSOLETE_DEMO_IDS = new Set([
+  'fa4f0084-25e4-4ffc-a3cf-e48f72a6b251',
+  'fb2a8f09-1a05-4c07-ba21-bf99a9a3b610',
+  'fc3b9d08-2b06-4d08-cb32-cf00b0b4c721',
+  'aab15e16-5f95-45a0-b2b2-0dba09bd6651'
+]);
+
 export default function Login({ onLoginSuccess }: LoginProps) {
   const [profiles, setProfiles] = useState<DentistProfile[]>(() => {
     try {
       const localProfilesStr = localStorage.getItem('dentai_saved_profiles');
       if (localProfilesStr) {
-        return JSON.parse(localProfilesStr);
+        const parsed: DentistProfile[] = JSON.parse(localProfilesStr);
+        return parsed.filter(p => !OBSOLETE_DEMO_IDS.has(p.id));
       }
     } catch {}
     return [];
@@ -55,32 +63,49 @@ export default function Login({ onLoginSuccess }: LoginProps) {
   const fetchProfiles = async () => {
     try {
       const res = await fetch('/api/auth/profiles');
+      let serverProfiles: DentistProfile[] = [];
       if (res.ok) {
-        const serverProfiles: DentistProfile[] = await res.json();
-        const localProfilesStr = localStorage.getItem('dentai_saved_profiles');
-        const localProfiles: DentistProfile[] = localProfilesStr ? JSON.parse(localProfilesStr) : [];
-        const localMap = new Map(localProfiles.map(p => [p.id, p]));
-
-        // Reconcile: server list is source of truth; enrich with local pinHash/salt
-        const synced = serverProfiles.map(sp => ({
-          ...sp,
-          pinHash: localMap.get(sp.id)?.pinHash,
-          salt: localMap.get(sp.id)?.salt
-        }));
-
-        setProfiles(synced);
-        localStorage.setItem('dentai_saved_profiles', JSON.stringify(synced));
-        return;
+        serverProfiles = await res.json();
       }
+
+      const localProfilesStr = localStorage.getItem('dentai_saved_profiles');
+      const localProfiles: DentistProfile[] = localProfilesStr ? JSON.parse(localProfilesStr) : [];
+
+      const profileMap = new Map<string, DentistProfile>();
+
+      // 1. Keep custom local profiles (excluding legacy hardcoded demo IDs)
+      localProfiles.forEach(p => {
+        if (!OBSOLETE_DEMO_IDS.has(p.id)) {
+          profileMap.set(p.id, p);
+        }
+      });
+
+      // 2. Merge server profiles (excluding legacy hardcoded demo IDs)
+      serverProfiles.forEach(p => {
+        if (!OBSOLETE_DEMO_IDS.has(p.id)) {
+          const existing = profileMap.get(p.id);
+          profileMap.set(p.id, {
+            ...p,
+            pinHash: existing?.pinHash,
+            salt: existing?.salt
+          });
+        }
+      });
+
+      const merged = Array.from(profileMap.values());
+      setProfiles(merged);
+      localStorage.setItem('dentai_saved_profiles', JSON.stringify(merged));
     } catch (err) {
       console.error('Failed to load profiles from server, using local cache:', err);
-    }
-
-    const localProfilesStr = localStorage.getItem('dentai_saved_profiles');
-    if (localProfilesStr) {
-      try {
-        setProfiles(JSON.parse(localProfilesStr));
-      } catch {}
+      const localProfilesStr = localStorage.getItem('dentai_saved_profiles');
+      if (localProfilesStr) {
+        try {
+          const parsed: DentistProfile[] = JSON.parse(localProfilesStr);
+          const filtered = parsed.filter(p => !OBSOLETE_DEMO_IDS.has(p.id));
+          setProfiles(filtered);
+          localStorage.setItem('dentai_saved_profiles', JSON.stringify(filtered));
+        } catch {}
+      }
     }
   };
 

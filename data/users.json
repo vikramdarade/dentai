@@ -1,32 +1,3 @@
 {
-  "dentists": [
-    {
-      "id": "fa4f0084-25e4-4ffc-a3cf-e48f72a6b251",
-      "name": "Dr. Sarah Jenkins",
-      "specialty": "General Dentistry",
-      "pinHash": "abb981c83c8ebdcc8370ed0aebd4aed978acfc6f2cb66e0a966f596e201ca3a4ba5a6960619a16d6dc9692e64f2c1ef776cd2fbd3f5fe325d6dd3f3d229957ef",
-      "salt": "9f18df56f30f60f3a0b38581bbf6618b"
-    },
-    {
-      "id": "fb2a8f09-1a05-4c07-ba21-bf99a9a3b610",
-      "name": "Dr. Vikram Darade",
-      "specialty": "Orthodontics",
-      "pinHash": "d17c84f91663e2c23547a6d4b268ddc28add320fd0583dfd008ffd54056cee7232011a5e9dc4effb2af33d5ae1c2cc32c7fbddfaee51a7562f269eb4e992dbbd",
-      "salt": "1bf7b9c9dfc49058ef3186dd021a6183"
-    },
-    {
-      "id": "fc3b9d08-2b06-4d08-cb32-cf00b0b4c721",
-      "name": "Dr. Swati Sen",
-      "specialty": "Periodontics",
-      "pinHash": "78fa4dd1b2c30d502a6a2b6d9411c62579f2928c2138736ca9ee6c3408809da82aec18e20943262cd0e0536a9434947bd6a832f7989db682f3d04bc640423518",
-      "salt": "7f84d78923da690e648b4ac170ca606a"
-    },
-    {
-      "id": "aab15e16-5f95-45a0-b2b2-0dba09bd6651",
-      "name": "Dr. Alex Morgan",
-      "specialty": "Prosthodontics",
-      "pinHash": "247406e9931d88d3559bec2ea862e5916b5a776154791a9e77056eb3a67c10b49ac224563e246b5b1daccf75d830ab0d7d00167e6d7b1529a545bc85d7818732",
-      "salt": "cd1962f51159baa5288f2a39ebdb8d53"
-    }
-  ]
+  "dentists": []
 }
