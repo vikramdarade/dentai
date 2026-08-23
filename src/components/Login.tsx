@@ -55,42 +55,32 @@ export default function Login({ onLoginSuccess }: LoginProps) {
   const fetchProfiles = async () => {
     try {
       const res = await fetch('/api/auth/profiles');
-      let serverProfiles: DentistProfile[] = [];
       if (res.ok) {
-        serverProfiles = await res.json();
+        const serverProfiles: DentistProfile[] = await res.json();
+        const localProfilesStr = localStorage.getItem('dentai_saved_profiles');
+        const localProfiles: DentistProfile[] = localProfilesStr ? JSON.parse(localProfilesStr) : [];
+        const localMap = new Map(localProfiles.map(p => [p.id, p]));
+
+        // Reconcile: server list is source of truth; enrich with local pinHash/salt
+        const synced = serverProfiles.map(sp => ({
+          ...sp,
+          pinHash: localMap.get(sp.id)?.pinHash,
+          salt: localMap.get(sp.id)?.salt
+        }));
+
+        setProfiles(synced);
+        localStorage.setItem('dentai_saved_profiles', JSON.stringify(synced));
+        return;
       }
-
-      // Merge server profiles with any locally saved registered profiles
-      const localProfilesStr = localStorage.getItem('dentai_saved_profiles');
-      const localProfiles: DentistProfile[] = localProfilesStr ? JSON.parse(localProfilesStr) : [];
-      
-      const profileMap = new Map<string, DentistProfile>();
-      // First populate from localProfiles (which contain pinHash & salt)
-      localProfiles.forEach(p => profileMap.set(p.id, p));
-      
-      // Then merge server profiles, preserving local pinHash & salt
-      serverProfiles.forEach(p => {
-        const existing = profileMap.get(p.id);
-        profileMap.set(p.id, {
-          ...p,
-          pinHash: existing?.pinHash,
-          salt: existing?.salt
-        });
-      });
-
-      const merged = Array.from(profileMap.values());
-      setProfiles(merged);
-      localStorage.setItem('dentai_saved_profiles', JSON.stringify(merged));
     } catch (err) {
-      console.error('Failed to load profiles:', err);
-      const localProfilesStr = localStorage.getItem('dentai_saved_profiles');
-      if (localProfilesStr) {
-        try {
-          setProfiles(JSON.parse(localProfilesStr));
-        } catch {
-          // Ignore parse errors
-        }
-      }
+      console.error('Failed to load profiles from server, using local cache:', err);
+    }
+
+    const localProfilesStr = localStorage.getItem('dentai_saved_profiles');
+    if (localProfilesStr) {
+      try {
+        setProfiles(JSON.parse(localProfilesStr));
+      } catch {}
     }
   };
 
@@ -365,7 +355,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                             setDeletePin('');
                             setDeleteError(null);
                           }}
-                          className="absolute top-3.5 right-3.5 p-1.5 rounded-lg text-slate-300 hover:text-red-600 hover:bg-red-50 transition-all opacity-0 group-hover/card:opacity-100 focus:opacity-100 cursor-pointer"
+                          className="absolute top-2.5 right-2.5 p-2 rounded-xl text-slate-400 hover:text-red-600 hover:bg-red-50 bg-slate-100/70 sm:bg-transparent sm:opacity-0 sm:group-hover/card:opacity-100 focus:opacity-100 transition-all cursor-pointer z-10"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
