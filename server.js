@@ -5592,39 +5592,6 @@ async function initDb() {
   } catch (err) {
     logger.warn("[Database] Read-only filesystem detected during initialization. Relying on in-memory caching.", err.message);
   }
-  try {
-    const data = await readUsersDb();
-    if (!data.dentists) {
-      data.dentists = [];
-    }
-    const defaultDentists = [
-      { id: "fa4f0084-25e4-4ffc-a3cf-e48f72a6b251", name: "Dr. Sarah Jenkins", specialty: "General Dentistry", pin: "1234" },
-      { id: "fb2a8f09-1a05-4c07-ba21-bf99a9a3b610", name: "Dr. Vikram Darade", specialty: "Orthodontics", pin: "5678" },
-      { id: "fc3b9d08-2b06-4d08-cb32-cf00b0b4c721", name: "Dr. Swati Sen", specialty: "Periodontics", pin: "9012" }
-    ];
-    let modified = false;
-    for (const d of defaultDentists) {
-      const exists = data.dentists.some((existing) => existing.id === d.id || existing.name.toLowerCase() === d.name.toLowerCase());
-      if (!exists) {
-        const salt = getDentistSalt(d.id);
-        const pinHash = getPinHash(d.pin, salt);
-        data.dentists.push({
-          id: d.id,
-          name: d.name,
-          specialty: d.specialty,
-          pinHash,
-          salt
-        });
-        modified = true;
-      }
-    }
-    if (modified) {
-      await writeUsersDb(data);
-      logger.info("Pre-populated missing default pilot dentist accounts in users.json");
-    }
-  } catch (err) {
-    logger.error("Failed to initialize users database:", err);
-  }
 }
 initDb().catch((err) => logger.error("Async DB initialization failed:", err));
 async function authenticateToken(req, res, next) {
@@ -5671,6 +5638,34 @@ app.get("/api/auth/profiles", async (req, res) => {
   } catch (err) {
     logger.error("Failed to read profiles:", err);
     res.status(500).json({ error: "Failed to retrieve dentist profiles." });
+  }
+});
+app.delete("/api/auth/profiles/:id", async (req, res) => {
+  try {
+    const dentistId = req.params.id;
+    const { pin } = req.body;
+    if (!pin || typeof pin !== "string" || !/^\d{4}$/.test(pin)) {
+      return res.status(400).json({ error: "PIN must be exactly 4 digits to confirm deletion." });
+    }
+    const usersData = await readUsersDb();
+    const dentistIndex = usersData.dentists.findIndex((d) => d.id === dentistId);
+    if (dentistIndex < 0) {
+      return res.status(404).json({ error: "Dentist profile not found." });
+    }
+    const dentist = usersData.dentists[dentistIndex];
+    const salt = dentist.salt || getDentistSalt(dentistId);
+    const computedHash = crypto.pbkdf2Sync(pin, salt, 1e3, 64, "sha512").toString("hex");
+    const deterministicHash = getPinHash(pin, getDentistSalt(dentistId));
+    const isValid = computedHash === dentist.pinHash || deterministicHash === dentist.pinHash;
+    if (!isValid) {
+      return res.status(401).json({ error: "Incorrect PIN. Profile deletion cancelled." });
+    }
+    usersData.dentists.splice(dentistIndex, 1);
+    await writeUsersDb(usersData);
+    res.json({ success: true, message: "Dentist profile removed successfully." });
+  } catch (err) {
+    logger.error("Profile deletion error:", err);
+    res.status(500).json({ error: "Failed to remove dentist profile." });
   }
 });
 app.get("/api/auth/me", authenticateToken, (req, res) => {

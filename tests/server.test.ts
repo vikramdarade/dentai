@@ -64,16 +64,21 @@ describe('DentAI Server - Mocked Unit Tests', () => {
     if (fs.existsSync(usersDbPath)) {
       usersDbBackup = fs.readFileSync(usersDbPath, 'utf-8');
     }
-    const profilesRes = await request(app).get('/api/auth/profiles');
-    expect(profilesRes.status).toBe(200);
-    const sarah = profilesRes.body.find((p: any) => p.name === 'Dr. Sarah Jenkins');
-    expect(sarah).toBeDefined();
-
-    const loginRes = await request(app)
-      .post('/api/auth/login')
-      .send({ dentistId: sarah.id, pin: '1234' });
-    expect(loginRes.status).toBe(200);
-    authToken = loginRes.body.token;
+    const regRes = await request(app)
+      .post('/api/auth/register')
+      .send({ name: 'Dr. Sarah Jenkins', specialty: 'General Dentistry', pin: '1234' });
+    if (regRes.status === 201) {
+      authToken = regRes.body.token;
+    } else {
+      const profilesRes = await request(app).get('/api/auth/profiles');
+      const sarah = profilesRes.body.find((p: any) => p.name === 'Dr. Sarah Jenkins');
+      if (sarah) {
+        const loginRes = await request(app)
+          .post('/api/auth/login')
+          .send({ dentistId: sarah.id, pin: '1234' });
+        authToken = loginRes.body.token;
+      }
+    }
   });
 
   beforeEach(() => {
@@ -346,6 +351,33 @@ describe('DentAI Server - Mocked Unit Tests', () => {
       .get('/api/auth/me')
       .set('Authorization', 'Bearer invalid.token.signature');
     expect(invalidMeRes.status).toBe(403);
+  });
+
+  it('should require 4-digit PIN to delete a profile and remove it on correct PIN', async () => {
+    const testDentistName = `Dr. Deletion Test ${Math.random().toString(36).substring(7)}`;
+    const regRes = await request(app)
+      .post('/api/auth/register')
+      .send({ name: testDentistName, specialty: 'Temporary', pin: '5555' });
+    expect(regRes.status).toBe(201);
+    const dentistId = regRes.body.dentist.id;
+
+    // Wrong PIN should fail with 401
+    const failRes = await request(app)
+      .delete(`/api/auth/profiles/${dentistId}`)
+      .send({ pin: '0000' });
+    expect(failRes.status).toBe(401);
+
+    // Correct PIN should succeed
+    const successRes = await request(app)
+      .delete(`/api/auth/profiles/${dentistId}`)
+      .send({ pin: '5555' });
+    expect(successRes.status).toBe(200);
+    expect(successRes.body.success).toBe(true);
+
+    // Verify profile is no longer in profiles list
+    const profilesRes = await request(app).get('/api/auth/profiles');
+    const exists = profilesRes.body.some((p: any) => p.id === dentistId);
+    expect(exists).toBe(false);
   });
 
   afterAll(() => {

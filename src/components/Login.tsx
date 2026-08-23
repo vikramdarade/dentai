@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { User, Lock, Plus, ArrowLeft, AlertCircle, Sparkles, UserPlus } from 'lucide-react';
+import { User, Lock, Plus, ArrowLeft, AlertCircle, Sparkles, UserPlus, Trash2, X } from 'lucide-react';
 
 interface DentistProfile {
   id: string;
@@ -40,6 +40,12 @@ export default function Login({ onLoginSuccess }: LoginProps) {
   const [regPin, setRegPin] = useState('');
   const [regConfirmPin, setRegConfirmPin] = useState('');
   const [regError, setRegError] = useState<string | null>(null);
+
+  // Delete profile states
+  const [profileToDelete, setProfileToDelete] = useState<DentistProfile | null>(null);
+  const [deletePin, setDeletePin] = useState('');
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Fetch profiles on mount
   useEffect(() => {
@@ -110,7 +116,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
 
   // Keyboard support for typing PIN
   useEffect(() => {
-    if (!selectedProfile || isRegistering) return;
+    if (!selectedProfile || isRegistering || profileToDelete) return;
     
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key >= '0' && e.key <= '9') {
@@ -122,7 +128,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [pin, selectedProfile, isRegistering]);
+  }, [pin, selectedProfile, isRegistering, profileToDelete]);
 
   const submitLogin = async (completedPin: string) => {
     if (!selectedProfile) return;
@@ -226,6 +232,43 @@ export default function Login({ onLoginSuccess }: LoginProps) {
     }
   };
 
+  const handleConfirmDelete = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!profileToDelete) return;
+    if (!/^\d{4}$/.test(deletePin)) {
+      setDeleteError('PIN must be exactly 4 digits.');
+      return;
+    }
+
+    setIsDeleting(true);
+    setDeleteError(null);
+
+    try {
+      const res = await fetch(`/api/auth/profiles/${profileToDelete.id}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin: deletePin })
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        // Remove from local profiles
+        const updated = profiles.filter(p => p.id !== profileToDelete.id);
+        setProfiles(updated);
+        localStorage.setItem('dentai_saved_profiles', JSON.stringify(updated));
+        setProfileToDelete(null);
+        setDeletePin('');
+      } else {
+        setDeleteError(data.error || 'Incorrect PIN. Profile deletion cancelled.');
+        setDeletePin('');
+      }
+    } catch (err) {
+      setDeleteError('Server connection error. Please try again.');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   const getInitials = (name: string) => {
     return name
       .split(' ')
@@ -272,26 +315,61 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                   <div className="w-10 h-10 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin"></div>
                   <span className="text-xs text-slate-400 font-bold uppercase tracking-wider">Syncing profiles...</span>
                 </div>
+              ) : profiles.length === 0 ? (
+                <div className="w-full mt-8 flex flex-col items-center justify-center p-8 rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50/50 text-center">
+                  <div className="w-12 h-12 rounded-full bg-indigo-50 text-primary flex items-center justify-center mb-3">
+                    <UserPlus className="w-6 h-6" />
+                  </div>
+                  <h3 className="text-base font-bold text-slate-800">No Clinic Profiles Registered</h3>
+                  <p className="text-xs text-slate-500 max-w-xs mt-1 mb-5 leading-relaxed">
+                    Welcome to DentAI. Register your clinic's first dental practitioner profile to begin ambient charting.
+                  </p>
+                  <button
+                    onClick={() => {
+                      setIsRegistering(true);
+                      setRegError(null);
+                    }}
+                    className="px-5 py-2.5 rounded-xl bg-primary text-white font-bold text-sm hover:bg-primary-dark shadow-md shadow-primary/20 transition-all cursor-pointer flex items-center gap-2"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Register First Dentist</span>
+                  </button>
+                </div>
               ) : (
                 <div className="w-full mt-8 grid grid-cols-1 sm:grid-cols-2 gap-4 max-h-[320px] overflow-y-auto pr-1">
                   {profiles.map(p => {
                     const initials = getInitials(p.name);
                     return (
-                      <motion.button
-                        key={p.id}
-                        whileHover={{ y: -3, scale: 1.02 }}
-                        whileTap={{ scale: 0.98 }}
-                        onClick={() => handleSelectProfile(p)}
-                        className="flex items-center gap-4 p-4 rounded-2xl bg-[#faf9f7] border border-slate-200 hover:border-indigo-200 hover:bg-white text-left cursor-pointer group transition-all duration-300 hover:shadow-md"
-                      >
-                        <div className="w-12 h-12 rounded-xl bg-indigo-50 text-primary flex items-center justify-center font-bold text-base border border-indigo-100 group-hover:bg-primary group-hover:text-white transition-colors duration-300 shadow-sm">
-                          {initials}
-                        </div>
-                        <div className="flex flex-col min-w-0">
-                          <span className="font-bold text-slate-800 text-sm truncate">{p.name}</span>
-                          <span className="text-slate-400 text-xs truncate mt-0.5">{p.specialty}</span>
-                        </div>
-                      </motion.button>
+                      <div key={p.id} className="relative group/card">
+                        <motion.button
+                          whileHover={{ y: -3, scale: 1.02 }}
+                          whileTap={{ scale: 0.98 }}
+                          onClick={() => handleSelectProfile(p)}
+                          className="w-full flex items-center gap-4 p-4 rounded-2xl bg-[#faf9f7] border border-slate-200 hover:border-indigo-200 hover:bg-white text-left cursor-pointer transition-all duration-300 hover:shadow-md pr-10"
+                        >
+                          <div className="w-12 h-12 rounded-xl bg-indigo-50 text-primary flex items-center justify-center font-bold text-base border border-indigo-100 group-hover/card:bg-primary group-hover/card:text-white transition-colors duration-300 shadow-sm">
+                            {initials}
+                          </div>
+                          <div className="flex flex-col min-w-0">
+                            <span className="font-bold text-slate-800 text-sm truncate">{p.name}</span>
+                            <span className="text-slate-400 text-xs truncate mt-0.5">{p.specialty}</span>
+                          </div>
+                        </motion.button>
+                        
+                        <button
+                          type="button"
+                          title="Remove profile from this workstation"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setProfileToDelete(p);
+                            setDeletePin('');
+                            setDeleteError(null);
+                          }}
+                          className="absolute top-3.5 right-3.5 p-1.5 rounded-lg text-slate-300 hover:text-red-600 hover:bg-red-50 transition-all opacity-0 group-hover/card:opacity-100 focus:opacity-100 cursor-pointer"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     );
                   })}
 
@@ -527,6 +605,81 @@ export default function Login({ onLoginSuccess }: LoginProps) {
               </form>
             </div>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* PIN-Protected Profile Deletion Modal */}
+      <AnimatePresence>
+        {profileToDelete && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm px-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-3xl p-6 sm:p-8 max-w-sm w-full shadow-2xl border border-slate-100 font-sans"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <div className="w-10 h-10 rounded-xl bg-red-50 text-red-600 flex items-center justify-center">
+                  <Trash2 className="w-5 h-5" />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setProfileToDelete(null)}
+                  className="p-2 rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <h3 className="text-lg font-bold text-slate-800">
+                Remove Profile?
+              </h3>
+              <p className="text-slate-500 text-xs mt-1 leading-relaxed">
+                Enter the 4-digit PIN for <span className="font-bold text-slate-700">{profileToDelete.name}</span> to confirm removing this profile from this workstation.
+              </p>
+
+              <form onSubmit={handleConfirmDelete} className="mt-5">
+                <input
+                  type="password"
+                  inputMode="numeric"
+                  maxLength={4}
+                  autoFocus
+                  value={deletePin}
+                  onChange={(e) => {
+                    const val = e.target.value.replace(/\D/g, '').slice(0, 4);
+                    setDeletePin(val);
+                    setDeleteError(null);
+                  }}
+                  placeholder="••••"
+                  className="w-full text-center tracking-[0.5em] font-mono text-2xl py-2.5 px-4 rounded-xl border border-slate-200 focus:border-red-500 focus:ring-2 focus:ring-red-100 outline-none transition-all"
+                />
+
+                {deleteError && (
+                  <p className="text-xs text-red-600 font-medium mt-2 flex items-center justify-center gap-1">
+                    <AlertCircle className="w-3.5 h-3.5" />
+                    <span>{deleteError}</span>
+                  </p>
+                )}
+
+                <div className="flex gap-3 mt-6">
+                  <button
+                    type="button"
+                    onClick={() => setProfileToDelete(null)}
+                    className="flex-1 py-2.5 px-4 rounded-xl border border-slate-200 text-slate-600 font-semibold text-xs hover:bg-slate-50 transition-colors cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={deletePin.length !== 4 || isDeleting}
+                    className="flex-1 py-2.5 px-4 rounded-xl bg-red-600 text-white font-semibold text-xs hover:bg-red-700 disabled:opacity-50 transition-colors shadow-md shadow-red-600/20 cursor-pointer"
+                  >
+                    {isDeleting ? 'Removing...' : 'Confirm Remove'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
     </div>
