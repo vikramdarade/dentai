@@ -222,6 +222,7 @@ export default function App() {
     lastName: string;
     dob: string;
     appointmentType: 'examination' | 'scale_clean' | 'emergency';
+    templateId?: string;
   }) => {
     setActiveIntake(intakeData);
     saveActiveIntake(intakeData);
@@ -262,6 +263,7 @@ export default function App() {
         time: getCurrentTimeStr(),
         status: 'In Review',
         transcript: finalTranscript,
+        templateId: activeIntake.templateId || 'standard',
         findings: {
           chiefComplaint: parsedData.chiefComplaint || '',
           history: parsedData.history || '',
@@ -271,6 +273,8 @@ export default function App() {
           treatmentPerformed: parsedData.treatmentPerformed || '',
           recommendations: parsedData.recommendations || '',
           recallRequirements: parsedData.recallRequirements || '6 Months (Standard)',
+          customSections: parsedData.customSections || {},
+          adaCodes: parsedData.adaCodes || []
         },
         patientSummary: parsedData.patientSummary || '',
       };

@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { Menu, User, CheckCircle, Copy, Check, Save, ClipboardList, FileText, Tag, Layers } from 'lucide-react';
+import { Menu, User, CheckCircle, Copy, Check, Save, ClipboardList, FileText, Tag, Layers, SlidersHorizontal } from 'lucide-react';
 import { Consultation, AdaCodeItem } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
+import { PRESET_TEMPLATES, NoteTemplate } from '../utils/templates';
 
 interface ClinicalSummaryProps {
   consultation: Consultation;
@@ -16,7 +17,9 @@ export default function ClinicalSummary({
   onBack,
   dentistName
 }: ClinicalSummaryProps) {
-  // Local state representing findings, so users can edit any card directly!
+  const [activeTemplateId, setActiveTemplateId] = useState<string>(consultation.templateId || 'standard');
+
+  // Standard findings state
   const [chiefComplaint, setChiefComplaint] = useState(consultation.findings.chiefComplaint);
   const [history, setHistory] = useState(consultation.findings.history);
   const [toothFindings, setToothFindings] = useState(consultation.findings.toothFindings);
@@ -27,7 +30,28 @@ export default function ClinicalSummary({
   const [recall, setRecall] = useState(consultation.findings.recallRequirements);
   const [adaCodes, setAdaCodes] = useState<AdaCodeItem[]>(consultation.findings.adaCodes || []);
 
-  // Patient advice letter state (also fully editable!)
+  // SOAP specific state
+  const [soapSubjective, setSoapSubjective] = useState(
+    `${consultation.findings.chiefComplaint} ${consultation.findings.history}`.trim()
+  );
+  const [soapObjective, setSoapObjective] = useState(
+    `Tooth Findings:\n${consultation.findings.toothFindings}\n\nPeriodontal & Gingival:\n${consultation.findings.findingsGingival}`.trim()
+  );
+  const [soapAssessment, setSoapAssessment] = useState(consultation.findings.diagnosis);
+  const [soapPlan, setSoapPlan] = useState(
+    `Treatment Performed:\n${consultation.findings.treatmentPerformed}\n\nRecommendations:\n${consultation.findings.recommendations}\n\nRecall: ${consultation.findings.recallRequirements}`.trim()
+  );
+
+  // Restorative / Endo specific state
+  const [restToothIsolation, setRestToothIsolation] = useState(consultation.findings.toothFindings);
+  const [restCariesPulp, setRestCariesPulp] = useState(consultation.findings.diagnosis);
+  const [restMaterials, setRestMaterials] = useState(consultation.findings.treatmentPerformed);
+  const [restOcclusion, setRestOcclusion] = useState("Checked in centric occlusion and lateral excursions. High spots adjusted and polished smooth.");
+  const [restPostOp, setRestPostOp] = useState(
+    `${consultation.findings.recommendations}\nRecall: ${consultation.findings.recallRequirements}`.trim()
+  );
+
+  // Patient advice letter state
   const [patientLetter, setPatientLetter] = useState(consultation.patientSummary);
 
   const [copied, setCopied] = useState(false);
@@ -43,36 +67,81 @@ export default function ClinicalSummary({
   };
 
   const handleCopyPmsNote = () => {
-    const lines = [
-      `=== CLINICAL EXAMINATION NOTE ===`,
-      `PATIENT: ${consultation.firstName} ${consultation.lastName} (DOB: ${consultation.dob})`,
-      `DATE: ${consultation.date} ${consultation.time}`,
-      ``,
-      `CHIEF COMPLAINT:`,
-      chiefComplaint,
-      ``,
-      `HISTORY:`,
-      history,
-      ``,
-      `EXAMINATION & TOOTH FINDINGS:`,
-      toothFindings,
-      ``,
-      `PERIODONTAL & GINGIVAL:`,
-      findingsGingival,
-      ``,
-      `DIAGNOSIS:`,
-      diagnosis,
-      ``,
-      `TREATMENT PERFORMED:`,
-      treatmentPerformed,
-      ``,
-      `RECOMMENDATIONS:`,
-      recommendations,
-      ``,
-      `RECALL:`,
-      recall,
-      ``
-    ];
+    let lines: string[] = [];
+
+    if (activeTemplateId === 'soap') {
+      lines = [
+        `=== CLINICAL NOTE (SOAP FORMAT) ===`,
+        `PATIENT: ${consultation.firstName} ${consultation.lastName} (DOB: ${consultation.dob})`,
+        `DATE: ${consultation.date} ${consultation.time}`,
+        ``,
+        `[S] SUBJECTIVE:`,
+        soapSubjective,
+        ``,
+        `[O] OBJECTIVE:`,
+        soapObjective,
+        ``,
+        `[A] ASSESSMENT:`,
+        soapAssessment,
+        ``,
+        `[P] PLAN:`,
+        soapPlan,
+        ``
+      ];
+    } else if (activeTemplateId === 'restorative') {
+      lines = [
+        `=== CLINICAL NOTE (RESTORATIVE & ENDODONTIC FOCUS) ===`,
+        `PATIENT: ${consultation.firstName} ${consultation.lastName} (DOB: ${consultation.dob})`,
+        `DATE: ${consultation.date} ${consultation.time}`,
+        ``,
+        `TOOTH & ISOLATION:`,
+        restToothIsolation,
+        ``,
+        `CARIES & PULP STATUS:`,
+        restCariesPulp,
+        ``,
+        `MATERIALS & TECHNIQUE:`,
+        restMaterials,
+        ``,
+        `OCCLUSION & POLISH:`,
+        restOcclusion,
+        ``,
+        `POST-OP INSTRUCTIONS & NEXT STEP:`,
+        restPostOp,
+        ``
+      ];
+    } else {
+      lines = [
+        `=== CLINICAL EXAMINATION NOTE (AHPRA STANDARD) ===`,
+        `PATIENT: ${consultation.firstName} ${consultation.lastName} (DOB: ${consultation.dob})`,
+        `DATE: ${consultation.date} ${consultation.time}`,
+        ``,
+        `CHIEF COMPLAINT:`,
+        chiefComplaint,
+        ``,
+        `HISTORY:`,
+        history,
+        ``,
+        `EXAMINATION & TOOTH FINDINGS:`,
+        toothFindings,
+        ``,
+        `PERIODONTAL & GINGIVAL:`,
+        findingsGingival,
+        ``,
+        `DIAGNOSIS:`,
+        diagnosis,
+        ``,
+        `TREATMENT PERFORMED:`,
+        treatmentPerformed,
+        ``,
+        `RECOMMENDATIONS:`,
+        recommendations,
+        ``,
+        `RECALL:`,
+        recall,
+        ``
+      ];
+    }
 
     if (adaCodes.length > 0) {
       lines.push(`--- ADA BILLING ITEM CODES ---`);
@@ -90,10 +159,10 @@ export default function ClinicalSummary({
   };
 
   const handleSaveToRecord = () => {
-    // Construct the updated Consultation payload with active states
     const updatedConsultation: Consultation = {
       ...consultation,
-      status: 'Completed', // Sync completed
+      status: 'Completed',
+      templateId: activeTemplateId,
       findings: {
         chiefComplaint,
         history,
@@ -247,138 +316,330 @@ export default function ClinicalSummary({
               </div>
             )}
 
-            {/* Editable findings form list stack */}
+            {/* Template Selector Pill Tabs */}
+            <div className="flex items-center gap-1.5 p-1 bg-slate-100/80 rounded-xl w-fit border border-slate-200/60 overflow-x-auto max-w-full">
+              <button
+                type="button"
+                onClick={() => setActiveTemplateId('standard')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                  activeTemplateId === 'standard'
+                    ? 'bg-white text-primary shadow-sm'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                AHPRA Standard (8-Point)
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTemplateId('soap')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                  activeTemplateId === 'soap'
+                    ? 'bg-white text-indigo-700 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                SOAP Format
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTemplateId('restorative')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                  activeTemplateId === 'restorative'
+                    ? 'bg-white text-emerald-700 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                Restorative & Endo Focus
+              </button>
+            </div>
+
+            {/* Editable findings form list stack based on activeTemplateId */}
             <div className="space-y-4 pb-8">
-              {/* Chief Complaint */}
-              <div className="p-1 bg-amber-500/5 hover:bg-amber-500/10 rounded-2xl transition-all duration-300 shadow-sm border border-amber-200/30 focus-within:ring-1 focus-within:ring-amber-500/20">
-                <div className="bg-white border border-amber-100/50 rounded-[calc(1rem-0.25rem)] p-4">
-                  <label className="font-bold text-[10px] uppercase tracking-wider text-amber-600 block mb-1">
-                    Chief Complaint
-                  </label>
-                  <textarea
-                    rows={2}
-                    value={chiefComplaint}
-                    onChange={(e) => setChiefComplaint(e.target.value)}
-                    className="w-full border-none p-0 focus:ring-0 text-slate-700 text-sm resize-none bg-transparent outline-none"
-                  />
-                </div>
-              </div>
-
-              {/* History */}
-              <div className="p-1 bg-indigo-500/5 hover:bg-indigo-500/10 rounded-2xl transition-all duration-300 shadow-sm border border-indigo-200/30 focus-within:ring-1 focus-within:ring-indigo-500/20">
-                <div className="bg-white border border-indigo-100/50 rounded-[calc(1rem-0.25rem)] p-4">
-                  <label className="font-bold text-[10px] uppercase tracking-wider text-indigo-600 block mb-1">
-                    History
-                  </label>
-                  <textarea
-                    rows={2}
-                    value={history}
-                    onChange={(e) => setHistory(e.target.value)}
-                    className="w-full border-none p-0 focus:ring-0 text-slate-700 text-sm resize-none bg-transparent outline-none"
-                  />
-                </div>
-              </div>
-
-              {/* Findings Split */}
-              <div className="p-1 bg-slate-500/5 hover:bg-slate-500/10 rounded-2xl transition-all duration-300 shadow-sm border border-slate-200/30 focus-within:ring-1 focus-within:ring-primary/20">
-                <div className="bg-white border border-slate-100 rounded-[calc(1rem-0.25rem)] p-4">
-                  <label className="font-bold text-[10px] uppercase tracking-wider text-slate-500 block mb-2">
-                    Clinical Examination Findings
-                  </label>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-t border-slate-100 pt-3">
-                    <div className="flex flex-col">
-                      <span className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wide mb-1">
-                        Tooth Findings (FDI)
-                      </span>
+              {activeTemplateId === 'soap' ? (
+                <>
+                  {/* [S] Subjective */}
+                  <div className="p-1 bg-amber-500/5 hover:bg-amber-500/10 rounded-2xl transition-all duration-300 shadow-sm border border-amber-200/30 focus-within:ring-1 focus-within:ring-amber-500/20">
+                    <div className="bg-white border border-amber-100/50 rounded-[calc(1rem-0.25rem)] p-4">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="w-5 h-5 rounded-md bg-amber-100 text-amber-800 font-mono font-bold text-xs flex items-center justify-center">S</span>
+                        <label className="font-bold text-[10px] uppercase tracking-wider text-amber-600">
+                          Subjective
+                        </label>
+                      </div>
                       <textarea
                         rows={3}
-                        value={toothFindings}
-                        onChange={(e) => setToothFindings(e.target.value)}
-                        className="w-full border-none p-0 focus:ring-0 text-slate-700 text-xs resize-none bg-transparent outline-none"
-                      />
-                    </div>
-                    <div className="flex flex-col border-t md:border-t-0 md:border-l border-slate-100 pt-3 md:pt-0 md:pl-4">
-                      <span className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wide mb-1">
-                        Gingival State
-                      </span>
-                      <textarea
-                        rows={3}
-                        value={findingsGingival}
-                        onChange={(e) => setFindingsGingival(e.target.value)}
-                        className="w-full border-none p-0 focus:ring-0 text-slate-700 text-xs resize-none bg-transparent outline-none"
+                        value={soapSubjective}
+                        onChange={(e) => setSoapSubjective(e.target.value)}
+                        className="w-full border-none p-0 focus:ring-0 text-slate-700 text-sm resize-none bg-transparent outline-none"
                       />
                     </div>
                   </div>
-                </div>
-              </div>
 
-              {/* Diagnosis */}
-              <div className="p-1 bg-emerald-500/5 hover:bg-emerald-500/10 rounded-2xl transition-all duration-300 shadow-sm border border-emerald-200/30 focus-within:ring-1 focus-within:ring-emerald-500/20">
-                <div className="bg-white border border-emerald-100/50 rounded-[calc(1rem-0.25rem)] p-4">
-                  <label className="font-bold text-[10px] uppercase tracking-wider text-emerald-600 block mb-1">
-                    Diagnosis
-                  </label>
-                  <textarea
-                    rows={2}
-                    value={diagnosis}
-                    onChange={(e) => setDiagnosis(e.target.value)}
-                    className="w-full border-none p-0 focus:ring-0 text-slate-700 text-sm resize-none bg-transparent outline-none"
-                  />
-                </div>
-              </div>
-
-              {/* Treatment Performed */}
-              <div className="p-1 bg-sky-500/5 hover:bg-sky-500/10 rounded-2xl transition-all duration-300 shadow-sm border border-sky-200/30 focus-within:ring-1 focus-within:ring-sky-500/20">
-                <div className="bg-white border border-sky-100/50 rounded-[calc(1rem-0.25rem)] p-4">
-                  <label className="font-bold text-[10px] uppercase tracking-wider text-sky-600 block mb-1">
-                    Treatment Performed
-                  </label>
-                  <textarea
-                    rows={2}
-                    value={treatmentPerformed}
-                    onChange={(e) => setTreatmentPerformed(e.target.value)}
-                    className="w-full border-none p-0 focus:ring-0 text-slate-700 text-sm resize-none bg-transparent outline-none"
-                  />
-                </div>
-              </div>
-
-              {/* Recommendations */}
-              <div className="p-1 bg-violet-500/5 hover:bg-violet-500/10 rounded-2xl transition-all duration-300 shadow-sm border border-violet-200/30 focus-within:ring-1 focus-within:ring-violet-500/20">
-                <div className="bg-white border border-violet-100/50 rounded-[calc(1rem-0.25rem)] p-4">
-                  <label className="font-bold text-[10px] uppercase tracking-wider text-violet-600 block mb-1">
-                    Patient Home Care Recommendations
-                  </label>
-                  <textarea
-                    rows={2}
-                    value={recommendations}
-                    onChange={(e) => setRecommendations(e.target.value)}
-                    className="w-full border-none p-0 focus:ring-0 text-slate-700 text-sm resize-none bg-transparent outline-none"
-                  />
-                </div>
-              </div>
-
-              {/* Recall Requirements */}
-              <div className="p-1 bg-pink-500/5 hover:bg-pink-500/10 rounded-2xl transition-all duration-300 shadow-sm border border-pink-200/30 focus-within:ring-1 focus-within:ring-pink-500/20">
-                <div className="bg-white border border-pink-100/50 rounded-[calc(1rem-0.25rem)] p-4">
-                  <label className="font-bold text-[10px] uppercase tracking-wider text-pink-650 block mb-2">
-                    Recall / Follow-up Requirements
-                  </label>
-                  <div className="flex flex-col md:flex-row md:items-center gap-3">
-                    <select
-                      value={recall}
-                      onChange={(e) => setRecall(e.target.value)}
-                      className="bg-pink-50/50 border border-pink-100 text-pink-700 text-xs font-bold rounded-lg px-3 py-2 outline-none focus:ring-1 focus:ring-pink-500"
-                    >
-                      <option value="6 Months (Standard)">6 Months (Standard)</option>
-                      <option value="3 Months (Periodontal)">3 Months (Periodontal)</option>
-                      <option value="Next Available (Urgent)">Next Available (Urgent)</option>
-                    </select>
-                    <span className="text-secondary text-xs text-slate-400">
-                      Follow-up and schedule standard monitoring treatment check-in as defined above.
-                    </span>
+                  {/* [O] Objective */}
+                  <div className="p-1 bg-indigo-500/5 hover:bg-indigo-500/10 rounded-2xl transition-all duration-300 shadow-sm border border-indigo-200/30 focus-within:ring-1 focus-within:ring-indigo-500/20">
+                    <div className="bg-white border border-indigo-100/50 rounded-[calc(1rem-0.25rem)] p-4">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="w-5 h-5 rounded-md bg-indigo-100 text-indigo-800 font-mono font-bold text-xs flex items-center justify-center">O</span>
+                        <label className="font-bold text-[10px] uppercase tracking-wider text-indigo-600">
+                          Objective (Exam, FDI Teeth, Perio, Rads)
+                        </label>
+                      </div>
+                      <textarea
+                        rows={4}
+                        value={soapObjective}
+                        onChange={(e) => setSoapObjective(e.target.value)}
+                        className="w-full border-none p-0 focus:ring-0 text-slate-700 text-sm resize-none bg-transparent outline-none"
+                      />
+                    </div>
                   </div>
-                </div>
-              </div>
+
+                  {/* [A] Assessment */}
+                  <div className="p-1 bg-emerald-500/5 hover:bg-emerald-500/10 rounded-2xl transition-all duration-300 shadow-sm border border-emerald-200/30 focus-within:ring-1 focus-within:ring-emerald-500/20">
+                    <div className="bg-white border border-emerald-100/50 rounded-[calc(1rem-0.25rem)] p-4">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="w-5 h-5 rounded-md bg-emerald-100 text-emerald-800 font-mono font-bold text-xs flex items-center justify-center">A</span>
+                        <label className="font-bold text-[10px] uppercase tracking-wider text-emerald-600">
+                          Assessment & Diagnosis
+                        </label>
+                      </div>
+                      <textarea
+                        rows={2}
+                        value={soapAssessment}
+                        onChange={(e) => setSoapAssessment(e.target.value)}
+                        className="w-full border-none p-0 focus:ring-0 text-slate-700 text-sm resize-none bg-transparent outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  {/* [P] Plan */}
+                  <div className="p-1 bg-sky-500/5 hover:bg-sky-500/10 rounded-2xl transition-all duration-300 shadow-sm border border-sky-200/30 focus-within:ring-1 focus-within:ring-sky-500/20">
+                    <div className="bg-white border border-sky-100/50 rounded-[calc(1rem-0.25rem)] p-4">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="w-5 h-5 rounded-md bg-sky-100 text-sky-800 font-mono font-bold text-xs flex items-center justify-center">P</span>
+                        <label className="font-bold text-[10px] uppercase tracking-wider text-sky-600">
+                          Plan (Treatment Done, Instructions, Recall)
+                        </label>
+                      </div>
+                      <textarea
+                        rows={4}
+                        value={soapPlan}
+                        onChange={(e) => setSoapPlan(e.target.value)}
+                        className="w-full border-none p-0 focus:ring-0 text-slate-700 text-sm resize-none bg-transparent outline-none"
+                      />
+                    </div>
+                  </div>
+                </>
+              ) : activeTemplateId === 'restorative' ? (
+                <>
+                  {/* Tooth & Isolation */}
+                  <div className="p-1 bg-blue-500/5 hover:bg-blue-500/10 rounded-2xl transition-all duration-300 shadow-sm border border-blue-200/30 focus-within:ring-1 focus-within:ring-blue-500/20">
+                    <div className="bg-white border border-blue-100/50 rounded-[calc(1rem-0.25rem)] p-4">
+                      <label className="font-bold text-[10px] uppercase tracking-wider text-blue-600 block mb-1">
+                        Tooth & Isolation
+                      </label>
+                      <textarea
+                        rows={2}
+                        value={restToothIsolation}
+                        onChange={(e) => setRestToothIsolation(e.target.value)}
+                        className="w-full border-none p-0 focus:ring-0 text-slate-700 text-sm resize-none bg-transparent outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Caries & Pulp Status */}
+                  <div className="p-1 bg-amber-500/5 hover:bg-amber-500/10 rounded-2xl transition-all duration-300 shadow-sm border border-amber-200/30 focus-within:ring-1 focus-within:ring-amber-500/20">
+                    <div className="bg-white border border-amber-100/50 rounded-[calc(1rem-0.25rem)] p-4">
+                      <label className="font-bold text-[10px] uppercase tracking-wider text-amber-600 block mb-1">
+                        Caries & Pulp Status
+                      </label>
+                      <textarea
+                        rows={2}
+                        value={restCariesPulp}
+                        onChange={(e) => setRestCariesPulp(e.target.value)}
+                        className="w-full border-none p-0 focus:ring-0 text-slate-700 text-sm resize-none bg-transparent outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Materials & Technique */}
+                  <div className="p-1 bg-emerald-500/5 hover:bg-emerald-500/10 rounded-2xl transition-all duration-300 shadow-sm border border-emerald-200/30 focus-within:ring-1 focus-within:ring-emerald-500/20">
+                    <div className="bg-white border border-emerald-100/50 rounded-[calc(1rem-0.25rem)] p-4">
+                      <label className="font-bold text-[10px] uppercase tracking-wider text-emerald-600 block mb-1">
+                        Materials, Shade & Technique
+                      </label>
+                      <textarea
+                        rows={3}
+                        value={restMaterials}
+                        onChange={(e) => setRestMaterials(e.target.value)}
+                        className="w-full border-none p-0 focus:ring-0 text-slate-700 text-sm resize-none bg-transparent outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Occlusion & Polish */}
+                  <div className="p-1 bg-indigo-500/5 hover:bg-indigo-500/10 rounded-2xl transition-all duration-300 shadow-sm border border-indigo-200/30 focus-within:ring-1 focus-within:ring-indigo-500/20">
+                    <div className="bg-white border border-indigo-100/50 rounded-[calc(1rem-0.25rem)] p-4">
+                      <label className="font-bold text-[10px] uppercase tracking-wider text-indigo-600 block mb-1">
+                        Occlusion & Polish
+                      </label>
+                      <textarea
+                        rows={2}
+                        value={restOcclusion}
+                        onChange={(e) => setRestOcclusion(e.target.value)}
+                        className="w-full border-none p-0 focus:ring-0 text-slate-700 text-sm resize-none bg-transparent outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Post-Op Instructions & Next Step */}
+                  <div className="p-1 bg-violet-500/5 hover:bg-violet-500/10 rounded-2xl transition-all duration-300 shadow-sm border border-violet-200/30 focus-within:ring-1 focus-within:ring-violet-500/20">
+                    <div className="bg-white border border-violet-100/50 rounded-[calc(1rem-0.25rem)] p-4">
+                      <label className="font-bold text-[10px] uppercase tracking-wider text-violet-600 block mb-1">
+                        Post-Op Instructions & Next Step
+                      </label>
+                      <textarea
+                        rows={3}
+                        value={restPostOp}
+                        onChange={(e) => setRestPostOp(e.target.value)}
+                        className="w-full border-none p-0 focus:ring-0 text-slate-700 text-sm resize-none bg-transparent outline-none"
+                      />
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  {/* Chief Complaint */}
+                  <div className="p-1 bg-amber-500/5 hover:bg-amber-500/10 rounded-2xl transition-all duration-300 shadow-sm border border-amber-200/30 focus-within:ring-1 focus-within:ring-amber-500/20">
+                    <div className="bg-white border border-amber-100/50 rounded-[calc(1rem-0.25rem)] p-4">
+                      <label className="font-bold text-[10px] uppercase tracking-wider text-amber-600 block mb-1">
+                        Chief Complaint
+                      </label>
+                      <textarea
+                        rows={2}
+                        value={chiefComplaint}
+                        onChange={(e) => setChiefComplaint(e.target.value)}
+                        className="w-full border-none p-0 focus:ring-0 text-slate-700 text-sm resize-none bg-transparent outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  {/* History */}
+                  <div className="p-1 bg-indigo-500/5 hover:bg-indigo-500/10 rounded-2xl transition-all duration-300 shadow-sm border border-indigo-200/30 focus-within:ring-1 focus-within:ring-indigo-500/20">
+                    <div className="bg-white border border-indigo-100/50 rounded-[calc(1rem-0.25rem)] p-4">
+                      <label className="font-bold text-[10px] uppercase tracking-wider text-indigo-600 block mb-1">
+                        History
+                      </label>
+                      <textarea
+                        rows={2}
+                        value={history}
+                        onChange={(e) => setHistory(e.target.value)}
+                        className="w-full border-none p-0 focus:ring-0 text-slate-700 text-sm resize-none bg-transparent outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Findings Split */}
+                  <div className="p-1 bg-slate-500/5 hover:bg-slate-500/10 rounded-2xl transition-all duration-300 shadow-sm border border-slate-200/30 focus-within:ring-1 focus-within:ring-primary/20">
+                    <div className="bg-white border border-slate-100 rounded-[calc(1rem-0.25rem)] p-4">
+                      <label className="font-bold text-[10px] uppercase tracking-wider text-slate-500 block mb-2">
+                        Clinical Examination Findings
+                      </label>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-t border-slate-100 pt-3">
+                        <div className="flex flex-col">
+                          <span className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wide mb-1">
+                            Tooth Findings (FDI)
+                          </span>
+                          <textarea
+                            rows={3}
+                            value={toothFindings}
+                            onChange={(e) => setToothFindings(e.target.value)}
+                            className="w-full border-none p-0 focus:ring-0 text-slate-700 text-xs resize-none bg-transparent outline-none"
+                          />
+                        </div>
+                        <div className="flex flex-col border-t md:border-t-0 md:border-l border-slate-100 pt-3 md:pt-0 md:pl-4">
+                          <span className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wide mb-1">
+                            Gingival State
+                          </span>
+                          <textarea
+                            rows={3}
+                            value={findingsGingival}
+                            onChange={(e) => setFindingsGingival(e.target.value)}
+                            className="w-full border-none p-0 focus:ring-0 text-slate-700 text-xs resize-none bg-transparent outline-none"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Diagnosis */}
+                  <div className="p-1 bg-emerald-500/5 hover:bg-emerald-500/10 rounded-2xl transition-all duration-300 shadow-sm border border-emerald-200/30 focus-within:ring-1 focus-within:ring-emerald-500/20">
+                    <div className="bg-white border border-emerald-100/50 rounded-[calc(1rem-0.25rem)] p-4">
+                      <label className="font-bold text-[10px] uppercase tracking-wider text-emerald-600 block mb-1">
+                        Diagnosis
+                      </label>
+                      <textarea
+                        rows={2}
+                        value={diagnosis}
+                        onChange={(e) => setDiagnosis(e.target.value)}
+                        className="w-full border-none p-0 focus:ring-0 text-slate-700 text-sm resize-none bg-transparent outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Treatment Performed */}
+                  <div className="p-1 bg-sky-500/5 hover:bg-sky-500/10 rounded-2xl transition-all duration-300 shadow-sm border border-sky-200/30 focus-within:ring-1 focus-within:ring-sky-500/20">
+                    <div className="bg-white border border-sky-100/50 rounded-[calc(1rem-0.25rem)] p-4">
+                      <label className="font-bold text-[10px] uppercase tracking-wider text-sky-600 block mb-1">
+                        Treatment Performed
+                      </label>
+                      <textarea
+                        rows={2}
+                        value={treatmentPerformed}
+                        onChange={(e) => setTreatmentPerformed(e.target.value)}
+                        className="w-full border-none p-0 focus:ring-0 text-slate-700 text-sm resize-none bg-transparent outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Recommendations */}
+                  <div className="p-1 bg-violet-500/5 hover:bg-violet-500/10 rounded-2xl transition-all duration-300 shadow-sm border border-violet-200/30 focus-within:ring-1 focus-within:ring-violet-500/20">
+                    <div className="bg-white border border-violet-100/50 rounded-[calc(1rem-0.25rem)] p-4">
+                      <label className="font-bold text-[10px] uppercase tracking-wider text-violet-600 block mb-1">
+                        Patient Home Care Recommendations
+                      </label>
+                      <textarea
+                        rows={2}
+                        value={recommendations}
+                        onChange={(e) => setRecommendations(e.target.value)}
+                        className="w-full border-none p-0 focus:ring-0 text-slate-700 text-sm resize-none bg-transparent outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Recall Requirements */}
+                  <div className="p-1 bg-pink-500/5 hover:bg-pink-500/10 rounded-2xl transition-all duration-300 shadow-sm border border-pink-200/30 focus-within:ring-1 focus-within:ring-pink-500/20">
+                    <div className="bg-white border border-pink-100/50 rounded-[calc(1rem-0.25rem)] p-4">
+                      <label className="font-bold text-[10px] uppercase tracking-wider text-pink-650 block mb-2">
+                        Recall / Follow-up Requirements
+                      </label>
+                      <div className="flex flex-col md:flex-row md:items-center gap-3">
+                        <select
+                          value={recall}
+                          onChange={(e) => setRecall(e.target.value)}
+                          className="bg-pink-50/50 border border-pink-100 text-pink-700 text-xs font-bold rounded-lg px-3 py-2 outline-none focus:ring-1 focus:ring-pink-500"
+                        >
+                          <option value="6 Months (Standard)">6 Months (Standard)</option>
+                          <option value="3 Months (Periodontal)">3 Months (Periodontal)</option>
+                          <option value="Next Available (Urgent)">Next Available (Urgent)</option>
+                        </select>
+                        <span className="text-secondary text-xs text-slate-400">
+                          Follow-up and schedule standard monitoring treatment check-in as defined above.
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           </section>
 
