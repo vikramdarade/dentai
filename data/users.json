@@ -1,3 +1,11 @@
 {
-  "dentists": []
+  "dentists": [
+    {
+      "id": "ea8e5a3a-d788-45d9-b44b-63faa8db43b3",
+      "name": "Vik",
+      "specialty": "Dentist",
+      "pinHash": "79fe5379b4e5f626b749885c3efb5c6dfd63b952276e3028c90e5463b76a07bd04b5e53f60efc557eff6558d72b3f5d803d1278e392aa56573c7d8b38f5631e3",
+      "salt": "3058c115c897a8ff2928539651323166b65ec8375f6204e851aedf62826860ee"
+    }
+  ]
 }

@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
 import { Menu, User, CheckCircle, Copy, Check, Save, ClipboardList, FileText, Tag, Layers, SlidersHorizontal } from 'lucide-react';
-import { Consultation, AdaCodeItem } from '../types';
+import { Consultation, AdaCodeItem, ClinicalFindings } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
-import { PRESET_TEMPLATES, NoteTemplate } from '../utils/templates';
 
 interface ClinicalSummaryProps {
   consultation: Consultation;
@@ -159,11 +158,35 @@ export default function ClinicalSummary({
   };
 
   const handleSaveToRecord = () => {
-    const updatedConsultation: Consultation = {
-      ...consultation,
-      status: 'Completed',
-      templateId: activeTemplateId,
-      findings: {
+    // Persist the fields of whichever template is active so edits are never dropped.
+    // SOAP / Restorative fields are mapped back onto the standard record shape.
+    let findings: ClinicalFindings;
+    if (activeTemplateId === 'soap') {
+      findings = {
+        chiefComplaint: soapSubjective,
+        history: soapSubjective,
+        toothFindings: soapObjective,
+        findingsGingival: soapObjective,
+        diagnosis: soapAssessment,
+        treatmentPerformed: soapPlan,
+        recommendations: soapPlan,
+        recallRequirements: recall,
+        adaCodes
+      };
+    } else if (activeTemplateId === 'restorative') {
+      findings = {
+        chiefComplaint: restToothIsolation,
+        history: '',
+        toothFindings: restToothIsolation,
+        findingsGingival: '',
+        diagnosis: restCariesPulp,
+        treatmentPerformed: restMaterials,
+        recommendations: restPostOp,
+        recallRequirements: recall,
+        adaCodes
+      };
+    } else {
+      findings = {
         chiefComplaint,
         history,
         toothFindings,
@@ -173,7 +196,14 @@ export default function ClinicalSummary({
         recommendations,
         recallRequirements: recall,
         adaCodes
-      },
+      };
+    }
+
+    const updatedConsultation: Consultation = {
+      ...consultation,
+      status: 'Completed',
+      templateId: activeTemplateId,
+      findings,
       patientSummary: patientLetter
     };
 
@@ -759,7 +789,7 @@ export default function ClinicalSummary({
                 Saved Successfully
               </h3>
               <p className="text-slate-500 text-sm mb-6 leading-relaxed">
-                Dental clinical findings and correspondence letter have been fully synchronized to EHR.
+                Dental clinical findings and correspondence letter have been saved to the patient record.
               </p>
               <button
                 type="button"

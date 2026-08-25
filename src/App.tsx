@@ -15,6 +15,9 @@ import {
   saveActiveIntake,
   getActiveIntake,
   clearActiveIntake,
+  getPendingSync,
+  queuePendingSync,
+  removePendingSync,
   AuthUser
 } from './utils/storage';
 
@@ -138,10 +141,47 @@ export default function App() {
   useEffect(() => {
     if (authToken && currentUser) {
       fetchConsultations();
+      flushPendingSync();
     } else {
       setConsultations([]);
     }
   }, [authToken, currentUser?.id]);
+
+  // Re-upload any consultations that were queued while the backend was unreachable.
+  // Tries PUT first (record exists) and falls back to POST (record is new).
+  const flushPendingSync = async () => {
+    if (!authToken || !currentUser) return;
+    const pending = getPendingSync();
+    if (pending.length === 0) return;
+
+    const headers = {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${authToken}`
+    };
+
+    for (const consult of pending) {
+      try {
+        let res = await fetch(`/api/consultations/${consult.id}`, {
+          method: 'PUT',
+          headers,
+          body: JSON.stringify(consult)
+        });
+        if (res.status === 404) {
+          res = await fetch('/api/consultations', {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(consult)
+          });
+        }
+        if (res.ok) {
+          removePendingSync(consult.id);
+        }
+      } catch (err) {
+        console.warn('Pending sync flush interrupted; remaining items will retry on next load.', err);
+        break;
+      }
+    }
+  };
 
   const fetchConsultations = async () => {
     if (!currentUser || !authToken) return;
@@ -253,7 +293,7 @@ export default function App() {
       const parsedData = await response.json();
 
       const newConsult: Consultation = {
-        id: Math.random().toString(36).substring(2, 9),
+        id: crypto.randomUUID(),
         dentistId: currentUser.id,
         firstName: activeIntake.firstName,
         lastName: activeIntake.lastName,
@@ -287,10 +327,12 @@ export default function App() {
       sessionStorage.removeItem('dentai_active_transcript');
       sessionStorage.removeItem('dentai_active_seconds');
       sessionStorage.removeItem('dentai_active_preset_index');
+      sessionStorage.removeItem('dentai_active_item_times');
       setSelectedConsultation(newConsult);
       setView('summary');
 
-      // Persist to server in background or sync
+      // Persist to server in background or sync. If the backend is unreachable, the
+      // consultation is queued and re-uploaded on the next successful load.
       try {
         const saveRes = await fetch('/api/consultations', {
           method: 'POST',
@@ -303,13 +345,17 @@ export default function App() {
 
         if (saveRes.ok) {
           const saved = await saveRes.json();
+          removePendingSync(newConsult.id);
           const syncedList = [saved, ...consultations.filter(c => c.id !== newConsult.id)];
           setConsultations(syncedList);
           saveLocalConsultations(syncedList, currentUser.id);
           setSelectedConsultation(saved);
+        } else {
+          queuePendingSync(newConsult);
         }
       } catch (saveErr) {
-        console.warn('Network issue while syncing consultation to backend; local copy preserved safely.', saveErr);
+        console.warn('Network issue while syncing consultation to backend; queued for retry.', saveErr);
+        queuePendingSync(newConsult);
       }
     } catch (err) {
       console.error('Failed to generate clinical findings:', err);
@@ -352,14 +398,18 @@ export default function App() {
 
       if (res.ok) {
         const saved = await res.json();
+        removePendingSync(updatedWithDentist.id);
         const syncedList = newList.map(c => c.id === saved.id ? saved : c);
         setConsultations(syncedList);
         if (currentUser?.id) {
           saveLocalConsultations(syncedList, currentUser.id);
         }
+      } else {
+        queuePendingSync(updatedWithDentist);
       }
     } catch (err) {
-      console.warn('Failed to sync consultation update to backend; local copy preserved safely.', err);
+      console.warn('Failed to sync consultation update to backend; queued for retry.', err);
+      queuePendingSync(updatedWithDentist);
     }
   };
 
@@ -399,6 +449,7 @@ export default function App() {
             sessionStorage.removeItem('dentai_active_transcript');
             sessionStorage.removeItem('dentai_active_seconds');
             sessionStorage.removeItem('dentai_active_preset_index');
+            sessionStorage.removeItem('dentai_active_item_times');
             setView('history');
           }}
           onSubmit={handleIntakeSubmit}

@@ -20,6 +20,7 @@ export default function LiveRecording({
     const saved = sessionStorage.getItem('dentai_active_seconds');
     return saved ? parseInt(saved, 10) : 0;
   });
+  const [sessionStart] = useState(() => new Date());
   const [isRecording, setIsRecording] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingState, setProcessingState] = useState('');
@@ -34,6 +35,19 @@ export default function LiveRecording({
   const [recognitionError, setRecognitionError] = useState<string | null>(null);
 
   const recognitionRef = useRef<any>(null);
+
+  // True while the user has explicitly paused the microphone — suppresses auto-restart.
+  const micStoppedByUserRef = useRef(false);
+  const isRecordingRef = useRef(isRecording);
+  const secondsRef = useRef(seconds);
+
+  // Guard against a flaky mic triggering a rapid restart loop: every recognition
+  // session that ends and restarts toggles the UI, so a session that dies almost
+  // immediately should stop auto-restarting after a few attempts.
+  const lastSessionStartRef = useRef(0);
+  const unstableRestartsRef = useRef(0);
+  const RESTART_MIN_SESSION_MS = 1500;
+  const MAX_UNSTABLE_RESTARTS = 3;
 
   // VocalBridge Web Audio API nodes & states
   const [vocalBridgeActive, setVocalBridgeActive] = useState(true);
@@ -109,6 +123,17 @@ export default function LiveRecording({
   // Start noise suppression audio pipeline
   const startAudioPipeline = async () => {
     try {
+      // Cancel any previous visualizer loop and stop any previous stream first, so
+      // rapid recognition restarts can't stack overlapping pipelines (which make the
+      // waveform canvas flicker between stale frames).
+      if (animationFrameIdRef.current) {
+        cancelAnimationFrame(animationFrameIdRef.current);
+        animationFrameIdRef.current = null;
+      }
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+        streamRef.current = null;
+      }
       if (!audioContextRef.current) {
         audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
       }
@@ -201,6 +226,7 @@ export default function LiveRecording({
       rec.lang = 'en-AU';
 
       rec.onstart = () => {
+        lastSessionStartRef.current = Date.now();
         setIsListening(true);
         setRecognitionError(null);
         startAudioPipeline();
@@ -220,6 +246,29 @@ export default function LiveRecording({
       rec.onend = () => {
         setIsListening(false);
         stopAudioPipeline();
+        // The Web Speech API ends recognition sessions on its own (silence or length
+        // limits). Auto-restart while the session is still recording, unless the user
+        // explicitly stopped the microphone or the mic keeps dying immediately.
+        if (isRecordingRef.current && !micStoppedByUserRef.current) {
+          const sessionMs = Date.now() - lastSessionStartRef.current;
+          if (sessionMs < RESTART_MIN_SESSION_MS) {
+            unstableRestartsRef.current += 1;
+          } else {
+            unstableRestartsRef.current = 0;
+          }
+          if (unstableRestartsRef.current >= MAX_UNSTABLE_RESTARTS) {
+            unstableRestartsRef.current = 0;
+            setRecognitionError('Microphone keeps disconnecting. Check your connection and tap the microphone button to retry.');
+          } else {
+            setTimeout(() => {
+              try {
+                rec.start();
+              } catch (e) {
+                console.warn('Failed to auto-restart speech recognition:', e);
+              }
+            }, 250);
+          }
+        }
       };
 
       rec.onresult = (event: any) => {
@@ -230,6 +279,7 @@ export default function LiveRecording({
             const text = result[0].transcript.trim();
             if (text) {
               setTranscript((prev) => [...prev, { sender: 'Dialogue', text }]);
+              setItemTimes((prev) => [...prev, secondsRef.current]);
             }
           } else {
             interim += result[0].transcript;
@@ -255,11 +305,14 @@ export default function LiveRecording({
   // Sync isRecording state with SpeechRecognition
   useEffect(() => {
     if (!isRecording && isListening) {
+      micStoppedByUserRef.current = true;
       if (recognitionRef.current) {
         recognitionRef.current.stop();
       }
       stopAudioPipeline();
     } else if (isRecording && !isListening) {
+      micStoppedByUserRef.current = false;
+      unstableRestartsRef.current = 0;
       if (recognitionRef.current) {
         setRecognitionError(null);
         setInterimTranscript('');
@@ -279,8 +332,11 @@ export default function LiveRecording({
     }
 
     if (isListening) {
+      micStoppedByUserRef.current = true;
       recognitionRef.current.stop();
     } else {
+      micStoppedByUserRef.current = false;
+      unstableRestartsRef.current = 0;
       setRecognitionError(null);
       setInterimTranscript('');
       try {
@@ -295,6 +351,12 @@ export default function LiveRecording({
   // Initial transcription items matching screen layout (Starts empty for live clinical capture)
   const [transcript, setTranscript] = useState<TranscriptItem[]>(() => {
     const saved = sessionStorage.getItem('dentai_active_transcript');
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  // Real elapsed-session timestamps (seconds) recorded when each transcript item was added.
+  const [itemTimes, setItemTimes] = useState<number[]>(() => {
+    const saved = sessionStorage.getItem('dentai_active_item_times');
     return saved ? JSON.parse(saved) : [];
   });
 
@@ -327,15 +389,36 @@ export default function LiveRecording({
     };
   }, [isRecording]);
 
-  // Auto scroll effect
+  // Keep refs in sync for use inside long-lived callbacks (SpeechRecognition handlers).
   useEffect(() => {
-    transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    isRecordingRef.current = isRecording;
+  }, [isRecording]);
+
+  useEffect(() => {
+    secondsRef.current = seconds;
+  }, [seconds]);
+
+  // Auto scroll effect — only follow the transcript when the user is already near the
+  // bottom, so new speech results never yank the viewport away while they're reading.
+  useEffect(() => {
+    const endEl = transcriptEndRef.current;
+    if (!endEl) return;
+    const container = endEl.closest('.overflow-y-auto') as HTMLElement | null;
+    if (!container) return;
+    const nearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 140;
+    if (nearBottom) {
+      endEl.scrollIntoView({ behavior: 'smooth' });
+    }
   }, [transcript]);
 
   // Sync recording session to sessionStorage to protect against accidental refreshes
   useEffect(() => {
     sessionStorage.setItem('dentai_active_transcript', JSON.stringify(transcript));
   }, [transcript]);
+
+  useEffect(() => {
+    sessionStorage.setItem('dentai_active_item_times', JSON.stringify(itemTimes));
+  }, [itemTimes]);
 
   useEffect(() => {
     sessionStorage.setItem('dentai_active_seconds', seconds.toString());
@@ -351,9 +434,14 @@ export default function LiveRecording({
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
+  const formatClock = (date: Date) => {
+    return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  };
+
   const handleAppendPhrase = (sender: 'Dentist' | 'Patient' | 'Dialogue' | 'Clinical Comment', text: string) => {
     if (!text.trim()) return;
     setTranscript((prev) => [...prev, { sender, text }]);
+    setItemTimes((prev) => [...prev, secondsRef.current]);
   };
 
   const triggerNextPreset = () => {
@@ -373,14 +461,18 @@ export default function LiveRecording({
 
   const handleResetSession = () => {
     setTranscript([]);
+    setItemTimes([]);
     setSeconds(0);
     setIsRecording(true);
     setShowResetConfirm(false);
     setNextPresetIndex(0);
+    micStoppedByUserRef.current = false;
+    unstableRestartsRef.current = 0;
     
     sessionStorage.removeItem('dentai_active_transcript');
     sessionStorage.removeItem('dentai_active_seconds');
     sessionStorage.removeItem('dentai_active_preset_index');
+    sessionStorage.removeItem('dentai_active_item_times');
 
     if (recognitionRef.current && !isListening) {
       setRecognitionError(null);
@@ -402,6 +494,11 @@ export default function LiveRecording({
 
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  // Only claim AI detection when clinical terminology is actually present in the transcript.
+  const hasClinicalTerms = transcript.some((t) =>
+    /(percussion|sensitivity|pulp|decay|caries|bleeding|mobility|root canal|filling|tooth\s*\d{1,2})/i.test(t.text)
+  );
+
   const handleFinishNote = async () => {
     setIsRecording(false);
     setIsProcessing(true);
@@ -410,9 +507,9 @@ export default function LiveRecording({
     // Dynamic loading status messages for full AI chart construction immersion
     const states = [
       'Transcribed live voice feed...',
-      'Running AI clinical extractor model (HIPAA)...',
+      'Running AI clinical extractor model (secure)...',
       'Synthesizing clinical findings & tooth map...',
-      'Formulating ICD-10 codes & pulpitis diagnosis...',
+      'Extracting ADA billing item codes...',
       'Drafting friendly patient-narrative care letter...',
       'Notes complete! Opening health communication hub...'
     ];
@@ -517,7 +614,7 @@ export default function LiveRecording({
         {/* Connection Started pill */}
         <div className="flex justify-center my-2">
           <span className="font-label-md text-[11px] font-semibold text-slate-500 bg-white/80 border border-outline-variant/50 px-3 py-1.5 rounded-full shadow-sm">
-            04:12 PM - Clinical Session Started
+            {formatClock(sessionStart)} - Clinical Session Started
           </span>
         </div>
 
@@ -535,7 +632,7 @@ export default function LiveRecording({
                 <button
                   type="button"
                   onClick={() => {
-                    setTranscript([
+                    const demoItems: TranscriptItem[] = [
                       {
                         sender: 'Patient',
                         text: "I've been having this sharp pain in the upper right quadrant for about two days now. It gets worse when I drink anything cold."
@@ -552,7 +649,10 @@ export default function LiveRecording({
                         sender: 'Dentist',
                         text: "Okay, let's take a look. I'm going to perform a percussion test on tooth number 16 and 15."
                       }
-                    ]);
+                    ];
+                    const base = Math.max(0, secondsRef.current - demoItems.length * 3);
+                    setTranscript(demoItems);
+                    setItemTimes(demoItems.map((_, i) => base + i * 3));
                   }}
                   className="px-4 py-2 bg-indigo-50 border border-indigo-150 hover:bg-indigo-100 text-primary font-bold text-xs rounded-lg transition-all cursor-pointer shadow-sm"
                 >
@@ -594,7 +694,7 @@ export default function LiveRecording({
                       {badgeLabel}
                     </span>
                     <span className="text-slate-400 font-mono">
-                      {formatTime(seconds - Math.max(0, transcript.length - idx) * 3)}
+                      {formatTime(itemTimes[idx] ?? Math.max(0, seconds - Math.max(0, transcript.length - idx) * 3))}
                     </span>
                   </div>
                   <p className="font-transcription-text text-slate-800 leading-relaxed text-[14.5px]">
@@ -605,8 +705,8 @@ export default function LiveRecording({
             );
           })}
 
-          {/* AI Captured Insights notification triggers! */}
-          {transcript.length >= 4 && (
+          {/* Honest session-progress indicator: only shown when clinical terms are actually present */}
+          {hasClinicalTerms && (
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -615,11 +715,11 @@ export default function LiveRecording({
               <div className="flex items-center gap-2">
                 <Sparkles className="text-emerald-700 w-4 h-4" />
                 <span className="font-label-md text-emerald-800 font-bold uppercase tracking-wider text-xs">
-                  Clinical Indicator Captured
+                  Clinical Terms Detected
                 </span>
               </div>
               <p className="font-body-md text-emerald-900 text-sm font-medium leading-relaxed">
-                Detected: Lingering thermal sensitivity. Percussion testing initiated on teeth group.
+                The session transcript contains clinical terminology (e.g. tooth numbers, sensitivity, treatment terms). Confirm the generated note against the conversation before saving.
               </p>
             </motion.div>
           )}
@@ -645,34 +745,35 @@ export default function LiveRecording({
             </motion.div>
           )}
 
-          {/* Bouncing Loader Dots representing active audio transcription */}
-          {isRecording && !isListening && (
-            <div className="flex flex-col items-start max-w-[85%] self-start opacity-75 mt-2">
-              <span className="text-xs font-bold text-slate-400 mb-1 ml-1">
-                Listening...
-              </span>
-              <div className="bg-slate-100 p-4 rounded-xl rounded-tl-none border border-dashed border-slate-300">
-                <div className="flex items-center gap-1.5 px-1 py-0.5">
-                  <div className="w-2.5 h-2.5 bg-slate-400 rounded-full animate-bounce"></div>
-                  <div
-                    className="w-2.5 h-2.5 bg-slate-400 rounded-full animate-bounce"
-                    style={{ animationDelay: '0.2s' }}
-                  ></div>
-                  <div
-                    className="w-2.5 h-2.5 bg-slate-400 rounded-full animate-bounce"
-                    style={{ animationDelay: '0.4s' }}
-                  ></div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {isRecording && isListening && (
-            <div className="flex flex-col items-start max-w-[85%] self-start opacity-90 mt-2">
-              <span className="text-xs font-bold text-[#e11d48] mb-1 ml-1 animate-pulse flex items-center gap-1">
-                <span className="w-1.5 h-1.5 bg-[#e11d48] rounded-full"></span>
-                <span>Recording Audio (en-AU mic active)...</span>
-              </span>
+          {/* Mic status indicator — fixed-height container so recognition restarts swap
+              the label without shifting the transcript layout (no more bouncing). */}
+          {isRecording && (
+            <div className="flex flex-col items-start max-w-[85%] self-start mt-2 min-h-[64px] justify-end opacity-90">
+              {isListening ? (
+                <span className="text-xs font-bold text-[#e11d48] mb-1 ml-1 animate-pulse flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 bg-[#e11d48] rounded-full"></span>
+                  <span>Recording Audio (en-AU mic active)...</span>
+                </span>
+              ) : (
+                <>
+                  <span className="text-xs font-bold text-slate-400 mb-1 ml-1">
+                    Listening...
+                  </span>
+                  <div className="bg-slate-100 p-4 rounded-xl rounded-tl-none border border-dashed border-slate-300">
+                    <div className="flex items-center gap-1.5 px-1 py-0.5">
+                      <div className="w-2.5 h-2.5 bg-slate-400 rounded-full animate-bounce"></div>
+                      <div
+                        className="w-2.5 h-2.5 bg-slate-400 rounded-full animate-bounce"
+                        style={{ animationDelay: '0.2s' }}
+                      ></div>
+                      <div
+                        className="w-2.5 h-2.5 bg-slate-400 rounded-full animate-bounce"
+                        style={{ animationDelay: '0.4s' }}
+                      ></div>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           )}
 
@@ -691,7 +792,7 @@ export default function LiveRecording({
                 <Mic className="w-4 h-4" />
                 <span>Active Session Capture</span>
               </span>
-              <span className="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-250 font-semibold text-[10px]">HIPAA Compliant</span>
+              <span className="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-250 font-semibold text-[10px]">Secure &amp; Confidential</span>
             </div>
 
             {/* Split layout: Left (Microphone controls) / Right (Simulator controls) */}
@@ -756,7 +857,7 @@ export default function LiveRecording({
                 <div className="flex items-center justify-between mt-1 pt-1.5 border-t border-slate-100">
                   <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider flex items-center gap-1">
                     <Sparkles className="w-3 h-3 text-primary" />
-                    <span>VocalBridge Ambient Filter</span>
+                    <span>VocalBridge Visualizer Filter</span>
                   </span>
                   <button
                     type="button"
@@ -788,7 +889,7 @@ export default function LiveRecording({
                     <span className={`absolute top-1 left-1 px-1.5 py-0.5 rounded text-[7px] font-extrabold tracking-wider uppercase leading-none shadow-sm ${
                       vocalBridgeActive ? 'bg-blue-600 text-white animate-pulse' : 'bg-purple-600 text-white'
                     }`}>
-                      {vocalBridgeActive ? 'VocalBridge Noise Gate' : 'Raw Audio Feed'}
+                      {vocalBridgeActive ? 'Filtered Audio Preview' : 'Raw Audio Feed'}
                     </span>
                   )}
                 </div>

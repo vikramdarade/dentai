@@ -1,0 +1,532 @@
+{
+  "events": [
+    {
+      "event": "dentist_registered",
+      "dentistId": "459e16a8-7371-4cc6-9d35-9af9650c0082",
+      "detail": {},
+      "timestamp": "2026-08-25T16:51:20.994Z"
+    },
+    {
+      "event": "notes_generated",
+      "dentistId": "459e16a8-7371-4cc6-9d35-9af9650c0082",
+      "detail": {
+        "appointmentType": "emergency",
+        "transcriptLength": 1
+      },
+      "timestamp": "2026-08-25T16:51:21.007Z"
+    },
+    {
+      "event": "notes_generated",
+      "dentistId": "459e16a8-7371-4cc6-9d35-9af9650c0082",
+      "detail": {
+        "appointmentType": "emergency",
+        "transcriptLength": 1
+      },
+      "timestamp": "2026-08-25T16:51:21.009Z"
+    },
+    {
+      "event": "notes_generated",
+      "dentistId": "459e16a8-7371-4cc6-9d35-9af9650c0082",
+      "detail": {
+        "appointmentType": "emergency",
+        "transcriptLength": 1
+      },
+      "timestamp": "2026-08-25T16:51:21.037Z"
+    },
+    {
+      "event": "consultation_created",
+      "dentistId": "459e16a8-7371-4cc6-9d35-9af9650c0082",
+      "detail": {
+        "consultationId": "37c8ff39-def0-4010-9da7-bb7bdb463dfb"
+      },
+      "timestamp": "2026-08-25T16:51:21.038Z"
+    },
+    {
+      "event": "login_success",
+      "dentistId": "459e16a8-7371-4cc6-9d35-9af9650c0082",
+      "detail": {},
+      "timestamp": "2026-08-25T16:51:21.116Z"
+    },
+    {
+      "event": "login_failed",
+      "dentistId": "459e16a8-7371-4cc6-9d35-9af9650c0082",
+      "detail": {
+        "reason": "invalid_pin"
+      },
+      "timestamp": "2026-08-25T16:51:21.273Z"
+    },
+    {
+      "event": "dentist_registered",
+      "dentistId": "a994daf9-759b-4548-8e0f-c0e258be0817",
+      "detail": {},
+      "timestamp": "2026-08-25T16:51:21.354Z"
+    },
+    {
+      "event": "dentist_registered",
+      "dentistId": "1827125f-43e8-4c15-abd0-9051b9fb7389",
+      "detail": {},
+      "timestamp": "2026-08-25T16:51:21.430Z"
+    },
+    {
+      "event": "login_success",
+      "dentistId": "459e16a8-7371-4cc6-9d35-9af9650c0082",
+      "detail": {},
+      "timestamp": "2026-08-25T16:51:21.523Z"
+    },
+    {
+      "event": "dentist_registered",
+      "dentistId": "f61a67e8-fe8a-4b88-b045-de3d49c3f0b0",
+      "detail": {},
+      "timestamp": "2026-08-25T16:51:21.602Z"
+    },
+    {
+      "event": "dentist_deleted",
+      "dentistId": "f61a67e8-fe8a-4b88-b045-de3d49c3f0b0",
+      "detail": {},
+      "timestamp": "2026-08-25T16:51:21.827Z"
+    },
+    {
+      "event": "dentist_registered",
+      "dentistId": "e05a9eab-31f5-4d3e-acec-048c721bdd86",
+      "detail": {},
+      "timestamp": "2026-08-25T16:51:39.788Z"
+    },
+    {
+      "event": "notes_generated",
+      "dentistId": "e05a9eab-31f5-4d3e-acec-048c721bdd86",
+      "detail": {
+        "appointmentType": "emergency",
+        "transcriptLength": 1
+      },
+      "timestamp": "2026-08-25T16:51:39.802Z"
+    },
+    {
+      "event": "notes_generated",
+      "dentistId": "e05a9eab-31f5-4d3e-acec-048c721bdd86",
+      "detail": {
+        "appointmentType": "emergency",
+        "transcriptLength": 1
+      },
+      "timestamp": "2026-08-25T16:51:39.805Z"
+    },
+    {
+      "event": "notes_generated",
+      "dentistId": "e05a9eab-31f5-4d3e-acec-048c721bdd86",
+      "detail": {
+        "appointmentType": "emergency",
+        "transcriptLength": 1
+      },
+      "timestamp": "2026-08-25T16:51:39.832Z"
+    },
+    {
+      "event": "consultation_created",
+      "dentistId": "e05a9eab-31f5-4d3e-acec-048c721bdd86",
+      "detail": {
+        "consultationId": "b4cfd578-75fe-4f26-af8b-a0864293c2cb"
+      },
+      "timestamp": "2026-08-25T16:51:39.834Z"
+    },
+    {
+      "event": "login_success",
+      "dentistId": "e05a9eab-31f5-4d3e-acec-048c721bdd86",
+      "detail": {},
+      "timestamp": "2026-08-25T16:51:39.912Z"
+    },
+    {
+      "event": "login_failed",
+      "dentistId": "e05a9eab-31f5-4d3e-acec-048c721bdd86",
+      "detail": {
+        "reason": "invalid_pin"
+      },
+      "timestamp": "2026-08-25T16:51:40.063Z"
+    },
+    {
+      "event": "dentist_registered",
+      "dentistId": "c46245fa-4d1c-4412-96dc-ebc05ba62c0a",
+      "detail": {},
+      "timestamp": "2026-08-25T16:51:40.140Z"
+    },
+    {
+      "event": "dentist_registered",
+      "dentistId": "23043d68-e877-4538-ab40-ebc2a8b82ce0",
+      "detail": {},
+      "timestamp": "2026-08-25T16:51:40.218Z"
+    },
+    {
+      "event": "login_success",
+      "dentistId": "e05a9eab-31f5-4d3e-acec-048c721bdd86",
+      "detail": {},
+      "timestamp": "2026-08-25T16:51:40.300Z"
+    },
+    {
+      "event": "dentist_registered",
+      "dentistId": "9a29b68e-c6fb-4997-8374-922cdbe3b91c",
+      "detail": {},
+      "timestamp": "2026-08-25T16:51:40.378Z"
+    },
+    {
+      "event": "dentist_deleted",
+      "dentistId": "9a29b68e-c6fb-4997-8374-922cdbe3b91c",
+      "detail": {},
+      "timestamp": "2026-08-25T16:51:40.604Z"
+    },
+    {
+      "event": "dentist_registered",
+      "dentistId": "44c10882-83d4-4f93-8a4b-ab814e6d67a0",
+      "detail": {},
+      "timestamp": "2026-08-25T16:59:46.971Z"
+    },
+    {
+      "event": "notes_generated",
+      "dentistId": "44c10882-83d4-4f93-8a4b-ab814e6d67a0",
+      "detail": {
+        "appointmentType": "emergency",
+        "transcriptLength": 1
+      },
+      "timestamp": "2026-08-25T16:59:46.984Z"
+    },
+    {
+      "event": "notes_generated",
+      "dentistId": "44c10882-83d4-4f93-8a4b-ab814e6d67a0",
+      "detail": {
+        "appointmentType": "emergency",
+        "transcriptLength": 1
+      },
+      "timestamp": "2026-08-25T16:59:46.992Z"
+    },
+    {
+      "event": "notes_generated",
+      "dentistId": "44c10882-83d4-4f93-8a4b-ab814e6d67a0",
+      "detail": {
+        "appointmentType": "emergency",
+        "transcriptLength": 1
+      },
+      "timestamp": "2026-08-25T16:59:47.019Z"
+    },
+    {
+      "event": "consultation_created",
+      "dentistId": "44c10882-83d4-4f93-8a4b-ab814e6d67a0",
+      "detail": {
+        "consultationId": "88cd78dd-ece6-440b-bf0c-c63f14909ade"
+      },
+      "timestamp": "2026-08-25T16:59:47.021Z"
+    },
+    {
+      "event": "login_success",
+      "dentistId": "44c10882-83d4-4f93-8a4b-ab814e6d67a0",
+      "detail": {},
+      "timestamp": "2026-08-25T16:59:47.097Z"
+    },
+    {
+      "event": "login_failed",
+      "dentistId": "44c10882-83d4-4f93-8a4b-ab814e6d67a0",
+      "detail": {
+        "reason": "invalid_pin"
+      },
+      "timestamp": "2026-08-25T16:59:47.250Z"
+    },
+    {
+      "event": "dentist_registered",
+      "dentistId": "98d9f0c4-b04c-48c4-bcb0-f0a6ccca1f18",
+      "detail": {},
+      "timestamp": "2026-08-25T16:59:47.328Z"
+    },
+    {
+      "event": "dentist_registered",
+      "dentistId": "4e00911b-6563-48c3-9cc3-813a91849ce1",
+      "detail": {},
+      "timestamp": "2026-08-25T16:59:47.402Z"
+    },
+    {
+      "event": "login_success",
+      "dentistId": "44c10882-83d4-4f93-8a4b-ab814e6d67a0",
+      "detail": {},
+      "timestamp": "2026-08-25T16:59:47.480Z"
+    },
+    {
+      "event": "dentist_registered",
+      "dentistId": "fe52bd5d-8e44-44b6-bb81-24efd404683a",
+      "detail": {},
+      "timestamp": "2026-08-25T16:59:47.558Z"
+    },
+    {
+      "event": "dentist_deleted",
+      "dentistId": "fe52bd5d-8e44-44b6-bb81-24efd404683a",
+      "detail": {},
+      "timestamp": "2026-08-25T16:59:47.784Z"
+    },
+    {
+      "event": "dentist_registered",
+      "dentistId": "ea8e5a3a-d788-45d9-b44b-63faa8db43b3",
+      "detail": {},
+      "timestamp": "2026-08-25T17:04:23.730Z"
+    },
+    {
+      "event": "dentist_registered",
+      "dentistId": "f9738fe2-0e9d-4aaa-8645-ab6cefe2034b",
+      "detail": {},
+      "timestamp": "2026-08-25T17:04:28.383Z"
+    },
+    {
+      "event": "login_success",
+      "dentistId": "f9738fe2-0e9d-4aaa-8645-ab6cefe2034b",
+      "detail": {},
+      "timestamp": "2026-08-25T17:04:28.712Z"
+    },
+    {
+      "event": "login_failed",
+      "dentistId": "f9738fe2-0e9d-4aaa-8645-ab6cefe2034b",
+      "detail": {
+        "reason": "invalid_pin"
+      },
+      "timestamp": "2026-08-25T17:04:28.993Z"
+    },
+    {
+      "event": "login_failed",
+      "dentistId": "f9738fe2-0e9d-4aaa-8645-ab6cefe2034b",
+      "detail": {
+        "reason": "invalid_pin"
+      },
+      "timestamp": "2026-08-25T17:04:29.406Z"
+    },
+    {
+      "event": "notes_generated",
+      "dentistId": "f9738fe2-0e9d-4aaa-8645-ab6cefe2034b",
+      "detail": {
+        "appointmentType": "emergency",
+        "transcriptLength": 1
+      },
+      "timestamp": "2026-08-25T17:04:29.914Z"
+    },
+    {
+      "event": "consultation_created",
+      "dentistId": "f9738fe2-0e9d-4aaa-8645-ab6cefe2034b",
+      "detail": {
+        "consultationId": "smoke-test-consult-001"
+      },
+      "timestamp": "2026-08-25T17:04:30.050Z"
+    },
+    {
+      "event": "consultation_updated",
+      "dentistId": "f9738fe2-0e9d-4aaa-8645-ab6cefe2034b",
+      "detail": {
+        "consultationId": "smoke-test-consult-001"
+      },
+      "timestamp": "2026-08-25T17:04:30.307Z"
+    },
+    {
+      "event": "dentist_deleted",
+      "dentistId": "f9738fe2-0e9d-4aaa-8645-ab6cefe2034b",
+      "detail": {},
+      "timestamp": "2026-08-25T17:04:31.331Z"
+    },
+    {
+      "event": "notes_generated",
+      "dentistId": "ea8e5a3a-d788-45d9-b44b-63faa8db43b3",
+      "detail": {
+        "appointmentType": "scale_clean",
+        "transcriptLength": 4
+      },
+      "timestamp": "2026-08-25T17:04:58.806Z"
+    },
+    {
+      "event": "notes_generated",
+      "dentistId": "ea8e5a3a-d788-45d9-b44b-63faa8db43b3",
+      "detail": {
+        "appointmentType": "scale_clean",
+        "transcriptLength": 4
+      },
+      "timestamp": "2026-08-25T17:05:06.144Z"
+    },
+    {
+      "event": "dentist_registered",
+      "dentistId": "5582309a-148b-459b-a56e-cb7562644cb3",
+      "detail": {},
+      "timestamp": "2026-08-25T17:09:06.754Z"
+    },
+    {
+      "event": "login_success",
+      "dentistId": "5582309a-148b-459b-a56e-cb7562644cb3",
+      "detail": {},
+      "timestamp": "2026-08-25T17:09:06.959Z"
+    },
+    {
+      "event": "consultation_created",
+      "dentistId": "5582309a-148b-459b-a56e-cb7562644cb3",
+      "detail": {
+        "consultationId": "smoke-db-consult-001"
+      },
+      "timestamp": "2026-08-25T17:09:07.213Z"
+    },
+    {
+      "event": "consultation_updated",
+      "dentistId": "5582309a-148b-459b-a56e-cb7562644cb3",
+      "detail": {
+        "consultationId": "smoke-db-consult-001"
+      },
+      "timestamp": "2026-08-25T17:09:07.475Z"
+    },
+    {
+      "event": "login_failed",
+      "dentistId": "5582309a-148b-459b-a56e-cb7562644cb3",
+      "detail": {
+        "reason": "invalid_pin"
+      },
+      "timestamp": "2026-08-25T17:09:07.764Z"
+    },
+    {
+      "event": "login_failed",
+      "dentistId": "5582309a-148b-459b-a56e-cb7562644cb3",
+      "detail": {
+        "reason": "invalid_pin"
+      },
+      "timestamp": "2026-08-25T17:09:08.043Z"
+    },
+    {
+      "event": "notes_generated",
+      "dentistId": "5582309a-148b-459b-a56e-cb7562644cb3",
+      "detail": {
+        "appointmentType": "examination",
+        "transcriptLength": 1
+      },
+      "timestamp": "2026-08-25T17:09:08.170Z"
+    },
+    {
+      "event": "login_success",
+      "dentistId": "5582309a-148b-459b-a56e-cb7562644cb3",
+      "detail": {},
+      "timestamp": "2026-08-25T17:09:45.268Z"
+    },
+    {
+      "event": "dentist_registered",
+      "dentistId": "7af87757-cb35-447d-8b61-4a5c2be4b879",
+      "detail": {},
+      "timestamp": "2026-08-25T17:12:36.236Z"
+    },
+    {
+      "event": "login_success",
+      "dentistId": "7af87757-cb35-447d-8b61-4a5c2be4b879",
+      "detail": {},
+      "timestamp": "2026-08-25T17:12:36.319Z"
+    },
+    {
+      "event": "consultation_created",
+      "dentistId": "7af87757-cb35-447d-8b61-4a5c2be4b879",
+      "detail": {
+        "consultationId": "fedaf440-c8a4-4a2c-b85f-90345e0afd2d"
+      },
+      "timestamp": "2026-08-25T17:12:36.333Z"
+    },
+    {
+      "event": "consultation_updated",
+      "dentistId": "7af87757-cb35-447d-8b61-4a5c2be4b879",
+      "detail": {
+        "consultationId": "fedaf440-c8a4-4a2c-b85f-90345e0afd2d"
+      },
+      "timestamp": "2026-08-25T17:12:36.339Z"
+    },
+    {
+      "event": "notes_generated",
+      "dentistId": "7af87757-cb35-447d-8b61-4a5c2be4b879",
+      "detail": {
+        "appointmentType": "emergency",
+        "transcriptLength": 1
+      },
+      "timestamp": "2026-08-25T17:12:36.346Z"
+    },
+    {
+      "event": "dentist_registered",
+      "dentistId": "6ed3c3b1-b82d-4108-9932-f98af84d4092",
+      "detail": {},
+      "timestamp": "2026-08-25T17:12:36.430Z"
+    },
+    {
+      "event": "login_failed",
+      "dentistId": "6ed3c3b1-b82d-4108-9932-f98af84d4092",
+      "detail": {
+        "reason": "invalid_pin"
+      },
+      "timestamp": "2026-08-25T17:12:36.584Z"
+    },
+    {
+      "event": "login_failed",
+      "dentistId": "6ed3c3b1-b82d-4108-9932-f98af84d4092",
+      "detail": {
+        "reason": "invalid_pin"
+      },
+      "timestamp": "2026-08-25T17:12:36.735Z"
+    },
+    {
+      "event": "login_failed",
+      "dentistId": "6ed3c3b1-b82d-4108-9932-f98af84d4092",
+      "detail": {
+        "reason": "invalid_pin"
+      },
+      "timestamp": "2026-08-25T17:12:36.887Z"
+    },
+    {
+      "event": "login_failed",
+      "dentistId": "6ed3c3b1-b82d-4108-9932-f98af84d4092",
+      "detail": {
+        "reason": "invalid_pin"
+      },
+      "timestamp": "2026-08-25T17:12:37.038Z"
+    },
+    {
+      "event": "login_failed",
+      "dentistId": "6ed3c3b1-b82d-4108-9932-f98af84d4092",
+      "detail": {
+        "reason": "invalid_pin"
+      },
+      "timestamp": "2026-08-25T17:12:37.189Z"
+    },
+    {
+      "event": "dentist_deleted",
+      "dentistId": "6ed3c3b1-b82d-4108-9932-f98af84d4092",
+      "detail": {},
+      "timestamp": "2026-08-25T17:12:37.274Z"
+    },
+    {
+      "event": "dentist_deleted",
+      "dentistId": "7af87757-cb35-447d-8b61-4a5c2be4b879",
+      "detail": {},
+      "timestamp": "2026-08-25T17:12:37.353Z"
+    },
+    {
+      "event": "notes_generated",
+      "dentistId": "ea8e5a3a-d788-45d9-b44b-63faa8db43b3",
+      "detail": {
+        "appointmentType": "scale_clean",
+        "transcriptLength": 4
+      },
+      "timestamp": "2026-08-25T17:13:05.554Z"
+    },
+    {
+      "event": "notes_generated",
+      "dentistId": "ea8e5a3a-d788-45d9-b44b-63faa8db43b3",
+      "detail": {
+        "appointmentType": "scale_clean",
+        "transcriptLength": 4
+      },
+      "timestamp": "2026-08-25T17:13:15.949Z"
+    },
+    {
+      "event": "dentist_registered",
+      "dentistId": "2b64da7e-d834-40ef-8a26-0de544f3533d",
+      "detail": {},
+      "timestamp": "2026-08-25T17:14:35.274Z"
+    },
+    {
+      "event": "dentist_registered",
+      "dentistId": "55fd486e-1895-46ae-8468-a569ee630571",
+      "detail": {},
+      "timestamp": "2026-08-25T17:14:56.364Z"
+    },
+    {
+      "event": "dentist_registered",
+      "dentistId": "91212da4-bfca-45d3-90c2-b8108e3249bd",
+      "detail": {},
+      "timestamp": "2026-08-25T17:15:46.229Z"
+    }
+  ]
+}

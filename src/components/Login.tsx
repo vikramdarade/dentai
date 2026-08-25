@@ -152,7 +152,6 @@ export default function Login({ onLoginSuccess }: LoginProps) {
 
     const localProfilesStr = localStorage.getItem('dentai_saved_profiles');
     const localProfiles: DentistProfile[] = localProfilesStr ? JSON.parse(localProfilesStr) : [];
-    const matchedProfile = localProfiles.find(p => p.id === selectedProfile.id);
 
     try {
       const res = await fetch('/api/auth/login', {
@@ -160,14 +159,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           dentistId: selectedProfile.id,
-          pin: completedPin,
-          customProfile: {
-            id: selectedProfile.id,
-            name: selectedProfile.name,
-            specialty: selectedProfile.specialty,
-            pinHash: matchedProfile?.pinHash || selectedProfile.pinHash,
-            salt: matchedProfile?.salt || selectedProfile.salt
-          }
+          pin: completedPin
         })
       });
 
@@ -228,9 +220,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
           const profileWithCreds = {
             id: data.dentist.id,
             name: data.dentist.name,
-            specialty: data.dentist.specialty,
-            pinHash: data.dentist.pinHash,
-            salt: data.dentist.salt
+            specialty: data.dentist.specialty
           };
           const filtered = localProfiles.filter(p => p.id !== data.dentist.id);
           filtered.push(profileWithCreds);

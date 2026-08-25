@@ -9,6 +9,18 @@ import { logger } from './logger';
 import fs from 'fs';
 import crypto from 'crypto';
 import { kv } from '@vercel/kv';
+import {
+  dbEnabled,
+  initDbSchema,
+  seedFromJsonFallback,
+  dbGetDentists,
+  dbInsertDentist,
+  dbDeleteDentist,
+  dbListConsultations,
+  dbInsertConsultation,
+  dbUpdateConsultation,
+  dbAppendAudit
+} from './src/lib/db';
 
 // Load environment variables
 dotenv.config({ path: '.env.local' });
@@ -61,6 +73,7 @@ app.use('/api/', apiLimiter);
 // JSON database file paths
 const USERS_FILE = path.resolve(__dirname, 'data', 'users.json');
 const CONSULTATIONS_FILE = path.resolve(__dirname, 'data', 'consultations.json');
+const AUDIT_FILE = path.resolve(__dirname, 'data', 'audit.json');
 
 // In-memory caching layer for read-only environments (like Vercel serverless)
 const dbCache: Record<string, any> = {
@@ -113,29 +126,94 @@ async function writeDb(kvKey: string, filePath: string, data: any) {
 }
 
 async function readUsersDb() {
+  if (dbEnabled) {
+    try {
+      return { dentists: await dbGetDentists() };
+    } catch (err) {
+      logger.error('Failed to read dentists from Postgres:', err);
+      return { dentists: [] };
+    }
+  }
   return readDb('dentai:users', USERS_FILE, { dentists: [] });
 }
 
 async function writeUsersDb(data: any) {
+  // In Postgres mode, dentist mutations go through dbInsertDentist/dbDeleteDentist directly.
+  if (dbEnabled) return;
   return writeDb('dentai:users', USERS_FILE, data);
 }
 
 async function readConsultationsDb() {
+  if (dbEnabled) {
+    // The authenticated GET endpoint queries by dentist id via dbListConsultations;
+    // this fallback-array shape is only used by the non-Postgres paths below.
+    return { consultations: [] };
+  }
   return readDb('dentai:consultations', CONSULTATIONS_FILE, { consultations: [] });
 }
 
 async function writeConsultationsDb(data: any) {
+  // In Postgres mode, consultation writes go through dbInsertConsultation/dbUpdateConsultation.
+  if (dbEnabled) return;
   return writeDb('dentai:consultations', CONSULTATIONS_FILE, data);
 }
 
+// Immutable audit trail for compliance (who did what, when). Event payloads must NEVER
+// contain PHI — only the event type, dentist id, and a small non-PHI detail.
+async function logAudit(event: string, dentistId: string, detail: Record<string, any> = {}) {
+  if (dbEnabled) {
+    try {
+      await dbAppendAudit(event, dentistId, detail);
+    } catch (err) {
+      logger.error(`Failed to write audit event ${event} to Postgres:`, err);
+    }
+    return;
+  }
+  try {
+    const auditData = await readDb('dentai:audit', AUDIT_FILE, { events: [] });
+    auditData.events.push({
+      event,
+      dentistId,
+      detail,
+      timestamp: new Date().toISOString()
+    });
+    await writeDb('dentai:audit', AUDIT_FILE, auditData);
+  } catch (err) {
+    logger.error(`Failed to write audit event ${event}:`, err);
+  }
+}
+
 const SESSION_SECRET = process.env.SESSION_SECRET || 'dentai-secure-workstation-session-secret';
+// The hardcoded fallback above exists only so local dev and the test suite keep working.
+// A deployed environment MUST set its own SESSION_SECRET — otherwise tokens are forgeable.
+if (!process.env.SESSION_SECRET && process.env.NODE_ENV === 'production') {
+  throw new Error('SESSION_SECRET environment variable is required in production.');
+}
+
+// In-memory login lockout (per dentist + IP) to make brute-forcing the 4-digit PIN infeasible.
+const loginAttempts = new Map<string, { count: number; lockedUntil: number }>();
+const LOGIN_MAX_ATTEMPTS = 5;
+const LOGIN_LOCKOUT_MS = 15 * 60 * 1000;
 
 function getDentistSalt(dentistId: string): string {
   return crypto.createHmac('sha256', SESSION_SECRET).update(`dentist-salt-${dentistId}`).digest('hex');
 }
 
-function getPinHash(pin: string, salt: string): string {
-  return crypto.pbkdf2Sync(pin, salt, 1000, 64, 'sha512').toString('hex');
+// OWASP-recommended iteration count for PBKDF2-HMAC-SHA512.
+const PBKDF2_ITERATIONS = 210_000;
+// Iterations used by accounts created before the hardening change; verified as a
+// fallback so existing PINs keep working without forcing a reset.
+const PBKDF2_LEGACY_ITERATIONS = 1_000;
+
+function getPinHash(pin: string, salt: string, iterations: number = PBKDF2_ITERATIONS): string {
+  return crypto.pbkdf2Sync(pin, salt, iterations, 64, 'sha512').toString('hex');
+}
+
+// Verifies a PIN against the stored hash, accepting current and legacy iteration counts.
+function verifyPinHash(pin: string, salt: string, storedHash: string | undefined): boolean {
+  if (!storedHash) return false;
+  if (getPinHash(pin, salt, PBKDF2_ITERATIONS) === storedHash) return true;
+  return getPinHash(pin, salt, PBKDF2_LEGACY_ITERATIONS) === storedHash;
 }
 
 function generateToken(payload: { dentistId: string; name?: string; specialty?: string; exp?: number }): string {
@@ -179,6 +257,16 @@ function verifyToken(token: string): { dentistId: string; name?: string; special
 
 // Helper to ensure data files exist
 async function initDb() {
+  logger.info(dbEnabled ? 'Persistence mode: PostgreSQL (Neon)' : 'Persistence mode: JSON file fallback');
+  if (dbEnabled) {
+    try {
+      await initDbSchema();
+      logger.info('Postgres schema initialized.');
+      await seedFromJsonFallback();
+    } catch (err: any) {
+      logger.error('Failed to initialize Postgres schema:', err.message);
+    }
+  }
   const dataDir = path.resolve(__dirname, 'data');
   try {
     if (!fs.existsSync(dataDir)) {
@@ -189,6 +277,9 @@ async function initDb() {
     }
     if (!fs.existsSync(CONSULTATIONS_FILE)) {
       fs.writeFileSync(CONSULTATIONS_FILE, JSON.stringify({ consultations: [] }, null, 2));
+    }
+    if (!fs.existsSync(AUDIT_FILE)) {
+      fs.writeFileSync(AUDIT_FILE, JSON.stringify({ events: [] }, null, 2));
     }
   } catch (err: any) {
     logger.warn('[Database] Read-only filesystem detected during initialization. Relying on in-memory caching.', err.message);
@@ -212,21 +303,13 @@ async function authenticateToken(req: express.Request, res: express.Response, ne
   }
   const dentistId = decoded.dentistId;
 
-  // Attach dentist details to request object with serverless fallback
   try {
     const usersData = await readUsersDb();
-    let dentist = usersData.dentists.find((d: any) => d.id === dentistId);
+    const dentist = usersData.dentists.find((d: any) => d.id === dentistId);
 
-    // If serverless container cold-started and memory db doesn't have custom profile, recover from verified signed token
-    if (!dentist && decoded.name) {
-      dentist = {
-        id: dentistId,
-        name: decoded.name,
-        specialty: decoded.specialty || 'General Dentistry'
-      };
-      usersData.dentists.push(dentist);
-    }
-
+    // A signed token alone is NOT sufficient — the dentist profile must exist in the
+    // database. (Previously a token's name/specialty claims were used to recreate
+    // profiles on cold start, which let forged tokens mint new identities.)
     if (!dentist) {
       return res.status(403).json({ error: 'Dentist profile not found.' });
     }
@@ -272,32 +355,28 @@ app.delete('/api/auth/profiles/:id', async (req, res) => {
 
     const dentist = usersData.dentists[dentistIndex];
     const salt = dentist.salt || getDentistSalt(dentistId);
-    const computedHash = crypto.pbkdf2Sync(pin, salt, 1000, 64, 'sha512').toString('hex');
-    const deterministicHash = getPinHash(pin, getDentistSalt(dentistId));
-
-    const isValid = computedHash === dentist.pinHash || deterministicHash === dentist.pinHash;
+    // Verify against the stored hash, plus a deterministic-salt fallback for profiles
+    // created before per-profile salts were introduced.
+    const isValid = verifyPinHash(pin, salt, dentist.pinHash) ||
+      verifyPinHash(pin, getDentistSalt(dentistId), dentist.pinHash);
 
     if (!isValid) {
       return res.status(401).json({ error: 'Incorrect PIN. Profile deletion cancelled.' });
     }
 
-    usersData.dentists.splice(dentistIndex, 1);
-    await writeUsersDb(usersData);
+    if (dbEnabled) {
+      await dbDeleteDentist(dentistId);
+    } else {
+      usersData.dentists.splice(dentistIndex, 1);
+      await writeUsersDb(usersData);
+    }
+    logAudit('dentist_deleted', dentistId, {});
 
     res.json({ success: true, message: 'Dentist profile removed successfully.' });
   } catch (err) {
     logger.error('Profile deletion error:', err);
     res.status(500).json({ error: 'Failed to remove dentist profile.' });
   }
-});
-
-app.get('/api/auth/me', authenticateToken, (req, res) => {
-  const dentist = (req as any).dentist;
-  res.json({
-    id: dentist.id,
-    name: dentist.name,
-    specialty: dentist.specialty
-  });
 });
 
 app.post('/api/auth/register', async (req, res) => {
@@ -330,8 +409,12 @@ app.post('/api/auth/register', async (req, res) => {
       salt
     };
 
-    usersData.dentists.push(newDentist);
-    await writeUsersDb(usersData);
+    if (dbEnabled) {
+      await dbInsertDentist(newDentist);
+    } else {
+      usersData.dentists.push(newDentist);
+      await writeUsersDb(usersData);
+    }
 
     const token = generateToken({
       dentistId: newDentist.id,
@@ -339,14 +422,14 @@ app.post('/api/auth/register', async (req, res) => {
       specialty: newDentist.specialty
     });
 
+    logAudit('dentist_registered', newDentist.id, {});
+
     res.status(201).json({
       token,
       dentist: {
         id: newDentist.id,
         name: newDentist.name,
-        specialty: newDentist.specialty,
-        pinHash: newDentist.pinHash,
-        salt: newDentist.salt
+        specialty: newDentist.specialty
       }
     });
   } catch (err) {
@@ -357,53 +440,51 @@ app.post('/api/auth/register', async (req, res) => {
 
 app.post('/api/auth/login', async (req, res) => {
   try {
-    const { dentistId, pin, customProfile } = req.body;
+    const { dentistId, pin } = req.body;
     if (!dentistId || typeof dentistId !== 'string') {
       return res.status(400).json({ error: 'Dentist ID is required.' });
     }
-    if (!pin || typeof pin !== 'string') {
-      return res.status(400).json({ error: 'PIN is required.' });
+    if (!pin || typeof pin !== 'string' || !/^\d{4}$/.test(pin)) {
+      return res.status(400).json({ error: 'PIN must be exactly 4 digits.' });
     }
 
-    const salt = getDentistSalt(dentistId);
-    const expectedPinHash = getPinHash(pin, salt);
+    // Brute-force protection: lock the dentist+IP pair after repeated failures.
+    const attemptKey = `${dentistId}:${req.ip || 'unknown'}`;
+    const attempt = loginAttempts.get(attemptKey);
+    if (attempt && attempt.lockedUntil > Date.now()) {
+      return res.status(429).json({ error: 'Too many failed attempts. Please try again in 15 minutes.' });
+    }
+    if (attempt && attempt.lockedUntil <= Date.now()) {
+      loginAttempts.delete(attemptKey);
+    }
 
     const usersData = await readUsersDb();
-    let dentist = usersData.dentists.find((d: any) => d.id === dentistId);
+    const dentist = usersData.dentists.find((d: any) => d.id === dentistId);
 
-    // If serverless container cold-started and doesn't have custom profile in memory yet
-    if (!dentist && customProfile && customProfile.name) {
-      const profileSalt = customProfile.salt || salt;
-      const profilePinHash = customProfile.pinHash || expectedPinHash;
-      dentist = {
-        id: dentistId,
-        name: customProfile.name,
-        specialty: customProfile.specialty || 'General Dentistry',
-        pinHash: profilePinHash,
-        salt: profileSalt
-      };
-      usersData.dentists.push(dentist);
-      await writeUsersDb(usersData);
-    }
-
+    // The profile MUST exist in the database. Client-supplied hashes/custom profiles are
+    // never accepted — that previously allowed logging in as any known dentist.
     if (!dentist) {
+      logAudit('login_failed', dentistId, { reason: 'profile_not_found' });
       return res.status(401).json({ error: 'Invalid dentist profile or PIN.' });
     }
 
-    const dentistSalt = dentist.salt || salt;
-    const computedHash = crypto.pbkdf2Sync(pin, dentistSalt, 1000, 64, 'sha512').toString('hex');
-    const deterministicHash = getPinHash(pin, dentistSalt);
-    const idSaltHash = getPinHash(pin, getDentistSalt(dentistId));
-
+    const dentistSalt = dentist.salt || getDentistSalt(dentistId);
     const isValid =
-      computedHash === dentist.pinHash ||
-      deterministicHash === dentist.pinHash ||
-      idSaltHash === dentist.pinHash ||
-      (customProfile && customProfile.pinHash && (computedHash === customProfile.pinHash || deterministicHash === customProfile.pinHash));
+      verifyPinHash(pin, dentistSalt, dentist.pinHash) ||
+      verifyPinHash(pin, getDentistSalt(dentistId), dentist.pinHash);
 
     if (!isValid) {
+      const next = { count: (attempt?.count || 0) + 1, lockedUntil: 0 };
+      if (next.count >= LOGIN_MAX_ATTEMPTS) {
+        next.lockedUntil = Date.now() + LOGIN_LOCKOUT_MS;
+        next.count = 0;
+      }
+      loginAttempts.set(attemptKey, next);
+      logAudit('login_failed', dentistId, { reason: 'invalid_pin' });
       return res.status(401).json({ error: 'Invalid dentist profile or PIN.' });
     }
+
+    loginAttempts.delete(attemptKey);
 
     const token = generateToken({
       dentistId: dentist.id,
@@ -411,14 +492,14 @@ app.post('/api/auth/login', async (req, res) => {
       specialty: dentist.specialty
     });
 
+    logAudit('login_success', dentist.id, {});
+
     res.json({
       token,
       dentist: {
         id: dentist.id,
         name: dentist.name,
-        specialty: dentist.specialty,
-        pinHash: dentist.pinHash || expectedPinHash,
-        salt: dentist.salt || salt
+        specialty: dentist.specialty
       }
     });
   } catch (err) {
@@ -442,10 +523,15 @@ app.get('/api/auth/me', authenticateToken, (req: any, res) => {
 // Consultation Persistence Endpoints
 app.get('/api/consultations', authenticateToken, async (req: any, res) => {
   try {
-    const consultationsData = await readConsultationsDb();
-    const myConsultations = consultationsData.consultations.filter(
-      (c: any) => c.dentistId === req.dentist.id
-    );
+    let myConsultations: any[];
+    if (dbEnabled) {
+      myConsultations = await dbListConsultations(req.dentist.id);
+    } else {
+      const consultationsData = await readConsultationsDb();
+      myConsultations = consultationsData.consultations.filter(
+        (c: any) => c.dentistId === req.dentist.id
+      );
+    }
     res.json(myConsultations);
   } catch (err) {
     logger.error('Failed to read consultations:', err);
@@ -468,15 +554,20 @@ app.post('/api/consultations', authenticateToken, async (req: any, res) => {
       consultation.lastName = consultation.lastName.replace(/[<>]/g, '').trim();
     }
 
-    const consultationsData = await readConsultationsDb();
     const newConsultation = {
       ...consultation,
       id: consultation.id || crypto.randomUUID(),
       dentistId: req.dentist.id
     };
 
-    consultationsData.consultations.unshift(newConsultation);
-    await writeConsultationsDb(consultationsData);
+    if (dbEnabled) {
+      await dbInsertConsultation(newConsultation);
+    } else {
+      const consultationsData = await readConsultationsDb();
+      consultationsData.consultations.unshift(newConsultation);
+      await writeConsultationsDb(consultationsData);
+    }
+    logAudit('consultation_created', req.dentist.id, { consultationId: newConsultation.id });
     res.status(201).json(newConsultation);
   } catch (err) {
     logger.error('Failed to save consultation:', err);
@@ -490,6 +581,22 @@ app.put('/api/consultations/:id', authenticateToken, async (req: any, res) => {
     const updatedPayload = req.body;
     if (!updatedPayload || typeof updatedPayload !== 'object') {
       return res.status(400).json({ error: 'Invalid consultation payload.' });
+    }
+
+    if (dbEnabled) {
+      const existing = (await dbListConsultations(req.dentist.id)).find((c: any) => c.id === id);
+      if (!existing) {
+        return res.status(404).json({ error: 'Consultation not found or unauthorized.' });
+      }
+      const merged = {
+        ...existing,
+        ...updatedPayload,
+        id,
+        dentistId: req.dentist.id
+      };
+      await dbUpdateConsultation(id, req.dentist.id, merged);
+      logAudit('consultation_updated', req.dentist.id, { consultationId: id });
+      return res.json(merged);
     }
 
     const consultationsData = await readConsultationsDb();
@@ -509,6 +616,7 @@ app.put('/api/consultations/:id', authenticateToken, async (req: any, res) => {
     };
 
     await writeConsultationsDb(consultationsData);
+    logAudit('consultation_updated', req.dentist.id, { consultationId: id });
     res.json(consultationsData.consultations[index]);
   } catch (err) {
     logger.error('Failed to update consultation:', err);
@@ -645,6 +753,11 @@ app.post('/api/generate-notes', authenticateToken, async (req: express.Request, 
       }
     }
 
+    logAudit('notes_generated', (req as any).dentist?.id || 'unknown', {
+      appointmentType: intakeData.appointmentType,
+      transcriptLength: transcript.length
+    });
+
     const apiKey = process.env.GEMINI_API_KEY;
 
     let ai: GoogleGenAI;
@@ -771,7 +884,9 @@ ${transcript.map((t: any) => `${t.sender}: ${t.text}`).join('\n')}
     const statusCode = error.status || (error.code ? Number(error.code) : 500);
     const errorMsg = (error.message || JSON.stringify(error) || '').toLowerCase();
 
-    // If it's a rate-limit (429), credentials error, or a known API failure (credits depleted), fall back to a high-quality simulation
+    // If it's a rate-limit (429), credentials error, or a known API failure (credits
+    // depleted), return an explicit error. NO fabricated clinical records are ever
+    // produced — invented diagnoses or billing codes must never enter a patient record.
     const isRateLimited = statusCode === 429 || isCredentialsError ||
       errorMsg.includes('quota') ||
       errorMsg.includes('prepayment') ||
@@ -780,50 +895,12 @@ ${transcript.map((t: any) => `${t.sender}: ${t.text}`).join('\n')}
       errorMsg.includes('exhausted');
 
     if (isRateLimited) {
-      logger.warn('[Gemini API] Billing depleted or rate-limit reached. Serving high-quality clinical fallback summary for pilot stability.');
-
-      const intake = req.body.intakeData || {};
-      const isEmergency = intake.appointmentType === 'emergency';
-      const isClean = intake.appointmentType === 'scale_clean';
-      const patientFirstName = intake.firstName || 'Patient';
-
-      const fallbackNotes = {
-        chiefComplaint: isEmergency
-          ? "Acute throbbing sensitivity on the lower left quadrant when tapping."
-          : isClean
-            ? "Presents for scheduled dental scale and prophylaxis clean."
-            : "Routine comprehensive oral examination.",
-        history: "Daily brushing reported; flossing is irregular. Mild sensitivity to cold fluids.",
-        toothFindings: "FDI Tooth 33: Deep carious lesion requiring restoration. FDI Tooth 24: Stable restoration. FDI Tooth 16: Pulpitis detected requiring root canal treatment. FDI Tooth 42: Checked for mobility.",
-        findingsGingival: "Localized gingivitis. Periodontal pocket depths recorded at 3-2-3 mm.",
-        diagnosis: isEmergency
-          ? "Symptomatic pulpitis on tooth 16 and tooth 33. Localized gingivitis."
-          : "Marginal plaque accumulation and localized mild gingivitis.",
-        treatmentPerformed: isEmergency
-          ? "Thermal and percussion diagnostic tests. Initial excavation of decay on tooth 16, root canal started."
-          : "Supragingival scaling and plaque clean removal. Fluoride varnish application.",
-        recommendations: "Maintain brushing twice daily. Enhance flossing daily. Avoid direct ice water.",
-        recallRequirements: isEmergency ? "Next Available (Urgent)" : "6 Months (Standard)",
-        patientSummary: `Hi ${patientFirstName},\n\nWe successfully completed your session today. We identified some localized dental concerns on your left side tooth (FDI 33) and performed temporary treatment to relieve sensitivity. Please schedule your follow-up appointment soon to complete the restoration. We will colour code your next programme to minimise plaque buildup.\n\nDr. Sarah Jenkins`,
-        adaCodes: isEmergency
-          ? [
-              { code: "013", description: "Oral examination - limited / emergency" },
-              { code: "414", description: "Pulp extirpation and canal debridement", tooth: "16" },
-              { code: "022", description: "Intraoral periapical radiograph", tooth: "16" }
-            ]
-          : isClean
-            ? [
-                { code: "012", description: "Periodic oral examination" },
-                { code: "114", description: "Removal of calculus - supra/subgingival" },
-                { code: "121", description: "Topical application of fluoride" }
-              ]
-            : [
-                { code: "011", description: "Comprehensive oral examination" },
-                { code: "022", description: "Intraoral periapical radiograph" }
-              ]
-      };
-
-      return res.json(fallbackNotes);
+      logger.warn('[Gemini API] Billing depleted or rate-limit reached. Returning an error so the dentist can retry.');
+      logAudit('notes_generation_quota_exhausted', (req as any).dentist?.id || 'unknown', {});
+      return res.status(429).json({
+        error: 'The AI note generator is temporarily rate-limited (quota or billing exhausted). No notes were created — please try again shortly.',
+        code: 'QUOTA_EXCEEDED'
+      });
     }
 
     let errorCode = 'API_ERROR';

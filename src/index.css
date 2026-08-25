@@ -4,6 +4,21 @@
   --font-sans: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
   
+  /* Typography tokens used by the components (font-* family, text-* size utilities) */
+  --font-headline-sm: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-headline-md: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-headline-lg: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-label-sm: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-label-md: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-body-md: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-transcription-text: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --text-headline-sm: 1.25rem;
+  --text-headline-md: 1.5rem;
+  --text-headline-lg: 1.875rem;
+  --text-label-sm: 0.8125rem;
+  --text-label-md: 0.875rem;
+  --text-body-md: 0.875rem;
+
   --color-primary: #0F52BA;
   --color-primary-dark: #0A387E;
   --color-primary-light: #EBF3FD;
@@ -12,6 +27,74 @@
   --color-surface-bg: #F8F9FA;
   --color-surface-card: #FFFFFF;
   --color-surface-tint: #F1F5F9;
+
+  /* Material-style semantic tokens referenced by classNames across components.
+     These were previously undefined, so utilities like bg-surface, text-on-surface
+     and border-outline-variant silently generated no CSS. */
+  --color-surface: #FFFFFF;
+  --color-on-surface: #0F172A;
+  --color-on-background: #0F172A;
+  --color-outline-variant: #E2E8F0;
+  --color-secondary: #64748B;
+  --color-secondary-container: #EEF2FF;
+  --color-on-secondary-container: #1E293B;
+  --color-primary-fixed: #DCE9FC;
+  --color-on-primary-fixed: #0A387E;
+  --color-surface-container-highest: #E2E8F0;
+  --color-on-secondary-fixed: #334155;
+  --color-error-container: #FEE2E2;
+  --color-on-error-container: #991B1B;
+
+  /* Non-standard color shades used across components, mapped to nearest Tailwind values
+     so these utilities actually render instead of being silently dropped. */
+  --color-red-150: #fecaca;
+  --color-red-250: #fca5a5;
+  --color-red-650: #dc2626;
+  --color-red-750: #b91c1c;
+  --color-red-755: #b91c1c;
+  --color-slate-150: #e2e8f0;
+  --color-slate-350: #cbd5e1;
+  --color-slate-450: #94a3b8;
+  --color-slate-550: #64748b;
+  --color-slate-650: #475569;
+  --color-slate-655: #475569;
+  --color-slate-850: #1e293b;
+  --color-amber-150: #fde68a;
+  --color-amber-850: #92400e;
+  --color-blue-150: #bfdbfe;
+  --color-blue-250: #93c5fd;
+  --color-emerald-250: #6ee7b7;
+  --color-indigo-150: #c7d2fe;
+  --color-indigo-250: #a5b4fc;
+  --color-indigo-505: #4f46e5;
+  --color-indigo-650: #4338ca;
+  --color-pink-650: #db2777;
+
+  --animate-fade-in: fade-in 0.3s ease-out;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Safe-area bottom padding used by fixed bottom bars on notched devices */
+@utility pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Slim scrollbar used on the live transcription stream */
+@utility custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+  &::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  &::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 9999px;
+  }
 }
 
 html, body {

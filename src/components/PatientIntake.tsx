@@ -315,7 +315,7 @@ export default function PatientIntake({ onCancel, onSubmit }: PatientIntakeProps
                       <span className="font-bold text-xs uppercase tracking-wider">Legal Disclosure</span>
                     </div>
                     <p className="text-slate-600 text-sm leading-relaxed">
-                      By initiating this recording, you confirm that the patient has been informed that DentAI uses artificial intelligence to assist in dental charting and note-taking. All data is processed in a secure, HIPAA-compliant manner. The practitioner remains solely responsible for findings.
+                      By initiating this recording, you confirm that the patient has been informed that DentAI uses artificial intelligence to assist in dental charting and note-taking. All data is processed securely and in accordance with Australian privacy law (Privacy Act 1988) and the clinic's confidentiality obligations. The practitioner remains solely responsible for findings.
                     </p>
                   </div>
 

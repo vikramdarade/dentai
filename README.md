@@ -32,7 +32,16 @@ View your app in AI Studio: https://ai.studio/apps/baa326da-f1fe-4df5-9760-464dd
 2. Configure `.env.local` or `.env` in the root:
    ```env
    GEMINI_API_KEY="your-gemini-api-key"
+   SESSION_SECRET="a-long-random-secret-used-to-sign-session-tokens"
    ```
+   `SESSION_SECRET` is required in production (`NODE_ENV=production`) — the server will refuse to start without it.
+
+3. (Optional but recommended) Add a Postgres connection string to make data durable on serverless:
+   ```env
+   DATABASE_URL="postgresql://..."
+   ```
+   When `DATABASE_URL` is set, dentists, consultations, and the audit log are stored in
+   Postgres (Neon-compatible). Without it, the server falls back to JSON files / Vercel KV.
 3. Run the development server:
    ```bash
    npm run dev
@@ -46,8 +55,9 @@ To simulate the production runtime:
    ```
 2. Launch server in production:
    ```bash
-   cross-env NODE_ENV=production PORT=3000 node server.js
+   NODE_ENV=production PORT=3000 node server.js
    ```
+   (Windows users: install `cross-env` as a dev dependency and prefix the command with `cross-env`.)
 
 ---
 

@@ -17,6 +17,12 @@ const realApiKey = process.env.GEMINI_API_KEY &&
 // Set test environment before importing server to prevent mounting Vite middleware
 process.env.NODE_ENV = 'test';
 process.env.GEMINI_API_KEY = 'TEST_API_KEY';
+// Unit tests must run deterministically against the JSON fallback store — never
+// against a real database, even when DATABASE_URL is present in .env.local.
+// Use an empty string (not delete): src/lib/db.ts loads .env.local itself at
+// import time, but dotenv never overrides a key that already exists, so an empty
+// value keeps the DB layer disabled for the whole test process.
+process.env.DATABASE_URL = '';
 
 // Dynamically import the app to ensure environment variables are evaluated first
 const { app } = await import('../server.ts');

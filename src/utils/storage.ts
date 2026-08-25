@@ -117,3 +117,34 @@ export function clearActiveIntake(): void {
     console.error('[Storage] Failed to clear active intake:', err);
   }
 }
+
+// --- Offline pending-sync queue -------------------------------------------------
+// Consultations that were created/edited while the backend was unreachable are queued
+// here and flushed to the server on the next successful auth/load.
+
+export function getPendingSync(): Consultation[] {
+  try {
+    const data = localStorage.getItem(STORAGE_KEYS.PENDING_SYNC);
+    return data ? JSON.parse(data) : [];
+  } catch (err) {
+    console.error('[Storage] Failed to read pending sync queue:', err);
+    return [];
+  }
+}
+
+export function savePendingSync(consultations: Consultation[]): void {
+  try {
+    localStorage.setItem(STORAGE_KEYS.PENDING_SYNC, JSON.stringify(consultations));
+  } catch (err) {
+    console.error('[Storage] Failed to save pending sync queue:', err);
+  }
+}
+
+export function queuePendingSync(consultation: Consultation): void {
+  const pending = getPendingSync().filter(c => c.id !== consultation.id);
+  savePendingSync([consultation, ...pending]);
+}
+
+export function removePendingSync(consultationId: string): void {
+  savePendingSync(getPendingSync().filter(c => c.id !== consultationId));
+}
