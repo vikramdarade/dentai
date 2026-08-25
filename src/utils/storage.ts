@@ -45,12 +45,14 @@ export function getAuth(): { token: string | null; user: AuthUser | null } {
 
 export function clearAuth(): void {
   try {
+    // NOTE: the active intake (in-progress consultation) is intentionally NOT
+    // cleared here. Logout must never destroy unsaved clinical work — the
+    // recording transcript lives in sessionStorage and the intake is restored
+    // on the next login so the dentist can resume or finish the consult.
     localStorage.removeItem(STORAGE_KEYS.TOKEN);
     localStorage.removeItem(STORAGE_KEYS.USER);
-    localStorage.removeItem(STORAGE_KEYS.ACTIVE_INTAKE);
     sessionStorage.removeItem(STORAGE_KEYS.TOKEN);
     sessionStorage.removeItem(STORAGE_KEYS.USER);
-    sessionStorage.removeItem(STORAGE_KEYS.ACTIVE_INTAKE);
   } catch (err) {
     console.error('[Storage] Failed to clear auth:', err);
   }

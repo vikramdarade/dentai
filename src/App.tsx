@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { AnimatePresence } from 'motion/react';
 import { Consultation, TranscriptItem, ClinicalFindings, getTodayStr, getCurrentTimeStr } from './types';
 import HistoryHub from './components/HistoryHub';
@@ -81,9 +81,20 @@ export default function App() {
     setIsAuthLoading(false);
   }, []);
 
-  // Inactivity session lock
+  // Inactivity session lock — armed only on the history hub (idle between patients).
+  // It is intentionally disarmed while the dentist is mid-consultation (intake /
+  // record / summary): a dentist can easily go 15+ minutes without touching the
+  // device during a consult, and a forced logout mid-task destroys unsaved clinical
+  // work. The recording screen persists its transcript to sessionStorage and
+  // restores it on mount, so even a real session expiry stays recoverable.
+  const resetInactivityRef = useRef<() => void>(() => {});
   useEffect(() => {
     if (!authToken || !currentUser) return;
+    if (view !== 'history') {
+      // Working view (intake / record / summary) — lock is disarmed.
+      setShowInactivityWarning(false);
+      return;
+    }
 
     let inactivityTimer: NodeJS.Timeout;
     let warningTimer: NodeJS.Timeout;
@@ -100,24 +111,30 @@ export default function App() {
         setShowInactivityWarning(true);
       }, 870000);
     };
+    resetInactivityRef.current = resetInactivityTimer;
 
-    // Track user movements
+    // Track user activity: mouse, touch, keyboard, scroll
     window.addEventListener('mousemove', resetInactivityTimer);
     window.addEventListener('mousedown', resetInactivityTimer);
-    window.addEventListener('keypress', resetInactivityTimer);
+    window.addEventListener('pointerdown', resetInactivityTimer);
+    window.addEventListener('touchstart', resetInactivityTimer);
+    window.addEventListener('keydown', resetInactivityTimer);
     window.addEventListener('scroll', resetInactivityTimer);
 
     resetInactivityTimer();
 
     return () => {
+      resetInactivityRef.current = () => {};
       clearTimeout(inactivityTimer);
       clearInterval(warningTimer);
       window.removeEventListener('mousemove', resetInactivityTimer);
       window.removeEventListener('mousedown', resetInactivityTimer);
-      window.removeEventListener('keypress', resetInactivityTimer);
+      window.removeEventListener('pointerdown', resetInactivityTimer);
+      window.removeEventListener('touchstart', resetInactivityTimer);
+      window.removeEventListener('keydown', resetInactivityTimer);
       window.removeEventListener('scroll', resetInactivityTimer);
     };
-  }, [authToken, currentUser]);
+  }, [authToken, currentUser, view]);
 
   // Handle countdown decrement when warning is showing
   useEffect(() => {
@@ -225,7 +242,16 @@ export default function App() {
     } else {
       setConsultations([]);
     }
-    setView('history');
+    // Resume any in-progress consultation that survived a logout or session
+    // expiry — same recovery the cold-load mount path performs, so re-login
+    // without a page reload also restores the recording with its transcript.
+    const savedIntake = getActiveIntake();
+    if (savedIntake) {
+      setActiveIntake(savedIntake);
+      setView('record');
+    } else {
+      setView('history');
+    }
   };
 
   const handleLogout = async () => {
@@ -242,7 +268,10 @@ export default function App() {
     setAuthToken(null);
     setCurrentUser(null);
     clearAuth();
-    clearActiveIntake();
+    // NOTE: the in-progress consultation (active intake + sessionStorage
+    // transcript) is deliberately NOT cleared here — logging out mid-consult must
+    // never destroy unsaved clinical work. On the next login the intake is
+    // restored and the recording resumes with its full transcript.
     setConsultations([]);
     setSelectedConsultation(null);
     setView('history');
@@ -492,8 +521,10 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => {
-                  setShowInactivityWarning(false);
-                  setInactivityCountdown(30);
+                  // Re-arm the full inactivity timer instead of only dismissing
+                  // the warning — otherwise the lock silently stops firing for
+                  // the rest of the session.
+                  resetInactivityRef.current();
                 }}
                 className="w-full h-11 bg-primary hover:bg-opacity-95 text-white font-bold rounded-xl transition-all cursor-pointer text-xs shadow-md font-sans"
               >
