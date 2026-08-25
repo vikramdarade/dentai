@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { AnimatePresence } from 'motion/react';
+import { Analytics } from '@vercel/analytics/react';
 import { Consultation, TranscriptItem, ClinicalFindings, getTodayStr, getCurrentTimeStr } from './types';
 import HistoryHub from './components/HistoryHub';
 import PatientIntake from './components/PatientIntake';
@@ -503,6 +504,7 @@ export default function App() {
           </div>
         )}
       </AnimatePresence>
+      <Analytics />
     </div>
   );
 }
