@@ -1,18 +1,34 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, UserRound, Pause, Play, ArrowRight, Sparkles, ArrowUpDown, CornerDownLeft, AlertCircle, X, Mic, MicOff, RotateCcw } from 'lucide-react';
-import { TranscriptItem } from '../types';
+import { ArrowLeft, UserRound, Pause, Play, ArrowRight, Sparkles, ArrowUpDown, CornerDownLeft, AlertCircle, X, Mic, MicOff, RotateCcw, RefreshCw, WifiOff, Bot } from 'lucide-react';
+import { TranscriptItem, GeneratedNotePayload } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
+import { AppointmentType, getTemplateById, getAppointmentTypeLabel } from '../lib/dentalLibrary';
+import { generateOfflineDraft } from '../lib/draftEngine';
+import { generateWithOnDeviceModel, type OnDeviceResult } from '../lib/onDeviceModel';
+import { normalizedToPayload } from '../lib/normalizeNoteOutput';
+
+const isQuotaFailure = (msg: string): boolean =>
+  msg.toLowerCase().includes('quota') ||
+  msg.toLowerCase().includes('billing') ||
+  msg.toLowerCase().includes('rate-limit');
 
 interface LiveRecordingProps {
   patientName: string;
-  appointmentType: 'examination' | 'scale_clean' | 'emergency';
+  dob?: string;
+  appointmentType: AppointmentType;
+  templateId?: string;
   onBack: () => void;
-  onFinish: (finalTranscript: TranscriptItem[]) => Promise<void> | void;
+  onFinish: (
+    finalTranscript: TranscriptItem[],
+    fallbackNote?: { engine: 'offline-draft' | 'on-device'; modelId?: string; payload: GeneratedNotePayload }
+  ) => Promise<void> | void;
 }
 
 export default function LiveRecording({
   patientName,
+  dob,
   appointmentType,
+  templateId,
   onBack,
   onFinish
 }: LiveRecordingProps) {
@@ -493,44 +509,115 @@ export default function LiveRecording({
   };
 
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const processingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Only claim AI detection when clinical terminology is actually present in the transcript.
   const hasClinicalTerms = transcript.some((t) =>
     /(percussion|sensitivity|pulp|decay|caries|bleeding|mobility|root canal|filling|tooth\s*\d{1,2})/i.test(t.text)
   );
 
-  const handleFinishNote = async () => {
+  const stopProcessingTicker = () => {
+    if (processingIntervalRef.current) {
+      clearInterval(processingIntervalRef.current);
+      processingIntervalRef.current = null;
+    }
+    setIsProcessing(false);
+  };
+
+  const startProcessingTicker = (states: string[]) => {
     setIsRecording(false);
     setIsProcessing(true);
     setErrorMsg(null);
+    let current = 0;
+    setProcessingState(states[0]);
+    processingIntervalRef.current = setInterval(() => {
+      current++;
+      if (current < states.length) {
+        setProcessingState(states[current]);
+      }
+    }, 1300);
+  };
 
-    // Dynamic loading status messages for full AI chart construction immersion
-    const states = [
+  // Tier 1 — hosted AI (Gemini primary + secondary key failover on the server).
+  const handleFinishNote = async () => {
+    startProcessingTicker([
       'Transcribed live voice feed...',
       'Running AI clinical extractor model (secure)...',
       'Synthesizing clinical findings & tooth map...',
       'Extracting ADA billing item codes...',
       'Drafting friendly patient-narrative care letter...',
       'Notes complete! Opening health communication hub...'
-    ];
-
-    let current = 0;
-    setProcessingState(states[0]);
-
-    const interval = setInterval(() => {
-      current++;
-      if (current < states.length) {
-        setProcessingState(states[current]);
-      }
-    }, 1200);
+    ]);
 
     try {
       await onFinish(transcript);
-      clearInterval(interval);
+      stopProcessingTicker();
     } catch (err: any) {
-      clearInterval(interval);
-      setIsProcessing(false);
+      stopProcessingTicker();
       setErrorMsg(err.message || 'Failed to generate clinical notes. Please verify connection and try again.');
+    }
+  };
+
+  // Tier 3a — rule-based offline draft (works with no network / no GPU).
+  const handleDraftOffline = async () => {
+    startProcessingTicker([
+      'Preparing a secure offline draft...',
+      'Matching the transcript to the treatment template...',
+      'Filling note sections only from what was said...',
+      'Offline draft complete — verify before saving!'
+    ]);
+
+    try {
+      const template = getTemplateById(templateId);
+      const draft = generateOfflineDraft(template, transcript, getAppointmentTypeLabel(appointmentType));
+      const payload: GeneratedNotePayload = {
+        engine: 'offline-draft',
+        canonical: draft.canonical,
+        customSections: draft.customSections,
+        patientSummary: draft.patientSummary,
+        adaCodes: draft.adaCodes
+      };
+      await onFinish(transcript, { engine: 'offline-draft', payload });
+      stopProcessingTicker();
+    } catch (err: any) {
+      stopProcessingTicker();
+      setErrorMsg(err.message || 'The offline draft could not be created. Your transcript is preserved.');
+    }
+  };
+
+  // Tier 3b — on-device WebLLM model (beta; requires WebGPU, first use downloads weights).
+  const handleOnDeviceModel = async () => {
+    startProcessingTicker([
+      'Starting the on-device model (WebGPU)...',
+      'Downloading/loading the local model — first use ~1 GB...',
+      'Generating the clinical note on this device...',
+      'Notes drafted on-device — verify before saving!'
+    ]);
+
+    try {
+      const template = getTemplateById(templateId);
+      const res = await generateWithOnDeviceModel({
+        template,
+        patientName,
+        dob: dob || '—',
+        appointmentTypeLabel: getAppointmentTypeLabel(appointmentType),
+        transcript,
+        onProgress: (p) => setProcessingState(p.message)
+      });
+      if (!res.ok) {
+        const failure = res as Extract<OnDeviceResult, { ok: false }>;
+        throw new Error(failure.message);
+      }
+      const payload: GeneratedNotePayload = {
+        ...normalizedToPayload(template, res.output),
+        engine: 'on-device',
+        modelId: res.modelId
+      };
+      await onFinish(transcript, { engine: 'on-device', modelId: res.modelId, payload });
+      stopProcessingTicker();
+    } catch (err: any) {
+      stopProcessingTicker();
+      setErrorMsg(err.message || 'The on-device model could not generate a note. Your transcript is preserved.');
     }
   };
 
@@ -557,8 +644,8 @@ export default function LiveRecording({
             <h1 className="font-headline-sm text-base md:text-lg font-bold text-on-surface leading-tight">
               {patientName}
             </h1>
-            <span className="font-label-sm text-[10px] text-red-600 font-extrabold uppercase tracking-widest leading-none">
-              {appointmentType}
+            <span className="font-label-sm text-[10px] text-indigo-600 font-extrabold uppercase tracking-widest leading-none">
+              {getAppointmentTypeLabel(appointmentType)}
             </span>
           </div>
         </div>
@@ -597,17 +684,44 @@ export default function LiveRecording({
         )}
 
         {errorMsg && (
-          <div className="w-full bg-red-50 border border-red-200 text-red-800 px-4 py-3.5 rounded-xl flex items-start justify-between shadow-sm animate-fade-in mb-2">
-            <div className="flex items-start gap-2.5">
-              <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
-              <div className="flex flex-col">
-                <span className="font-bold text-xs uppercase tracking-wider text-red-650">Error Compiling Notes</span>
-                <p className="text-xs text-red-700 mt-0.5 leading-relaxed">{errorMsg}</p>
+          <div className="w-full bg-red-50 border border-red-200 text-red-800 px-4 py-3.5 rounded-xl shadow-sm animate-fade-in mb-2">
+            <div className="flex items-start justify-between">
+              <div className="flex items-start gap-2.5">
+                <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                <div className="flex flex-col">
+                  <span className="font-bold text-xs uppercase tracking-wider text-red-650">
+                    {isQuotaFailure(errorMsg) ? 'AI quota reached — hosted AI unavailable' : 'Error Compiling Notes'}
+                  </span>
+                  <p className="text-xs text-red-700 mt-0.5 leading-relaxed">{errorMsg}</p>
+                  {(isQuotaFailure(errorMsg) || /offline|on-device|webgpu|model/i.test(errorMsg)) && (
+                    <p className="text-xs text-red-700 mt-2 font-semibold">No clinical record was created and your transcript is preserved. Choose how to continue below.</p>
+                  )}
+                </div>
               </div>
+              <button onClick={() => setErrorMsg(null)} className="p-1 text-red-400 hover:text-red-650 rounded-full transition-colors cursor-pointer">
+                <X className="w-4 h-4" />
+              </button>
             </div>
-            <button onClick={() => setErrorMsg(null)} className="p-1 text-red-400 hover:text-red-650 rounded-full transition-colors cursor-pointer">
-              <X className="w-4 h-4" />
-            </button>
+            <div className="flex flex-col sm:flex-row gap-2 mt-3">
+              <button
+                onClick={handleFinishNote}
+                className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-white border border-red-200 text-red-700 font-bold text-[11px] uppercase tracking-wider hover:bg-red-100/60 transition-all active:scale-95 cursor-pointer"
+              >
+                <RefreshCw className="w-3.5 h-3.5" /> Retry hosted AI
+              </button>
+              <button
+                onClick={handleDraftOffline}
+                className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-red-700 text-white font-bold text-[11px] uppercase tracking-wider hover:bg-red-800 transition-all active:scale-95 cursor-pointer"
+              >
+                <WifiOff className="w-3.5 h-3.5" /> Draft offline now
+              </button>
+              <button
+                onClick={handleOnDeviceModel}
+                className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-white border border-red-200 text-slate-700 font-bold text-[11px] uppercase tracking-wider hover:bg-slate-100 transition-all active:scale-95 cursor-pointer"
+              >
+                <Bot className="w-3.5 h-3.5" /> On-device model
+              </button>
+            </div>
           </div>
         )}
 

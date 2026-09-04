@@ -43,19 +43,30 @@ export default function HistoryHub({
   const yesterdayStr = getYesterdayStr();
   const uniqueDates = Array.from(new Set(filtered.map(c => c.date)));
 
-  // Utility to map type to label
+  // Utility to map type to label (8 core procedure types)
   const getProcedureLabel = (type: string) => {
     switch (type) {
-      case 'emergency':
-        return 'Emergency Extraction Consultation';
       case 'examination':
-        return 'Routine Prophylaxis & Exam';
+        return 'Comprehensive Examination';
       case 'scale_clean':
-        return 'Invisalign Progress Check';
+        return 'Scale & Clean (Hygiene)';
+      case 'emergency':
+        return 'Emergency / Pain Relief';
+      case 'restorative':
+        return 'Restorative (Filling)';
+      case 'endodontic':
+        return 'Endodontic (Root Canal)';
+      case 'surgical':
+        return 'Surgical (Extraction)';
+      case 'prosthodontic':
+        return 'Prosthodontic (Crown & Bridge)';
+      case 'paediatric':
+        return 'Paediatric (Child)';
       default:
         return 'Clinical Dental Consultation';
     }
   };
+
 
   // Avatar backgrounds based on initials to make it visually distinctive
   const getAvatarBg = (initials: string) => {

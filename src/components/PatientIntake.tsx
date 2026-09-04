@@ -3,6 +3,7 @@ import { X, User, ArrowLeft, ArrowRight, Mic, Info, Hammer, Check } from 'lucide
 import { motion, AnimatePresence } from 'motion/react';
 import { maskDobInput, isValidDob, parseDobToIso } from '../utils/date';
 import { getSavedTemplates, getActiveTemplateId, setActiveTemplateId, NoteTemplate } from '../utils/templates';
+import { APPOINTMENT_TYPES, AppointmentType, getDefaultTemplateIdForType, getTemplateById, getAppointmentTypeLabel } from '../lib/dentalLibrary';
 
 interface PatientIntakeProps {
   onCancel: () => void;
@@ -10,7 +11,7 @@ interface PatientIntakeProps {
     firstName: string;
     lastName: string;
     dob: string;
-    appointmentType: 'examination' | 'scale_clean' | 'emergency';
+    appointmentType: AppointmentType;
     templateId?: string;
   }) => void;
 }
@@ -22,7 +23,7 @@ export default function PatientIntake({ onCancel, onSubmit }: PatientIntakeProps
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [dob, setDob] = useState('');
-  const [appointmentType, setAppointmentType] = useState<'examination' | 'scale_clean' | 'emergency' | ''>('');
+  const [appointmentType, setAppointmentType] = useState<AppointmentType | ''>('');
   const [consent, setConsent] = useState(false);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>(getActiveTemplateId());
   const [templates] = useState<NoteTemplate[]>(getSavedTemplates());
@@ -234,33 +235,46 @@ export default function PatientIntake({ onCancel, onSubmit }: PatientIntakeProps
                 <div className="flex flex-col gap-4">
                   <div className="flex flex-col gap-1.5">
                     <label className="font-label-md text-xs font-bold text-slate-500 uppercase tracking-wider">
-                      Appointment Type
+                      Treatment / Appointment Type
                     </label>
                     <div className="relative">
                       <select
                         required
                         value={appointmentType}
-                        onChange={(e) => setAppointmentType(e.target.value as any)}
+                        onChange={(e) => {
+                          const value = e.target.value as AppointmentType;
+                          setAppointmentType(value);
+                          // Auto-select the built-in note template recommended for
+                          // this treatment type (dentist can still override below).
+                          setSelectedTemplateId(getDefaultTemplateIdForType(value));
+                        }}
                         className="w-full h-12 px-4 bg-[#fcf8ff] border border-outline-variant rounded-lg text-lg focus:border-primary-container focus:ring-1 focus:ring-primary-container outline-none transition-all text-on-surface appearance-none pr-10"
                       >
-                        <option value="" disabled>Select an option</option>
-                        <option value="examination">Examination</option>
-                        <option value="scale_clean">Scale & Clean</option>
-                        <option value="emergency">Emergency</option>
+                        <option value="" disabled>Select a treatment type</option>
+                        {APPOINTMENT_TYPES.map((info) => (
+                          <option key={info.value} value={info.value}>
+                            {info.label}
+                          </option>
+                        ))}
                       </select>
                       <div className="absolute top-1/2 right-4 -translate-y-1/2 pointer-events-none text-slate-400">
                         ▼
                       </div>
                     </div>
+                    {appointmentType && (
+                      <span className="text-[10px] text-slate-400 leading-relaxed">
+                        {APPOINTMENT_TYPES.find((t) => t.value === appointmentType)?.description}
+                      </span>
+                    )}
                   </div>
 
-                  {/* Optional Template Preference */}
+                  {/* Note template — pre-selected to match the treatment type */}
                   <div className="flex flex-col gap-1.5">
                     <div className="flex items-center justify-between">
                       <label className="font-label-md text-xs font-bold text-slate-500 uppercase tracking-wider">
-                        Clinical Note Template
+                        Note Template
                       </label>
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Optional</span>
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Recommended</span>
                     </div>
                     <div className="relative">
                       <select
@@ -278,13 +292,20 @@ export default function PatientIntake({ onCancel, onSubmit }: PatientIntakeProps
                         ▼
                       </div>
                     </div>
+                    {appointmentType && selectedTemplateId && (
+                      <span className="text-[10px] text-indigo-500 font-semibold leading-relaxed">
+                        {selectedTemplateId === getDefaultTemplateIdForType(appointmentType)
+                          ? `DentAI will extract this template's sections (${getTemplateById(selectedTemplateId).name}) from the transcript.`
+                          : `Optional: overriding the recommended template for ${getAppointmentTypeLabel(appointmentType)}.`}
+                      </span>
+                    )}
                   </div>
 
                   {/* Informational Box */}
                   <div className="p-4 bg-indigo-50/70 rounded-xl border border-indigo-100 flex items-start gap-3">
                     <Info className="text-primary w-5 h-5 flex-shrink-0 mt-0.5" />
                     <p className="text-slate-600 font-body-md text-sm leading-relaxed">
-                      The appointment type helps DentAI tune its transcription models for specific clinical dental terminology. This increases accurate charting and note precision.
+                      DentAI preconfigures a note template for each treatment type (exam, hygiene, emergency, restorative, endo, surgical, crown &amp; bridge, paediatric). The template decides which sections the AI fills from the transcript — and how they are formatted for your PMS.
                     </p>
                   </div>
                 </div>

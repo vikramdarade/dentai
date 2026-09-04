@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { AnimatePresence } from 'motion/react';
-import { Consultation, TranscriptItem, ClinicalFindings, getTodayStr, getCurrentTimeStr } from './types';
+import { Consultation, TranscriptItem, ClinicalFindings, GeneratedNotePayload, NoteOrigin, getTodayStr, getCurrentTimeStr } from './types';
+import { getTemplateById, getDefaultTemplateIdForType, AppointmentType } from './lib/dentalLibrary';
+import { normalizedToPayload } from './lib/normalizeNoteOutput';
 import HistoryHub from './components/HistoryHub';
 import PatientIntake from './components/PatientIntake';
 import LiveRecording from './components/LiveRecording';
@@ -44,7 +46,8 @@ export default function App() {
     firstName: string;
     lastName: string;
     dob: string;
-    appointmentType: 'examination' | 'scale_clean' | 'emergency';
+    appointmentType: AppointmentType;
+    templateId?: string;
   } | null>(null);
 
   // Load token and currentUser from persistent storage on mount
@@ -290,7 +293,7 @@ export default function App() {
     firstName: string;
     lastName: string;
     dob: string;
-    appointmentType: 'examination' | 'scale_clean' | 'emergency';
+    appointmentType: AppointmentType;
     templateId?: string;
   }) => {
     setActiveIntake(intakeData);
@@ -298,28 +301,69 @@ export default function App() {
     setView('record');
   };
 
-  const handleRecordFinish = async (finalTranscript: TranscriptItem[]) => {
-    if (!activeIntake || !authToken || !currentUser) return;
+  const handleRecordFinish = async (
+    finalTranscript: TranscriptItem[],
+    fallbackNote?: { engine: 'offline-draft' | 'on-device'; modelId?: string; payload: GeneratedNotePayload }
+  ) => {
+    if (!activeIntake || !currentUser) return;
+    const template = getTemplateById(activeIntake.templateId || getDefaultTemplateIdForType(activeIntake.appointmentType));
 
     try {
-      const response = await fetch('/api/generate-notes', {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${authToken}`
-        },
-        body: JSON.stringify({
-          intakeData: activeIntake,
-          transcript: finalTranscript,
-        }),
-      });
+      let payload: GeneratedNotePayload;
+      let noteOrigin: NoteOrigin;
 
-      if (!response.ok) {
-         const errorData = await response.json().catch(() => ({}));
-         throw new Error(errorData.error || `Server returned error status ${response.status}`);
+      if (fallbackNote) {
+        // Fallback tier produced the note on this device — no hosted AI fetch.
+        payload = fallbackNote.payload;
+        noteOrigin = {
+          engine: fallbackNote.engine,
+          needsReview: true,
+          detail:
+            fallbackNote.engine === 'on-device'
+              ? `Generated on this device with the local model${fallbackNote.modelId ? ` (${fallbackNote.modelId})` : ''} after the hosted AI was unavailable. Review before saving.`
+              : 'Drafted offline from the transcript (no AI available). Review and complete before saving.'
+        };
+      } else {
+        const response = await fetch('/api/generate-notes', {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${authToken}`
+          },
+          body: JSON.stringify({
+            intakeData: { ...activeIntake, templateId: template.id },
+            transcript: finalTranscript,
+          }),
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          if (response.status === 429 || errorData.code === 'QUOTA_EXCEEDED') {
+            throw new Error('AI note generation is temporarily rate-limited (quota or billing exhausted) on the hosted Gemini routes. Your recording is preserved — wait a few minutes and retry, or draft the note offline now.');
+          }
+          if (response.status === 503) {
+            throw new Error('AI note generation is not configured yet. Ask the administrator to add GEMINI_API_KEY in the environment settings. Your recording is still here.');
+          }
+          throw new Error(errorData.error || `Server returned error status ${response.status}`);
+        }
+
+        const parsedData = await response.json();
+        payload = normalizedToPayload(template, parsedData);
+        noteOrigin = { engine: 'gemini', needsReview: false };
       }
 
-      const parsedData = await response.json();
+      const findings: ClinicalFindings = {
+        chiefComplaint: payload.canonical.chiefComplaint || '',
+        history: payload.canonical.history || '',
+        toothFindings: payload.canonical.toothFindings || '',
+        findingsGingival: payload.canonical.findingsGingival || '',
+        diagnosis: payload.canonical.diagnosis || '',
+        treatmentPerformed: payload.canonical.treatmentPerformed || '',
+        recommendations: payload.canonical.recommendations || '',
+        recallRequirements: payload.canonical.recallRequirements || '6 Months (Standard)',
+        customSections: payload.customSections || {},
+        adaCodes: payload.adaCodes || []
+      };
 
       const newConsult: Consultation = {
         id: crypto.randomUUID(),
@@ -332,20 +376,10 @@ export default function App() {
         time: getCurrentTimeStr(),
         status: 'In Review',
         transcript: finalTranscript,
-        templateId: activeIntake.templateId || 'standard',
-        findings: {
-          chiefComplaint: parsedData.chiefComplaint || '',
-          history: parsedData.history || '',
-          toothFindings: parsedData.toothFindings || '',
-          findingsGingival: parsedData.findingsGingival || '',
-          diagnosis: parsedData.diagnosis || '',
-          treatmentPerformed: parsedData.treatmentPerformed || '',
-          recommendations: parsedData.recommendations || '',
-          recallRequirements: parsedData.recallRequirements || '6 Months (Standard)',
-          customSections: parsedData.customSections || {},
-          adaCodes: parsedData.adaCodes || []
-        },
-        patientSummary: parsedData.patientSummary || '',
+        templateId: template.id,
+        findings,
+        patientSummary: payload.patientSummary || '',
+        noteOrigin
       };
 
       // Always save to scoped local cache immediately to prevent data loss
@@ -488,7 +522,9 @@ export default function App() {
       {view === 'record' && activeIntake && (
         <LiveRecording
           patientName={`${activeIntake.firstName} ${activeIntake.lastName}`}
+          dob={activeIntake.dob}
           appointmentType={activeIntake.appointmentType}
+          templateId={activeIntake.templateId || ''}
           onBack={() => setView('intake')}
           onFinish={handleRecordFinish}
         />

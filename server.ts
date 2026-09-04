@@ -5,6 +5,14 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import { GoogleGenAI, Type } from '@google/genai';
+import {
+  NoteTemplate,
+  TemplateSection,
+  getTemplateById,
+  TEMPLATE_BY_ID,
+  isValidAppointmentType
+} from './src/lib/dentalLibrary';
+import { normalizeTemplateOutput } from './src/lib/normalizeNoteOutput';
 import { logger } from './logger';
 import fs from 'fs';
 import crypto from 'crypto';
@@ -685,10 +693,111 @@ const CLINICAL_AI_CONFIG = {
   systemInstruction: DENTAL_CLINICAL_SYSTEM_INSTRUCTION
 };
 
+/* ---------------------------------------------------------------------------
+ * Template-driven note generation
+ *
+ * The note template (built-in library or a validated clinic custom template)
+ * decides which clinical sections the model must populate. We assemble a fresh
+ * JSON schema + system instruction from the selected template's sections, so a
+ * hygiene visit produces periodontal-focused fields, a surgical visit produces
+ * procedure/review fields, etc. — instead of the legacy fixed 8-field schema.
+ * ------------------------------------------------------------------------- */
+
+const RESERVED_NOTE_KEYS = new Set(['patientSummary', 'adaCodes']);
+
+const TEMPLATE_DRIVEN_SYSTEM_INSTRUCTION = `You are an expert dental transcription assistant and charting AI for Australian dental practice. You receive a patient intake form and a clinical session transcript (speaker roles: 'Dentist', 'Patient', 'Dialogue', 'Clinical Comment' — infer who actually spoke from context). Return TWO things: (1) structured clinical notes whose sections are defined by the supplied note template, and (2) a patient summary letter.
+
+Your output must comply with Dental Board of Australia record-keeping guidelines.
+
+MANDATORY RULES:
+1. FDI NOTATION: Use the FDI two-digit system exclusively (quadrants 1-4: 11-18, 21-28, 31-38, 41-48) whenever a tooth is referenced. Map spoken forms ("tooth one six", "tooth 16", "sixteen") to the correct two-digit FDI form.
+2. ACCENT & PHONETIC RESILIENCY: The transcript contains phonetic errors and homophones from diverse accents. Correct them contextually (e.g. "tooth category"/"feeling" -> filling or carious lesion; "tooth dirty tree" -> tooth 33; "root can all" -> root canal treatment; "pulp it is" -> pulpitis; "pocket depths tree two tree" -> 3-2-3 mm pocket depths).
+3. SPELLING: Use Australian/British English (en-AU): colour, anaesthetic, minimise, programme, haemorrhage.
+4. NO FABRICATION (CRITICAL CLINICAL SAFETY): Extract ONLY what the intake form and transcript support. NEVER invent a diagnosis, treatment, drug, radiograph, test result, or recall interval that was not stated, and never guess a tooth number. If a section has no supporting evidence, return an empty string for it. Never pad a section with plausible-sounding content.
+5. PATIENT SUMMARY: A warm, friendly, plain-English letter to the patient (en-AU spelling) that explains the visit and any follow-up simply. Do not restate clinical jargon verbatim and never invent advice.
+6. ADA ITEM CODES: In adaCodes, list Australian Dental Association 3-digit item numbers that were actually mentioned or clearly performed in the session, as a comma-separated string e.g. "011 - Comprehensive oral examination, 022 - Intraoral periapical radiograph (Tooth 16), 414 - Pulp extirpation (Tooth 16)". If none were performed, return an empty string — never invent codes.
+`;
+
+
+/** Builds the JSON schema + system instruction for one note template. */
+function buildTemplateAIConfig(template: NoteTemplate) {
+  const properties: Record<string, any> = {};
+  for (const section of template.sections) {
+    properties[section.key] = { type: Type.STRING };
+  }
+  properties.patientSummary = { type: Type.STRING };
+  properties.adaCodes = { type: Type.STRING };
+
+  const responseSchema = {
+    type: Type.OBJECT,
+    properties,
+    required: [...template.sections.map(s => s.key), 'patientSummary']
+  };
+
+  const sectionInstructions = template.sections
+    .map(s => `- "${s.key}" (${s.label}): ${s.placeholder} Only include content the transcript supports; otherwise an empty string.`)
+    .join('\n');
+
+  const systemInstruction =
+    TEMPLATE_DRIVEN_SYSTEM_INSTRUCTION +
+    `\n\n=== CURRENT NOTE TEMPLATE: ${template.name} ===\nReturn exactly ONE JSON object containing exactly these string sections:\n${sectionInstructions}\n`;
+
+  return { responseMimeType: 'application/json', responseSchema, systemInstruction };
+}
+
+/**
+ * Resolves the template for a request. Clinic custom templates may be sent as
+ * a full inline definition (intakeData.template); otherwise templateId must
+ * reference the built-in library. Defaults to the AHPRA standard template.
+ */
+function validateInlineTemplate(raw: any): NoteTemplate | null {
+  if (!raw || typeof raw !== 'object' || !Array.isArray(raw.sections)) return null;
+  if (raw.sections.length === 0 || raw.sections.length > 14) return null;
+
+  const sections: TemplateSection[] = [];
+  const seen = new Set<string>();
+  for (const s of raw.sections) {
+    if (!s || typeof s.key !== 'string' || !/^[A-Za-z][A-Za-z0-9_]{0,39}$/.test(s.key)) return null;
+    if (RESERVED_NOTE_KEYS.has(s.key) || seen.has(s.key)) return null;
+    if (typeof s.label !== 'string' || s.label.trim().length === 0 || s.label.length > 200) return null;
+    seen.add(s.key);
+    sections.push({
+      key: s.key,
+      label: s.label.trim().slice(0, 200),
+      placeholder: typeof s.placeholder === 'string' ? s.placeholder.slice(0, 500) : ''
+    });
+  }
+
+  return {
+    id: 'custom',
+    name: typeof raw.name === 'string' && raw.name.trim() ? raw.name.trim().slice(0, 120) : 'Custom Clinic Template',
+    tagline: 'Clinic Template',
+    description: '',
+    isCustom: true,
+    sections
+  };
+}
+
+function resolveNoteTemplate(raw: any): { template: NoteTemplate; error?: string } {
+  const inline = validateInlineTemplate(raw?.template);
+  if (inline) return { template: inline };
+
+  const id = raw?.templateId;
+  if (id != null && typeof id === 'string' && !TEMPLATE_BY_ID[id]) {
+    return { template: getTemplateById(undefined), error: `Unknown note template "${id.slice(0, 80)}". Choose a built-in template or send a full template definition.` };
+  }
+  return { template: getTemplateById(id) };
+}
+
 // API endpoint to compile clinical findings and correspondence letter via Gemini
 app.post('/api/generate-notes', authenticateToken, async (req: express.Request, res: express.Response) => {
   const gcpProject = process.env.GCP_PROJECT_ID;
   let promptContext = '';
+  // Resolved from intakeData.templateId (built-in) or intakeData.template
+  // (inline clinic custom template) inside the try block; declared here so the
+  // catch handlers can retry with the same per-template AI config.
+  let noteTemplate: NoteTemplate = getTemplateById(undefined);
+  let noteAIConfig: ReturnType<typeof buildTemplateAIConfig> | null = null;
   try {
     const { intakeData, transcript } = req.body;
 
@@ -729,9 +838,8 @@ app.post('/api/generate-notes', authenticateToken, async (req: express.Request, 
       return res.status(400).json({ error: 'Date of birth must be a valid date between 1900 and the present.' });
     }
 
-    const validAppointmentTypes = ['examination', 'scale_clean', 'emergency'];
-    if (!validAppointmentTypes.includes(appointmentType)) {
-      return res.status(400).json({ error: 'Appointment type must be one of: examination, scale_clean, emergency.' });
+    if (!isValidAppointmentType(appointmentType)) {
+      return res.status(400).json({ error: 'Appointment type must be one of: examination, scale_clean, emergency, restorative, endodontic, surgical, prosthodontic, paediatric.' });
     }
 
     // Transcript validation: max 200 items, each item must have sender and text
@@ -753,8 +861,19 @@ app.post('/api/generate-notes', authenticateToken, async (req: express.Request, 
       }
     }
 
+    // Resolve the note template for this treatment type and build the
+    // per-template AI schema + instruction (see buildTemplateAIConfig).
+    const resolved = resolveNoteTemplate(intakeData);
+    if (resolved.error) {
+      return res.status(400).json({ error: resolved.error });
+    }
+    noteTemplate = resolved.template;
+    noteAIConfig = buildTemplateAIConfig(noteTemplate);
+    intakeData.templateId = noteTemplate.id;
+
     logAudit('notes_generated', (req as any).dentist?.id || 'unknown', {
       appointmentType: intakeData.appointmentType,
+      templateId: noteTemplate.id,
       transcriptLength: transcript.length
     });
 
@@ -796,6 +915,7 @@ First Name: ${intakeData.firstName}
 Last Name: ${intakeData.lastName}
 Date of Birth: ${intakeData.dob}
 Appointment Type: ${intakeData.appointmentType}
+Note Template: ${noteTemplate.name}${noteTemplate.appointmentType ? ` (recommended for ${noteTemplate.appointmentType.replace('_', ' ')})` : ''}
 
 === CLINICAL SESSION TRANSCRIPT ===
 ${transcript.map((t: any) => `${t.sender}: ${t.text}`).join('\n')}
@@ -804,7 +924,7 @@ ${transcript.map((t: any) => `${t.sender}: ${t.text}`).join('\n')}
     const response = await ai.models.generateContent({
       model: process.env.GEMINI_MODEL || 'gemini-3.6-flash',
       contents: promptContext,
-      config: CLINICAL_AI_CONFIG
+      config: noteAIConfig || CLINICAL_AI_CONFIG
     });
 
     const responseText = response.text;
@@ -812,27 +932,7 @@ ${transcript.map((t: any) => `${t.sender}: ${t.text}`).join('\n')}
       throw new Error('Gemini API returned an empty text field.');
     }
 
-    const structuredFindings = JSON.parse(responseText);
-    const parseAdaCodes = (raw: any) => {
-      if (Array.isArray(raw)) return raw;
-      if (typeof raw === 'string') {
-        return raw.split(/[,;\n]+/).map(item => item.trim()).filter(Boolean).map(item => {
-          const match = item.match(/^(\d{3})\s*[-:]\s*(.*?)(?:\s*\((?:Tooth\s*|FDI\s*)?(\d{2})\))?$/i);
-          if (match) {
-            return { code: match[1], description: match[2].trim(), tooth: match[3] };
-          }
-          const simpleMatch = item.match(/^(\d{3})\s*(.*)$/);
-          if (simpleMatch) {
-            return { code: simpleMatch[1], description: simpleMatch[2].trim() };
-          }
-          return { code: '011', description: item };
-        });
-      }
-      return [];
-    };
-
-    structuredFindings.adaCodes = parseAdaCodes(structuredFindings.adaCodes);
-    res.json(structuredFindings);
+    res.json(normalizeTemplateOutput(noteTemplate, JSON.parse(responseText)));
   } catch (error: any) {
     logger.error('Error generating notes in /api/generate-notes:', error, {
       url: req.originalUrl,
@@ -853,27 +953,12 @@ ${transcript.map((t: any) => `${t.sender}: ${t.text}`).join('\n')}
         const response = await fallbackAi.models.generateContent({
           model: process.env.GEMINI_MODEL || 'gemini-3.6-flash',
           contents: promptContext,
-          config: CLINICAL_AI_CONFIG
+          config: noteAIConfig || CLINICAL_AI_CONFIG
         });
 
         const responseText = response.text;
         if (responseText) {
-          const structuredFindings = JSON.parse(responseText);
-          const parseAdaCodes = (raw: any) => {
-            if (Array.isArray(raw)) return raw;
-            if (typeof raw === 'string') {
-              return raw.split(/[,;\n]+/).map(item => item.trim()).filter(Boolean).map(item => {
-                const match = item.match(/^(\d{3})\s*[-:]\s*(.*?)(?:\s*\((?:Tooth\s*|FDI\s*)?(\d{2})\))?$/i);
-                if (match) {
-                  return { code: match[1], description: match[2].trim(), tooth: match[3] };
-                }
-                return { code: '011', description: item };
-              });
-            }
-            return [];
-          };
-          structuredFindings.adaCodes = parseAdaCodes(structuredFindings.adaCodes);
-          return res.json(structuredFindings);
+          return res.json(normalizeTemplateOutput(noteTemplate, JSON.parse(responseText)));
         }
       } catch (fallbackErr: any) {
         logger.error('[Vertex AI Fallback] Gemini Developer API Studio call failed as well:', fallbackErr.message || fallbackErr);
@@ -895,10 +980,35 @@ ${transcript.map((t: any) => `${t.sender}: ${t.text}`).join('\n')}
       errorMsg.includes('exhausted');
 
     if (isRateLimited) {
-      logger.warn('[Gemini API] Billing depleted or rate-limit reached. Returning an error so the dentist can retry.');
+      // Tier 2 — hosted failover: a second Gemini project key (separate quota
+      // pool). Enable with GEMINI_FALLBACK_API_KEY (+ optional
+      // GEMINI_FALLBACK_MODEL). If the fallback key succeeds the dentist never
+      // sees the outage; if it also fails we return 429 and the UI offers the
+      // offline draft / on-device tiers.
+      const fallbackKey = process.env.GEMINI_FALLBACK_API_KEY;
+      if (noteAIConfig && fallbackKey && fallbackKey !== 'MY_GEMINI_API_KEY') {
+        try {
+          logger.warn('[Gemini API] Primary route exhausted. Retrying once with secondary Gemini key (GEMINI_FALLBACK_API_KEY)...');
+          const fallbackAi = new GoogleGenAI({ apiKey: fallbackKey });
+          const fallbackResponse = await fallbackAi.models.generateContent({
+            model: process.env.GEMINI_FALLBACK_MODEL || process.env.GEMINI_MODEL || 'gemini-3.6-flash',
+            contents: promptContext,
+            config: noteAIConfig
+          });
+          const fallbackText = fallbackResponse.text;
+          if (fallbackText) {
+            logAudit('notes_generation_secondary_key', (req as any).dentist?.id || 'unknown', {});
+            return res.json(normalizeTemplateOutput(noteTemplate, JSON.parse(fallbackText)));
+          }
+        } catch (secondaryErr: any) {
+          logger.warn('[Gemini API] Secondary-key fallback also failed:', secondaryErr.message || secondaryErr);
+        }
+      }
+
+      logger.warn('[Gemini API] Billing depleted or rate-limit reached on all hosted routes.');
       logAudit('notes_generation_quota_exhausted', (req as any).dentist?.id || 'unknown', {});
       return res.status(429).json({
-        error: 'The AI note generator is temporarily rate-limited (quota or billing exhausted). No notes were created — please try again shortly.',
+        error: 'The AI note generator is temporarily rate-limited (quota or billing exhausted) on the primary and secondary Gemini keys. No notes were created. You can draft a note offline from the transcript, or retry shortly.',
         code: 'QUOTA_EXCEEDED'
       });
     }
