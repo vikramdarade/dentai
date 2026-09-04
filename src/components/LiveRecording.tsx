@@ -3,6 +3,7 @@ import { ArrowLeft, UserRound, Pause, Play, ArrowRight, Sparkles, ArrowUpDown, C
 import { TranscriptItem, GeneratedNotePayload } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { AppointmentType, getTemplateById, getAppointmentTypeLabel } from '../lib/dentalLibrary';
+import { SAMPLE_TRANSCRIPTS, getSampleForType } from '../lib/sampleTranscripts';
 import { generateOfflineDraft } from '../lib/draftEngine';
 import { generateWithOnDeviceModel, type OnDeviceResult } from '../lib/onDeviceModel';
 import { normalizedToPayload } from '../lib/normalizeNoteOutput';
@@ -376,6 +377,21 @@ export default function LiveRecording({
     return saved ? JSON.parse(saved) : [];
   });
 
+  // Sample transcripts for testing — default picker choice follows the treatment
+  // type chosen at intake so the recommended template matches the transcript.
+  const [sampleType, setSampleType] = useState<AppointmentType>(appointmentType);
+
+  const loadSampleTranscript = (type: AppointmentType) => {
+    if (transcript.length > 0 && !window.confirm('Replace the current transcript with this sample?')) return;
+    const sample = getSampleForType(type);
+    if (!sample) return;
+    const base = Math.max(0, secondsRef.current - sample.items.length * 3);
+    setTranscript(sample.items);
+    setItemTimes(sample.items.map((_, i) => base + i * 3));
+    // The sample is a complete consultation — retire the per-line simulation presets.
+    setNextPresetIndex(999);
+  };
+
   // Simulated transcription lines that users can trigger to append to the conversation!
   const presetPhrases = [
     { sender: 'Patient' as const, text: "Wait, tooth 16 feels very tender when you tap details on it." },
@@ -741,37 +757,31 @@ export default function LiveRecording({
               <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
                 Click the microphone button to start recording the live dentist-patient interaction, or type comments manually.
               </p>
-              <div className="mt-4 pt-4 border-t border-slate-100 w-full flex flex-col items-center">
-                <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider mb-2">Or test the flow immediately:</span>
+              <div className="mt-4 pt-4 border-t border-slate-100 w-full flex flex-col items-center gap-2.5">
+                <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Test with a sample audio transcript:</span>
+                <select
+                  value={sampleType}
+                  onChange={(e) => setSampleType(e.target.value as AppointmentType)}
+                  className="w-full h-9 px-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 focus:ring-1 focus:ring-primary focus:border-primary outline-none transition-all"
+                >
+                  {SAMPLE_TRANSCRIPTS.map((s) => (
+                    <option key={s.appointmentType} value={s.appointmentType}>
+                      {s.title} — {s.patient}
+                    </option>
+                  ))}
+                </select>
                 <button
                   type="button"
-                  onClick={() => {
-                    const demoItems: TranscriptItem[] = [
-                      {
-                        sender: 'Patient',
-                        text: "I've been having this sharp pain in the upper right quadrant for about two days now. It gets worse when I drink anything cold."
-                      },
-                      {
-                        sender: 'Dentist',
-                        text: "Understood. Does the pain linger after the cold stimulus is removed, or is it just a quick flash?"
-                      },
-                      {
-                        sender: 'Patient',
-                        text: "It lingers for maybe 30 seconds to a minute. It's a throbbing sensation."
-                      },
-                      {
-                        sender: 'Dentist',
-                        text: "Okay, let's take a look. I'm going to perform a percussion test on tooth number 16 and 15."
-                      }
-                    ];
-                    const base = Math.max(0, secondsRef.current - demoItems.length * 3);
-                    setTranscript(demoItems);
-                    setItemTimes(demoItems.map((_, i) => base + i * 3));
-                  }}
-                  className="px-4 py-2 bg-indigo-50 border border-indigo-150 hover:bg-indigo-100 text-primary font-bold text-xs rounded-lg transition-all cursor-pointer shadow-sm"
+                  onClick={() => loadSampleTranscript(sampleType)}
+                  className="w-full px-4 py-2 bg-indigo-50 border border-indigo-150 hover:bg-indigo-100 text-primary font-bold text-xs rounded-lg transition-all cursor-pointer shadow-sm"
                 >
-                  Load Demo Case
+                  Load Sample Audio Transcript
                 </button>
+                <p className="text-[9px] text-slate-400 leading-relaxed text-left w-full">
+                  The note is generated against the template chosen at intake —{' '}
+                  {getTemplateById(templateId).name} for {getAppointmentTypeLabel(appointmentType)}.
+                  Pick the same treatment type at intake for an exact template match.
+                </p>
               </div>
             </div>
           )}
@@ -1034,8 +1044,38 @@ export default function LiveRecording({
                       <span className="bg-white border border-indigo-200 px-1.5 py-0.5 rounded text-[8px] font-extrabold uppercase text-indigo-700">Add Preset</span>
                     </button>
                   ) : (
-                    <div className="text-[10px] font-semibold text-slate-400 italic py-1">Simulation presets finished. Use manual text or live microphone.</div>
+                    <div className="text-[10px] font-semibold text-slate-400 italic py-1">Simulation presets finished — use a sample transcript below, manual text, or the live microphone.</div>
                   )}
+                </div>
+
+                {/* Sample audio transcripts — always available while the session is recording */}
+                <div className="flex flex-col gap-1.5 pt-2.5 border-t border-slate-150">
+                  <span className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wide">Or Load a Sample Audio Transcript</span>
+                  <div className="flex gap-1.5">
+                    <select
+                      value={sampleType}
+                      onChange={(e) => setSampleType(e.target.value as AppointmentType)}
+                      className="flex-1 min-w-0 h-8 px-2 bg-slate-50 border border-slate-200 rounded-lg text-[11px] font-semibold text-slate-700 focus:ring-1 focus:ring-primary focus:border-primary outline-none transition-all"
+                    >
+                      {SAMPLE_TRANSCRIPTS.map((s) => (
+                        <option key={s.appointmentType} value={s.appointmentType}>
+                          {s.title} — {s.patient}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => loadSampleTranscript(sampleType)}
+                      className="shrink-0 px-3 h-8 bg-indigo-50 border border-indigo-150 hover:bg-indigo-100 text-primary font-bold text-[10px] uppercase tracking-wide rounded-lg transition-all active:scale-95 cursor-pointer"
+                    >
+                      Load Sample
+                    </button>
+                  </div>
+                  <p className="text-[9px] text-slate-400 leading-snug">
+                    Fills the session with a realistic consultation for that treatment type. The note is drafted against the
+                    template chosen at intake ({getTemplateById(templateId).name}) — pick the matching treatment type there
+                    for an exact template test.
+                  </p>
                 </div>
               </div>
             </div>
