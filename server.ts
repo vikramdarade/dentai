@@ -14,6 +14,22 @@ import {
 } from './src/lib/dentalLibrary';
 import { normalizeTemplateOutput } from './src/lib/normalizeNoteOutput';
 import {
+  compactTranscriptForGeneration,
+  getTranscriptStats
+} from './src/lib/transcriptTrim';
+import {
+  JOB_CONFIG,
+  PRIORITY_WEIGHT,
+  DEFAULT_CLINIC_DAILY_LIMIT,
+  backoffDelayMs,
+  isQuotaError,
+  meteringDay,
+  priorityForAppointmentType,
+  usageSnapshotFor,
+  type NoteJobPriority,
+  type NoteJobStatus
+} from './src/lib/noteJobs';
+import {
   ClinicInfo,
   ClinicMembership,
   ClinicMemberSummary,
@@ -31,6 +47,8 @@ import {
   initDbSchema,
   seedFromJsonFallback,
   dbGetDentists,
+  dbGetDentistById,
+  dbGetDentistByName,
   dbInsertDentist,
   dbDeleteDentist,
   dbListConsultations,
@@ -47,8 +65,17 @@ import {
   dbListMembershipsForDentist,
   dbUpsertMembership,
   dbDeleteMembership,
-  dbListConsultationsForClinic
+  dbListConsultationsForClinic,
+  dbInsertNoteJob,
+  dbGetNoteJob,
+  dbClaimNextReadyNoteJob,
+  dbNextReadyNoteJob,
+  dbRequeueStuckProcessingJobs,
+  dbUpdateNoteJob,
+  dbRecordUsage,
+  dbGetUsageCount
 } from './src/lib/db';
+import { getTodayStr, getCurrentTimeStr } from './src/types';
 
 // Load environment variables
 dotenv.config({ path: '.env.local' });
@@ -94,9 +121,507 @@ const apiLimiter = rateLimit({
   message: { error: 'Too many requests, please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
+  // Job polling is the async fabric's own heartbeat: the client polls every
+  // ~1.5s while a note generates, and each poll opportunistically ticks the
+  // worker. Counting polls here would spend the dentist's entire 100-request
+  // window mid-consult; the POST that enqueues is still metered.
+  skip: (req) => req.method === 'GET' && /^\/api\/notes\/jobs\/[0-9a-fA-F-]+$/.test(req.originalUrl || ''),
 });
 
 app.use('/api/', apiLimiter);
+
+/* ===========================================================================
+ * Async note-generation job fabric — stores, metering, generation core
+ *
+ * The scale pivot: generation becomes a durable job with priority classes,
+ * per-clinic daily metering, and server-side exponential backoff. The client
+ * submits a job and polls for the result, so quota pressure on one clinic can
+ * never starve another and a thousand dentists retrying never form a
+ * thundering herd.
+ * ======================================================================== */
+
+const JOBS_FILE = path.resolve(__dirname, 'data', 'note_jobs.json');
+const USAGE_FILE = path.resolve(__dirname, 'data', 'usage_events.json');
+const jobsCacheKey = 'dentai:note_jobs';
+const usageCacheKey = 'dentai:usage_events';
+
+interface JobRecord {
+  id: string;
+  dentistId: string;
+  clinicId?: string;
+  priority: NoteJobPriority;
+  status: NoteJobStatus;
+  attempts: number;
+  payload: { intakeData: any; transcript: any[] };
+  result?: any;
+  error?: string;
+  nextAttemptAt?: string | null;
+  createdAt: string;
+}
+
+async function readJobsDb(): Promise<{ jobs: JobRecord[] }> {
+  if (dbEnabled) return { jobs: [] };
+  return readDb(jobsCacheKey, JOBS_FILE, { jobs: [] });
+}
+
+async function writeJobsDb(data: { jobs: JobRecord[] }) {
+  if (dbEnabled) return;
+  return writeDb(jobsCacheKey, JOBS_FILE, data);
+}
+
+async function readUsageDb(): Promise<{ events: any[] }> {
+  if (dbEnabled) return { events: [] };
+  return readDb(usageCacheKey, USAGE_FILE, { events: [] });
+}
+
+async function writeUsageDb(data: { events: any[] }) {
+  if (dbEnabled) return;
+  return writeDb(usageCacheKey, USAGE_FILE, data);
+}
+
+/** Daily AI-note allowance — overridable per deployment via env. */
+function clinicDailyLimit(): number {
+  const parsed = Number(process.env.DENTAI_DAILY_NOTE_LIMIT);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_CLINIC_DAILY_LIMIT;
+}
+
+async function recordUsageEvent(scopeId: string, dentistId: string, kind: string, tokens: number) {
+  const day = meteringDay();
+  if (dbEnabled) {
+    await dbRecordUsage(scopeId, dentistId, kind, tokens, day);
+    return;
+  }
+  const data = await readUsageDb();
+  data.events.push({ scopeId, dentistId, kind, tokens, day, createdAt: new Date().toISOString() });
+  await writeUsageDb(data);
+}
+
+async function getUsageCountToday(scopeId: string): Promise<number> {
+  if (dbEnabled) return dbGetUsageCount(scopeId, meteringDay());
+  const data = await readUsageDb();
+  const day = meteringDay();
+  return data.events.filter((e) => e.scopeId === scopeId && e.day === day).length;
+}
+
+/** Formats the generation prompt for an intake + (already compacted) transcript. */
+function buildNotePrompt(intakeData: any, templateName: string, transcript: any[]): string {
+  return `\n=== PATIENT INTAKE DATA ===\nFirst Name: ${intakeData.firstName}\nLast Name: ${intakeData.lastName}\nDate of Birth: ${intakeData.dob}\nAppointment Type: ${intakeData.appointmentType}\nNote Template: ${templateName}\n\n=== CLINICAL SESSION TRANSCRIPT ===\n${transcript.map((t: any) => `${t.sender}: ${t.text}`).join('\n')}\n`;
+}
+
+/**
+ * Shared hosted-generation core used by the job worker. Mirrors the sync
+ * endpoint's routing (Vertex → developer key → secondary key) but returns a
+ * classified result instead of an HTTP response so backoff decisions stay in
+ * one place.
+ */
+async function runHostedGeneration(payload: {
+  intakeData: any;
+  transcript: any[];
+}): Promise<{ ok: true; output: any } | { ok: false; quota: true; message: string } | { ok: false; quota: false; message: string }> {
+  const gcpProject = process.env.GCP_PROJECT_ID;
+  try {
+    const resolved = resolveNoteTemplate(payload.intakeData);
+    if (resolved.error) {
+      return { ok: false, quota: false, message: resolved.error };
+    }
+    const noteTemplate = resolved.template;
+    const noteAIConfig = buildTemplateAIConfig(noteTemplate);
+
+    // Server-side compaction: the forgotten-recording guard. Enforced here so
+    // a client-side bypass can never blow the quota pool for other clinics.
+    const compacted = compactTranscriptForGeneration(payload.transcript);
+    if (compacted.compacted) {
+      logger.warn('[JobFabric] Transcript compacted before generation', { summary: compacted.summary });
+    }
+    const promptContext = buildNotePrompt(payload.intakeData, noteTemplate.name, compacted.transcript);
+
+    let output: any | null = null;
+
+    if (gcpProject) {
+      const options: any = {
+        vertexai: true,
+        project: gcpProject,
+        location: process.env.GCP_REGION || 'australia-southeast1'
+      };
+      if (process.env.GCP_SERVICE_ACCOUNT_KEY) {
+        try {
+          options.credentials = JSON.parse(process.env.GCP_SERVICE_ACCOUNT_KEY);
+        } catch (e: any) {
+          logger.error('Failed to parse GCP_SERVICE_ACCOUNT_KEY JSON:', e.message);
+        }
+      }
+      try {
+        const ai = new GoogleGenAI(options);
+        const response = await ai.models.generateContent({
+          model: process.env.GEMINI_MODEL || 'gemini-3.6-flash',
+          contents: promptContext,
+          config: noteAIConfig
+        });
+        if (response.text) output = JSON.parse(response.text);
+      } catch (vertexErr: any) {
+        const msg = (vertexErr.message || '').toLowerCase();
+        const credsErr = msg.includes('credentials') || msg.includes('authenticated');
+        if (!credsErr) throw vertexErr;
+        logger.warn('[JobFabric] Vertex credentials error — retrying with developer key');
+      }
+    }
+
+    if (!output) {
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey || apiKey === 'MY_GEMINI_API_KEY') {
+        return { ok: false, quota: false, message: 'Gemini API key is not configured on the server.' };
+      }
+      const ai = new GoogleGenAI({ apiKey });
+      const response = await ai.models.generateContent({
+        model: process.env.GEMINI_MODEL || 'gemini-3.6-flash',
+        contents: promptContext,
+        config: noteAIConfig
+      });
+      if (!response.text) throw new Error('Gemini API returned an empty text field.');
+      output = JSON.parse(response.text);
+    }
+
+    return { ok: true, output: normalizeTemplateOutput(noteTemplate, output) };
+  } catch (error: any) {
+    if (isQuotaError({ status: error.status, message: error.message })) {
+      // Tier 2 — secondary key on a separate quota pool.
+      const fallbackKey = process.env.GEMINI_FALLBACK_API_KEY;
+      if (fallbackKey && fallbackKey !== 'MY_GEMINI_API_KEY') {
+        try {
+          const resolved = resolveNoteTemplate(payload.intakeData);
+          if (!resolved.error) {
+            const noteTemplate = resolved.template;
+            const noteAIConfig = buildTemplateAIConfig(noteTemplate);
+            const compacted = compactTranscriptForGeneration(payload.transcript);
+            const promptContext = buildNotePrompt(payload.intakeData, noteTemplate.name, compacted.transcript);
+            const fallbackAi = new GoogleGenAI({ apiKey: fallbackKey });
+            const fallbackResponse = await fallbackAi.models.generateContent({
+              model: process.env.GEMINI_FALLBACK_MODEL || process.env.GEMINI_MODEL || 'gemini-3.6-flash',
+              contents: promptContext,
+              config: noteAIConfig
+            });
+            if (fallbackResponse.text) {
+              logAudit('notes_generation_secondary_key', 'job-worker', {});
+              return { ok: true, output: normalizeTemplateOutput(noteTemplate, JSON.parse(fallbackResponse.text)) };
+            }
+          }
+        } catch (secondaryErr: any) {
+          logger.warn('[JobFabric] Secondary-key fallback also failed:', secondaryErr.message || secondaryErr);
+        }
+      }
+      logAudit('notes_generation_quota_exhausted', 'job-worker', {});
+      return { ok: false, quota: true, message: 'Hosted AI is rate-limited (quota or billing exhausted). The job will retry automatically with backoff.' };
+    }
+    return { ok: false, quota: false, message: error.message || 'Unknown hosted AI failure.' };
+  }
+}
+
+let workerTicking = false;
+let lastTickAt = 0;
+
+/**
+ * Drains ready jobs with per-clinic metering and exponential backoff. Runs
+ * opportunistically on poll and explicitly via /api/notes/jobs/tick — guarded
+ * by an in-process lock so overlapping ticks cannot double-process a job.
+ */
+async function tickNoteJobs(force = false): Promise<void> {
+  if (workerTicking) return;
+  if (!force && Date.now() - lastTickAt < 1500) return;
+  workerTicking = true;
+  lastTickAt = Date.now();
+  try {
+    // Crash recovery: an instance that died mid-'processing' leaves its job
+    // stuck forever otherwise. Requeue jobs whose processing has exceeded the
+    // stale window so generation retries (idempotent — cheap when empty).
+    if (dbEnabled) {
+      try {
+        const requeued = await dbRequeueStuckProcessingJobs(JOB_CONFIG.maxAgeMs);
+        if (requeued > 0) {
+          logger.warn(`[JobFabric] Requeued ${requeued} stuck processing job(s) after instance failure.`);
+        }
+      } catch (requeueErr: any) {
+        logger.warn('[JobFabric] Stuck-job requeue check failed:', requeueErr?.message || requeueErr);
+      }
+    }
+    for (let i = 0; i < JOB_CONFIG.maxJobsPerTick; i++) {
+      const nowIso = new Date().toISOString();
+      const job = await (async (): Promise<JobRecord | null> => {
+        // Postgres: claim atomically (SKIP LOCKED) so N instances never
+        // double-generate the same job. JSON mode is single-process.
+        if (dbEnabled) return (await dbClaimNextReadyNoteJob(nowIso)) as JobRecord | null;
+        const data = await readJobsDb();
+        const ready = data.jobs
+          .filter((j) => j.status === 'queued' && (!j.nextAttemptAt || Date.parse(j.nextAttemptAt) <= Date.now()))
+          .sort((a, b) => {
+            const pw = PRIORITY_WEIGHT[b.priority] - PRIORITY_WEIGHT[a.priority];
+            if (pw !== 0) return pw;
+            return Date.parse(a.createdAt) - Date.parse(b.createdAt);
+          });
+        return ready[0] ?? null;
+      })();
+      if (!job) return;
+
+      // Expire stale jobs so clients never poll forever.
+      if (Date.now() - Date.parse(job.createdAt) > JOB_CONFIG.maxAgeMs) {
+        await persistJobPatch(job.id, job.dentistId, {
+          status: 'failed', attempts: job.attempts, result: null,
+          error: 'Job expired before generation could complete.', nextAttemptAt: null
+        });
+        continue;
+      }
+
+      // In Postgres mode the claim statement already set 'processing' and
+      // incremented attempts; in JSON mode we do it with this patch.
+      let attempts = job.attempts;
+      if (!dbEnabled) {
+        attempts = job.attempts + 1;
+        await persistJobPatch(job.id, job.dentistId, {
+          status: 'processing', attempts, result: null, error: null, nextAttemptAt: null
+        });
+      }
+
+      const result = await runHostedGeneration(job.payload);
+
+      if (result.ok) {
+        await persistJobPatch(job.id, job.dentistId, {
+          status: 'done', attempts, result: result.output, error: null, nextAttemptAt: null
+        });
+        const scopeId = job.clinicId || job.dentistId;
+        const approxTokens = getTranscriptStats(job.payload.transcript || []).approxTokens;
+        await recordUsageEvent(scopeId, job.dentistId, 'ai_note', approxTokens);
+        // Durable completion: persist the consultation server-side as part of
+        // finishing the job. If the dentist's browser died (appointment ended,
+        // call dropped) the note is NOT lost — it is in the database and
+        // surfaces in the History Hub on next sign-in.
+        try {
+          const output: any = result.output;
+          const intake = job.payload?.intakeData || {};
+          const consult = {
+            id: job.id,
+            dentistId: job.dentistId,
+            clinicId: job.clinicId,
+            firstName: String(intake.firstName || 'Unknown'),
+            lastName: String(intake.lastName || 'Patient'),
+            dob: String(intake.dob || '1900-01-01'),
+            appointmentType: String(intake.appointmentType || 'examination'),
+            // Stamp the consultation at job-creation time (when the session
+            // actually happened), not when the worker drained it.
+            date: getTodayStr(new Date(job.createdAt)),
+            time: getCurrentTimeStr(new Date(job.createdAt)),
+            status: 'In Review' as const,
+            transcript: job.payload?.transcript || [],
+            templateId: String(intake.templateId || 'standard'),
+            findings: {
+              // NormalizedNoteOutput puts canonical keys at the TOP level (with a
+              // .canonical fallback for draft-engine-shaped output).
+              chiefComplaint: (output.chiefComplaint ?? output.canonical?.chiefComplaint) || '',
+              history: (output.history ?? output.canonical?.history) || '',
+              toothFindings: (output.toothFindings ?? output.canonical?.toothFindings) || '',
+              findingsGingival: (output.findingsGingival ?? output.canonical?.findingsGingival) || '',
+              diagnosis: (output.diagnosis ?? output.canonical?.diagnosis) || '',
+              treatmentPerformed: (output.treatmentPerformed ?? output.canonical?.treatmentPerformed) || '',
+              recommendations: (output.recommendations ?? output.canonical?.recommendations) || '',
+              recallRequirements: (output.recallRequirements ?? output.canonical?.recallRequirements) || '6 Months (Standard)',
+              customSections: output.customSections || {},
+              adaCodes: output.adaCodes || []
+            },
+            patientSummary: output.patientSummary || '',
+            noteOrigin: { engine: 'gemini' as const, needsReview: false, detail: 'Generated by the hosted AI worker.' }
+          };
+          if (dbEnabled) {
+            await dbInsertConsultation(consult);
+          } else {
+            const consData = await readConsultationsDb();
+            consData.consultations.unshift(consult);
+            await writeConsultationsDb(consData);
+          }
+          logAudit('note_job_consultation_persisted', job.dentistId, { jobId: job.id });
+        } catch (persistErr: any) {
+          // The note itself succeeded; a persistence failure must not re-run
+          // generation. Log and leave the result on the job for polling.
+          logger.error('Failed to persist job result as consultation:', persistErr?.message || persistErr);
+        }
+        continue;
+      }
+
+      const failure = result as { quota: boolean; message: string };
+      if (failure.quota && attempts < JOB_CONFIG.maxAttempts) {
+        const delay = backoffDelayMs(attempts);
+        logger.warn(`[JobFabric] Job ${job.id} hit quota (attempt ${attempts}) — backing off ${Math.round(delay / 1000)}s`);
+        await persistJobPatch(job.id, job.dentistId, {
+          status: 'queued', attempts, result: null,
+          error: failure.message, nextAttemptAt: new Date(Date.now() + delay)
+        });
+        continue;
+      }
+
+      await persistJobPatch(job.id, job.dentistId, {
+        status: 'failed', attempts, result: null, error: failure.message, nextAttemptAt: null
+      });
+    }
+  } finally {
+    workerTicking = false;
+  }
+}
+
+/** Status/attempts/result/error/nextAttemptAt persistence for both store modes. */
+async function persistJobPatch(
+  id: string,
+  dentistId: string,
+  patch: { status: NoteJobStatus; attempts: number; result: any; error: string | null; nextAttemptAt: Date | null }
+): Promise<void> {
+  if (dbEnabled) {
+    await dbUpdateNoteJob(id, patch);
+    return;
+  }
+  const data = await readJobsDb();
+  const job = data.jobs.find((j) => j.id === id);
+  if (!job) return;
+  job.status = patch.status;
+  job.attempts = patch.attempts;
+  job.result = patch.result ?? undefined;
+  job.error = patch.error ?? undefined;
+  job.nextAttemptAt = patch.nextAttemptAt ? patch.nextAttemptAt.toISOString() : null;
+  await writeJobsDb(data);
+}
+
+/** Submit an async generation job (202 + jobId; poll GET /api/notes/jobs/:id). */
+app.post('/api/notes/jobs', authenticateToken, async (req: any, res: express.Response) => {
+  try {
+    const { intakeData, transcript, clinicId, consultationId } = req.body || {};
+    if (!intakeData || !transcript || !Array.isArray(transcript)) {
+      return res.status(400).json({ error: 'Missing or invalid intakeData or transcript in request body.' });
+    }
+    if (transcript.length === 0) {
+      return res.status(400).json({ error: 'Transcript is empty — record or type dialogue first.' });
+    }
+    if (transcript.length > 200) {
+      return res.status(400).json({ error: 'Transcript contains too many entries (maximum 200 items).' });
+    }
+    const resolved = resolveNoteTemplate(intakeData);
+    if (resolved.error) {
+      return res.status(400).json({ error: resolved.error });
+    }
+    if (!isValidAppointmentType(intakeData.appointmentType)) {
+      return res.status(400).json({ error: 'Appointment type must be one of: examination, scale_clean, emergency, restorative, endodontic, surgical, prosthodontic, paediatric.' });
+    }
+
+    // Per-clinic fair-share metering: the clinic is the accountable economic
+    // unit. A soft daily limit degrades gracefully — the client offers the
+    // offline draft engine instead of dead-ending the dentist.
+    const scopeId = (await resolveClinicScope(req.dentist.id, clinicId)) || req.dentist.id;
+    const used = await getUsageCountToday(scopeId);
+    const limit = clinicDailyLimit();
+    const usage = usageSnapshotFor(scopeId, used, limit);
+    if (usage.exceeded) {
+      logAudit('note_job_metered', req.dentist.id, { scopeId, used, limit });
+      return res.status(429).json({
+        error: `This clinic has used all ${limit} AI notes for today. You can draft the note offline from the transcript — it will be available again tomorrow.`,
+        code: 'QUOTA_DAILY',
+        usage
+      });
+    }
+
+    // Converge on ONE record: when the client supplies its consultation id, the
+    // job (and the durable consultation persisted on completion) uses it — the
+    // client's final PUT then updates the server record instead of creating a
+    // duplicate with a different id.
+    const isUuid = (v: unknown): v is string =>
+      typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
+    const job: JobRecord = {
+      id: isUuid(consultationId) ? consultationId : crypto.randomUUID(),
+      dentistId: req.dentist.id,
+      clinicId: scopeId,
+      priority: priorityForAppointmentType(intakeData.appointmentType),
+      status: 'queued',
+      attempts: 0,
+      payload: { intakeData, transcript },
+      createdAt: new Date().toISOString(),
+      nextAttemptAt: null
+    };
+
+    if (dbEnabled) {
+      await dbInsertNoteJob({
+        id: job.id, dentistId: job.dentistId, clinicId: job.clinicId,
+        priority: job.priority, status: job.status, attempts: 0,
+        payload: job.payload, nextAttemptAt: null
+      });
+    } else {
+      const data = await readJobsDb();
+      data.jobs.push(job);
+      await writeJobsDb(data);
+    }
+
+    logAudit('note_job_submitted', req.dentist.id, {
+      jobId: job.id, priority: job.priority, transcriptLength: transcript.length, scopeId
+    });
+
+    // Drain immediately so a quiet platform responds in one round-trip.
+    void tickNoteJobs(true);
+
+    return res.status(202).json({ jobId: job.id, status: 'queued', priority: job.priority, usage });
+  } catch (err: any) {
+    logger.error('Error submitting note job:', err);
+    return res.status(500).json({ error: err.message || 'Failed to queue the note for generation.' });
+  }
+});
+
+/** Poll a job's status. Owner-only access; every poll opportunistically ticks. */
+app.get('/api/notes/jobs/:id', authenticateToken, async (req: any, res: express.Response) => {
+  try {
+    const { id } = req.params;
+    void tickNoteJobs();
+
+    let job: JobRecord | null = null;
+    if (dbEnabled) {
+      job = (await dbGetNoteJob(id, req.dentist.id)) as JobRecord | null;
+    } else {
+      const data = await readJobsDb();
+      job = data.jobs.find((j) => j.id === id && j.dentistId === req.dentist.id) ?? null;
+    }
+    if (!job) {
+      return res.status(404).json({ error: 'Note job not found.' });
+    }
+
+    const body: Record<string, any> = {
+      id: job.id,
+      status: job.status,
+      priority: job.priority,
+      attempts: job.attempts,
+      createdAt: job.createdAt
+    };
+    if (job.status === 'done' && job.result) body.result = job.result;
+    if (job.error) body.error = job.error;
+    if (job.nextAttemptAt && job.status === 'queued') body.nextAttemptAt = job.nextAttemptAt;
+    return res.json(body);
+  } catch (err: any) {
+    logger.error('Error reading note job:', err);
+    return res.status(500).json({ error: err.message || 'Failed to read the note job.' });
+  }
+});
+
+/** Manual worker tick (for ops/cron). Authenticated to keep the surface closed. */
+app.post('/api/notes/jobs/tick', authenticateToken, async (_req: express.Request, res: express.Response) => {
+  await tickNoteJobs(true);
+  return res.json({ ok: true });
+});
+
+/** Today's AI usage for the active clinic — powers the recording-screen pill. */
+app.get('/api/usage/today', authenticateToken, async (req: any, res: express.Response) => {
+  try {
+    const scopeId = (await resolveClinicScope(req.dentist.id, req.query.clinicId)) || req.dentist.id;
+    const used = await getUsageCountToday(scopeId);
+    const limit = clinicDailyLimit();
+    return res.json(usageSnapshotFor(scopeId, used, limit));
+  } catch (err: any) {
+    logger.error('Error reading usage endpoint:', err);
+    return res.status(500).json({ error: err.message || 'Failed to read usage.' });
+  }
+});
+
+// JSON database file paths
+
+// JSON database file paths
 
 // JSON database file paths
 const USERS_FILE = path.resolve(__dirname, 'data', 'users.json');
@@ -474,8 +999,11 @@ async function authenticateToken(req: express.Request, res: express.Response, ne
   const dentistId = decoded.dentistId;
 
   try {
-    const usersData = await readUsersDb();
-    const dentist = usersData.dentists.find((d: any) => d.id === dentistId);
+    // O(1) point lookup — the full dentist table used to be loaded on every
+    // request, which does not survive thousands of dentists signing in.
+    const dentist = dbEnabled
+      ? await dbGetDentistById(dentistId)
+      : (await readUsersDb()).dentists.find((d: any) => d.id === dentistId);
 
     // A signed token alone is NOT sufficient — the dentist profile must exist in the
     // database. (Previously a token's name/specialty claims were used to recreate
@@ -562,9 +1090,12 @@ app.post('/api/auth/register', async (req, res) => {
       return res.status(400).json({ error: 'PIN must be exactly 4 digits.' });
     }
 
-    const usersData = await readUsersDb();
-    const exists = usersData.dentists.some((d: any) => d.name.toLowerCase() === name.toLowerCase());
-    if (exists) {
+    // Point lookup instead of loading every dentist — registration stays O(1)
+    // as the platform grows past thousands of accounts.
+    const existingDentist = dbEnabled
+      ? await dbGetDentistByName(name.trim())
+      : (await readUsersDb()).dentists.find((d: any) => d.name.toLowerCase() === name.toLowerCase());
+    if (existingDentist) {
       return res.status(409).json({ error: 'A dentist with this name is already registered.' });
     }
 
@@ -582,6 +1113,7 @@ app.post('/api/auth/register', async (req, res) => {
     if (dbEnabled) {
       await dbInsertDentist(newDentist);
     } else {
+      const usersData = await readUsersDb();
       usersData.dentists.push(newDentist);
       await writeUsersDb(usersData);
     }

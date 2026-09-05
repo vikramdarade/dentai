@@ -62,10 +62,14 @@ describe('DentAI Server - Mocked Unit Tests', () => {
   const usersDbPath = path.join(__dirname, '..', 'data', 'users.json');
   const clinicsDbPath = path.join(__dirname, '..', 'data', 'clinics.json');
   const auditDbPath = path.join(__dirname, '..', 'data', 'audit.json');
+  const jobsDbPath = path.join(__dirname, '..', 'data', 'note_jobs.json');
+  const usageDbPath = path.join(__dirname, '..', 'data', 'usage_events.json');
   let dbBackup: string | null = null;
   let usersDbBackup: string | null = null;
   let clinicsDbBackup: string | null = null;
   let auditDbBackup: string | null = null;
+  let jobsDbBackup: string | null = null;
+  let usageDbBackup: string | null = null;
 
   beforeAll(async () => {
     if (fs.existsSync(dbPath)) {
@@ -82,6 +86,12 @@ describe('DentAI Server - Mocked Unit Tests', () => {
     }
     if (fs.existsSync(auditDbPath)) {
       auditDbBackup = fs.readFileSync(auditDbPath, 'utf-8');
+    }
+    if (fs.existsSync(jobsDbPath)) {
+      jobsDbBackup = fs.readFileSync(jobsDbPath, 'utf-8');
+    }
+    if (fs.existsSync(usageDbPath)) {
+      usageDbBackup = fs.readFileSync(usageDbPath, 'utf-8');
     }
     const regRes = await request(app)
       .post('/api/auth/register')
@@ -496,6 +506,144 @@ describe('DentAI Server - Mocked Unit Tests', () => {
     expect(exists).toBe(false);
   });
 
+  /** Polls a note job until it reaches a terminal state (or times out). */
+  const pollJob = async (jobId: string, token: string, timeoutMs = 8000) => {
+    const deadline = Date.now() + timeoutMs;
+    let last: any = null;
+    while (Date.now() < deadline) {
+      const res = await request(app)
+        .get(`/api/notes/jobs/${jobId}`)
+        .set('Authorization', `Bearer ${token}`);
+      if (res.status !== 200) return res;
+      last = res;
+      if (res.body.status === 'done' || res.body.status === 'failed') return res;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    return last;
+  };
+
+  it('async job fabric: submit → done → durable consultation persisted server-side', async () => {
+    const consultationId = 'a1b2c3d4-0000-4000-8000-000000000001';
+    const submitRes = await request(app)
+      .post('/api/notes/jobs')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({
+        intakeData: { firstName: 'Sarah', lastName: 'Jenkins', dob: '1988-04-12', appointmentType: 'emergency' },
+        transcript: [{ sender: 'Dentist', text: 'Tapping tooth 16 exhibits tenderness' }],
+        consultationId
+      });
+    expect(submitRes.status).toBe(202);
+    expect(submitRes.body.jobId).toBe(consultationId);
+    expect(submitRes.body.priority).toBe('emergency');
+    expect(submitRes.body.usage).toBeDefined();
+
+    const doneRes = await pollJob(submitRes.body.jobId, authToken);
+    expect(doneRes.status).toBe(200);
+    expect(doneRes.body.status).toBe('done');
+    expect(doneRes.body.result.chiefComplaint).toContain('Tapped tooth sensitivity');
+
+    // Durable completion: the finished note must already exist as a
+    // consultation under the SAME id — a browser death mid-generate loses
+    // nothing.
+    const listRes = await request(app)
+      .get('/api/consultations')
+      .set('Authorization', `Bearer ${authToken}`);
+    expect(listRes.status).toBe(200);
+    const persisted = listRes.body.find((c: any) => c.id === consultationId);
+    expect(persisted).toBeDefined();
+    expect(persisted.findings.chiefComplaint).toContain('Tapped tooth sensitivity');
+    expect(persisted.noteOrigin.engine).toBe('gemini');
+    expect(persisted.status).toBe('In Review');
+    expect(persisted.clinicId).toBeDefined();
+  });
+
+  it('async job fabric: a completed job increments the clinic daily usage meter by exactly one', async () => {
+    const before = await request(app)
+      .get('/api/usage/today')
+      .set('Authorization', `Bearer ${authToken}`);
+    expect(before.status).toBe(200);
+
+    const submitRes = await request(app)
+      .post('/api/notes/jobs')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({
+        intakeData: { firstName: 'Sarah', lastName: 'Jenkins', dob: '1988-04-12', appointmentType: 'examination' },
+        transcript: [{ sender: 'Dentist', text: 'Routine check, all stable' }]
+      });
+    expect(submitRes.status).toBe(202);
+    const doneRes = await pollJob(submitRes.body.jobId, authToken);
+    expect(doneRes.body.status).toBe('done');
+
+    const after = await request(app)
+      .get('/api/usage/today')
+      .set('Authorization', `Bearer ${authToken}`);
+    expect(after.status).toBe(200);
+    expect(after.body.used).toBe(before.body.used + 1);
+    expect(after.body.limit).toBe(before.body.limit);
+  });
+
+  it('async job fabric: a dentist can never poll another dentist\u2019s job', async () => {
+    const otherName = `Dr. Job Isolation ${Math.random().toString(36).substring(7)}`;
+    const otherReg = await request(app)
+      .post('/api/auth/register')
+      .send({ name: otherName, specialty: 'Orthodontics', pin: '4321' });
+    expect(otherReg.status).toBe(201);
+    const otherToken = otherReg.body.token;
+
+    const submitRes = await request(app)
+      .post('/api/notes/jobs')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({
+        intakeData: { firstName: 'Sarah', lastName: 'Jenkins', dob: '1988-04-12', appointmentType: 'emergency' },
+        transcript: [{ sender: 'Dentist', text: 'Private note for my patient' }]
+      });
+    expect(submitRes.status).toBe(202);
+
+    const forbiddenRes = await request(app)
+      .get(`/api/notes/jobs/${submitRes.body.jobId}`)
+      .set('Authorization', `Bearer ${otherToken}`);
+    expect(forbiddenRes.status).toBe(404);
+  });
+
+  it('async job fabric: quota failures requeue the job with backoff instead of failing it', async () => {
+    // First hosted-AI attempt rejects with a quota-class error; the worker must
+    // requeue the job (status stays queued, attempts increments) rather than
+    // marking it failed — the dentist never sees a dead end.
+    const { GoogleGenAI } = await import('@google/genai');
+    (GoogleGenAI as any).mockImplementationOnce(function () {
+      return {
+        models: {
+          generateContent: vi.fn().mockRejectedValue(new Error('429 RESOURCE_EXHAUSTED - quota exceeded for project'))
+        }
+      };
+    });
+
+    const submitRes = await request(app)
+      .post('/api/notes/jobs')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({
+        intakeData: { firstName: 'Sarah', lastName: 'Jenkins', dob: '1988-04-12', appointmentType: 'emergency' },
+        transcript: [{ sender: 'Dentist', text: 'Tooth 14 cracked cusp' }]
+      });
+    expect(submitRes.status).toBe(202);
+
+    // Wait for the worker to burn the mocked quota failure and requeue.
+    const deadline = Date.now() + 8000;
+    let jobState: any = null;
+    while (Date.now() < deadline) {
+      const res = await request(app)
+        .get(`/api/notes/jobs/${submitRes.body.jobId}`)
+        .set('Authorization', `Bearer ${authToken}`);
+      jobState = res.body;
+      if (res.status === 200 && res.body.attempts >= 1) break;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    expect(jobState.status).toBe('queued');
+    expect(jobState.attempts).toBeGreaterThanOrEqual(1);
+    expect(jobState.error).toBeTruthy();
+    expect(jobState.nextAttemptAt).toBeTruthy();
+  });
+
   afterAll(() => {
     if (dbBackup !== null) {
       fs.writeFileSync(dbPath, dbBackup);
@@ -508,6 +656,16 @@ describe('DentAI Server - Mocked Unit Tests', () => {
     }
     if (auditDbBackup !== null) {
       fs.writeFileSync(auditDbPath, auditDbBackup);
+    }
+    if (jobsDbBackup !== null) {
+      fs.writeFileSync(jobsDbPath, jobsDbBackup);
+    } else if (fs.existsSync(jobsDbPath)) {
+      fs.unlinkSync(jobsDbPath);
+    }
+    if (usageDbBackup !== null) {
+      fs.writeFileSync(usageDbPath, usageDbBackup);
+    } else if (fs.existsSync(usageDbPath)) {
+      fs.unlinkSync(usageDbPath);
     }
   });
 });

@@ -35,7 +35,7 @@ type Sql = ReturnType<typeof neon>;
 const connectionString = process.env.DATABASE_URL || '';
 export const dbEnabled = !!connectionString;
 
-let sql: Sql | null = null;
+export let sql: Sql | null = null;
 if (dbEnabled) {
   sql = neon(connectionString);
 }
@@ -63,6 +63,11 @@ export async function initDbSchema(): Promise<void> {
     )
   `;
   await sql`CREATE INDEX IF NOT EXISTS idx_consultations_dentist ON consultations (dentist_id)`;
+  // Clinic-scoped listing used to filter on the JSONB document
+  // (data->>'clinicId'); a dedicated column + index keeps that O(log n) as the
+  // platform grows past thousands of records per clinic.
+  await sql`ALTER TABLE consultations ADD COLUMN IF NOT EXISTS consultation_clinic_id TEXT`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_consultations_clinic ON consultations (consultation_clinic_id)`;
   await sql`
     CREATE TABLE IF NOT EXISTS audit_logs (
       id         BIGSERIAL PRIMARY KEY,
@@ -99,6 +104,36 @@ export async function initDbSchema(): Promise<void> {
     )
   `;
   await sql`CREATE INDEX IF NOT EXISTS idx_clinic_members_dentist ON clinic_members (dentist_id)`;
+  await sql`
+    CREATE TABLE IF NOT EXISTS note_jobs (
+      id             TEXT PRIMARY KEY,
+      dentist_id     TEXT NOT NULL,
+      clinic_id      TEXT,
+      priority       TEXT NOT NULL CHECK (priority IN ('emergency', 'urgent', 'routine')),
+      status         TEXT NOT NULL CHECK (status IN ('queued', 'processing', 'done', 'failed', 'metered')),
+      attempts       INTEGER NOT NULL DEFAULT 0,
+      payload        JSONB NOT NULL,
+      result         JSONB,
+      error          TEXT,
+      next_attempt_at TIMESTAMPTZ,
+      created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS idx_note_jobs_status ON note_jobs (status, next_attempt_at)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_note_jobs_dentist ON note_jobs (dentist_id)`;
+  await sql`
+    CREATE TABLE IF NOT EXISTS usage_events (
+      id         BIGSERIAL PRIMARY KEY,
+      scope_id   TEXT NOT NULL,
+      dentist_id TEXT NOT NULL,
+      day        TEXT NOT NULL,
+      kind       TEXT NOT NULL,
+      tokens     INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS idx_usage_events_scope_day ON usage_events (scope_id, day)`;
 }
 
 /**
@@ -197,6 +232,31 @@ export async function dbDeleteDentist(id: string): Promise<void> {
   await sql`DELETE FROM dentists WHERE id = ${id}`;
 }
 
+/** O(1) point lookup — the auth middleware runs this on EVERY request. */
+export async function dbGetDentistById(id: string): Promise<any | null> {
+  if (!sql) return null;
+  const rows = (await sql`
+    SELECT id, name, specialty, pin_hash, salt
+    FROM dentists WHERE id = ${id}
+  `) as any[];
+  if (rows.length === 0) return null;
+  const r = rows[0];
+  return { id: r.id, name: r.name, specialty: r.specialty, pinHash: r.pin_hash, salt: r.salt };
+}
+
+/** Case-insensitive name lookup for the registration uniqueness check. */
+export async function dbGetDentistByName(name: string): Promise<any | null> {
+  if (!sql) return null;
+  const rows = (await sql`
+    SELECT id, name, specialty, pin_hash, salt
+    FROM dentists WHERE lower(name) = lower(${name})
+    LIMIT 1
+  `) as any[];
+  if (rows.length === 0) return null;
+  const r = rows[0];
+  return { id: r.id, name: r.name, specialty: r.specialty, pinHash: r.pin_hash, salt: r.salt };
+}
+
 // --- Consultations ---------------------------------------------------------------
 
 export async function dbListConsultations(dentistId: string): Promise<any[]> {
@@ -212,8 +272,8 @@ export async function dbListConsultations(dentistId: string): Promise<any[]> {
 export async function dbInsertConsultation(consultation: any): Promise<void> {
   if (!sql) return;
   await sql`
-    INSERT INTO consultations (id, dentist_id, data)
-    VALUES (${consultation.id}, ${consultation.dentistId}, ${JSON.stringify(consultation)}::jsonb)
+    INSERT INTO consultations (id, dentist_id, consultation_clinic_id, data)
+    VALUES (${consultation.id}, ${consultation.dentistId}, ${consultation.clinicId ?? null}, ${JSON.stringify(consultation)}::jsonb)
     ON CONFLICT (id) DO NOTHING
   `;
 }
@@ -226,7 +286,9 @@ export async function dbUpdateConsultation(
   if (!sql) return false;
   const rows = (await sql`
     UPDATE consultations
-    SET data = ${JSON.stringify(consultation)}::jsonb, updated_at = now()
+    SET data = ${JSON.stringify(consultation)}::jsonb,
+        consultation_clinic_id = ${consultation.clinicId ?? null},
+        updated_at = now()
     WHERE id = ${id} AND dentist_id = ${dentistId}
     RETURNING id
   `) as any[];
@@ -370,12 +432,178 @@ export async function dbDeleteMembership(clinicId: string, dentistId: string): P
 
 export async function dbListConsultationsForClinic(clinicId: string): Promise<any[]> {
   if (!sql) return [];
+  // The indexed column is authoritative for new rows; the JSONB match keeps
+  // pre-migration rows visible without a backfill.
   const rows = (await sql`
     SELECT data FROM consultations
-    WHERE data->>'clinicId' = ${clinicId}
+    WHERE consultation_clinic_id = ${clinicId}
+       OR (consultation_clinic_id IS NULL AND data->>'clinicId' = ${clinicId})
     ORDER BY created_at DESC
   `) as any[];
   return rows.map((r: any) => r.data);
+}
+
+// --- Note-generation job fabric -------------------------------------------------
+
+export async function dbInsertNoteJob(job: {
+  id: string;
+  dentistId: string;
+  clinicId?: string;
+  priority: string;
+  status: string;
+  attempts: number;
+  payload: any;
+  nextAttemptAt: Date | null;
+}): Promise<void> {
+  if (!sql) return;
+  await sql`
+    INSERT INTO note_jobs (id, dentist_id, clinic_id, priority, status, attempts, payload, next_attempt_at)
+    VALUES (${job.id}, ${job.dentistId}, ${job.clinicId ?? null}, ${job.priority}, ${job.status},
+            ${job.attempts}, ${JSON.stringify(job.payload)}::jsonb, ${job.nextAttemptAt?.toISOString() ?? null})
+    ON CONFLICT (id) DO NOTHING
+  `;
+}
+
+export async function dbGetNoteJob(id: string, dentistId: string): Promise<any | null> {
+  if (!sql) return null;
+  const rows = (await sql`
+    SELECT id, dentist_id, clinic_id, priority, status, attempts, result, error, next_attempt_at, created_at
+    FROM note_jobs WHERE id = ${id} AND dentist_id = ${dentistId}
+  `) as any[];
+  if (rows.length === 0) return null;
+  const r = rows[0];
+  return {
+    id: r.id,
+    dentistId: r.dentist_id,
+    clinicId: r.clinic_id,
+    priority: r.priority,
+    status: r.status,
+    attempts: r.attempts,
+    result: r.result,
+    error: r.error,
+    nextAttemptAt: r.next_attempt_at ? new Date(r.next_attempt_at).toISOString() : null,
+    createdAt: new Date(r.created_at).toISOString()
+  };
+}
+
+/**
+ * Atomically claims the next ready job: flips it to 'processing' and bumps
+ * attempts inside a single statement using FOR UPDATE SKIP LOCKED, so multiple
+ * server instances draining the same queue can never grab (or double-generate)
+ * the same job. Called per tick (low volume, covered by idx_note_jobs_status).
+ */
+export async function dbClaimNextReadyNoteJob(nowIso: string): Promise<any | null> {
+  if (!sql) return null;
+  const rows = (await sql`
+    UPDATE note_jobs
+    SET status = 'processing',
+        attempts = attempts + 1,
+        error = NULL,
+        next_attempt_at = NULL,
+        updated_at = now()
+    WHERE id = (
+      SELECT id FROM note_jobs
+      WHERE status = 'queued' AND (next_attempt_at IS NULL OR next_attempt_at <= ${nowIso}::timestamptz)
+      ORDER BY CASE priority WHEN 'emergency' THEN 3 WHEN 'urgent' THEN 2 ELSE 1 END DESC,
+               created_at ASC
+      LIMIT 1
+      FOR UPDATE SKIP LOCKED
+    )
+    RETURNING id, dentist_id, clinic_id, priority, status, attempts, payload, created_at
+  `) as any[];
+  if (rows.length === 0) return null;
+  const r = rows[0];
+  return {
+    id: r.id,
+    dentistId: r.dentist_id,
+    clinicId: r.clinic_id,
+    priority: r.priority,
+    status: r.status,
+    attempts: r.attempts,
+    payload: r.payload,
+    createdAt: new Date(r.created_at).toISOString()
+  };
+}
+
+/** Oldest ready job for the worker, priority first (read-only peek, JSON path). */
+export async function dbNextReadyNoteJob(nowIso: string): Promise<any | null> {
+  if (!sql) return null;
+  const rows = (await sql`
+    SELECT id, dentist_id, clinic_id, priority, status, attempts, payload, next_attempt_at, created_at
+    FROM note_jobs
+    WHERE status = 'queued' AND (next_attempt_at IS NULL OR next_attempt_at <= ${nowIso}::timestamptz)
+    ORDER BY CASE priority WHEN 'emergency' THEN 3 WHEN 'urgent' THEN 2 ELSE 1 END DESC,
+             created_at ASC
+    LIMIT 1
+  `) as any[];
+  if (rows.length === 0) return null;
+  const r = rows[0];
+  return {
+    id: r.id,
+    dentistId: r.dentist_id,
+    clinicId: r.clinic_id,
+    priority: r.priority,
+    status: r.status,
+    attempts: r.attempts,
+    payload: r.payload,
+    createdAt: new Date(r.created_at).toISOString()
+  };
+}
+
+/** Stale jobs whose owning instance died mid-'processing' are requeued here. */
+export async function dbRequeueStuckProcessingJobs(olderThanMs: number): Promise<number> {
+  if (!sql) return 0;
+  const cutoff = new Date(Date.now() - olderThanMs).toISOString();
+  const rows = (await sql`
+    UPDATE note_jobs
+    SET status = 'queued', next_attempt_at = now(), updated_at = now()
+    WHERE status = 'processing'
+      AND updated_at <= ${cutoff}::timestamptz
+    RETURNING id
+  `) as any[];
+  return rows.length;
+}
+
+/** Full patch — the worker always knows every field, so we SET them all. */
+export async function dbUpdateNoteJob(
+  id: string,
+  patch: { status: string; attempts: number; result: any; error: string | null; nextAttemptAt: Date | null }
+): Promise<void> {
+  if (!sql) return;
+  await sql`
+    UPDATE note_jobs
+    SET status = ${patch.status},
+        attempts = ${patch.attempts},
+        result = ${patch.result == null ? null : JSON.stringify(patch.result)}::jsonb,
+        error = ${patch.error},
+        next_attempt_at = ${patch.nextAttemptAt ? patch.nextAttemptAt.toISOString() : null}::timestamptz,
+        updated_at = now()
+    WHERE id = ${id}
+  `;
+}
+
+// --- Usage metering -------------------------------------------------------------
+
+export async function dbRecordUsage(
+  scopeId: string,
+  dentistId: string,
+  kind: string,
+  tokens: number,
+  day: string
+): Promise<void> {
+  if (!sql) return;
+  await sql`
+    INSERT INTO usage_events (scope_id, dentist_id, kind, tokens, day)
+    VALUES (${scopeId}, ${dentistId}, ${kind}, ${tokens}, ${day})
+  `;
+}
+
+export async function dbGetUsageCount(scopeId: string, day: string): Promise<number> {
+  if (!sql) return 0;
+  const rows = (await sql`
+    SELECT COUNT(*)::int AS count FROM usage_events WHERE scope_id = ${scopeId} AND day = ${day}
+  `) as any[];
+  return rows[0]?.count ?? 0;
 }
 
 // --- Audit ----------------------------------------------------------------------

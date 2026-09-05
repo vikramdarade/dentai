@@ -52,6 +52,8 @@ export default function App() {
   // Inactivity warning states
   const [showInactivityWarning, setShowInactivityWarning] = useState(false);
   const [inactivityCountdown, setInactivityCountdown] = useState(30);
+  /** Live status line shown on the processing overlay (async job progress). */
+  const [processingHint, setProcessingHint] = useState<string | null>(null);
 
   // Temporary container for active intake details
   const [activeIntake, setActiveIntake] = useState<{
@@ -444,6 +446,10 @@ export default function App() {
     try {
       let payload: GeneratedNotePayload;
       let noteOrigin: NoteOrigin;
+      // One id per consultation across every engine: the hosted-AI path sends
+      // it with the job so the server's durable completion lands on the same
+      // record the client saves; fallback paths use it for the local record.
+      const consultationId = crypto.randomUUID();
 
       if (fallbackNote) {
         // Fallback tier produced the note on this device — no hosted AI fetch.
@@ -457,31 +463,75 @@ export default function App() {
               : 'Drafted offline from the transcript (no AI available). Review and complete before saving.'
         };
       } else {
-        const response = await fetch('/api/generate-notes', {
+        // Async-first generation (the scale pivot): submit a durable job and
+        // poll for the result. The server retries with backoff on quota, so a
+        // rate-limit no longer dead-ends the dentist; per-clinic metering
+        // degrades gracefully to the offline draft instead. The consultation
+        // id is generated ONCE here and sent with the job so the server-side
+        // durable completion and this client record converge on one id — a
+        // browser death mid-generate still leaves exactly one record.
+        setProcessingHint(null);
+        const submitRes = await fetch('/api/notes/jobs', {
           method: 'POST',
-          headers: { 
+          headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${authToken}`
           },
           body: JSON.stringify({
             intakeData: { ...activeIntake, templateId: template.id },
             transcript: finalTranscript,
+            clinicId: activeClinic?.clinicId,
+            consultationId,
           }),
         });
 
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
-          if (response.status === 429 || errorData.code === 'QUOTA_EXCEEDED') {
-            throw new Error('AI note generation is temporarily rate-limited (quota or billing exhausted) on the hosted Gemini routes. Your recording is preserved — wait a few minutes and retry, or draft the note offline now.');
+        if (!submitRes.ok) {
+          const errorData = await submitRes.json().catch(() => ({}));
+          if (submitRes.status === 429 || errorData.code === 'QUOTA_DAILY' || errorData.code === 'QUOTA_EXCEEDED') {
+            throw new Error(errorData.error || 'AI note generation is rate-limited for your clinic today. Your recording is preserved — draft the note offline now, or retry later.');
           }
-          if (response.status === 503) {
+          if (submitRes.status === 503) {
             throw new Error('AI note generation is not configured yet. Ask the administrator to add GEMINI_API_KEY in the environment settings. Your recording is still here.');
           }
-          throw new Error(errorData.error || `Server returned error status ${response.status}`);
+          throw new Error(errorData.error || `Server returned error status ${submitRes.status}`);
         }
 
-        const parsedData = await response.json();
-        payload = normalizedToPayload(template, parsedData);
+        const { jobId } = await submitRes.json();
+        const deadline = Date.now() + 90_000;
+        let jobPayload: any = null;
+
+        while (Date.now() < deadline) {
+          await new Promise((r) => setTimeout(r, 1500));
+          const pollRes = await fetch(`/api/notes/jobs/${jobId}`, {
+            headers: { 'Authorization': `Bearer ${authToken}` }
+          });
+          if (!pollRes.ok) {
+            const pollErr = await pollRes.json().catch(() => ({}));
+            throw new Error(pollErr.error || `Lost track of the note job (status ${pollRes.status}). Your transcript is preserved — retry from the recording screen.`);
+          }
+          const jobState = await pollRes.json();
+
+          if (jobState.status === 'done') {
+            jobPayload = normalizedToPayload(template, jobState.result);
+            break;
+          }
+          if (jobState.status === 'failed') {
+            throw new Error(jobState.error || 'The AI could not generate this note. Your transcript is preserved — draft offline or retry.');
+          }
+          if (jobState.nextAttemptAt) {
+            const waitS = Math.max(1, Math.round((Date.parse(jobState.nextAttemptAt) - Date.now()) / 1000));
+            setProcessingHint(`Hosted AI is busy — retrying automatically in ~${waitS}s (attempt ${jobState.attempts}).`);
+          }
+        }
+
+        if (!jobPayload) {
+          // The job keeps retrying server-side with backoff and, on success, is
+          // persisted as a consultation under `consultationId` automatically —
+          // the dentist will find it in the History Hub even if they leave now.
+          throw new Error('The note is still generating on the server. It will appear in the History Hub automatically when done — your transcript is preserved here, or draft offline now.');
+        }
+        payload = jobPayload;
+        setProcessingHint(null);
         noteOrigin = { engine: 'gemini', needsReview: false };
       }
 
@@ -499,7 +549,7 @@ export default function App() {
       };
 
       const newConsult: Consultation = {
-        id: crypto.randomUUID(),
+        id: authToken ? consultationId : crypto.randomUUID(),
         dentistId: currentUser.id,
         clinicId: activeClinic?.clinicId,
         firstName: activeIntake.firstName,
@@ -669,6 +719,9 @@ export default function App() {
           templateId={activeIntake.templateId || ''}
           onBack={() => setView('intake')}
           onFinish={handleRecordFinish}
+          processingHint={processingHint}
+          authToken={authToken}
+          activeClinicId={activeClinic?.clinicId}
         />
       )}
 

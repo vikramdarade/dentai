@@ -69,10 +69,9 @@ export interface Consultation {
   noteOrigin?: NoteOrigin;
 }
 
-export const getTodayStr = () => {
-  const dateObj = new Date();
+export const getTodayStr = (when: Date = new Date()) => {
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  return `${months[dateObj.getMonth()]} ${dateObj.getDate()}`;
+  return `${months[when.getMonth()]} ${when.getDate()}`;
 };
 
 export const getYesterdayStr = () => {
@@ -82,10 +81,9 @@ export const getYesterdayStr = () => {
   return `${months[dateObj.getMonth()]} ${dateObj.getDate()}`;
 };
 
-export const getCurrentTimeStr = () => {
-  const dateObj = new Date();
-  const minutes = dateObj.getMinutes().toString().padStart(2, '0');
-  let hours = dateObj.getHours();
+export const getCurrentTimeStr = (when: Date = new Date()) => {
+  const minutes = when.getMinutes().toString().padStart(2, '0');
+  let hours = when.getHours();
   const ampm = hours >= 12 ? 'PM' : 'AM';
   hours = hours % 12 || 12;
   return `${hours.toString().padStart(2, '0')}:${minutes} ${ampm}`;

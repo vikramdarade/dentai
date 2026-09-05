@@ -23,6 +23,18 @@ interface LiveRecordingProps {
     finalTranscript: TranscriptItem[],
     fallbackNote?: { engine: 'offline-draft' | 'on-device'; modelId?: string; payload: GeneratedNotePayload }
   ) => Promise<void> | void;
+  /** Live async-job status line (e.g. "retrying in ~45s") rendered on the processing overlay. */
+  processingHint?: string | null;
+  /** Auth token used to poll the clinic's AI usage meter for this session. */
+  authToken?: string | null;
+  /** Clinic the consultation will be stamped with — the usage-meter scope. */
+  activeClinicId?: string | null;
+}
+
+interface ClinicUsageSnapshot {
+  used: number;
+  limit: number;
+  exceeded: boolean;
 }
 
 export default function LiveRecording({
@@ -31,7 +43,10 @@ export default function LiveRecording({
   appointmentType,
   templateId,
   onBack,
-  onFinish
+  onFinish,
+  processingHint,
+  authToken,
+  activeClinicId
 }: LiveRecordingProps) {
   const [seconds, setSeconds] = useState(() => {
     const saved = sessionStorage.getItem('dentai_active_seconds');
@@ -41,6 +56,36 @@ export default function LiveRecording({
   const [isRecording, setIsRecording] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingState, setProcessingState] = useState('');
+
+  // Clinic AI usage meter (async job fabric): refreshed on mount and every 60s so
+  // the dentist sees how much of the clinic's daily hosted-AI allowance remains
+  // BEFORE finishing a note — no more surprise quota dead-ends mid-day.
+  const [clinicUsage, setClinicUsage] = useState<ClinicUsageSnapshot | null>(null);
+  useEffect(() => {
+    if (!authToken) return;
+    let cancelled = false;
+    const loadUsage = async () => {
+      try {
+        const params = activeClinicId ? `?clinicId=${encodeURIComponent(activeClinicId)}` : '';
+        const res = await fetch(`/api/usage/today${params}`, {
+          headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+        if (!res.ok) return;
+        const snap = await res.json();
+        if (!cancelled) {
+          setClinicUsage({ used: snap.used, limit: snap.limit, exceeded: snap.exceeded });
+        }
+      } catch {
+        // The usage pill is non-critical; ignore transient network failures.
+      }
+    };
+    loadUsage();
+    const interval = setInterval(loadUsage, 60_000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [authToken, activeClinicId]);
 
   // Ambient Mode & Reset states
   const [isAmbientMode, setIsAmbientMode] = useState(false);
@@ -666,6 +711,21 @@ export default function LiveRecording({
           </div>
         </div>
         <div className="flex items-center gap-3">
+          {clinicUsage && (
+            <span
+              title={`This clinic has used ${clinicUsage.used} of ${clinicUsage.limit} hosted AI notes today. Offline drafting stays available at any time.`}
+              className={`hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-[10px] font-bold uppercase tracking-wider shadow-sm ${
+                clinicUsage.exceeded
+                  ? 'bg-red-50 border-red-200 text-red-700'
+                  : clinicUsage.used >= clinicUsage.limit * 0.75
+                    ? 'bg-amber-50 border-amber-200 text-amber-700'
+                    : 'bg-white border-outline-variant text-slate-500'
+              }`}
+            >
+              <Sparkles className={`w-3.5 h-3.5 ${clinicUsage.exceeded ? 'text-red-500' : 'text-primary'}`} />
+              {clinicUsage.used}/{clinicUsage.limit} AI notes today
+            </span>
+          )}
           <button
             onClick={() => setIsAmbientMode(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-outline-variant bg-white hover:bg-slate-50 text-primary transition-all cursor-pointer mr-2 shadow-sm hover:shadow-md"
@@ -1189,6 +1249,13 @@ export default function LiveRecording({
               <p className="text-indigo-200 text-sm mb-6 leading-relaxed">
                 DentAI's specialized dental LLM is structuring oral examination findings...
               </p>
+
+              {/* Live job status from the async fabric (server backoff, attempt count). */}
+              {processingHint && (
+                <div className="text-[11px] font-mono text-amber-300 tracking-wide animate-fade-in mb-3 max-w-xs leading-relaxed">
+                  {processingHint}
+                </div>
+              )}
 
               {/* Dynamic Status bar loading text ticker */}
               <div className="w-64 bg-indigo-900 h-1.5 rounded-full overflow-hidden mb-3">
