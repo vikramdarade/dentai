@@ -1,7 +1,10 @@
 import React, { useState } from 'react';
-import { Search, Plus, FileText, User, ArrowRight, Menu } from 'lucide-react';
+import { Search, Plus, FileText, Menu, Building2 } from 'lucide-react';
 import { Consultation, getTodayStr, getYesterdayStr } from '../types';
 import { motion } from 'motion/react';
+import ClinicSwitcher from './ClinicSwitcher';
+import ClinicMembersModal from './ClinicMembersModal';
+import { ClinicMembership } from '../lib/clinics';
 
 interface HistoryHubProps {
   consultations: Consultation[];
@@ -9,6 +12,16 @@ interface HistoryHubProps {
   onStartNewConsultation: () => void;
   dentistName: string;
   onLogout: () => void;
+  // Clinic ecosystem (multi-clinic practice / invite codes)
+  clinics: ClinicMembership[];
+  activeClinic: ClinicMembership | null;
+  onSelectClinic: (clinicId: string) => void;
+  onJoinClinic: (code: string) => Promise<{ ok: boolean; message: string }>;
+  onClinicChanged: () => void;
+  authToken: string;
+  /** Used to label colleague-authored notes in the owner view. */
+  currentDentistId: string;
+  memberNames: Record<string, string>;
 }
 
 export default function HistoryHub({
@@ -16,8 +29,17 @@ export default function HistoryHub({
   onSelectConsultation,
   onStartNewConsultation,
   dentistName,
-  onLogout
+  onLogout,
+  clinics,
+  activeClinic,
+  onSelectClinic,
+  onJoinClinic,
+  onClinicChanged,
+  authToken,
+  currentDentistId,
+  memberNames
 }: HistoryHubProps) {
+  const [manageOpen, setManageOpen] = useState(false);
   const getInitials = (name: string) => {
     return name
       .split(' ')
@@ -86,9 +108,17 @@ export default function HistoryHub({
     <div id="history-hub-container" className="flex flex-col min-h-screen bg-[#F8F7F5] pb-24 text-on-background">
       {/* Top App Bar */}
       <header className="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-4 h-16 bg-surface border-b border-outline-variant">
-        <div className="flex items-center gap-3">
-          <Menu className="text-primary h-6 w-6 cursor-pointer" />
-          <h1 className="font-headline-md text-headline-md font-bold text-primary">DentAI</h1>
+        <div className="flex items-center gap-3 min-w-0">
+          <Menu className="text-primary h-6 w-6 cursor-pointer shrink-0" />
+          <h1 className="hidden sm:block font-headline-md text-headline-md font-bold text-primary">DentAI</h1>
+          <ClinicSwitcher
+            clinics={clinics}
+            activeClinic={activeClinic}
+            onSelectClinic={onSelectClinic}
+            onJoinClinic={onJoinClinic}
+            onManageClinic={() => setManageOpen(true)}
+            onClinicChanged={onClinicChanged}
+          />
         </div>
         <div className="flex items-center gap-4">
           <button
@@ -125,6 +155,16 @@ export default function HistoryHub({
               Manage and review clinical patient records. Select any past visit to review charts or start a new recording session.
             </p>
           </div>
+
+          {activeClinic?.role === 'owner' && (
+            <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-primary-light/60 border border-indigo-100 text-primary text-xs font-semibold">
+              <Building2 className="w-4 h-4 shrink-0" />
+              <span>
+                Owner view — showing notes recorded by every dentist in{' '}
+                <span className="font-extrabold">{activeClinic.clinicName}</span>.
+              </span>
+            </div>
+          )}
 
           {/* Search Bar Component */}
           <div className="relative group">
@@ -201,6 +241,11 @@ export default function HistoryHub({
                               <span className="text-secondary font-body-md text-slate-500 text-xs mt-0.5">
                                 {getProcedureLabel(c.appointmentType)}
                               </span>
+                              {c.dentistId && c.dentistId !== currentDentistId && (
+                                <span className="text-[10px] font-semibold text-slate-400 mt-0.5">
+                                  Recorded by {memberNames[c.dentistId] || 'a colleague'}
+                                </span>
+                              )}
                             </div>
                           </div>
 
@@ -249,6 +294,16 @@ export default function HistoryHub({
           )}
         </section>
       </main>
+
+      {/* Owner clinic management (invite code, members, approvals) */}
+      {manageOpen && activeClinic?.role === 'owner' && (
+        <ClinicMembersModal
+          clinic={activeClinic}
+          authToken={authToken}
+          onClose={() => setManageOpen(false)}
+          onChanged={onClinicChanged}
+        />
+      )}
     </div>
   );
 }

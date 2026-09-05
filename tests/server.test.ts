@@ -60,8 +60,12 @@ describe('DentAI Server - Mocked Unit Tests', () => {
   let authToken = '';
   const dbPath = path.join(__dirname, '..', 'data', 'consultations.json');
   const usersDbPath = path.join(__dirname, '..', 'data', 'users.json');
+  const clinicsDbPath = path.join(__dirname, '..', 'data', 'clinics.json');
+  const auditDbPath = path.join(__dirname, '..', 'data', 'audit.json');
   let dbBackup: string | null = null;
   let usersDbBackup: string | null = null;
+  let clinicsDbBackup: string | null = null;
+  let auditDbBackup: string | null = null;
 
   beforeAll(async () => {
     if (fs.existsSync(dbPath)) {
@@ -69,6 +73,15 @@ describe('DentAI Server - Mocked Unit Tests', () => {
     }
     if (fs.existsSync(usersDbPath)) {
       usersDbBackup = fs.readFileSync(usersDbPath, 'utf-8');
+    }
+    // Registration auto-creates personal clinics and every request appends an
+    // audit event, so the clinics and audit stores are backed up alongside the
+    // other data files and restored in afterAll (tests must not grow them).
+    if (fs.existsSync(clinicsDbPath)) {
+      clinicsDbBackup = fs.readFileSync(clinicsDbPath, 'utf-8');
+    }
+    if (fs.existsSync(auditDbPath)) {
+      auditDbBackup = fs.readFileSync(auditDbPath, 'utf-8');
     }
     const regRes = await request(app)
       .post('/api/auth/register')
@@ -336,6 +349,103 @@ describe('DentAI Server - Mocked Unit Tests', () => {
     expect(listRes.body.length).toBe(0);
   });
 
+  it("should stamp consultations with the dentist's selected active clinic, never a clinic they don't belong to", async () => {
+    // Owner registers and gets a personal clinic with an invite code.
+    const ownerName = `Dr. Owner ${Math.random().toString(36).substring(7)}`;
+    const ownerReg = await request(app)
+      .post('/api/auth/register')
+      .send({ name: ownerName, specialty: 'General Dentistry', pin: '2222' });
+    expect(ownerReg.status).toBe(201);
+    const ownerToken = ownerReg.body.token;
+
+    const ownerClinics = await request(app)
+      .get('/api/clinics/mine')
+      .set('Authorization', `Bearer ${ownerToken}`);
+    expect(ownerClinics.status).toBe(200);
+    const ownedClinic = ownerClinics.body.find((c: any) => c.role === 'owner' && c.status === 'active');
+    expect(ownedClinic).toBeDefined();
+    expect(ownedClinic.inviteCode).toBeTruthy();
+
+    // Colleague joins via the invite code, then the owner approves them.
+    const memberName = `Dr. Member ${Math.random().toString(36).substring(7)}`;
+    const memberReg = await request(app)
+      .post('/api/auth/register')
+      .send({ name: memberName, specialty: 'General Dentistry', pin: '3333', inviteCode: ownedClinic.inviteCode });
+    expect(memberReg.status).toBe(201);
+    const memberToken = memberReg.body.token;
+    const memberDentistId = memberReg.body.dentist.id;
+
+    const approveRes = await request(app)
+      .post(`/api/clinics/${ownedClinic.clinicId}/members/${memberDentistId}/approve`)
+      .set('Authorization', `Bearer ${ownerToken}`);
+    expect(approveRes.status).toBe(200);
+
+    // Member now belongs to the owner's clinic (active) AND owns a personal clinic.
+    const memberClinics = await request(app)
+      .get('/api/clinics/mine')
+      .set('Authorization', `Bearer ${memberToken}`);
+    expect(memberClinics.status).toBe(200);
+    const memberOwned = memberClinics.body.find((c: any) => c.role === 'owner' && c.status === 'active');
+    const memberJoined = memberClinics.body.find(
+      (c: any) => c.clinicId === ownedClinic.clinicId && c.status === 'active'
+    );
+    expect(memberOwned).toBeDefined();
+    expect(memberJoined).toBeDefined();
+
+    const basePayload = {
+      firstName: 'Pat',
+      lastName: 'Smith',
+      dob: '1980-01-01',
+      appointmentType: 'examination',
+      status: 'In Review',
+      findings: { chiefComplaint: 'Pain', history: '', toothFindings: '' },
+      patientSummary: ''
+    };
+
+    // 1) The selected clinic is honored when it is an active membership.
+    const inJoined = await request(app)
+      .post('/api/consultations')
+      .set('Authorization', `Bearer ${memberToken}`)
+      .send({ ...basePayload, clinicId: ownedClinic.clinicId });
+    expect(inJoined.status).toBe(201);
+    expect(inJoined.body.clinicId).toBe(ownedClinic.clinicId);
+
+    // 2) A clinic the dentist does NOT belong to is rejected → falls back to owned clinic.
+    const inBogus = await request(app)
+      .post('/api/consultations')
+      .set('Authorization', `Bearer ${memberToken}`)
+      .send({ ...basePayload, clinicId: 'not-a-real-clinic' });
+    expect(inBogus.status).toBe(201);
+    expect(inBogus.body.clinicId).toBe(memberOwned.clinicId);
+
+    // 3) No clinicId at all → falls back to the owned clinic.
+    const noClinic = await request(app)
+      .post('/api/consultations')
+      .set('Authorization', `Bearer ${memberToken}`)
+      .send({ ...basePayload });
+    expect(noClinic.status).toBe(201);
+    expect(noClinic.body.clinicId).toBe(memberOwned.clinicId);
+
+    // 4) Owner sees the colleague's note under the clinic; the member's own
+    //    list also contains it, and the member cannot read clinic-wide notes.
+    const clinicNotes = await request(app)
+      .get(`/api/clinics/${ownedClinic.clinicId}/consultations`)
+      .set('Authorization', `Bearer ${ownerToken}`);
+    expect(clinicNotes.status).toBe(200);
+    expect(clinicNotes.body.some((c: any) => c.id === inJoined.body.id)).toBe(true);
+
+    const memberList = await request(app)
+      .get('/api/consultations')
+      .set('Authorization', `Bearer ${memberToken}`);
+    expect(memberList.status).toBe(200);
+    expect(memberList.body.some((c: any) => c.id === inJoined.body.id)).toBe(true);
+
+    const forbidden = await request(app)
+      .get(`/api/clinics/${ownedClinic.clinicId}/consultations`)
+      .set('Authorization', `Bearer ${memberToken}`);
+    expect(forbidden.status).toBe(403);
+  });
+
   it('should validate active session via /api/auth/me for logged-in dentist', async () => {
     const profilesRes = await request(app).get('/api/auth/profiles');
     const sarah = profilesRes.body.find((p: any) => p.name === 'Dr. Sarah Jenkins');
@@ -392,6 +502,12 @@ describe('DentAI Server - Mocked Unit Tests', () => {
     }
     if (usersDbBackup !== null) {
       fs.writeFileSync(usersDbPath, usersDbBackup);
+    }
+    if (clinicsDbBackup !== null) {
+      fs.writeFileSync(clinicsDbPath, clinicsDbBackup);
+    }
+    if (auditDbBackup !== null) {
+      fs.writeFileSync(auditDbPath, auditDbBackup);
     }
   });
 });

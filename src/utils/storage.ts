@@ -4,6 +4,7 @@
  */
 
 import { Consultation } from '../types';
+import type { ClinicMembership } from '../lib/clinics';
 
 const STORAGE_KEYS = {
   TOKEN: 'dentai_token',
@@ -17,6 +18,9 @@ export interface AuthUser {
   id: string;
   name: string;
   specialty: string;
+  /** Clinic memberships returned by the backend (absent for accounts that
+   *  predate the clinic backbone — App refreshes from /api/clinics/mine). */
+  clinics?: ClinicMembership[];
 }
 
 export function saveAuth(token: string, user: AuthUser): void {

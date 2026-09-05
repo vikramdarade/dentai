@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { AnimatePresence } from 'motion/react';
 import { Consultation, TranscriptItem, ClinicalFindings, GeneratedNotePayload, NoteOrigin, getTodayStr, getCurrentTimeStr } from './types';
+import { ClinicMembership } from './lib/clinics';
 import { getTemplateById, getDefaultTemplateIdForType, AppointmentType } from './lib/dentalLibrary';
 import { normalizedToPayload } from './lib/normalizeNoteOutput';
 import HistoryHub from './components/HistoryHub';
@@ -31,6 +32,17 @@ export default function App() {
     return getLocalConsultations() || [];
   });
   const [selectedConsultation, setSelectedConsultation] = useState<Consultation | null>(null);
+
+  // Clinic ecosystem (Ecosystem Layer 1 — invite codes / multi-clinic practice)
+  const [clinics, setClinics] = useState<ClinicMembership[]>([]);
+  const [activeClinicId, setActiveClinicId] = useState<string | null>(null);
+  // Dentist display names per clinic, used to label colleague-authored notes.
+  const [memberNames, setMemberNames] = useState<Record<string, string>>({});
+
+  const activeClinic = useMemo(() => {
+    if (!activeClinicId) return null;
+    return clinics.find(c => c.clinicId === activeClinicId && c.status === 'active') || null;
+  }, [clinics, activeClinicId]);
 
   // Authentication State
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
@@ -157,15 +169,130 @@ export default function App() {
     return () => clearInterval(interval);
   }, [showInactivityWarning]);
 
-  // Fetch consultations whenever the authentication token changes
-  useEffect(() => {
-    if (authToken && currentUser) {
-      fetchConsultations();
-      flushPendingSync();
-    } else {
-      setConsultations([]);
+  /**
+   * Reloads the dentist's clinic memberships (self-healing: the backend
+   * materialises the personal clinic on first authenticated call). Keeps the
+   * active clinic selection when it is still an active membership, otherwise
+   * falls back to the first active clinic (personal clinic preferred).
+   */
+  const refreshClinics = useCallback(async (token?: string) => {
+    const tk = token ?? authToken;
+    if (!tk) return;
+    try {
+      const res = await fetch('/api/clinics/mine', {
+        headers: { 'Authorization': `Bearer ${tk}` }
+      });
+      if (!res.ok) return;
+      const list: ClinicMembership[] = await res.json();
+      if (!Array.isArray(list)) return;
+      setClinics(list);
+      setActiveClinicId(prev => {
+        if (prev && list.some(c => c.clinicId === prev && c.status === 'active')) return prev;
+        const fallback = list.find(c => c.role === 'owner' && c.status === 'active')
+          || list.find(c => c.status === 'active');
+        return fallback ? fallback.clinicId : null;
+      });
+    } catch (err) {
+      console.warn('[Clinics] Failed to load clinic memberships:', err);
     }
-  }, [authToken, currentUser?.id]);
+  }, [authToken]);
+
+  /** Owner-only: merge every note recorded under this clinic into the list. */
+  const fetchClinicConsultations = async (clinicId: string) => {
+    if (!authToken || !currentUser) return;
+    try {
+      const res = await fetch(`/api/clinics/${clinicId}/consultations`, {
+        headers: { 'Authorization': `Bearer ${authToken}` }
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (!Array.isArray(data)) return;
+      setConsultations(prev => {
+        const map = new Map<string, Consultation>();
+        prev.forEach(c => map.set(c.id, c));
+        data.forEach((c: Consultation) => {
+          map.set(c.id, { ...c, dentistId: c.dentistId || currentUser.id });
+        });
+        return Array.from(map.values());
+      });
+    } catch (err) {
+      console.warn('Failed to fetch clinic records:', err);
+    }
+  };
+
+  /** Owner-only: dentist display names for the clinic, for note attribution. */
+  const fetchClinicMemberNames = async (clinicId: string) => {
+    if (!authToken) return;
+    try {
+      const res = await fetch(`/api/clinics/${clinicId}/members`, {
+        headers: { 'Authorization': `Bearer ${authToken}` }
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (!Array.isArray(data.members)) return;
+      const names: Record<string, string> = {};
+      data.members.forEach((m: any) => {
+        if (m.dentistId && m.name) names[m.dentistId] = m.name;
+      });
+      setMemberNames(names);
+    } catch (err) {
+      console.warn('Failed to load clinic member names:', err);
+    }
+  };
+
+  /** Request to join a clinic via its invite code (lands as pending). */
+  const handleJoinClinic = async (code: string): Promise<{ ok: boolean; message: string }> => {
+    if (!authToken) return { ok: false, message: 'Not signed in.' };
+    try {
+      const res = await fetch('/api/clinics/join', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}` },
+        body: JSON.stringify({ inviteCode: code })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok || res.status === 202) {
+        refreshClinics();
+        return { ok: true, message: data.message || 'Join request sent.' };
+      }
+      return { ok: false, message: data.error || 'Could not request to join that clinic.' };
+    } catch (err) {
+      return { ok: false, message: 'Network error — please try again.' };
+    }
+  };
+
+  // Fetch consultations for the active scope whenever auth or the selected
+  // clinic changes. An owner additionally sees every note recorded under the
+  // clinics they own (cross-clinic view); switching away drops colleague
+  // records so notes never leak between clinics.
+  useEffect(() => {
+    if (!authToken || !currentUser) {
+      setConsultations([]);
+      return;
+    }
+    fetchConsultations();
+    flushPendingSync();
+    refreshClinics();
+
+    const ownerClinic = activeClinic?.role === 'owner' ? activeClinic : null;
+    if (ownerClinic) {
+      fetchClinicConsultations(ownerClinic.clinicId);
+      fetchClinicMemberNames(ownerClinic.clinicId);
+    } else {
+      setMemberNames({});
+      setConsultations(prev => prev.filter(
+        (c: Consultation) => !c.clinicId || c.dentistId === currentUser.id
+      ));
+    }
+  }, [authToken, currentUser?.id, activeClinicId]);
+
+  /** Records visible in the active clinic scope (owner view includes colleagues). */
+  const visibleConsultations = useMemo(() => {
+    if (!activeClinic) return consultations;
+    return consultations.filter((c: Consultation) =>
+      c.clinicId === activeClinic.clinicId ||
+      (!c.clinicId && activeClinic.role === 'owner')
+    );
+  }, [consultations, activeClinic]);
 
   // Re-upload any consultations that were queued while the backend was unreachable.
   // Tries PUT first (record exists) and falls back to POST (record is new).
@@ -239,6 +366,9 @@ export default function App() {
     setAuthToken(token);
     setCurrentUser(dentist);
     saveAuth(token, dentist);
+    // Clinics are refreshed from the backend (login does not return them);
+    // the authToken effect above also calls refreshClinics() on login.
+    refreshClinics(token);
     const local = getLocalConsultations(dentist.id);
     if (local) {
       setConsultations(local);
@@ -271,6 +401,9 @@ export default function App() {
     setAuthToken(null);
     setCurrentUser(null);
     clearAuth();
+    setClinics([]);
+    setActiveClinicId(null);
+    setMemberNames({});
     // NOTE: the in-progress consultation (active intake + sessionStorage
     // transcript) is deliberately NOT cleared here — logging out mid-consult must
     // never destroy unsaved clinical work. On the next login the intake is
@@ -368,6 +501,7 @@ export default function App() {
       const newConsult: Consultation = {
         id: crypto.randomUUID(),
         dentistId: currentUser.id,
+        clinicId: activeClinic?.clinicId,
         firstName: activeIntake.firstName,
         lastName: activeIntake.lastName,
         dob: activeIntake.dob,
@@ -497,11 +631,19 @@ export default function App() {
     <div id="dentai-viewport" className="min-h-screen bg-[#F8F7F5] selection:bg-primary-container selection:text-white">
       {view === 'history' && (
         <HistoryHub
-          consultations={consultations}
+          consultations={visibleConsultations}
           onSelectConsultation={handleSelectConsultation}
           onStartNewConsultation={handleStartNewConsultation}
           dentistName={currentUser.name}
           onLogout={handleLogout}
+          clinics={clinics}
+          activeClinic={activeClinic}
+          onSelectClinic={(id) => setActiveClinicId(id)}
+          onJoinClinic={handleJoinClinic}
+          onClinicChanged={() => refreshClinics()}
+          authToken={authToken}
+          currentDentistId={currentUser.id}
+          memberNames={memberNames}
         />
       )}
 

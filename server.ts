@@ -13,6 +13,15 @@ import {
   isValidAppointmentType
 } from './src/lib/dentalLibrary';
 import { normalizeTemplateOutput } from './src/lib/normalizeNoteOutput';
+import {
+  ClinicInfo,
+  ClinicMembership,
+  ClinicMemberSummary,
+  generateInviteCode,
+  normalizeInviteCode,
+  personalClinicName,
+  sanitizeClinicName
+} from './src/lib/clinics';
 import { logger } from './logger';
 import fs from 'fs';
 import crypto from 'crypto';
@@ -27,7 +36,18 @@ import {
   dbListConsultations,
   dbInsertConsultation,
   dbUpdateConsultation,
-  dbAppendAudit
+  dbAppendAudit,
+  dbInsertClinic,
+  dbGetClinicById,
+  dbGetClinicByInviteCode,
+  dbGetClinicByOwner,
+  dbUpdateClinicInviteCode,
+  dbUpdateClinicName,
+  dbListClinicMembers,
+  dbListMembershipsForDentist,
+  dbUpsertMembership,
+  dbDeleteMembership,
+  dbListConsultationsForClinic
 } from './src/lib/db';
 
 // Load environment variables
@@ -82,11 +102,13 @@ app.use('/api/', apiLimiter);
 const USERS_FILE = path.resolve(__dirname, 'data', 'users.json');
 const CONSULTATIONS_FILE = path.resolve(__dirname, 'data', 'consultations.json');
 const AUDIT_FILE = path.resolve(__dirname, 'data', 'audit.json');
+const CLINICS_FILE = path.resolve(__dirname, 'data', 'clinics.json');
 
 // In-memory caching layer for read-only environments (like Vercel serverless)
 const dbCache: Record<string, any> = {
   'dentai:users': null,
-  'dentai:consultations': null
+  'dentai:consultations': null,
+  'dentai:clinics': null
 };
 
 const isKvConfigured = !!(process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN);
@@ -166,6 +188,14 @@ async function writeConsultationsDb(data: any) {
   return writeDb('dentai:consultations', CONSULTATIONS_FILE, data);
 }
 
+async function readClinicsDb(): Promise<{ clinics: any[] }> {
+  return readDb('dentai:clinics', CLINICS_FILE, { clinics: [] });
+}
+
+async function writeClinicsDb(data: { clinics: any[] }) {
+  return writeDb('dentai:clinics', CLINICS_FILE, data);
+}
+
 // Immutable audit trail for compliance (who did what, when). Event payloads must NEVER
 // contain PHI — only the event type, dentist id, and a small non-PHI detail.
 async function logAudit(event: string, dentistId: string, detail: Record<string, any> = {}) {
@@ -189,6 +219,135 @@ async function logAudit(event: string, dentistId: string, detail: Record<string,
   } catch (err) {
     logger.error(`Failed to write audit event ${event}:`, err);
   }
+}
+
+/* ---------------------------------------------------------------------------
+ * Clinics & invite codes (Ecosystem Layer 1)
+ *
+ * Every dentist automatically owns a personal clinic, so solo practitioners
+ * never see a setup step and existing accounts gain the clinic backbone with
+ * zero behavior change. Joining via an invite code lands as PENDING — a code
+ * is an application credential, not a security credential — and the owner
+ * approves or declines in their Members screen.
+ * ------------------------------------------------------------------------- */
+
+function isClinicNameTaken(name: string, clinics: any[]): boolean {
+  const target = name.toLowerCase();
+  return clinics.some((c: any) => String(c.name || '').toLowerCase() === target);
+}
+
+async function createClinicRecord(
+  dentistId: string,
+  dentistName: string,
+  clinicName: string
+): Promise<ClinicInfo> {
+  const clinic: ClinicInfo = {
+    id: crypto.randomUUID(),
+    name: clinicName,
+    inviteCode: generateInviteCode(),
+    ownerDentistId: dentistId
+  };
+
+  if (dbEnabled) {
+    await dbInsertClinic(clinic);
+  } else {
+    const data = await readClinicsDb();
+    // Codes must stay unique in the JSON fallback too (the Postgres path
+    // enforces this with a UNIQUE constraint). Extremely unlikely to trigger.
+    let code = clinic.inviteCode;
+    for (let i = 0; i < 10 && isInviteCodeTaken(code, data.clinics); i++) {
+      code = generateInviteCode();
+    }
+    clinic.inviteCode = code;
+    data.clinics.push({
+      ...clinic,
+      members: [{ dentistId, name: dentistName, role: 'owner', status: 'active' }]
+    });
+    await writeClinicsDb(data);
+  }
+  logAudit('clinic_created', dentistId, { clinicId: clinic.id });
+  return clinic;
+}
+
+/**
+ * Ensures the dentist owns a personal clinic. Idempotent and self-healing:
+ * called on registration and on every /api/auth/me, so accounts created before
+ * this feature gain their personal clinic on first sign-in without migration.
+ */
+async function ensurePersonalClinic(dentistId: string, dentistName: string): Promise<void> {
+  if (dbEnabled) {
+    const existing = await dbGetClinicByOwner(dentistId);
+    if (existing) return;
+    await createClinicRecord(dentistId, dentistName, personalClinicName(dentistName));
+    return;
+  }
+
+  const data = await readClinicsDb();
+  if (data.clinics.some((c: any) => c.ownerDentistId === dentistId)) return;
+  await createClinicRecord(dentistId, dentistName, personalClinicName(dentistName));
+}
+
+function toMembership(info: any, inviteCodeForOwner?: string): ClinicMembership {
+  const membership: ClinicMembership = {
+    clinicId: info.clinicId,
+    clinicName: info.clinicName,
+    role: info.role,
+    status: info.status
+  };
+  if (info.role === 'owner' && inviteCodeForOwner) {
+    membership.inviteCode = inviteCodeForOwner;
+  }
+  return membership;
+}
+
+/** All memberships for a dentist; owners additionally receive their invite code. */
+async function listMembershipsFor(dentistId: string): Promise<ClinicMembership[]> {
+  if (dbEnabled) {
+    const rows = await dbListMembershipsForDentist(dentistId);
+    return rows.map((r: any) => toMembership(r, r.inviteCode));
+  }
+
+  const data = await readClinicsDb();
+  const memberships: ClinicMembership[] = [];
+  for (const clinic of data.clinics) {
+    for (const m of clinic.members || []) {
+      if (m.dentistId !== dentistId) continue;
+      memberships.push(toMembership(
+        { clinicId: clinic.id, clinicName: clinic.name, role: m.role, status: m.status },
+        clinic.inviteCode
+      ));
+    }
+  }
+  return memberships;
+}
+
+function findClinicLocal(data: { clinics: any[] }, clinicId: string): any | null {
+  return data.clinics.find((c: any) => c.id === clinicId) || null;
+}
+
+/** True when another clinic (optionally excluding one by id) already uses this code. */
+function isInviteCodeTaken(code: string, clinics: any[], excludeClinicId?: string): boolean {
+  return clinics.some(
+    (c: any) => c.id !== excludeClinicId && String(c.inviteCode || '').toUpperCase() === code
+  );
+}
+
+/**
+ * Resolves the clinic a consultation should be stamped with. The client may
+ * pass the clinic selected in its switcher, but that is only honoured when the
+ * dentist is an ACTIVE member of it — so a note can never be stamped into a
+ * clinic the dentist does not belong to. Falls back to the dentist's owned
+ * clinic, then any active membership.
+ */
+async function resolveClinicScope(dentistId: string, requestedClinicId: unknown): Promise<string | undefined> {
+  const memberships = await listMembershipsFor(dentistId);
+  const active = memberships.filter((m) => m.status === 'active');
+  if (typeof requestedClinicId === 'string') {
+    const match = active.find((m) => m.clinicId === requestedClinicId);
+    if (match) return match.clinicId;
+  }
+  const owned = active.find((m) => m.role === 'owner');
+  return owned?.clinicId ?? active[0]?.clinicId;
 }
 
 const SESSION_SECRET = process.env.SESSION_SECRET || 'dentai-secure-workstation-session-secret';
@@ -288,6 +447,9 @@ async function initDb() {
     }
     if (!fs.existsSync(AUDIT_FILE)) {
       fs.writeFileSync(AUDIT_FILE, JSON.stringify({ events: [] }, null, 2));
+    }
+    if (!fs.existsSync(CLINICS_FILE)) {
+      fs.writeFileSync(CLINICS_FILE, JSON.stringify({ clinics: [] }, null, 2));
     }
   } catch (err: any) {
     logger.warn('[Database] Read-only filesystem detected during initialization. Relying on in-memory caching.', err.message);
@@ -424,6 +586,52 @@ app.post('/api/auth/register', async (req, res) => {
       await writeUsersDb(usersData);
     }
 
+    // Clinic backbone: every dentist gets a personal clinic automatically, and
+    // an invite code at registration turns into a PENDING join request that
+    // the target clinic's owner must approve (a code is not a security cred).
+    await ensurePersonalClinic(newDentist.id, newDentist.name);
+
+    const rawInviteCode = req.body.inviteCode;
+    const normalizedJoinCode = normalizeInviteCode(rawInviteCode);
+    if (normalizedJoinCode) {
+      let targetClinic: any | null = null;
+      if (dbEnabled) {
+        targetClinic = await dbGetClinicByInviteCode(normalizedJoinCode);
+      } else {
+        const clinicsData = await readClinicsDb();
+        targetClinic = clinicsData.clinics.find(
+          (c: any) => String(c.inviteCode || '').toUpperCase() === normalizedJoinCode
+        ) || null;
+      }
+      if (targetClinic && targetClinic.ownerDentistId !== newDentist.id) {
+        if (dbEnabled) {
+          await dbUpsertMembership(targetClinic.id, newDentist.id, 'pending');
+        } else {
+          const clinicsData = await readClinicsDb();
+          const clinic = findClinicLocal(clinicsData, targetClinic.id);
+          if (clinic && !(clinic.members || []).some((m: any) => m.dentistId === newDentist.id)) {
+            clinic.members = clinic.members || [];
+            clinic.members.push({
+              dentistId: newDentist.id,
+              name: newDentist.name,
+              role: 'dentist',
+              status: 'pending'
+            });
+            await writeClinicsDb(clinicsData);
+          }
+        }
+        logAudit('clinic_join_requested', newDentist.id, { clinicId: targetClinic.id });
+      }
+    }
+
+    const rawReferredBy = req.body.referredByCode;
+    const normalizedReferral = normalizeInviteCode(rawReferredBy);
+    if (normalizedReferral) {
+      // Attribution only — the referrer's clinic identity is never exposed to
+      // the new dentist, and nothing is joined via the referral code.
+      logAudit('signup_referral_attributed', newDentist.id, { code: normalizedReferral });
+    }
+
     const token = generateToken({
       dentistId: newDentist.id,
       name: newDentist.name,
@@ -438,7 +646,8 @@ app.post('/api/auth/register', async (req, res) => {
         id: newDentist.id,
         name: newDentist.name,
         specialty: newDentist.specialty
-      }
+      },
+      clinics: await listMembershipsFor(newDentist.id)
     });
   } catch (err) {
     logger.error('Registration error:', err);
@@ -520,12 +729,321 @@ app.post('/api/auth/logout', (req, res) => {
   res.sendStatus(204);
 });
 
-app.get('/api/auth/me', authenticateToken, (req: any, res) => {
-  res.json({
-    id: req.dentist.id,
-    name: req.dentist.name,
-    specialty: req.dentist.specialty
-  });
+app.get('/api/auth/me', authenticateToken, async (req: any, res) => {
+  try {
+    // Self-heals accounts created before the clinic backbone: the personal
+    // clinic materializes on the first authenticated call after this deploy.
+    await ensurePersonalClinic(req.dentist.id, req.dentist.name);
+    res.json({
+      id: req.dentist.id,
+      name: req.dentist.name,
+      specialty: req.dentist.specialty,
+      clinics: await listMembershipsFor(req.dentist.id)
+    });
+  } catch (err) {
+    logger.error('Failed to load session:', err);
+    res.status(500).json({ error: 'Failed to load session.' });
+  }
+});
+
+// Clinic invite-code endpoints (Ecosystem Layer 1)
+app.get('/api/clinics/mine', authenticateToken, async (req: any, res) => {
+  try {
+    await ensurePersonalClinic(req.dentist.id, req.dentist.name);
+    res.json(await listMembershipsFor(req.dentist.id));
+  } catch (err) {
+    logger.error('Failed to list clinic memberships:', err);
+    res.status(500).json({ error: 'Failed to retrieve clinic memberships.' });
+  }
+});
+
+app.post('/api/clinics/join', authenticateToken, async (req: any, res) => {
+  try {
+    const code = normalizeInviteCode(req.body?.inviteCode);
+    if (!code) {
+      return res.status(400).json({ error: 'Enter a valid invite code (letters and numbers).' });
+    }
+
+    let clinic: any | null = null;
+    if (dbEnabled) {
+      clinic = await dbGetClinicByInviteCode(code);
+    } else {
+      const data = await readClinicsDb();
+      clinic = data.clinics.find(
+        (c: any) => String(c.inviteCode || '').toUpperCase() === code
+      ) || null;
+    }
+    if (!clinic) {
+      return res.status(404).json({ error: 'No clinic matches that invite code. Double-check with the person who shared it.' });
+    }
+    if (clinic.ownerDentistId === req.dentist.id) {
+      return res.status(400).json({ error: 'That is your own clinic\'s invite code.' });
+    }
+
+    if (dbEnabled) {
+      await dbUpsertMembership(clinic.id, req.dentist.id, 'pending');
+    } else {
+      const data = await readClinicsDb();
+      const target = findClinicLocal(data, clinic.id);
+      if (!target) return res.status(404).json({ error: 'No clinic matches that invite code. Double-check with the person who shared it.' });
+      target.members = target.members || [];
+      const existing = target.members.find((m: any) => m.dentistId === req.dentist.id);
+      if (existing) {
+        existing.status = 'pending';
+      } else {
+        target.members.push({
+          dentistId: req.dentist.id,
+          name: req.dentist.name,
+          role: 'dentist',
+          status: 'pending'
+        });
+      }
+      await writeClinicsDb(data);
+    }
+
+    logAudit('clinic_join_requested', req.dentist.id, { clinicId: clinic.id });
+    res.status(202).json({
+      message: `Request sent to ${clinic.name}. You'll see the clinic once the owner approves.`,
+      clinicId: clinic.id
+    });
+  } catch (err) {
+    logger.error('Clinic join failed:', err);
+    res.status(500).json({ error: 'Failed to request clinic membership.' });
+  }
+});
+
+app.post('/api/clinics/:id/members/:dentistId/approve', authenticateToken, async (req: any, res) => {
+  try {
+    const clinicId = req.params.id;
+    const memberDentistId = req.params.dentistId;
+
+    let clinic: any | null = null;
+    let approved = false;
+    if (dbEnabled) {
+      clinic = await dbGetClinicById(clinicId);
+      if (!clinic) return res.status(404).json({ error: 'Clinic not found.' });
+      if (clinic.ownerDentistId !== req.dentist.id) {
+        return res.status(403).json({ error: 'Only the clinic owner can approve members.' });
+      }
+      await dbUpsertMembership(clinicId, memberDentistId, 'active');
+      approved = true;
+    } else {
+      const data = await readClinicsDb();
+      clinic = findClinicLocal(data, clinicId);
+      if (!clinic) return res.status(404).json({ error: 'Clinic not found.' });
+      if (clinic.ownerDentistId !== req.dentist.id) {
+        return res.status(403).json({ error: 'Only the clinic owner can approve members.' });
+      }
+      clinic.members = clinic.members || [];
+      const member = clinic.members.find((m: any) => m.dentistId === memberDentistId);
+      if (!member) return res.status(404).json({ error: 'Membership request not found.' });
+      member.status = 'active';
+      if (!member.name) member.name = req.dentist.name;
+      await writeClinicsDb(data);
+      approved = true;
+    }
+
+    logAudit('clinic_member_approved', req.dentist.id, { clinicId, memberDentistId });
+    res.json({ success: approved, clinicId });
+  } catch (err) {
+    logger.error('Member approval failed:', err);
+    res.status(500).json({ error: 'Failed to approve member.' });
+  }
+});
+
+app.post('/api/clinics/:id/members/:dentistId/decline', authenticateToken, async (req: any, res) => {
+  try {
+    const clinicId = req.params.id;
+    const memberDentistId = req.params.dentistId;
+
+    let removed = false;
+    if (dbEnabled) {
+      const clinic = await dbGetClinicById(clinicId);
+      if (!clinic) return res.status(404).json({ error: 'Clinic not found.' });
+      if (clinic.ownerDentistId !== req.dentist.id) {
+        return res.status(403).json({ error: 'Only the clinic owner can decline members.' });
+      }
+      removed = await dbDeleteMembership(clinicId, memberDentistId);
+    } else {
+      const data = await readClinicsDb();
+      const clinic = findClinicLocal(data, clinicId);
+      if (!clinic) return res.status(404).json({ error: 'Clinic not found.' });
+      if (clinic.ownerDentistId !== req.dentist.id) {
+        return res.status(403).json({ error: 'Only the clinic owner can decline members.' });
+      }
+      const before = (clinic.members || []).length;
+      clinic.members = (clinic.members || []).filter(
+        (m: any) => !(m.dentistId === memberDentistId && m.role !== 'owner')
+ );
+      removed = clinic.members.length < before;
+      if (removed) await writeClinicsDb(data);
+    }
+
+    logAudit('clinic_member_declined', req.dentist.id, { clinicId, memberDentistId });
+    res.json({ success: removed });
+  } catch (err) {
+    logger.error('Member decline failed:', err);
+    res.status(500).json({ error: 'Failed to decline member.' });
+  }
+});
+
+app.post('/api/clinics/:id/rotate-code', authenticateToken, async (req: any, res) => {
+  try {
+    const clinicId = req.params.id;
+    if (dbEnabled) {
+      const clinic = await dbGetClinicById(clinicId);
+      if (!clinic) return res.status(404).json({ error: 'Clinic not found.' });
+      if (clinic.ownerDentistId !== req.dentist.id) {
+        return res.status(403).json({ error: 'Only the clinic owner can rotate the invite code.' });
+      }
+    } else {
+      const data = await readClinicsDb();
+      const clinic = findClinicLocal(data, clinicId);
+      if (!clinic) return res.status(404).json({ error: 'Clinic not found.' });
+      if (clinic.ownerDentistId !== req.dentist.id) {
+        return res.status(403).json({ error: 'Only the clinic owner can rotate the invite code.' });
+      }
+    }
+
+    // Uniqueness loop: retry on the (astronomically unlikely) code collision.
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const nextCode = generateInviteCode();
+      try {
+        if (dbEnabled) {
+          await dbUpdateClinicInviteCode(clinicId, nextCode);
+        } else {
+          const data = await readClinicsDb();
+          const clinic = findClinicLocal(data, clinicId);
+          // Another clinic already uses this candidate → try the next one.
+          if (isInviteCodeTaken(nextCode, data.clinics, clinicId)) continue;
+          clinic.inviteCode = nextCode;
+          await writeClinicsDb(data);
+        }
+        logAudit('clinic_code_rotated', req.dentist.id, { clinicId });
+        return res.json({ inviteCode: nextCode });
+      } catch (err: any) {
+        const isUniqueViolation = err?.code === '23505' || /unique|duplicate/i.test(String(err?.message || ''));
+        if (!isUniqueViolation) throw err;
+      }
+    }
+    res.status(500).json({ error: 'Could not generate a unique invite code. Try again.' });
+  } catch (err) {
+    logger.error('Invite code rotation failed:', err);
+    res.status(500).json({ error: 'Failed to rotate invite code.' });
+  }
+});
+
+app.post('/api/clinics/:id/rename', authenticateToken, async (req: any, res) => {
+  try {
+    const clinicId = req.params.id;
+    const name = sanitizeClinicName(req.body?.name);
+    if (!name) {
+      return res.status(400).json({ error: 'Clinic name must be 2-80 characters.' });
+    }
+
+    if (dbEnabled) {
+      const clinic = await dbGetClinicById(clinicId);
+      if (!clinic) return res.status(404).json({ error: 'Clinic not found.' });
+      if (clinic.ownerDentistId !== req.dentist.id) {
+        return res.status(403).json({ error: 'Only the clinic owner can rename the clinic.' });
+      }
+      await dbUpdateClinicName(clinicId, name);
+    } else {
+      const data = await readClinicsDb();
+      const clinic = findClinicLocal(data, clinicId);
+      if (!clinic) return res.status(404).json({ error: 'Clinic not found.' });
+      if (clinic.ownerDentistId !== req.dentist.id) {
+        return res.status(403).json({ error: 'Only the clinic owner can rename the clinic.' });
+      }
+      if (isClinicNameTaken(name, data.clinics.filter((c: any) => c.id !== clinicId))) {
+        return res.status(409).json({ error: 'A clinic with this name already exists.' });
+      }
+      clinic.name = name;
+      await writeClinicsDb(data);
+    }
+
+    logAudit('clinic_renamed', req.dentist.id, { clinicId });
+    res.json({ success: true, name });
+  } catch (err) {
+    logger.error('Clinic rename failed:', err);
+    res.status(500).json({ error: 'Failed to rename clinic.' });
+  }
+});
+
+app.get('/api/clinics/:id/members', authenticateToken, async (req: any, res) => {
+  try {
+    const clinicId = req.params.id;
+
+    let members: ClinicMemberSummary[] = [];
+    let inviteCode: string | undefined;
+    if (dbEnabled) {
+      const clinic = await dbGetClinicById(clinicId);
+      if (!clinic) return res.status(404).json({ error: 'Clinic not found.' });
+      if (clinic.ownerDentistId !== req.dentist.id) {
+        return res.status(403).json({ error: 'Only the clinic owner can view the member list.' });
+      }
+      members = await dbListClinicMembers(clinicId);
+      inviteCode = clinic.inviteCode;
+    } else {
+      const data = await readClinicsDb();
+      const clinic = findClinicLocal(data, clinicId);
+      if (!clinic) return res.status(404).json({ error: 'Clinic not found.' });
+      if (clinic.ownerDentistId !== req.dentist.id) {
+        return res.status(403).json({ error: 'Only the clinic owner can view the member list.' });
+      }
+      members = (clinic.members || []).map((m: any) => ({
+        dentistId: m.dentistId,
+        name: m.name,
+        role: m.role,
+        status: m.status
+      }));
+      inviteCode = clinic.inviteCode;
+    }
+
+    res.json({ inviteCode, members });
+  } catch (err) {
+    logger.error('Failed to list clinic members:', err);
+    res.status(500).json({ error: 'Failed to retrieve clinic members.' });
+  }
+});
+
+// Owner-only: every consultation recorded under this clinic (any member's
+// notes). This is what powers the owner's cross-clinic view — a dentist only
+// ever sees their own records through /api/consultations, while an owner sees
+// the practice's records for the clinics they own.
+app.get('/api/clinics/:id/consultations', authenticateToken, async (req: any, res) => {
+  try {
+    const clinicId = req.params.id;
+
+    if (dbEnabled) {
+      const clinic = await dbGetClinicById(clinicId);
+      if (!clinic) return res.status(404).json({ error: 'Clinic not found.' });
+      if (clinic.ownerDentistId !== req.dentist.id) {
+        return res.status(403).json({ error: 'Only the clinic owner can view this clinic\'s records.' });
+      }
+    } else {
+      const data = await readClinicsDb();
+      const clinic = findClinicLocal(data, clinicId);
+      if (!clinic) return res.status(404).json({ error: 'Clinic not found.' });
+      if (clinic.ownerDentistId !== req.dentist.id) {
+        return res.status(403).json({ error: 'Only the clinic owner can view this clinic\'s records.' });
+      }
+    }
+
+    let consultations: any[];
+    if (dbEnabled) {
+      consultations = await dbListConsultationsForClinic(clinicId);
+    } else {
+      const consultationsData = await readConsultationsDb();
+      consultations = consultationsData.consultations.filter(
+        (c: any) => c.clinicId === clinicId
+      );
+    }
+    res.json(consultations);
+  } catch (err) {
+    logger.error('Failed to list clinic consultations:', err);
+    res.status(500).json({ error: 'Failed to retrieve clinic records.' });
+  }
 });
 
 // Consultation Persistence Endpoints
@@ -568,6 +1086,17 @@ app.post('/api/consultations', authenticateToken, async (req: any, res) => {
       dentistId: req.dentist.id
     };
 
+    // Clinic scoping: consultations are stamped with the clinic the dentist is
+    // currently working in. The client's selected clinic is honoured only when
+    // it is an active membership (never a clinic the dentist doesn't belong
+    // to); otherwise fall back to the owned clinic, then any active clinic.
+    try {
+      const scope = await resolveClinicScope(req.dentist.id, newConsultation.clinicId);
+      if (scope) newConsultation.clinicId = scope;
+    } catch (err) {
+      logger.warn('Could not resolve clinic scope for consultation; saving without clinicId.', err);
+    }
+
     if (dbEnabled) {
       await dbInsertConsultation(newConsultation);
     } else {
@@ -602,6 +1131,12 @@ app.put('/api/consultations/:id', authenticateToken, async (req: any, res) => {
         id,
         dentistId: req.dentist.id
       };
+      try {
+        const scope = await resolveClinicScope(req.dentist.id, merged.clinicId);
+        if (scope) merged.clinicId = scope;
+      } catch (err) {
+        logger.warn('Could not resolve clinic scope on update; preserving stored clinicId.', err);
+      }
       await dbUpdateConsultation(id, req.dentist.id, merged);
       logAudit('consultation_updated', req.dentist.id, { consultationId: id });
       return res.json(merged);
@@ -622,6 +1157,13 @@ app.put('/api/consultations/:id', authenticateToken, async (req: any, res) => {
       id,
       dentistId: req.dentist.id
     };
+
+    try {
+      const scope = await resolveClinicScope(req.dentist.id, consultationsData.consultations[index].clinicId);
+      if (scope) consultationsData.consultations[index].clinicId = scope;
+    } catch (err) {
+      logger.warn('Could not resolve clinic scope on update; preserving stored clinicId.', err);
+    }
 
     await writeConsultationsDb(consultationsData);
     logAudit('consultation_updated', req.dentist.id, { consultationId: id });

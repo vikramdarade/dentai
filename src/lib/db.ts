@@ -78,6 +78,27 @@ export async function initDbSchema(): Promise<void> {
       value TEXT NOT NULL
     )
   `;
+  await sql`
+    CREATE TABLE IF NOT EXISTS clinics (
+      id              TEXT PRIMARY KEY,
+      name            TEXT NOT NULL,
+      invite_code     TEXT NOT NULL UNIQUE,
+      owner_dentist_id TEXT NOT NULL,
+      created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS idx_clinics_owner ON clinics (owner_dentist_id)`;
+  await sql`
+    CREATE TABLE IF NOT EXISTS clinic_members (
+      clinic_id  TEXT NOT NULL REFERENCES clinics(id) ON DELETE CASCADE,
+      dentist_id TEXT NOT NULL,
+      role       TEXT NOT NULL CHECK (role IN ('owner', 'dentist')),
+      status     TEXT NOT NULL CHECK (status IN ('active', 'pending')),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (clinic_id, dentist_id)
+    )
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS idx_clinic_members_dentist ON clinic_members (dentist_id)`;
 }
 
 /**
@@ -210,6 +231,151 @@ export async function dbUpdateConsultation(
     RETURNING id
   `) as any[];
   return rows.length > 0;
+}
+
+// --- Clinics & memberships ----------------------------------------------------
+
+export async function dbInsertClinic(c: {
+  id: string;
+  name: string;
+  inviteCode: string;
+  ownerDentistId: string;
+}): Promise<void> {
+  if (!sql) return;
+  await sql`
+    INSERT INTO clinics (id, name, invite_code, owner_dentist_id)
+    VALUES (${c.id}, ${c.name}, ${c.inviteCode}, ${c.ownerDentistId})
+    ON CONFLICT (id) DO NOTHING
+  `;
+  await sql`
+    INSERT INTO clinic_members (clinic_id, dentist_id, role, status)
+    VALUES (${c.id}, ${c.ownerDentistId}, 'owner', 'active')
+    ON CONFLICT (clinic_id, dentist_id) DO NOTHING
+  `;
+}
+
+export async function dbGetClinicById(id: string): Promise<any | null> {
+  if (!sql) return null;
+  const rows = (await sql`
+    SELECT id, name, invite_code, owner_dentist_id
+    FROM clinics WHERE id = ${id}
+  `) as any[];
+  if (rows.length === 0) return null;
+  const r = rows[0];
+  return { id: r.id, name: r.name, inviteCode: r.invite_code, ownerDentistId: r.owner_dentist_id };
+}
+
+export async function dbGetClinicByInviteCode(inviteCode: string): Promise<any | null> {
+  if (!sql) return null;
+  const rows = (await sql`
+    SELECT id, name, invite_code, owner_dentist_id
+    FROM clinics WHERE invite_code = ${inviteCode}
+  `) as any[];
+  if (rows.length === 0) return null;
+  const r = rows[0];
+  return { id: r.id, name: r.name, inviteCode: r.invite_code, ownerDentistId: r.owner_dentist_id };
+}
+
+export async function dbGetClinicByOwner(ownerDentistId: string): Promise<any | null> {
+  if (!sql) return null;
+  const rows = (await sql`
+    SELECT id, name, invite_code, owner_dentist_id
+    FROM clinics WHERE owner_dentist_id = ${ownerDentistId}
+    ORDER BY created_at ASC
+  `) as any[];
+  if (rows.length === 0) return null;
+  const r = rows[0];
+  return { id: r.id, name: r.name, inviteCode: r.invite_code, ownerDentistId: r.owner_dentist_id };
+}
+
+export async function dbUpdateClinicInviteCode(clinicId: string, inviteCode: string): Promise<boolean> {
+  if (!sql) return false;
+  const rows = (await sql`
+    UPDATE clinics SET invite_code = ${inviteCode}
+    WHERE id = ${clinicId}
+    RETURNING id
+  `) as any[];
+  return rows.length > 0;
+}
+
+export async function dbUpdateClinicName(clinicId: string, name: string): Promise<boolean> {
+  if (!sql) return false;
+  const rows = (await sql`
+    UPDATE clinics SET name = ${name}
+    WHERE id = ${clinicId}
+    RETURNING id
+  `) as any[];
+  return rows.length > 0;
+}
+
+export async function dbListClinicMembers(clinicId: string): Promise<any[]> {
+  if (!sql) return [];
+  const rows = (await sql`
+    SELECT cm.dentist_id, cm.role, cm.status, d.name
+    FROM clinic_members cm
+    JOIN dentists d ON d.id = cm.dentist_id
+    WHERE cm.clinic_id = ${clinicId}
+    ORDER BY cm.created_at ASC
+  `) as any[];
+  return rows.map((r: any) => ({
+    dentistId: r.dentist_id,
+    name: r.name,
+    role: r.role,
+    status: r.status
+  }));
+}
+
+export async function dbListMembershipsForDentist(dentistId: string): Promise<any[]> {
+  if (!sql) return [];
+  const rows = (await sql`
+    SELECT cm.clinic_id, cm.role, cm.status, c.name, c.invite_code, c.owner_dentist_id
+    FROM clinic_members cm
+    JOIN clinics c ON c.id = cm.clinic_id
+    WHERE cm.dentist_id = ${dentistId}
+    ORDER BY cm.created_at ASC
+  `) as any[];
+  return rows.map((r: any) => ({
+    clinicId: r.clinic_id,
+    clinicName: r.name,
+    role: r.role,
+    status: r.status,
+    inviteCode: r.invite_code,
+    ownerDentistId: r.owner_dentist_id
+  }));
+}
+
+export async function dbUpsertMembership(
+  clinicId: string,
+  dentistId: string,
+  status: 'active' | 'pending'
+): Promise<void> {
+  if (!sql) return;
+  await sql`
+    INSERT INTO clinic_members (clinic_id, dentist_id, role, status)
+    VALUES (${clinicId}, ${dentistId}, 'dentist', ${status})
+    ON CONFLICT (clinic_id, dentist_id)
+    DO UPDATE SET status = ${status}
+  `;
+}
+
+export async function dbDeleteMembership(clinicId: string, dentistId: string): Promise<boolean> {
+  if (!sql) return false;
+  const rows = (await sql`
+    DELETE FROM clinic_members
+    WHERE clinic_id = ${clinicId} AND dentist_id = ${dentistId} AND role <> 'owner'
+    RETURNING dentist_id
+  `) as any[];
+  return rows.length > 0;
+}
+
+export async function dbListConsultationsForClinic(clinicId: string): Promise<any[]> {
+  if (!sql) return [];
+  const rows = (await sql`
+    SELECT data FROM consultations
+    WHERE data->>'clinicId' = ${clinicId}
+    ORDER BY created_at DESC
+  `) as any[];
+  return rows.map((r: any) => r.data);
 }
 
 // --- Audit ----------------------------------------------------------------------

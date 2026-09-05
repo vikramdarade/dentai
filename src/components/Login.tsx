@@ -45,6 +45,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
   const [isRegistering, setIsRegistering] = useState(false);
   const [regName, setRegName] = useState('');
   const [regSpecialty, setRegSpecialty] = useState('');
+  const [regInviteCode, setRegInviteCode] = useState('');
   const [regPin, setRegPin] = useState('');
   const [regConfirmPin, setRegConfirmPin] = useState('');
   const [regError, setRegError] = useState<string | null>(null);
@@ -208,7 +209,12 @@ export default function Login({ onLoginSuccess }: LoginProps) {
       const res = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: regName, specialty: regSpecialty, pin: regPin })
+        body: JSON.stringify({
+          name: regName,
+          specialty: regSpecialty,
+          pin: regPin,
+          inviteCode: regInviteCode.trim() || undefined
+        })
       });
 
       const data = await res.json();
@@ -569,6 +575,20 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                     onChange={e => setRegSpecialty(e.target.value)}
                     className="h-11 px-4 bg-[#faf9f7] border border-slate-200 rounded-xl text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none text-on-surface"
                   />
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider ml-1">Clinic Invite Code (optional)</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. SMILE42"
+                    value={regInviteCode}
+                    onChange={e => setRegInviteCode(e.target.value.toUpperCase())}
+                    className="h-11 px-4 bg-[#faf9f7] border border-slate-200 rounded-xl text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none font-mono font-bold tracking-widest text-on-surface placeholder:font-sans placeholder:font-normal placeholder:tracking-normal"
+                  />
+                  <p className="text-[10px] text-slate-400 ml-1 leading-relaxed">
+                    Joining a practice? Enter the code a colleague shared and the clinic owner will approve you.
+                  </p>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
