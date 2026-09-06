@@ -71,7 +71,7 @@ export const DEMO_SCENES: DemoScene[] = [
     kind: 'login',
     title: 'Secure sign-in',
     narration:
-      'Every workstation starts at the secure profile screen. Dentists select their profile and enter a four-digit PIN — no shared passwords, no typing notes mid-treatment. Profiles sync across every workstation in the practice.',
+      'Every workstation starts at the secure sign-in screen. Clinicians enter their registered name and a four-digit PIN — doctor profiles are kept private and confidential on shared workstations, with optional multi-factor authentication ready when needed.',
     duration: 14000,
   },
   {

@@ -45,14 +45,16 @@ export async function initDbSchema(): Promise<void> {
   if (!sql) return;
   await sql`
     CREATE TABLE IF NOT EXISTS dentists (
-      id         TEXT PRIMARY KEY,
-      name       TEXT NOT NULL,
-      specialty  TEXT NOT NULL,
-      pin_hash   TEXT NOT NULL,
-      salt       TEXT NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      id          TEXT PRIMARY KEY,
+      name        TEXT NOT NULL,
+      specialty   TEXT NOT NULL,
+      pin_hash    TEXT NOT NULL,
+      salt        TEXT NOT NULL,
+      mfa_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `;
+  await sql`ALTER TABLE dentists ADD COLUMN IF NOT EXISTS mfa_enabled BOOLEAN NOT NULL DEFAULT FALSE`;
   await sql`
     CREATE TABLE IF NOT EXISTS consultations (
       id         TEXT PRIMARY KEY,
@@ -218,11 +220,12 @@ export async function dbInsertDentist(d: {
   specialty: string;
   pinHash: string;
   salt: string;
+  mfaEnabled?: boolean;
 }): Promise<void> {
   if (!sql) return;
   await sql`
-    INSERT INTO dentists (id, name, specialty, pin_hash, salt)
-    VALUES (${d.id}, ${d.name}, ${d.specialty}, ${d.pinHash}, ${d.salt})
+    INSERT INTO dentists (id, name, specialty, pin_hash, salt, mfa_enabled)
+    VALUES (${d.id}, ${d.name}, ${d.specialty}, ${d.pinHash}, ${d.salt}, ${d.mfaEnabled ?? false})
     ON CONFLICT (id) DO NOTHING
   `;
 }
@@ -236,25 +239,25 @@ export async function dbDeleteDentist(id: string): Promise<void> {
 export async function dbGetDentistById(id: string): Promise<any | null> {
   if (!sql) return null;
   const rows = (await sql`
-    SELECT id, name, specialty, pin_hash, salt
+    SELECT id, name, specialty, pin_hash, salt, mfa_enabled
     FROM dentists WHERE id = ${id}
   `) as any[];
   if (rows.length === 0) return null;
   const r = rows[0];
-  return { id: r.id, name: r.name, specialty: r.specialty, pinHash: r.pin_hash, salt: r.salt };
+  return { id: r.id, name: r.name, specialty: r.specialty, pinHash: r.pin_hash, salt: r.salt, mfaEnabled: !!r.mfa_enabled };
 }
 
 /** Case-insensitive name lookup for the registration uniqueness check. */
 export async function dbGetDentistByName(name: string): Promise<any | null> {
   if (!sql) return null;
   const rows = (await sql`
-    SELECT id, name, specialty, pin_hash, salt
+    SELECT id, name, specialty, pin_hash, salt, mfa_enabled
     FROM dentists WHERE lower(name) = lower(${name})
     LIMIT 1
   `) as any[];
   if (rows.length === 0) return null;
   const r = rows[0];
-  return { id: r.id, name: r.name, specialty: r.specialty, pinHash: r.pin_hash, salt: r.salt };
+  return { id: r.id, name: r.name, specialty: r.specialty, pinHash: r.pin_hash, salt: r.salt, mfaEnabled: !!r.mfa_enabled };
 }
 
 // --- Consultations ---------------------------------------------------------------

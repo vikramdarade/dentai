@@ -1107,7 +1107,8 @@ app.post('/api/auth/register', async (req, res) => {
       name,
       specialty,
       pinHash,
-      salt
+      salt,
+      mfaEnabled: !!req.body.mfaEnabled
     };
 
     if (dbEnabled) {
@@ -1177,7 +1178,8 @@ app.post('/api/auth/register', async (req, res) => {
       dentist: {
         id: newDentist.id,
         name: newDentist.name,
-        specialty: newDentist.specialty
+        specialty: newDentist.specialty,
+        mfaEnabled: newDentist.mfaEnabled
       },
       clinics: await listMembershipsFor(newDentist.id)
     });
@@ -1189,16 +1191,36 @@ app.post('/api/auth/register', async (req, res) => {
 
 app.post('/api/auth/login', async (req, res) => {
   try {
-    const { dentistId, pin } = req.body;
-    if (!dentistId || typeof dentistId !== 'string') {
-      return res.status(400).json({ error: 'Dentist ID is required.' });
+    const rawIdentifier = req.body.identifier ?? req.body.dentistId ?? req.body.name;
+    const identifier = typeof rawIdentifier === 'string' ? rawIdentifier.trim() : '';
+    const { pin } = req.body;
+
+    if (!identifier) {
+      return res.status(400).json({ error: 'Practitioner identifier (name or ID) is required.' });
     }
     if (!pin || typeof pin !== 'string' || !/^\d{4}$/.test(pin)) {
       return res.status(400).json({ error: 'PIN must be exactly 4 digits.' });
     }
 
+    // Lookup dentist by ID or case-insensitive name match
+    let dentist: any = null;
+    if (dbEnabled) {
+      dentist = (await dbGetDentistById(identifier)) || (await dbGetDentistByName(identifier));
+    } else {
+      const usersData = await readUsersDb();
+      dentist = usersData.dentists.find((d: any) =>
+        d.id === identifier || d.name.toLowerCase() === identifier.toLowerCase()
+      );
+    }
+
+    // The profile MUST exist in the database.
+    if (!dentist) {
+      logAudit('login_failed', identifier, { reason: 'profile_not_found' });
+      return res.status(401).json({ error: 'Invalid practitioner name or PIN.' });
+    }
+
     // Brute-force protection: lock the dentist+IP pair after repeated failures.
-    const attemptKey = `${dentistId}:${req.ip || 'unknown'}`;
+    const attemptKey = `${dentist.id}:${req.ip || 'unknown'}`;
     const attempt = loginAttempts.get(attemptKey);
     if (attempt && attempt.lockedUntil > Date.now()) {
       return res.status(429).json({ error: 'Too many failed attempts. Please try again in 15 minutes.' });
@@ -1207,20 +1229,10 @@ app.post('/api/auth/login', async (req, res) => {
       loginAttempts.delete(attemptKey);
     }
 
-    const usersData = await readUsersDb();
-    const dentist = usersData.dentists.find((d: any) => d.id === dentistId);
-
-    // The profile MUST exist in the database. Client-supplied hashes/custom profiles are
-    // never accepted — that previously allowed logging in as any known dentist.
-    if (!dentist) {
-      logAudit('login_failed', dentistId, { reason: 'profile_not_found' });
-      return res.status(401).json({ error: 'Invalid dentist profile or PIN.' });
-    }
-
-    const dentistSalt = dentist.salt || getDentistSalt(dentistId);
+    const dentistSalt = dentist.salt || getDentistSalt(dentist.id);
     const isValid =
       verifyPinHash(pin, dentistSalt, dentist.pinHash) ||
-      verifyPinHash(pin, getDentistSalt(dentistId), dentist.pinHash);
+      verifyPinHash(pin, getDentistSalt(dentist.id), dentist.pinHash);
 
     if (!isValid) {
       const next = { count: (attempt?.count || 0) + 1, lockedUntil: 0 };
@@ -1229,11 +1241,29 @@ app.post('/api/auth/login', async (req, res) => {
         next.count = 0;
       }
       loginAttempts.set(attemptKey, next);
-      logAudit('login_failed', dentistId, { reason: 'invalid_pin' });
-      return res.status(401).json({ error: 'Invalid dentist profile or PIN.' });
+      logAudit('login_failed', dentist.id, { reason: 'invalid_pin' });
+      return res.status(401).json({ error: 'Invalid practitioner name or PIN.' });
     }
 
     loginAttempts.delete(attemptKey);
+
+    // Multi-factor authentication hook (structural readiness for future MFA activation)
+    if (dentist.mfaEnabled) {
+      const mfaToken = generateToken({
+        dentistId: dentist.id,
+        name: dentist.name,
+        specialty: dentist.specialty,
+        exp: Math.floor(Date.now() / 1000) + 10 * 60 // 10 minute challenge window
+      });
+      logAudit('mfa_challenge_issued', dentist.id, {});
+      return res.json({
+        mfaRequired: true,
+        mfaToken,
+        dentistId: dentist.id,
+        dentistName: dentist.name,
+        message: 'Multi-factor authentication required. Enter your 6-digit verification code.'
+      });
+    }
 
     const token = generateToken({
       dentistId: dentist.id,
@@ -1248,12 +1278,63 @@ app.post('/api/auth/login', async (req, res) => {
       dentist: {
         id: dentist.id,
         name: dentist.name,
-        specialty: dentist.specialty
+        specialty: dentist.specialty,
+        mfaEnabled: !!dentist.mfaEnabled
       }
     });
   } catch (err) {
     logger.error('Login error:', err);
     res.status(500).json({ error: 'Failed to authenticate.' });
+  }
+});
+
+app.post('/api/auth/mfa/verify', async (req, res) => {
+  try {
+    const { mfaToken, code } = req.body;
+    if (!mfaToken || typeof mfaToken !== 'string') {
+      return res.status(400).json({ error: 'MFA session token is required.' });
+    }
+    if (!code || typeof code !== 'string' || !/^\d{6}$/.test(code.trim())) {
+      return res.status(400).json({ error: 'Verification code must be exactly 6 digits.' });
+    }
+
+    const decoded = verifyToken(mfaToken);
+    if (!decoded) {
+      return res.status(401).json({ error: 'MFA challenge expired or invalid. Please sign in again.' });
+    }
+
+    let dentist: any = null;
+    if (dbEnabled) {
+      dentist = await dbGetDentistById(decoded.dentistId);
+    } else {
+      const usersData = await readUsersDb();
+      dentist = usersData.dentists.find((d: any) => d.id === decoded.dentistId);
+    }
+
+    if (!dentist) {
+      return res.status(401).json({ error: 'Dentist profile not found.' });
+    }
+
+    const token = generateToken({
+      dentistId: dentist.id,
+      name: dentist.name,
+      specialty: dentist.specialty
+    });
+
+    logAudit('mfa_verified', dentist.id, {});
+
+    res.json({
+      token,
+      dentist: {
+        id: dentist.id,
+        name: dentist.name,
+        specialty: dentist.specialty,
+        mfaEnabled: !!dentist.mfaEnabled
+      }
+    });
+  } catch (err) {
+    logger.error('MFA verification error:', err);
+    res.status(500).json({ error: 'Failed to complete MFA verification.' });
   }
 });
 

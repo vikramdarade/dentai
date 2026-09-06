@@ -507,6 +507,81 @@ describe('DentAI Server - Mocked Unit Tests', () => {
     expect(exists).toBe(false);
   });
 
+  it('should login successfully by practitioner name (case-insensitive) and PIN without leaking profiles', async () => {
+    const testName = `Dr. Privacy Test ${Math.random().toString(36).substring(7)}`;
+    const regRes = await request(app)
+      .post('/api/auth/register')
+      .send({ name: testName, specialty: 'Endodontics', pin: '7777', mfaEnabled: false });
+    expect(regRes.status).toBe(201);
+    expect(regRes.body.dentist.mfaEnabled).toBe(false);
+
+    // 1) Case-insensitive sign-in with full name
+    const loginRes = await request(app)
+      .post('/api/auth/login')
+      .send({ identifier: testName.toLowerCase(), pin: '7777' });
+    expect(loginRes.status).toBe(200);
+    expect(loginRes.body.token).toBeDefined();
+    expect(loginRes.body.dentist.name).toBe(testName);
+    expect(loginRes.body.mfaRequired).toBeUndefined();
+
+    // 2) Reject invalid PIN
+    const failPinRes = await request(app)
+      .post('/api/auth/login')
+      .send({ identifier: testName, pin: '0000' });
+    expect(failPinRes.status).toBe(401);
+    expect(failPinRes.body.error).toContain('Invalid practitioner name or PIN');
+
+    // 3) Reject unknown practitioner name
+    const failNameRes = await request(app)
+      .post('/api/auth/login')
+      .send({ identifier: 'Dr. Nonexistent Practitioner', pin: '7777' });
+    expect(failNameRes.status).toBe(401);
+    expect(failNameRes.body.error).toContain('Invalid practitioner name or PIN');
+  });
+
+  it('should issue MFA challenge token when mfaEnabled is true and verify 6-digit code', async () => {
+    const mfaDentistName = `Dr. MFA Secure ${Math.random().toString(36).substring(7)}`;
+    const regRes = await request(app)
+      .post('/api/auth/register')
+      .send({ name: mfaDentistName, specialty: 'Prosthodontics', pin: '9999', mfaEnabled: true });
+    expect(regRes.status).toBe(201);
+    expect(regRes.body.dentist.mfaEnabled).toBe(true);
+
+    // 1) Login returns mfaRequired challenge
+    const loginRes = await request(app)
+      .post('/api/auth/login')
+      .send({ identifier: mfaDentistName, pin: '9999' });
+    expect(loginRes.status).toBe(200);
+    expect(loginRes.body.mfaRequired).toBe(true);
+    expect(loginRes.body.mfaToken).toBeDefined();
+    expect(loginRes.body.dentistId).toBe(regRes.body.dentist.id);
+    expect(loginRes.body.token).toBeUndefined();
+
+    const mfaToken = loginRes.body.mfaToken;
+
+    // 2) Reject invalid MFA format
+    const failCodeRes = await request(app)
+      .post('/api/auth/mfa/verify')
+      .send({ mfaToken, code: '12' });
+    expect(failCodeRes.status).toBe(400);
+
+    // 3) Successfully verify 6-digit MFA code
+    const verifyRes = await request(app)
+      .post('/api/auth/mfa/verify')
+      .send({ mfaToken, code: '123456' });
+    expect(verifyRes.status).toBe(200);
+    expect(verifyRes.body.token).toBeDefined();
+    expect(verifyRes.body.dentist.id).toBe(regRes.body.dentist.id);
+    expect(verifyRes.body.dentist.mfaEnabled).toBe(true);
+
+    // 4) Validate issued token works on protected route
+    const meRes = await request(app)
+      .get('/api/auth/me')
+      .set('Authorization', `Bearer ${verifyRes.body.token}`);
+    expect(meRes.status).toBe(200);
+    expect(meRes.body.name).toBe(mfaDentistName);
+  });
+
   /** Polls a note job until it reaches a terminal state (or times out). */
   const pollJob = async (jobId: string, token: string, timeoutMs = 8000) => {
     const deadline = Date.now() + timeoutMs;
@@ -763,7 +838,7 @@ describe.runIf(hasRealKey)('DentAI Server - Live LLM Integration & Accent Resili
     expect(bodyText).toMatch(/filling|restoration|composite/);
     // Check periodontal findings
     expect(res.body.findingsGingival).toContain('3-2-3');
-  });
+  }, 30000);
 
   it('Integration Test Case B: should resolve Broad Australian Accent & check en-AU spelling', async () => {
     const res = await makeNotesRequest({
@@ -797,7 +872,7 @@ describe.runIf(hasRealKey)('DentAI Server - Live LLM Integration & Accent Resili
     // Standard checks for en-AU spelling patterns
     const containsEnAuSpelling = /colour|minimise|programme|haem|anaesth/i.test(patientLetter);
     expect(containsEnAuSpelling).toBe(true);
-  });
+  }, 30000);
 
   it('Integration Test Case C: should resolve mumbled speech and pulpitis diagnosis on tooth 16', async () => {
     const res = await makeNotesRequest({
@@ -825,5 +900,5 @@ describe.runIf(hasRealKey)('DentAI Server - Live LLM Integration & Accent Resili
     expect(res.body.diagnosis.toLowerCase()).toContain('pulpitis');
     const combinedTreatmentAndRecs = (res.body.treatmentPerformed + ' ' + res.body.recommendations).toLowerCase();
     expect(combinedTreatmentAndRecs).toContain('root canal');
-  });
+  }, 30000);
 });

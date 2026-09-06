@@ -232,117 +232,146 @@ function TitleScene({ scene, progress }: SceneProps) {
 }
 
 function LoginScene({ progress }: SceneProps) {
-  const profiles = [
-    { initials: 'EC', name: 'Dr. Emily Carter', specialty: 'Cosmetic Dentistry' },
-    { initials: 'SP', name: 'Dr. Sarah Patel', specialty: 'General Dentistry' },
-    { initials: 'JK', name: 'Dr. James Kim', specialty: 'Oral Surgery' },
-  ];
-  const revealedProfiles = useStagger(progress, profiles.length);
-  const showPinPad = progress > 0.42;
-  const pinFilled = Math.floor(((progress - 0.42) / 0.58) * 4.6);
+  const doctorName = 'Dr. Emily Carter';
+  // Typing simulation: 0.05 -> 0.38
+  const nameChars = Math.max(0, Math.min(doctorName.length, Math.floor(((progress - 0.05) / 0.33) * doctorName.length)));
+  const displayedName = progress < 0.05 ? '' : doctorName.slice(0, nameChars);
+  const nameCompleted = progress >= 0.38;
+
+  // PIN simulation: 0.42 -> 0.78
+  const pinFilled = Math.floor(((progress - 0.42) / 0.36) * 4.6);
   const typedDots = Math.max(0, Math.min(4, pinFilled));
+  const pinCompleted = typedDots === 4;
+
+  // Submitting / Authenticated state: 0.82 -> 1.0
+  const isSubmitting = progress >= 0.82;
 
   return (
     <div className="h-full w-full bg-[#F8F7F5] flex items-center justify-center relative overflow-hidden px-6">
       <div className="absolute top-[-20%] left-[-10%] w-80 h-80 rounded-full bg-indigo-50/50 blur-[90px]" />
-      <AnimatePresence mode="wait">
-        {!showPinPad ? (
-          <motion.div
-            key="profiles"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -16 }}
-            transition={{ duration: 0.35 }}
-            className="w-full max-w-lg bg-white rounded-3xl p-6 shadow-xl border border-slate-200/60"
-          >
-            <div className="flex flex-col items-center">
-              <div className="rounded-full px-3.5 py-1 bg-indigo-50 border border-indigo-100 flex items-center gap-1.5 mb-4">
-                <Sparkles className="w-3 h-3 text-primary" />
-                <span className="text-[9px] text-primary font-extrabold tracking-[0.15em] uppercase">DentAI Practice Hub</span>
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4 }}
+        className="w-full max-w-md bg-white rounded-3xl p-6 shadow-xl border border-slate-200/70 relative z-10 flex flex-col items-center"
+      >
+        <div className="w-12 h-12 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-primary mb-3">
+          <ShieldCheck className="w-6 h-6" />
+        </div>
+
+        <div className="rounded-full px-3 py-0.5 bg-indigo-50/80 border border-indigo-100/80 flex items-center gap-1.5 mb-2">
+          <Sparkles className="w-3 h-3 text-primary" />
+          <span className="text-[9px] text-primary font-extrabold tracking-[0.14em] uppercase">
+            Private Clinician Access
+          </span>
+        </div>
+
+        <h3 className="text-xl font-extrabold text-slate-800 tracking-tight">Clinician Sign In</h3>
+        <p className="text-slate-500 text-xs mt-1 text-center max-w-xs">
+          Enter your registered practitioner name or ID and secure 4-digit PIN.
+        </p>
+
+        <div className="w-full mt-5 space-y-4">
+          {/* Practitioner Name Input */}
+          <div>
+            <label className="block text-[11px] font-bold text-slate-600 mb-1">
+              Practitioner Name or ID
+            </label>
+            <div className="relative">
+              <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                <User className="w-4 h-4" />
               </div>
-              <h3 className="text-xl font-extrabold text-slate-800">Select Your Profile</h3>
-              <p className="text-slate-500 text-xs mt-1 text-center">
-                Access your cases and clinical scribe workflow from any workstation.
-              </p>
-              <div className="w-full mt-5 grid grid-cols-1 gap-3">
-                {profiles.map((p, i) => {
-                  const revealed = revealedProfiles > i;
-                  return (
-                    <motion.div
-                      key={p.initials}
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: revealed ? 1 : 0, y: revealed ? 0 : 10 }}
-                      className={`flex items-center gap-3 p-3.5 rounded-2xl border transition-all ${
-                        revealed ? 'border-slate-200 bg-[#faf9f7]' : 'border-slate-100 bg-white'
-                      }`}
-                    >
-                      <div className="w-10 h-10 rounded-xl bg-indigo-50 text-primary flex items-center justify-center font-bold text-sm border border-indigo-100">
-                        {p.initials}
-                      </div>
-                      <div className="flex flex-col min-w-0 flex-1">
-                        <span className="font-bold text-slate-800 text-sm truncate">{p.name}</span>
-                        <span className="text-slate-400 text-xs truncate">{p.specialty}</span>
-                      </div>
-                      <ChevronDown className="w-4 h-4 text-slate-300 -rotate-90" />
-                    </motion.div>
-                  );
-                })}
-                <div className="flex items-center gap-3 p-3.5 rounded-2xl border-2 border-dashed border-slate-200">
-                  <div className="w-10 h-10 rounded-xl border border-dashed border-slate-300 text-slate-400 flex items-center justify-center">
-                    <Plus className="w-4 h-4" />
-                  </div>
-                  <span className="font-bold text-slate-500 text-sm">Add Profile</span>
-                  <span className="text-slate-400 text-xs">Onboard a dentist</span>
+              <div className="w-full pl-10 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 flex items-center h-10">
+                {displayedName}
+                {progress < 0.38 && (
+                  <span className="w-1.5 h-4 bg-primary ml-0.5 animate-pulse" />
+                )}
+              </div>
+              {nameCompleted && (
+                <div className="absolute inset-y-0 right-0 pr-3 flex items-center text-emerald-600">
+                  <CheckCircle2 className="w-4 h-4" />
                 </div>
-              </div>
+              )}
             </div>
-          </motion.div>
-        ) : (
-          <motion.div
-            key="pinpad"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -16 }}
-            transition={{ duration: 0.35 }}
-            className="w-full max-w-sm bg-white rounded-3xl p-6 shadow-xl border border-slate-200/60 flex flex-col items-center"
-          >
-            <div className="w-14 h-14 rounded-2xl bg-indigo-50 text-primary flex items-center justify-center font-bold text-lg border border-indigo-100 shadow-sm">
-              EC
-            </div>
-            <h3 className="text-lg font-extrabold text-slate-800 mt-3">Dr. Emily Carter</h3>
-            <span className="text-[11px] text-slate-400 font-medium">Cosmetic Dentistry</span>
-            <div className="flex gap-3 my-5">
+          </div>
+
+          {/* PIN Input & Dots */}
+          <div className="flex flex-col items-center pt-1">
+            <label className="text-[11px] font-bold text-slate-600 mb-2">
+              4-Digit Security PIN
+            </label>
+            <div className="flex gap-3 mb-4">
               {[0, 1, 2, 3].map((i) => (
                 <div
                   key={i}
                   className={`w-3.5 h-3.5 rounded-full border-2 transition-all duration-200 ${
                     typedDots > i
-                      ? 'bg-primary border-primary shadow-[0_0_8px_rgba(15,82,186,0.4)]'
+                      ? 'bg-primary border-primary shadow-[0_0_8px_rgba(15,82,186,0.4)] scale-110'
                       : 'border-slate-300'
                   }`}
                 />
               ))}
             </div>
-            <div className="grid grid-cols-3 gap-x-5 gap-y-3 w-full max-w-[220px]">
+
+            {/* Micro Keypad */}
+            <div className="grid grid-cols-3 gap-x-4 gap-y-2 w-full max-w-[200px]">
               {['1', '2', '3', '4', '5', '6', '7', '8', '9', '⌫', '0'].map((k, i) => (
                 <div
                   key={i}
-                  className={`w-11 h-11 mx-auto rounded-full flex items-center justify-center text-sm font-bold border transition-all ${
-                    typedDots >= Math.min(4, i + 1)
-                      ? 'bg-primary text-white border-primary'
+                  className={`w-9 h-9 mx-auto rounded-xl flex items-center justify-center text-xs font-bold border transition-all ${
+                    typedDots >= Math.min(4, i + 1) && typedDots > 0
+                      ? 'bg-primary text-white border-primary shadow-sm'
                       : 'bg-[#faf9f7] text-slate-700 border-slate-200'
                   }`}
                 >
                   {k}
                 </div>
               ))}
-              <div className="w-11 h-11 mx-auto flex items-center justify-center text-slate-300">
-                <Lock className="w-4 h-4" />
+              <div className="w-9 h-9 mx-auto flex items-center justify-center text-slate-300">
+                <Lock className="w-3.5 h-3.5" />
               </div>
             </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+          </div>
+
+          {/* Action button / Status indicator */}
+          <div className="pt-2">
+            <div
+              className={`w-full py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
+                isSubmitting
+                  ? 'bg-emerald-600 text-white shadow-md'
+                  : pinCompleted
+                  ? 'bg-primary text-white shadow-md'
+                  : 'bg-slate-100 text-slate-400 border border-slate-200'
+              }`}
+            >
+              {isSubmitting ? (
+                <>
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>Authenticated · Opening Hub...</span>
+                </>
+              ) : pinCompleted ? (
+                <>
+                  <Lock className="w-3.5 h-3.5" />
+                  <span>Verifying Credentials...</span>
+                </>
+              ) : (
+                <span>Enter Credentials to Sign In</span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Privacy Note */}
+        <div className="mt-4 pt-3 border-t border-slate-100 w-full flex items-center justify-between text-[10px] text-slate-400">
+          <span className="flex items-center gap-1">
+            <ShieldCheck className="w-3 h-3 text-emerald-600" />
+            Confidential Clinician Mode
+          </span>
+          <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full font-medium">
+            MFA Supported
+          </span>
+        </div>
+      </motion.div>
     </div>
   );
 }
