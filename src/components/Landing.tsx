@@ -23,7 +23,8 @@ interface LandingProps {
 const NAV_LINKS = [
   { href: '#how-it-works', label: 'How it works' },
   { href: '#features', label: 'Features' },
-  { href: '#formats', label: 'Formats' }
+  { href: '#formats', label: 'Formats' },
+  { href: '#/demo', label: 'Watch 3-Min Demo' }
 ];
 
 function ToothMark({ className }: { className?: string }) {

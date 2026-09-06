@@ -9,6 +9,7 @@ import PatientIntake from './components/PatientIntake';
 import LiveRecording from './components/LiveRecording';
 import ClinicalSummary from './components/ClinicalSummary';
 import Login from './components/Login';
+import Landing from './components/Landing';
 import DemoMovie from './demo/DemoMovie';
 import {
   saveAuth,
@@ -30,9 +31,18 @@ type ViewType = 'history' | 'intake' | 'record' | 'summary';
 export default function App() {
   // Public narrated product demo at #/demo — no auth, no backend required.
   const [demoOpen, setDemoOpen] = useState<boolean>(() => window.location.hash.startsWith('#/demo'));
+  // Public product landing page at #/landing — no auth required.
+  const [landingOpen, setLandingOpen] = useState<boolean>(() =>
+    window.location.hash.startsWith('#/landing') || window.location.hash.startsWith('#landing')
+  );
 
   useEffect(() => {
-    const onHashChange = () => setDemoOpen(window.location.hash.startsWith('#/demo'));
+    const onHashChange = () => {
+      setDemoOpen(window.location.hash.startsWith('#/demo'));
+      setLandingOpen(
+        window.location.hash.startsWith('#/landing') || window.location.hash.startsWith('#landing')
+      );
+    };
     window.addEventListener('hashchange', onHashChange);
     return () => window.removeEventListener('hashchange', onHashChange);
   }, []);
@@ -689,6 +699,17 @@ export default function App() {
         onExit={() => {
           window.location.hash = '';
           setDemoOpen(false);
+        }}
+      />
+    );
+  }
+
+  if (landingOpen) {
+    return (
+      <Landing
+        onGetStarted={() => {
+          window.location.hash = '';
+          setLandingOpen(false);
         }}
       />
     );

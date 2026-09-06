@@ -56,17 +56,18 @@ vi.mock('@google/genai', () => {
   };
 });
 
+const dbPath = path.join(__dirname, '..', 'data', 'consultations.json');
+const usersDbPath = path.join(__dirname, '..', 'data', 'users.json');
+const clinicsDbPath = path.join(__dirname, '..', 'data', 'clinics.json');
+const auditDbPath = path.join(__dirname, '..', 'data', 'audit.json');
+const jobsDbPath = path.join(__dirname, '..', 'data', 'note_jobs.json');
+const usageDbPath = path.join(__dirname, '..', 'data', 'usage_events.json');
+let clinicsDbBackup: string | null = null;
+
 describe('DentAI Server - Mocked Unit Tests', () => {
   let authToken = '';
-  const dbPath = path.join(__dirname, '..', 'data', 'consultations.json');
-  const usersDbPath = path.join(__dirname, '..', 'data', 'users.json');
-  const clinicsDbPath = path.join(__dirname, '..', 'data', 'clinics.json');
-  const auditDbPath = path.join(__dirname, '..', 'data', 'audit.json');
-  const jobsDbPath = path.join(__dirname, '..', 'data', 'note_jobs.json');
-  const usageDbPath = path.join(__dirname, '..', 'data', 'usage_events.json');
   let dbBackup: string | null = null;
   let usersDbBackup: string | null = null;
-  let clinicsDbBackup: string | null = null;
   let auditDbBackup: string | null = null;
   let jobsDbBackup: string | null = null;
   let usageDbBackup: string | null = null;
@@ -653,6 +654,8 @@ describe('DentAI Server - Mocked Unit Tests', () => {
     }
     if (clinicsDbBackup !== null) {
       fs.writeFileSync(clinicsDbPath, clinicsDbBackup);
+    } else if (fs.existsSync(clinicsDbPath)) {
+      fs.unlinkSync(clinicsDbPath);
     }
     if (auditDbBackup !== null) {
       fs.writeFileSync(auditDbPath, auditDbBackup);
@@ -677,7 +680,12 @@ describe.runIf(hasRealKey)('DentAI Server - Live LLM Integration & Accent Resili
   let realGoogleGenAIClass: any;
   let authToken = '';
 
+  let liveAuditBackup: string | null = null;
+
   beforeAll(async () => {
+    if (fs.existsSync(auditDbPath)) {
+      liveAuditBackup = fs.readFileSync(auditDbPath, 'utf-8');
+    }
     const profilesRes = await request(app).get('/api/auth/profiles');
     expect(profilesRes.status).toBe(200);
     const sarah = profilesRes.body.find((p: any) => p.name === 'Dr. Sarah Jenkins');
@@ -688,6 +696,17 @@ describe.runIf(hasRealKey)('DentAI Server - Live LLM Integration & Accent Resili
       .send({ dentistId: sarah.id, pin: '1234' });
     expect(loginRes.status).toBe(200);
     authToken = loginRes.body.token;
+  });
+
+  afterAll(() => {
+    if (liveAuditBackup !== null) {
+      fs.writeFileSync(auditDbPath, liveAuditBackup);
+    }
+    if (clinicsDbBackup !== null) {
+      fs.writeFileSync(clinicsDbPath, clinicsDbBackup);
+    } else if (fs.existsSync(clinicsDbPath)) {
+      fs.unlinkSync(clinicsDbPath);
+    }
   });
 
   beforeEach(async () => {

@@ -633,17 +633,28 @@ export default function Login({ onLoginSuccess }: LoginProps) {
         )}
       </AnimatePresence>
 
-      {/* Narrated product demo — opens the public #/demo theater (no auth needed) */}
-      <button
-        onClick={() => {
-          window.location.hash = '#/demo';
-        }}
-        className="relative mt-6 mx-auto flex items-center gap-2 px-4 py-2 rounded-full bg-white/70 hover:bg-white border border-slate-200 text-primary text-xs font-bold shadow-sm hover:shadow-md transition-all cursor-pointer"
-      >
-        <CirclePlay className="w-4 h-4" />
-        <span>Watch the narrated product demo</span>
-        <span className="text-[9px] text-slate-400 font-semibold uppercase tracking-wider">3 min</span>
-      </button>
+      {/* Public links: Product overview and narrated demo (no auth needed) */}
+      <div className="relative mt-6 mx-auto flex flex-wrap items-center justify-center gap-2.5">
+        <button
+          onClick={() => {
+            window.location.hash = '#/landing';
+          }}
+          className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/70 hover:bg-white border border-slate-200 text-slate-700 text-xs font-bold shadow-sm hover:shadow-md transition-all cursor-pointer"
+        >
+          <Sparkles className="w-3.5 h-3.5 text-primary" />
+          <span>Product overview & features</span>
+        </button>
+        <button
+          onClick={() => {
+            window.location.hash = '#/demo';
+          }}
+          className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/70 hover:bg-white border border-slate-200 text-primary text-xs font-bold shadow-sm hover:shadow-md transition-all cursor-pointer"
+        >
+          <CirclePlay className="w-4 h-4" />
+          <span>Watch narrated demo</span>
+          <span className="text-[9px] text-slate-400 font-semibold uppercase tracking-wider">3 min</span>
+        </button>
+      </div>
 
       {/* PIN-Protected Profile Deletion Modal */}
       <AnimatePresence>
