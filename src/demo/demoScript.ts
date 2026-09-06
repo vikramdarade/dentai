@@ -27,6 +27,7 @@ export type SceneKind =
   | 'share-template' // peer template sharing and growth loop
   | 'fallback' // offline draft / review flag
   | 'owner-history' // owner-wide History Hub view
+  | 'pipeline' // treatment pipeline and practice coordinator ROI
   | 'switcher' // clinic switcher + join code
   | 'clinic-manage' // invite code, members, approvals
   | 'usage' // clinic AI usage meter
@@ -204,6 +205,17 @@ export const DEMO_SCENES: DemoScene[] = [
     narration:
       'As an owner, the History Hub shows every note recorded by every dentist in your clinic, each one attributed to the clinician who saw the patient. No chasing notes, no scattered spreadsheets.',
     duration: 16000,
+  },
+  {
+    id: 'treatment-pipeline',
+    act: 'owner',
+    kind: 'pipeline',
+    title: 'Treatment Pipeline & Closed-Loop ROI',
+    narration:
+      'And here is DentAI\u2019s most powerful advantage for clinic owners: the Treatment Pipeline. While the dentist speaks, DentAI automatically extracts unscheduled treatment proposals — like Priya\u2019s tooth 16 ceramic crown valued at $1,650. Front desk teams follow up via SMS or WhatsApp in one click. When patients book, DentAI measures the exact chairside revenue recovered — proving over 100x return on investment on your subscription tier.',
+    tts:
+      "And here is Dent-A-I's most powerful advantage for clinic owners: the Treatment Pipeline. While the dentist speaks, Dent-A-I automatically extracts unscheduled treatment proposals — like Priya's tooth 16 ceramic crown valued at sixteen hundred and fifty dollars. Front desk teams follow up via S M S or WhatsApp in one click. When patients book, Dent-A-I measures the exact chairside revenue recovered — proving over one hundred times return on investment on your subscription tier.",
+    duration: 21000,
   },
   {
     id: 'switcher',

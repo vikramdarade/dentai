@@ -6,13 +6,17 @@ import {
   CalendarClock,
   ClipboardCheck,
   Clock,
+  DollarSign,
   FileText,
   Languages,
   LayoutTemplate,
   Lock,
+  MessageSquare,
   Mic,
+  Phone,
   ShieldCheck,
   Sparkles,
+  TrendingUp,
   WifiOff
 } from 'lucide-react';
 
@@ -22,6 +26,7 @@ interface LandingProps {
 
 const NAV_LINKS = [
   { href: '#how-it-works', label: 'How it works' },
+  { href: '#revenue-engine', label: 'Revenue Engine' },
   { href: '#features', label: 'Features' },
   { href: '#formats', label: 'Formats' },
   { href: '#/demo', label: 'Watch 3-Min Demo' }
@@ -110,7 +115,7 @@ export default function Landing({ onGetStarted }: LandingProps) {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, ease: [0.32, 0.72, 0, 1] }}
           >
-            <SectionEyebrow>Ambient clinical documentation</SectionEyebrow>
+            <SectionEyebrow>Ambient clinical scribe & practice revenue recovery</SectionEyebrow>
 
             <h1 className="mt-6 text-4xl font-extrabold leading-[1.05] tracking-tight text-slate-900 md:text-6xl">
               Your clinical notes,{' '}
@@ -120,9 +125,9 @@ export default function Landing({ onGetStarted }: LandingProps) {
             </h1>
 
             <p className="mt-6 max-w-xl text-base leading-relaxed text-slate-500 md:text-lg">
-              DentAI turns the dentist–patient conversation into structured, compliance-aligned
-              clinical notes — with ADA billing codes and a plain-language patient care letter —
-              in seconds, not evenings.
+              DentAI turns dentist–patient conversations into structured notes, ADA billing codes,
+              and patient care letters — while automatically tracking unbooked treatments into an
+              automated practice revenue pipeline.
             </p>
 
             <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -134,10 +139,10 @@ export default function Landing({ onGetStarted }: LandingProps) {
                 <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
               </button>
               <a
-                href="#how-it-works"
+                href="#revenue-engine"
                 className="flex h-12 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-7 text-sm font-bold text-slate-700 shadow-sm transition-all hover:border-indigo-200 hover:text-primary"
               >
-                See how it works
+                See Revenue Engine
               </a>
             </div>
 
@@ -146,7 +151,7 @@ export default function Landing({ onGetStarted }: LandingProps) {
                 <BadgeCheck className="h-4 w-4 text-emerald-500" /> No credit card
               </span>
               <span className="flex items-center gap-1.5">
-                <BadgeCheck className="h-4 w-4 text-emerald-500" /> No setup fee
+                <BadgeCheck className="h-4 w-4 text-emerald-500" /> 100x+ practice ROI
               </span>
               <span className="flex items-center gap-1.5">
                 <BadgeCheck className="h-4 w-4 text-emerald-500" /> First note in minutes
@@ -178,6 +183,15 @@ export default function Landing({ onGetStarted }: LandingProps) {
               <div className="flex flex-col">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">ADA codes</span>
                 <span className="text-xs font-bold text-slate-800">011 · 111 · 511</span>
+              </div>
+            </div>
+            <div className="glass-panel absolute -right-6 -bottom-4 z-20 hidden items-center gap-2 rounded-2xl border-emerald-200 bg-white/95 px-4 py-2.5 shadow-xl sm:flex">
+              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500 text-white">
+                <TrendingUp className="h-4 w-4" />
+              </span>
+              <div className="flex flex-col">
+                <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-600">Revenue Engine</span>
+                <span className="text-xs font-extrabold text-slate-900">ADA 611 Crown · $1,650</span>
               </div>
             </div>
 
@@ -313,6 +327,162 @@ export default function Landing({ onGetStarted }: LandingProps) {
                 <p className="mt-2 text-sm leading-relaxed text-slate-500">{item.body}</p>
               </motion.div>
             ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ---------- Revenue Recovery Engine ---------- */}
+      <section id="revenue-engine" className="relative overflow-hidden bg-[#0A1628] py-20 text-white md:py-28">
+        {/* Glow backdrop */}
+        <div className="pointer-events-none absolute -left-20 top-1/4 h-96 w-96 rounded-full bg-primary/20 blur-[130px]" />
+        <div className="pointer-events-none absolute -right-20 bottom-1/4 h-96 w-96 rounded-full bg-emerald-500/15 blur-[130px]" />
+        <div
+          className="pointer-events-none absolute inset-0 opacity-[0.25] bg-[linear-gradient(to_right,rgba(255,255,255,0.05)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.05)_1px,transparent_1px)] bg-[size:48px_48px]"
+        />
+
+        <div className="relative mx-auto max-w-7xl px-5 md:px-8">
+          <div className="mx-auto flex max-w-3xl flex-col items-center text-center">
+            <div className="inline-flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-4 py-1.5 backdrop-blur-md">
+              <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="text-[11px] font-extrabold uppercase tracking-[0.18em] text-emerald-300">
+                The Practice Revenue Moat
+              </span>
+            </div>
+            <h2 className="mt-6 text-3xl font-extrabold tracking-tight text-white md:text-5xl">
+              Turn unbooked chairside treatment into{' '}
+              <span className="bg-gradient-to-r from-emerald-400 to-teal-200 bg-clip-text text-transparent">
+                recovered practice revenue.
+              </span>
+            </h2>
+            <p className="mt-4 text-base leading-relaxed text-slate-300 md:text-lg">
+              Over $30,000+ in proposed crowns, fillings, and endodontics is discussed in dental chairs
+              every month, only to be lost when patients leave the operatory. DentAI automatically extracts
+              unbooked treatment plans, values them with ADA fee schedules, and equips your front desk to recover them.
+            </p>
+          </div>
+
+          {/* Executive Scorecards */}
+          <div className="mt-14 grid grid-cols-2 gap-4 lg:grid-cols-4">
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur-md">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Unscheduled Pipeline</span>
+              <p className="mt-2 text-3xl font-black text-white">$34,800</p>
+              <span className="mt-1 inline-block text-xs font-semibold text-emerald-400">24 active treatment plans</span>
+            </div>
+            <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-6 backdrop-blur-md">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-300">Recovered Booked</span>
+              <p className="mt-2 text-3xl font-black text-emerald-400">$16,800</p>
+              <span className="mt-1 inline-block text-xs font-semibold text-emerald-300">12 patients booked</span>
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur-md">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Software ROI</span>
+              <p className="mt-2 text-3xl font-black text-white">112.8x</p>
+              <span className="mt-1 inline-block text-xs font-semibold text-indigo-300">On $149/mo practice plan</span>
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur-md">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Recapture Rate</span>
+              <p className="mt-2 text-3xl font-black text-white">50.0%</p>
+              <span className="mt-1 inline-block text-xs font-semibold text-slate-300">Average response &lt; 48 hrs</span>
+            </div>
+          </div>
+
+          {/* 2-Column Feature Breakdown & Live Card Comp */}
+          <div className="mt-12 grid grid-cols-1 items-center gap-10 lg:grid-cols-12">
+            {/* Interactive Opportunity Mock */}
+            <div className="lg:col-span-7">
+              <div className="rounded-3xl border border-white/15 bg-white/10 p-6 backdrop-blur-xl shadow-2xl">
+                <div className="flex items-center justify-between border-b border-white/10 pb-4">
+                  <div className="flex items-center gap-3">
+                    <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/20 text-emerald-400 font-extrabold text-sm">
+                      PS
+                    </span>
+                    <div>
+                      <h4 className="text-base font-extrabold text-white">Priya Sharma</h4>
+                      <p className="text-xs text-slate-400">Comprehensive Exam · Operatory 2</p>
+                    </div>
+                  </div>
+                  <span className="rounded-full bg-rose-500/20 px-3 py-1 text-[11px] font-extrabold uppercase tracking-wider text-rose-300 border border-rose-500/30">
+                    High Urgency
+                  </span>
+                </div>
+
+                <div className="mt-5 space-y-3">
+                  <div className="flex items-center justify-between rounded-xl bg-white/5 p-3.5 border border-white/5">
+                    <div>
+                      <span className="text-xs font-bold text-slate-300">Tooth 16 · Ceramic / Porcelain Crown</span>
+                      <p className="text-[11px] text-slate-400">Distal-incisal fracture detected under heavy occlusal load</p>
+                    </div>
+                    <div className="text-right">
+                      <span className="rounded bg-indigo-500/20 px-2 py-0.5 font-mono text-xs font-bold text-indigo-300">ADA 611</span>
+                      <p className="mt-1 text-sm font-black text-emerald-400">$1,650</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Outreach drawer preview */}
+                <div className="mt-5 rounded-2xl border border-emerald-500/30 bg-emerald-950/40 p-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-emerald-300 flex items-center gap-1.5">
+                      <MessageSquare className="h-3.5 w-3.5 text-emerald-400" />
+                      1-Click Patient Outreach
+                    </span>
+                    <span className="text-[10px] uppercase tracking-wider text-slate-400">Pre-drafted script</span>
+                  </div>
+                  <p className="mt-2 text-xs leading-relaxed text-slate-300 italic">
+                    “Hi Priya, Dr. Sarah noted tooth 16 has a fracture that needs a ceramic crown to prevent splitting. We have an opening this Thursday at 2:15 PM…”
+                  </p>
+                  <div className="mt-4 flex flex-wrap items-center gap-2">
+                    <span className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-extrabold text-slate-950 shadow-sm">
+                      <Phone className="h-3.5 w-3.5" /> WhatsApp Reminder
+                    </span>
+                    <span className="inline-flex items-center gap-1.5 rounded-lg border border-white/20 bg-white/5 px-3 py-1.5 text-xs font-bold text-white">
+                      SMS Outreach
+                    </span>
+                    <span className="ml-auto inline-flex items-center gap-1 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-bold text-white">
+                      Mark as Booked ($1,650)
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Feature Bullets */}
+            <div className="space-y-6 lg:col-span-5">
+              <div className="flex items-start gap-4">
+                <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-emerald-500/20 text-emerald-400">
+                  <Mic className="h-5 w-5" />
+                </span>
+                <div>
+                  <h4 className="text-base font-extrabold text-white">Zero Manual Data Entry</h4>
+                  <p className="mt-1 text-sm text-slate-400 leading-relaxed">
+                    AI listens to the clinical conversation in real-time, detecting proposed restorative, endodontic, and crown procedures without the dentist touching a keyboard.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-4">
+                <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-emerald-500/20 text-emerald-400">
+                  <DollarSign className="h-5 w-5" />
+                </span>
+                <div>
+                  <h4 className="text-base font-extrabold text-white">Official ADA Fee Guide Pricing</h4>
+                  <p className="mt-1 text-sm text-slate-400 leading-relaxed">
+                    Every detected procedure is mapped to Australian Dental Association 3-digit item codes (531, 611, 417, 688) with standard clinical valuations.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-4">
+                <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-emerald-500/20 text-emerald-400">
+                  <TrendingUp className="h-5 w-5" />
+                </span>
+                <div>
+                  <h4 className="text-base font-extrabold text-white">Auditable Closed-Loop ROI</h4>
+                  <p className="mt-1 text-sm text-slate-400 leading-relaxed">
+                    Track exactly when unbooked care converts into confirmed appointments. Practice owners can verify software ROI in hard numbers every month.
+                  </p>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </section>

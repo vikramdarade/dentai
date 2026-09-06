@@ -47,6 +47,7 @@ import {
   Award,
   Zap,
   Users,
+  Phone,
 } from 'lucide-react';
 import type { DemoScene } from './demoScript';
 
@@ -1840,6 +1841,197 @@ function PricingScene({ progress }: SceneProps) {
   );
 }
 
+function PipelineScene({ progress }: SceneProps) {
+  const showModal = progress > 0.5;
+  const card1Val = Math.min(34800, Math.floor(progress * 4 * 34800));
+  const card2Val = progress > 0.25 ? 16800 : 0;
+  const roiVal = progress > 0.25 ? '112.8x' : '0x';
+
+  return (
+    <div className="h-full w-full bg-[#F8F7F5] flex flex-col relative overflow-hidden">
+      <AppBar
+        right={
+          <div className="flex flex-col items-end">
+            <span className="text-[11px] font-bold text-slate-800">Dr. Sarah Chen</span>
+            <span className="text-[8px] text-emerald-600 font-extrabold uppercase tracking-wider">Owner Active</span>
+          </div>
+        }
+      />
+      <div className="flex-1 overflow-y-auto px-5 pt-3 pb-8">
+        <div className="max-w-2xl mx-auto space-y-4">
+          {/* Header & Tabs */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-black text-slate-800">History Hub</span>
+              <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[9px] font-bold border border-emerald-200">
+                Bright Smile Dental
+              </span>
+            </div>
+            {/* Tab switchers mimicking real app */}
+            <div className="flex items-center gap-1 p-1 bg-slate-200/70 rounded-xl">
+              <span className="px-3 py-1 rounded-lg text-[10px] font-bold text-slate-500">
+                Clinical Records
+              </span>
+              <span className="px-3 py-1 rounded-lg text-[10px] font-bold bg-white text-primary shadow-sm flex items-center gap-1">
+                <Sparkles className="w-3 h-3 text-amber-500" />
+                <span>Treatment Pipeline & ROI</span>
+              </span>
+            </div>
+          </div>
+
+          {/* 4 Executive Metric Cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.1 }}
+              className="bg-white rounded-2xl p-3 border border-slate-200/80 shadow-sm"
+            >
+              <div className="flex items-center justify-between text-slate-400">
+                <span className="text-[10px] font-bold">Unscheduled</span>
+                <Clock className="w-3.5 h-3.5 text-amber-500" />
+              </div>
+              <div className="text-lg font-black text-slate-800 mt-1">
+                ${card1Val.toLocaleString()}
+              </div>
+              <span className="text-[8px] text-slate-400 font-medium">14 pending items</span>
+            </motion.div>
+
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.2 }}
+              className="bg-white rounded-2xl p-3 border border-slate-200/80 shadow-sm"
+            >
+              <div className="flex items-center justify-between text-slate-400">
+                <span className="text-[10px] font-bold">Booked Prod.</span>
+                <TrendingUp className="w-3.5 h-3.5 text-emerald-500" />
+              </div>
+              <div className="text-lg font-black text-emerald-600 mt-1">
+                ${card2Val.toLocaleString()}
+              </div>
+              <span className="text-[8px] text-slate-400 font-medium">8 converted appts</span>
+            </motion.div>
+
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.3 }}
+              className="bg-gradient-to-br from-indigo-950 to-slate-900 text-white rounded-2xl p-3 shadow-md relative overflow-hidden"
+            >
+              <div className="flex items-center justify-between text-indigo-300">
+                <span className="text-[10px] font-bold">Practice ROI</span>
+                <DollarSign className="w-3.5 h-3.5" />
+              </div>
+              <div className="text-lg font-black text-white mt-1">
+                {roiVal}
+              </div>
+              <span className="text-[8px] text-indigo-200/80 font-medium">vs. $149/mo sub</span>
+            </motion.div>
+
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.4 }}
+              className="bg-white rounded-2xl p-3 border border-slate-200/80 shadow-sm"
+            >
+              <div className="flex items-center justify-between text-slate-400">
+                <span className="text-[10px] font-bold">Total Lifetime</span>
+                <ShieldCheck className="w-3.5 h-3.5 text-primary" />
+              </div>
+              <div className="text-lg font-black text-slate-800 mt-1">
+                $51,600
+              </div>
+              <span className="text-[8px] text-slate-400 font-medium">Captured from notes</span>
+            </motion.div>
+          </div>
+
+          {/* Featured Treatment Card: Priya Sharma */}
+          <motion.div
+            initial={{ opacity: 0, scale: 0.98 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ delay: 0.35 }}
+            className="bg-white rounded-2xl p-4 border border-slate-200/90 shadow-sm space-y-2.5"
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-full bg-primary/10 text-primary font-black text-xs flex items-center justify-center">
+                  PS
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-slate-800">Priya Sharma</span>
+                    <span className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200 text-[9px] font-bold">
+                      FDI Tooth 16
+                    </span>
+                  </div>
+                  <div className="text-[10px] text-slate-400 font-medium">
+                    Dr. Sarah Chen · Comprehensive Exam (Aug 20)
+                  </div>
+                </div>
+              </div>
+              <div className="text-right">
+                <div className="text-sm font-black text-slate-800">$1,650</div>
+                <div className="text-[9px] font-bold text-primary">ADA 611 Ceramic Crown</div>
+              </div>
+            </div>
+
+            <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-150 text-[10px] text-slate-600 leading-snug">
+              <b>Clinical Reason:</b> Micro-crack across mesio-palatal cusp requiring cuspal protection. Patient departed without booking to review private health insurance rebate.
+            </div>
+
+            <div className="flex items-center justify-between pt-1">
+              <div className="flex items-center gap-1 text-[9px] text-amber-600 font-bold">
+                <Clock className="w-3 h-3" />
+                <span>Unscheduled · Follow-up Ready</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="px-2.5 py-1 rounded-xl bg-primary text-white text-[9px] font-bold flex items-center gap-1 shadow-sm">
+                  <Sparkles className="w-3 h-3" />
+                  <span>1-Click Follow-up</span>
+                </span>
+                <span className="px-2.5 py-1 rounded-xl bg-slate-100 text-slate-600 text-[9px] font-bold">
+                  Mark as Booked
+                </span>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      </div>
+
+      {/* Outreach Drawer Preview */}
+      {showModal && (
+        <motion.div
+          initial={{ opacity: 0, y: 40 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="absolute inset-x-4 bottom-4 z-30 max-w-lg mx-auto bg-white rounded-3xl p-4 shadow-2xl border border-slate-300"
+        >
+          <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+            <div className="flex items-center gap-1.5 text-primary text-[10px] font-black uppercase tracking-wider">
+              <Sparkles className="w-3 h-3" /> 1-Click Patient Treatment Outreach
+            </div>
+            <span className="text-[9px] text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded-full">
+              SMS / WhatsApp Ready
+            </span>
+          </div>
+          <div className="mt-2 p-2.5 rounded-xl bg-[#F8F7F5] border border-slate-200 text-[10px] text-slate-700 leading-relaxed font-sans">
+            "Hi Priya, following up on your visit with Dr. Sarah Chen. Dr. Chen noted that tooth 16 requires a protective ceramic crown to prevent further splitting. We have reserved priority appointments next week. Would morning or afternoon suit you best?"
+          </div>
+          <div className="mt-2.5 flex items-center gap-2">
+            <div className="flex-1 py-1.5 rounded-xl bg-primary text-white text-center text-[10px] font-bold shadow-sm">
+              Copy & Mark Contacted
+            </div>
+            <div className="py-1.5 px-3 rounded-xl bg-emerald-600 text-white text-[10px] font-bold shadow-sm flex items-center gap-1">
+              <Phone className="w-3 h-3" />
+              <span>WhatsApp</span>
+            </div>
+          </div>
+        </motion.div>
+      )}
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Dispatch
 // ---------------------------------------------------------------------------
@@ -1854,6 +2046,8 @@ export default function SceneStage({ scene, progress }: SceneProps) {
       case 'history':
       case 'owner-history':
         return <HistoryScene scene={scene} progress={progress} />;
+      case 'pipeline':
+        return <PipelineScene scene={scene} progress={progress} />;
       case 'intake':
         return <IntakeScene scene={scene} progress={progress} />;
       case 'record':
