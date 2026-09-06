@@ -1771,7 +1771,8 @@ function PricingScene({ progress }: SceneProps) {
                 <span className="text-xs font-bold text-indigo-600 uppercase tracking-wider">Practice Owner</span>
                 <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-2.5 py-0.5 rounded-full">Multi-Chair</span>
               </div>
-              <div className="text-2xl font-black text-slate-800">$129 <span className="text-xs font-normal text-slate-400">/ month per clinic</span></div>
+              <div className="text-2xl font-black text-slate-800">$99–$149 <span className="text-xs font-normal text-slate-400">/ month per clinic</span></div>
+              <p className="text-[10px] text-indigo-600 font-semibold mt-0.5">$99/mo annual · $149 month-to-month</p>
               <p className="text-xs text-slate-500 mt-1">Practice-wide audit oversight, template lock, and multi-chair sync.</p>
 
               <div className="mt-4 pt-3 border-t border-slate-100 space-y-2 text-xs text-slate-700">
