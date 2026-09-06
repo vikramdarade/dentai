@@ -40,6 +40,13 @@ import {
   ArrowRight,
   ChevronDown,
   Pencil,
+  TrendingUp,
+  Clock,
+  Share2,
+  DollarSign,
+  Award,
+  Zap,
+  Users,
 } from 'lucide-react';
 import type { DemoScene } from './demoScript';
 
@@ -1422,6 +1429,388 @@ function RecapScene({ progress }: SceneProps) {
 }
 
 // ---------------------------------------------------------------------------
+// Chairside ROI & Economic Impact Scene
+// ---------------------------------------------------------------------------
+
+function RoiScene({ progress }: SceneProps) {
+  const showMetrics = progress > 0.15;
+  const showComparison = progress > 0.45;
+
+  return (
+    <div className="h-full flex flex-col bg-slate-50">
+      <AppBar
+        title="Practice ROI & Economics"
+        subtitle="Chairside Time Recovery · Clinic Capacity"
+        right={<Chip tone="emerald"><TrendingUp className="w-3 h-3 text-emerald-600" /> High ROI</Chip>}
+      />
+
+      <div className="flex-1 p-4 md:p-6 flex flex-col gap-4 max-w-4xl mx-auto w-full overflow-hidden justify-center">
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="text-center space-y-1"
+        >
+          <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-600 bg-indigo-50 px-3 py-1 rounded-full border border-indigo-100">
+            Measurable Clinical ROI
+          </span>
+          <h2 className="text-xl md:text-2xl font-bold text-slate-800">
+            Eliminate 100% of After-Hours Charting
+          </h2>
+          <p className="text-xs text-slate-500 max-w-lg mx-auto">
+            Real chairside time saved per dentist transforms practice capacity and work-life balance.
+          </p>
+        </motion.div>
+
+        {/* 3 Metric Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <motion.div
+            initial={{ opacity: 0, y: 14 }}
+            animate={{ opacity: showMetrics ? 1 : 0, y: showMetrics ? 0 : 14 }}
+            transition={{ delay: 0.1 }}
+            className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm flex flex-col justify-between"
+          >
+            <div className="flex items-center justify-between mb-2">
+              <div className="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                <Clock className="w-5 h-5" />
+              </div>
+              <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-full">Per Visit</span>
+            </div>
+            <div>
+              <div className="text-2xl font-black text-slate-800 tracking-tight">15–20 min</div>
+              <div className="text-xs font-semibold text-slate-600 mt-0.5">Saved per complex procedure</div>
+              <div className="text-[11px] text-slate-400 mt-1">Instant notes for crowns, endo & implants</div>
+            </div>
+          </motion.div>
+
+          <motion.div
+            initial={{ opacity: 0, y: 14 }}
+            animate={{ opacity: showMetrics ? 1 : 0, y: showMetrics ? 0 : 14 }}
+            transition={{ delay: 0.2 }}
+            className="bg-gradient-to-br from-indigo-600 to-indigo-700 text-white rounded-2xl p-4 shadow-md flex flex-col justify-between"
+          >
+            <div className="flex items-center justify-between mb-2">
+              <div className="w-9 h-9 rounded-xl bg-white/10 text-white flex items-center justify-center">
+                <Zap className="w-5 h-5 text-amber-300" />
+              </div>
+              <span className="text-[10px] font-bold text-indigo-100 bg-white/15 px-2 py-0.5 rounded-full">Daily Impact</span>
+            </div>
+            <div>
+              <div className="text-2xl font-black text-white tracking-tight">1.5–2 Hours</div>
+              <div className="text-xs font-medium text-indigo-100 mt-0.5">Recovered every single day</div>
+              <div className="text-[11px] text-indigo-200 mt-1">Leave clinic at 5:00 PM with zero backlog</div>
+            </div>
+          </motion.div>
+
+          <motion.div
+            initial={{ opacity: 0, y: 14 }}
+            animate={{ opacity: showMetrics ? 1 : 0, y: showMetrics ? 0 : 14 }}
+            transition={{ delay: 0.3 }}
+            className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm flex flex-col justify-between"
+          >
+            <div className="flex items-center justify-between mb-2">
+              <div className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                <DollarSign className="w-5 h-5" />
+              </div>
+              <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">Practice Revenue</span>
+            </div>
+            <div>
+              <div className="text-2xl font-black text-slate-800 tracking-tight">+$15k–$30k</div>
+              <div className="text-xs font-semibold text-slate-600 mt-0.5">Monthly chair capacity</div>
+              <div className="text-[11px] text-slate-400 mt-1">Room to treat +1 patient/day per chair</div>
+            </div>
+          </motion.div>
+        </div>
+
+        {/* Side-by-Side Comparison */}
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: showComparison ? 1 : 0, y: showComparison ? 0 : 12 }}
+          className="grid grid-cols-1 md:grid-cols-2 gap-3"
+        >
+          <div className="bg-rose-50/60 border border-rose-100 rounded-xl p-3.5 flex flex-col gap-2">
+            <div className="flex items-center gap-1.5 text-rose-700 text-xs font-bold uppercase tracking-wider">
+              <XCircle className="w-4 h-4" /> Traditional Manual Charting
+            </div>
+            <ul className="text-[11px] text-slate-600 space-y-1">
+              <li className="flex items-start gap-1.5">
+                <span className="text-rose-500 font-bold">•</span>
+                <span>Dentist types while patient waits or stays 1 hr late</span>
+              </li>
+              <li className="flex items-start gap-1.5">
+                <span className="text-rose-500 font-bold">•</span>
+                <span>Missed ADA billing codes cost practices thousands</span>
+              </li>
+              <li className="flex items-start gap-1.5">
+                <span className="text-rose-500 font-bold">•</span>
+                <span>Inconsistent formatting between associates and locums</span>
+              </li>
+            </ul>
+          </div>
+
+          <div className="bg-emerald-50/60 border border-emerald-100 rounded-xl p-3.5 flex flex-col gap-2">
+            <div className="flex items-center gap-1.5 text-emerald-700 text-xs font-bold uppercase tracking-wider">
+              <CheckCircle2 className="w-4 h-4" /> With DentAI Ambient Scribing
+            </div>
+            <ul className="text-[11px] text-slate-700 space-y-1">
+              <li className="flex items-start gap-1.5">
+                <span className="text-emerald-600 font-bold">✓</span>
+                <span>Natural dentist-patient talk converts to complete notes instantly</span>
+              </li>
+              <li className="flex items-start gap-1.5">
+                <span className="text-emerald-600 font-bold">✓</span>
+                <span>100% compliant ADA item codes auto-extracted</span>
+              </li>
+              <li className="flex items-start gap-1.5">
+                <span className="text-emerald-600 font-bold">✓</span>
+                <span>1-click smart copy directly into Dental4Windows, Best Practice & EXACT</span>
+              </li>
+            </ul>
+          </div>
+        </motion.div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 1-Click Template & Colleague Sharing Scene (Growth Loop)
+// ---------------------------------------------------------------------------
+
+function ShareTemplateScene({ progress }: SceneProps) {
+  const isCopied = progress > 0.4;
+  const showPeer = progress > 0.65;
+
+  return (
+    <div className="h-full flex flex-col bg-slate-50">
+      <AppBar
+        title="Templates & Peer Network"
+        subtitle="1-Click Share · Organic Growth Loop"
+        right={<Chip tone="indigo"><Share2 className="w-3 h-3 text-indigo-600" /> Shareable</Chip>}
+      />
+
+      <div className="flex-1 p-4 md:p-6 flex flex-col gap-4 max-w-2xl mx-auto w-full overflow-hidden justify-center">
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="text-center space-y-1"
+        >
+          <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-600 bg-indigo-50 px-3 py-1 rounded-full border border-indigo-100">
+            Organic Dentist-to-Dentist Referral
+          </span>
+          <h2 className="text-xl md:text-2xl font-bold text-slate-800">
+            Share Your Note Standards with Colleagues
+          </h2>
+          <p className="text-xs text-slate-500">
+            Pass clinical templates and clinic codes to locums and peer study clubs in one tap.
+          </p>
+        </motion.div>
+
+        {/* Share Template Card */}
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3"
+        >
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold text-xs">
+                CP
+              </div>
+              <div>
+                <h4 className="text-xs font-bold text-slate-800">Crown Prep & Margin Record</h4>
+                <p className="text-[10px] text-slate-400">Dr. Sharma's High-Precision Template · 6 clinical sections</p>
+              </div>
+            </div>
+            <Chip tone="indigo">Custom Standard</Chip>
+          </div>
+
+          <div className="flex items-center justify-between gap-3 bg-slate-50 p-2.5 rounded-xl border border-slate-200/80">
+            <div className="font-mono text-xs text-slate-600 truncate">
+              dentai.app/t/crown-preparations-v2
+            </div>
+            <motion.button
+              whileTap={{ scale: 0.95 }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors shrink-0 ${
+                isCopied
+                  ? 'bg-emerald-600 text-white shadow-sm'
+                  : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm'
+              }`}
+            >
+              {isCopied ? (
+                <>
+                  <Check className="w-3.5 h-3.5" /> Copied Link!
+                </>
+              ) : (
+                <>
+                  <Copy className="w-3.5 h-3.5" /> Copy Share Link
+                </>
+              )}
+            </motion.button>
+          </div>
+        </motion.div>
+
+        {/* Peer Accepted Notification Card */}
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: showPeer ? 1 : 0, scale: showPeer ? 1 : 0.95 }}
+          className="bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200/70 rounded-xl p-3.5 flex items-center gap-3 shadow-sm"
+        >
+          <div className="w-9 h-9 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+            <Users className="w-5 h-5" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-emerald-900">Dr. David Nguyen (Associate / Locum)</span>
+              <span className="text-[9px] font-bold bg-emerald-200/80 text-emerald-800 px-2 py-0.5 rounded-full">Imported</span>
+            </div>
+            <p className="text-[11px] text-emerald-700 mt-0.5">
+              Accepted template and joined clinic with code <span className="font-mono font-bold">SMILE42</span>. Chairside ready.
+            </p>
+          </div>
+        </motion.div>
+
+        {/* Built-in Virality Callout */}
+        <div className="text-center">
+          <span className="text-[11px] text-slate-500 bg-white border border-slate-200 px-3 py-1 rounded-full shadow-2xs">
+            ✨ Colleagues start free &rarr; Practices upgrade together for multi-chair management
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Pricing & Plan Monetization Scene
+// ---------------------------------------------------------------------------
+
+function PricingScene({ progress }: SceneProps) {
+  const pulsePaid = progress > 0.35;
+
+  return (
+    <div className="h-full flex flex-col bg-slate-50">
+      <AppBar
+        title="Practice Plans & Monetization"
+        subtitle="Solo Free · Practice Owner Subscription"
+        right={<Chip tone="indigo"><Award className="w-3 h-3 text-indigo-600" /> Transparent</Chip>}
+      />
+
+      <div className="flex-1 p-4 md:p-6 flex flex-col gap-4 max-w-3xl mx-auto w-full overflow-hidden justify-center">
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="text-center space-y-1"
+        >
+          <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-600 bg-indigo-50 px-3 py-1 rounded-full border border-indigo-100">
+            Simple, Honest Pricing
+          </span>
+          <h2 className="text-xl md:text-2xl font-bold text-slate-800">
+            Free for Clinicians · High-Leverage for Practice Owners
+          </h2>
+          <p className="text-xs text-slate-500">
+            Individual dentists adopt freely; owners unlock centralized governance, multi-chair compliance and audit trails.
+          </p>
+        </motion.div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Solo Tier */}
+          <motion.div
+            initial={{ opacity: 0, x: -12 }}
+            animate={{ opacity: 1, x: 0 }}
+            className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm flex flex-col justify-between"
+          >
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Solo Dentist</span>
+                <span className="text-[10px] font-bold text-slate-600 bg-slate-100 px-2.5 py-0.5 rounded-full">For Clinicians</span>
+              </div>
+              <div className="text-2xl font-black text-slate-800">$0 <span className="text-xs font-normal text-slate-400">/ forever</span></div>
+              <p className="text-xs text-slate-500 mt-1">Full ambient scribing for solo dentists, associates, and locums.</p>
+
+              <div className="mt-4 pt-3 border-t border-slate-100 space-y-2 text-xs text-slate-600">
+                <div className="flex items-center gap-2">
+                  <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                  <span>Ambient audio recording & live transcription</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                  <span>All 8 ADA procedure templates included</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                  <span>Resilient offline draft engine (zero dead-ends)</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                  <span>Personal consultation history hub</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-5">
+              <button className="w-full py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-colors">
+                Start Free Today
+              </button>
+            </div>
+          </motion.div>
+
+          {/* Practice Tier */}
+          <motion.div
+            initial={{ opacity: 0, x: 12 }}
+            animate={{ opacity: 1, x: 0 }}
+            className={`bg-white rounded-2xl p-5 border-2 shadow-md flex flex-col justify-between relative transition-all ${
+              pulsePaid ? 'border-indigo-600 ring-2 ring-indigo-600/20' : 'border-indigo-400'
+            }`}
+          >
+            <div className="absolute -top-3 right-4 bg-indigo-600 text-white text-[10px] font-bold px-3 py-0.5 rounded-full shadow-sm uppercase tracking-wider">
+              Practice Standard
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold text-indigo-600 uppercase tracking-wider">Practice Owner</span>
+                <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-2.5 py-0.5 rounded-full">Multi-Chair</span>
+              </div>
+              <div className="text-2xl font-black text-slate-800">$129 <span className="text-xs font-normal text-slate-400">/ month per clinic</span></div>
+              <p className="text-xs text-slate-500 mt-1">Practice-wide audit oversight, template lock, and multi-chair sync.</p>
+
+              <div className="mt-4 pt-3 border-t border-slate-100 space-y-2 text-xs text-slate-700">
+                <div className="flex items-center gap-2 font-medium">
+                  <Check className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                  <span>All Solo Clinician capabilities</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Check className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                  <span>Practice-wide notes view across all dentists</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Check className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                  <span>Clinic-wide standardized template management</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Check className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                  <span>Multi-clinic switcher & sayable invite codes</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Check className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                  <span>Immutable audit logging (APRA / Privacy Act)</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-5">
+              <button className="w-full py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-sm transition-colors">
+                Upgrade Practice
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Dispatch
 // ---------------------------------------------------------------------------
 
@@ -1443,6 +1832,10 @@ export default function SceneStage({ scene, progress }: SceneProps) {
         return <ProcessingScene scene={scene} progress={progress} />;
       case 'summary':
         return <SummaryScene scene={scene} progress={progress} />;
+      case 'roi':
+        return <RoiScene scene={scene} progress={progress} />;
+      case 'share-template':
+        return <ShareTemplateScene scene={scene} progress={progress} />;
       case 'fallback':
         return <FallbackScene scene={scene} progress={progress} />;
       case 'switcher':
@@ -1451,6 +1844,8 @@ export default function SceneStage({ scene, progress }: SceneProps) {
         return <ClinicManageScene scene={scene} progress={progress} />;
       case 'usage':
         return <UsageScene scene={scene} progress={progress} />;
+      case 'pricing':
+        return <PricingScene scene={scene} progress={progress} />;
       case 'recap':
         return <RecapScene scene={scene} progress={progress} />;
       default:

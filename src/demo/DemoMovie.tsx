@@ -30,6 +30,7 @@ import SceneStage from './Scenes';
 import {
   DEMO_SCENES,
   DEMO_TOTAL_MS,
+  SCENE_ENDS,
   sceneIndexAt,
   sceneProgressAt,
   formatClock,
@@ -48,15 +49,35 @@ const ACT_ICONS: Record<DemoAct, React.ReactNode> = {
   owner: <Building2 className="w-3.5 h-3.5" />,
 };
 
+export function scoreVoice(v: SpeechSynthesisVoice): number {
+  if (!v.lang.toLowerCase().startsWith('en')) return -1000;
+  let score = 0;
+  const name = v.name.toLowerCase();
+
+  // Prefer modern natural / neural / online voices (drastically better human inflection)
+  if (name.includes('natural') || name.includes('neural') || name.includes('online')) score += 120;
+  if (name.includes('google') || name.includes('siri') || name.includes('apple')) score += 50;
+
+  // Strongly prefer female voices as requested by user
+  const femalePattern =
+    /(female|woman|jenny|natasha|hayley|catherine|karen|aria|sonia|samantha|victoria|zira|hazel|susan|clara|libby|olivia|ava|emma|moira|fiona|serena|allison|stephanie|sarah|michelle)/i;
+  const malePattern = /(male|man|david|mark|george|james|richard|guy|stefan|daniel|oliver)/i;
+
+  if (femalePattern.test(name)) score += 80;
+  if (malePattern.test(name)) score -= 80;
+
+  // Regional accents (AU > GB > US for AU dental market)
+  if (/en[-_]au/i.test(v.lang)) score += 30;
+  else if (/en[-_]gb/i.test(v.lang)) score += 20;
+  else if (/en[-_]us/i.test(v.lang)) score += 10;
+
+  return score;
+}
+
 function pickVoice(voices: SpeechSynthesisVoice[]): SpeechSynthesisVoice | null {
   const en = voices.filter((v) => v.lang.toLowerCase().startsWith('en'));
   if (en.length === 0) return null;
-  return (
-    en.find((v) => /en[-_]au/i.test(v.lang)) ||
-    en.find((v) => /en[-_]gb/i.test(v.lang)) ||
-    en.find((v) => /en[-_]us/i.test(v.lang)) ||
-    en[0]
-  );
+  return [...en].sort((a, b) => scoreVoice(b) - scoreVoice(a))[0] || en[0];
 }
 
 interface DemoMovieProps {
@@ -70,6 +91,8 @@ export default function DemoMovie({ onExit }: DemoMovieProps) {
   const [speed, setSpeed] = useState(1);
   const [present, setPresent] = useState(false);
   const [ended, setEnded] = useState(false);
+  const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [selectedVoiceURI, setSelectedVoiceURI] = useState<string>('');
 
   const elapsedRef = useRef(0);
   const playingRef = useRef(false);
@@ -79,17 +102,43 @@ export default function DemoMovie({ onExit }: DemoMovieProps) {
   const stageRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
-  // Cache a good English voice (voices load asynchronously).
+  // Cache and rank high-quality natural female voices (voices load asynchronously in Chromium).
   useEffect(() => {
     const synth = window.speechSynthesis;
     if (!synth) return;
+
     const load = () => {
-      voiceRef.current = pickVoice(synth.getVoices());
+      const all = synth.getVoices();
+      if (!all || all.length === 0) return;
+      const en = all
+        .filter((v) => !v.lang || v.lang.toLowerCase().startsWith('en') || v.lang.toLowerCase().includes('en'))
+        .sort((a, b) => scoreVoice(b) - scoreVoice(a));
+
+      const voicePool = en.length > 0 ? en : all;
+      setAvailableVoices(voicePool);
+      const best = voicePool[0] || null;
+      if (!voiceRef.current && best) {
+        voiceRef.current = best;
+        setSelectedVoiceURI(best.voiceURI);
+      }
     };
+
     load();
-    synth.addEventListener('voiceschanged', load);
+    synth.onvoiceschanged = load;
+    synth.addEventListener?.('voiceschanged', load);
+
+    // Active poller for the first 3 seconds to guarantee Chromium async voices are caught
+    const timer = setInterval(() => {
+      if (synth.getVoices().length > 0) {
+        load();
+      }
+    }, 150);
+    const timeout = setTimeout(() => clearInterval(timer), 3000);
+
     return () => {
-      synth.removeEventListener('voiceschanged', load);
+      clearInterval(timer);
+      clearTimeout(timeout);
+      synth.removeEventListener?.('voiceschanged', load);
       synth.cancel();
     };
   }, []);
@@ -101,10 +150,25 @@ export default function DemoMovie({ onExit }: DemoMovieProps) {
     if (!narrationRef.current) return;
     const scene = DEMO_SCENES[sceneIdx];
     if (!scene) return;
+
+    // Safety fallback: if voiceRef hasn't been set yet, look up immediately from synth
+    if (!voiceRef.current) {
+      const all = synth.getVoices();
+      if (all && all.length > 0) {
+        const en = all
+          .filter((v) => !v.lang || v.lang.toLowerCase().startsWith('en') || v.lang.toLowerCase().includes('en'))
+          .sort((a, b) => scoreVoice(b) - scoreVoice(a));
+        const best = (en.length > 0 ? en[0] : all[0]) || null;
+        voiceRef.current = best;
+        if (best) setSelectedVoiceURI(best.voiceURI);
+      }
+    }
+
     const u = new SpeechSynthesisUtterance(scene.tts ?? scene.narration);
     if (voiceRef.current) u.voice = voiceRef.current;
-    u.rate = Math.min(2, speedRef.current * 0.95);
-    u.pitch = 1;
+    // Human-like warmth and conversational speed
+    u.rate = Math.min(1.8, Math.max(0.85, speedRef.current * 0.98));
+    u.pitch = 1.05; // Slightly warmer, conversational tone for female voices
     u.volume = 1;
     synth.speak(u);
   }, []);
@@ -281,7 +345,7 @@ export default function DemoMovie({ onExit }: DemoMovieProps) {
           </div>
 
           <div className="flex items-center gap-2">
-            <div className="hidden md:flex items-center gap-1 bg-white/5 border border-white/10 rounded-full px-1 py-1">
+            <div className="hidden lg:flex items-center gap-1 bg-white/5 border border-white/10 rounded-full px-1 py-1">
               {ACTS.map((a) => (
                 <button
                   key={a.id}
@@ -295,6 +359,25 @@ export default function DemoMovie({ onExit }: DemoMovieProps) {
                 </button>
               ))}
             </div>
+
+            {/* Direct Scene/Chapter Jump Selector */}
+            <select
+              value={sceneIdx}
+              onChange={(e) => {
+                const targetIdx = Number(e.target.value);
+                const targetMs = targetIdx === 0 ? 0 : SCENE_ENDS[targetIdx - 1];
+                seekTo(targetMs);
+              }}
+              className="bg-white/10 hover:bg-white/15 border border-white/20 rounded-lg px-2.5 py-1.5 text-xs font-bold text-slate-100 outline-none cursor-pointer max-w-[170px] sm:max-w-[220px] md:max-w-[260px] truncate"
+              title="Jump directly to any scene or chapter"
+            >
+              {DEMO_SCENES.map((s, idx) => (
+                <option key={s.id} value={idx} className="bg-slate-900 text-white">
+                  Scene {idx + 1}: {s.title} {s.kind === 'roi' || s.kind === 'share-template' || s.kind === 'pricing' ? '⭐ NEW' : ''}
+                </option>
+              ))}
+            </select>
+
             <button
               onClick={toggleNarration}
               title={narration ? 'Narration on' : 'Narration off'}
@@ -303,8 +386,36 @@ export default function DemoMovie({ onExit }: DemoMovieProps) {
               }`}
             >
               {narration ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
-              <span className="hidden sm:inline">{narration ? 'Narration' : 'Muted'}</span>
+              <span className="hidden sm:inline">{narration ? 'Voice On' : 'Muted'}</span>
             </button>
+
+            {/* Voice Selector (always rendered so user sees it) */}
+            {narration && (
+              <select
+                value={selectedVoiceURI}
+                onChange={(e) => {
+                  const uri = e.target.value;
+                  setSelectedVoiceURI(uri);
+                  const v = availableVoices.find((voice) => voice.voiceURI === uri) || null;
+                  voiceRef.current = v;
+                  if (playingRef.current) {
+                    speakScene(sceneIndexAt(elapsedRef.current));
+                  }
+                }}
+                className="bg-white/5 border border-white/15 hover:border-emerald-400/50 rounded-lg px-2 py-1.5 text-xs font-semibold text-emerald-300 outline-none cursor-pointer max-w-[130px] sm:max-w-[160px] md:max-w-[200px] truncate"
+                title="Narration Voice (Female/Natural voices prioritized)"
+              >
+                {availableVoices.length === 0 ? (
+                  <option className="bg-slate-900 text-white">🎙️ Natural Female (System)</option>
+                ) : (
+                  availableVoices.slice(0, 15).map((v) => (
+                    <option key={v.voiceURI} value={v.voiceURI} className="bg-slate-900 text-white">
+                      🎙️ {v.name.replace(/Microsoft |Online \(Natural\) - |Desktop - /g, '').slice(0, 22)}
+                    </option>
+                  ))
+                )}
+              </select>
+            )}
             <select
               value={speed}
               onChange={(e) => {

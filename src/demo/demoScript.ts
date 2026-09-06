@@ -23,11 +23,14 @@ export type SceneKind =
   | 'record' // live recording + capture options
   | 'processing' // AI note generation overlay
   | 'summary' // clinical note review
+  | 'roi' // chairside time and economic ROI
+  | 'share-template' // peer template sharing and growth loop
   | 'fallback' // offline draft / review flag
   | 'owner-history' // owner-wide History Hub view
   | 'switcher' // clinic switcher + join code
   | 'clinic-manage' // invite code, members, approvals
   | 'usage' // clinic AI usage meter
+  | 'pricing' // Solo free vs. Practice tier comparison
   | 'recap'; // closing takeaways
 
 export type DemoAct = 'intro' | 'dentist' | 'owner';
@@ -153,6 +156,25 @@ export const DEMO_SCENES: DemoScene[] = [
     duration: 14000,
   },
   {
+    id: 'roi',
+    act: 'dentist',
+    kind: 'roi',
+    title: 'Chairside ROI & time saved',
+    narration:
+      'DentAI transforms clinic economics. By eliminating manual charting, dentists save 15 to 20 minutes per complex procedure — recovering up to two hours every single day. That means finishing on time with zero night-time charting, or seeing one extra patient each day.',
+    tts: 'Dent-A-I transforms clinic economics. By eliminating manual charting, dentists save fifteen to twenty minutes per complex procedure — recovering up to two hours every single day. That means finishing on time with zero night-time charting, or seeing one extra patient each day.',
+    duration: 13000,
+  },
+  {
+    id: 'share-template',
+    act: 'dentist',
+    kind: 'share-template',
+    title: '1-click templates & peer sharing',
+    narration:
+      'Sharing note standards is frictionless. Dentists can export custom treatment templates or clinic invite codes to locums and colleagues with a single tap. When a peer imports your template, they get instant chairside charting — sparking natural word of mouth across practices.',
+    duration: 13000,
+  },
+  {
     id: 'fallback',
     act: 'dentist',
     kind: 'fallback',
@@ -220,6 +242,16 @@ export const DEMO_SCENES: DemoScene[] = [
     narration:
       'Owners also see AI usage at a glance — a live meter showing how many hosted AI notes the clinic has used today. And if the daily allowance is reached, the dentist still drafts offline with zero loss, so patient care never stops.',
     duration: 12000,
+  },
+  {
+    id: 'pricing',
+    act: 'owner',
+    kind: 'pricing',
+    title: 'Solo free vs. Practice tier',
+    narration:
+      'DentAI is free forever for solo clinicians with full ambient charting. Clinic owners upgrade to the Practice Tier for ninety-nine to one hundred forty-nine dollars a month to unlock centralized multi-chair compliance, team template standards, and full practice audit trails.',
+    tts: 'Dent-A-I is free forever for solo clinicians with full ambient charting. Clinic owners upgrade to the Practice Tier for ninety nine to one hundred forty nine dollars a month to unlock centralized multi chair compliance, team template standards, and full practice audit trails.',
+    duration: 14000,
   },
   {
     id: 'recap',
