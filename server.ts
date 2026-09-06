@@ -1870,8 +1870,16 @@ app.get('/api/pipeline', authenticateToken, async (req: any, res) => {
       }
     }
 
-    // Collect treatment opportunities across consults
+    // Collect treatment opportunities across consults with memoization
     const opportunities: TreatmentOpportunity[] = [];
+    let unscheduledCount = 0;
+    let bookedCount = 0;
+    let declinedCount = 0;
+    let totalIdentifiedValue = 0;
+    let unscheduledValue = 0;
+    let bookedValue = 0;
+    let declinedValue = 0;
+
     for (const c of consults) {
       const patientName = `${c.firstName || ''} ${c.lastName || ''}`.trim() || 'Patient';
       let items: TreatmentOpportunity[] = [];
@@ -1887,6 +1895,9 @@ app.get('/api/pipeline', authenticateToken, async (req: any, res) => {
           clinicId: c.clinicId || clinicId || undefined,
           consultationId: c.id
         });
+        // In-memory memoization to avoid re-running regex on repeated queries
+        if (c.findings) c.findings.proposedTreatments = items;
+        c.proposedTreatments = items;
       }
 
       for (const item of items) {
@@ -1897,26 +1908,44 @@ app.get('/api/pipeline', authenticateToken, async (req: any, res) => {
           dentistId: item.dentistId || c.dentistId || dentistId,
           clinicId: item.clinicId || c.clinicId || clinicId || undefined
         };
+
+        const fee = Number(enriched.estimatedFee) || 0;
+        totalIdentifiedValue += fee;
+        if (enriched.status === 'unscheduled') {
+          unscheduledCount++;
+          unscheduledValue += fee;
+        } else if (enriched.status === 'booked' || enriched.status === 'completed') {
+          bookedCount++;
+          bookedValue += fee;
+        } else if (enriched.status === 'declined') {
+          declinedCount++;
+          declinedValue += fee;
+        }
+
         if (statusFilter === 'all' || enriched.status === statusFilter) {
           opportunities.push(enriched);
         }
       }
     }
 
-    const totalIdentifiedValue = opportunities.reduce((sum, opp) => sum + (opp.estimatedFee || 0), 0);
-    const unscheduledValue = opportunities
-      .filter(o => o.status === 'unscheduled')
-      .reduce((sum, opp) => sum + (opp.estimatedFee || 0), 0);
-    const bookedValue = opportunities
-      .filter(o => o.status === 'booked' || o.status === 'completed')
-      .reduce((sum, opp) => sum + (opp.estimatedFee || 0), 0);
+    // Support optional pagination/windowing for large-scale practices
+    const limitParam = req.query.limit !== undefined ? Math.min(Math.max(Number(req.query.limit) || 100, 1), 1000) : undefined;
+    const offsetParam = req.query.offset !== undefined ? Math.max(Number(req.query.offset) || 0, 0) : 0;
+    const paginatedOpportunities = limitParam !== undefined
+      ? opportunities.slice(offsetParam, offsetParam + limitParam)
+      : opportunities;
 
     res.json({
-      opportunities,
+      opportunities: paginatedOpportunities,
       totalCount: opportunities.length,
+      hasMore: limitParam !== undefined ? offsetParam + limitParam < opportunities.length : false,
       totalIdentifiedValue,
       unscheduledValue,
-      bookedValue
+      bookedValue,
+      declinedValue,
+      unscheduledCount,
+      bookedCount,
+      declinedCount
     });
   } catch (err) {
     logger.error('Failed to get treatment pipeline:', err);
@@ -1937,9 +1966,18 @@ app.patch('/api/pipeline/:id', authenticateToken, async (req: any, res) => {
     let foundOpp: TreatmentOpportunity | null = null;
     let targetConsult: any = null;
 
+    // Fast O(1) targeting: opportunity IDs are formatted as `${consultationId}-tx-...`
+    const fastConsultId = id.includes('-tx-') ? id.split('-tx-')[0] : null;
+
     if (dbEnabled) {
       const userConsults = await dbListConsultations(req.dentist.id);
-      for (const c of userConsults) {
+      // Check candidate consultation directly if ID prefix is available, else fallback to full scan
+      const candidates = fastConsultId
+        ? userConsults.filter((c: any) => c.id === fastConsultId)
+        : userConsults;
+      const searchPool = candidates.length > 0 ? candidates : userConsults;
+
+      for (const c of searchPool) {
         const items = c.findings?.proposedTreatments || extractProposedTreatmentsFromFindings({
           findings: c.findings,
           patientName: `${c.firstName} ${c.lastName}`,
@@ -1952,7 +1990,16 @@ app.patch('/api/pipeline/:id', authenticateToken, async (req: any, res) => {
           match.status = status;
           if (status === 'contacted') match.lastContactedAt = new Date().toISOString();
           if (status === 'booked') match.bookedAt = new Date().toISOString();
-          if (notes) match.patientBarrier = notes;
+          if (status === 'declined') {
+            match.lastContactedAt = new Date().toISOString();
+            if (notes) match.patientBarrier = notes;
+          }
+          if (status === 'unscheduled') {
+            // Re-opened opportunity
+            if (notes !== undefined) match.patientBarrier = notes;
+          }
+          if (notes && status !== 'declined' && status !== 'unscheduled') match.patientBarrier = notes;
+
           foundOpp = match;
           c.findings = { ...c.findings, proposedTreatments: items };
           c.proposedTreatments = items;
@@ -1963,7 +2010,12 @@ app.patch('/api/pipeline/:id', authenticateToken, async (req: any, res) => {
       }
     } else {
       const data = await readConsultationsDb();
-      for (const c of data.consultations) {
+      const candidates = fastConsultId
+        ? data.consultations.filter((c: any) => c.id === fastConsultId)
+        : data.consultations;
+      const searchPool = candidates.length > 0 ? candidates : data.consultations;
+
+      for (const c of searchPool) {
         const items = c.findings?.proposedTreatments || extractProposedTreatmentsFromFindings({
           findings: c.findings,
           patientName: `${c.firstName} ${c.lastName}`,
@@ -1976,7 +2028,16 @@ app.patch('/api/pipeline/:id', authenticateToken, async (req: any, res) => {
           match.status = status;
           if (status === 'contacted') match.lastContactedAt = new Date().toISOString();
           if (status === 'booked') match.bookedAt = new Date().toISOString();
-          if (notes) match.patientBarrier = notes;
+          if (status === 'declined') {
+            match.lastContactedAt = new Date().toISOString();
+            if (notes) match.patientBarrier = notes;
+          }
+          if (status === 'unscheduled') {
+            // Re-opened opportunity
+            if (notes !== undefined) match.patientBarrier = notes;
+          }
+          if (notes && status !== 'declined' && status !== 'unscheduled') match.patientBarrier = notes;
+
           foundOpp = match;
           c.findings = { ...c.findings, proposedTreatments: items };
           c.proposedTreatments = items;
@@ -1994,6 +2055,7 @@ app.patch('/api/pipeline/:id', authenticateToken, async (req: any, res) => {
     logAudit('pipeline_treatment_updated', req.dentist.id, {
       opportunityId: id,
       newStatus: status,
+      barrierReason: notes,
       consultationId: targetConsult?.id
     });
 
@@ -2040,8 +2102,11 @@ app.get('/api/pipeline/roi', authenticateToken, async (req: any, res) => {
     let totalIdentifiedValue = 0;
     let totalBookedValue = 0;
     let totalCompletedValue = 0;
+    let unscheduledValue = 0;
+    let declinedValue = 0;
     let unscheduledCount = 0;
     let bookedCount = 0;
+    let declinedCount = 0;
 
     for (const c of consults) {
       const items = c.findings?.proposedTreatments || extractProposedTreatmentsFromFindings({
@@ -2054,14 +2119,18 @@ app.get('/api/pipeline/roi', authenticateToken, async (req: any, res) => {
       for (const item of items) {
         const fee = Number(item.estimatedFee) || 0;
         totalIdentifiedValue += fee;
-        if (item.status === 'unscheduled') unscheduledCount++;
-        if (item.status === 'booked') {
+        if (item.status === 'unscheduled') {
+          unscheduledCount++;
+          unscheduledValue += fee;
+        } else if (item.status === 'booked') {
           bookedCount++;
           totalBookedValue += fee;
-        }
-        if (item.status === 'completed') {
+        } else if (item.status === 'completed') {
           totalCompletedValue += fee;
           totalBookedValue += fee;
+        } else if (item.status === 'declined') {
+          declinedCount++;
+          declinedValue += fee;
         }
       }
     }
@@ -2079,6 +2148,8 @@ app.get('/api/pipeline/roi', authenticateToken, async (req: any, res) => {
       totalCompletedValue,
       unscheduledCount,
       bookedCount,
+      declinedCount,
+      declinedValue,
       subscriptionCost,
       netRoiMultiple
     };

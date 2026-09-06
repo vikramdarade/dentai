@@ -44,6 +44,8 @@ export interface PracticeRoiSummary {
   totalCompletedValue: number;
   unscheduledCount: number;
   bookedCount: number;
+  declinedCount?: number;
+  declinedValue?: number;
   subscriptionCost: number;
   netRoiMultiple: number;
 }

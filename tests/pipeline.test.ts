@@ -312,5 +312,80 @@ describe('Treatment Revenue Moat & ADA Valuation Engine', () => {
       expect(endoOpp.estimatedFee).toBe(440);
       expect(endoOpp.status).toBe('unscheduled');
     });
+
+    it('updates opportunity status to declined with patient barrier reasons and tracks in metrics', async () => {
+      const declineRes = await request(app)
+        .patch(`/api/pipeline/${targetOppId}`)
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({
+          status: 'declined',
+          notes: 'Cost / Insurance Limitation: Patient unable to cover private health gap fee'
+        });
+
+      expect(declineRes.status).toBe(200);
+      expect(declineRes.body.opportunity.status).toBe('declined');
+      expect(declineRes.body.opportunity.patientBarrier).toContain('Cost / Insurance Limitation');
+
+      // Verify pipeline aggregates track declined cases
+      const pipeRes = await request(app)
+        .get('/api/pipeline')
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(pipeRes.status).toBe(200);
+      expect(pipeRes.body.declinedCount).toBeGreaterThanOrEqual(1);
+      expect(pipeRes.body.declinedValue).toBeGreaterThanOrEqual(1650);
+
+      // Verify ROI metrics reflect decline metrics
+      const roiRes = await request(app)
+        .get('/api/pipeline/roi')
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(roiRes.status).toBe(200);
+      expect(roiRes.body.declinedCount).toBeGreaterThanOrEqual(1);
+      expect(roiRes.body.declinedValue).toBeGreaterThanOrEqual(1650);
+    });
+
+    it('re-opens a declined opportunity back to unscheduled status', async () => {
+      const reopenRes = await request(app)
+        .patch(`/api/pipeline/${targetOppId}`)
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({
+          status: 'unscheduled',
+          notes: 'Re-opened into active pipeline'
+        });
+
+      expect(reopenRes.status).toBe(200);
+      expect(reopenRes.body.opportunity.status).toBe('unscheduled');
+
+      const pipeRes = await request(app)
+        .get('/api/pipeline')
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(pipeRes.status).toBe(200);
+      const reopened = pipeRes.body.opportunities.find((o: any) => o.id === targetOppId);
+      expect(reopened).toBeDefined();
+      expect(reopened.status).toBe('unscheduled');
+    });
+
+    it('supports high-scale query pagination and fast O(1) targeting', async () => {
+      // 1. Pagination: request limit of 1
+      const pageRes = await request(app)
+        .get('/api/pipeline?limit=1&offset=0')
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(pageRes.status).toBe(200);
+      expect(pageRes.body.opportunities.length).toBe(1);
+      expect(pageRes.body.totalCount).toBeGreaterThanOrEqual(2);
+      expect(pageRes.body.hasMore).toBe(true);
+
+      // 2. Fast direct update using composite consultation-prefixed ID
+      const patchRes = await request(app)
+        .patch(`/api/pipeline/${targetOppId}`)
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ status: 'contacted', notes: 'High-speed targeted update' });
+
+      expect(patchRes.status).toBe(200);
+      expect(patchRes.body.opportunity.status).toBe('contacted');
+    });
   });
 });

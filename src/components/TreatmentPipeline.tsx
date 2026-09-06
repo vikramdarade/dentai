@@ -17,11 +17,14 @@ import {
   AlertCircle,
   Building2,
   ChevronRight,
+  ChevronLeft,
   User,
   ShieldCheck,
   ExternalLink,
   Calendar,
-  X
+  X,
+  XCircle,
+  RotateCcw
 } from 'lucide-react';
 import { TreatmentOpportunity, TreatmentStatus, PracticeRoiSummary, Consultation } from '../types';
 import { ClinicMembership } from '../lib/clinics';
@@ -80,9 +83,23 @@ export default function TreatmentPipeline({
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [activeModalOpp, setActiveModalOpp] = useState<TreatmentOpportunity | null>(null);
+  const [declineModalOpp, setDeclineModalOpp] = useState<TreatmentOpportunity | null>(null);
+  const [selectedDeclineReason, setSelectedDeclineReason] = useState<string>('cost');
+  const [customDeclineNote, setCustomDeclineNote] = useState<string>('');
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const PAGE_SIZE = 25;
   const [outreachChannel, setOutreachChannel] = useState<'sms' | 'whatsapp' | 'email'>('sms');
   const [copiedText, setCopiedText] = useState<boolean>(false);
   const [actionSuccessMessage, setActionSuccessMessage] = useState<string | null>(null);
+
+  const DECLINE_PRESETS = [
+    { id: 'cost', label: 'Cost / Financial Constraint', desc: 'Out of pocket expense or lack of private health cover' },
+    { id: 'anxiety', label: 'Dental Anxiety / Procedural Fear', desc: 'Patient nervous about treatment, drilling, or injection' },
+    { id: 'second_opinion', label: 'Seeking Second Opinion', desc: 'Patient consulting another clinician or family dentist' },
+    { id: 'timing', label: 'Timing / Scheduling Conflict', desc: 'Work, travel, or scheduling availability issues' },
+    { id: 'asymptomatic', label: 'Asymptomatic / Patient Deferred', desc: 'No active symptoms, patient preferring to monitor' },
+    { id: 'other', label: 'Other / Custom Barrier', desc: 'Specific personal reason or custom clinical note' }
+  ];
 
   // Sync client extracted if opportunities is currently empty but client has items
   useEffect(() => {
@@ -222,6 +239,11 @@ export default function TreatmentPipeline({
     });
   }, [opportunities, searchQuery, selectedStatus, selectedCategory]);
 
+  // Reset page whenever search or filter changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, selectedStatus, selectedCategory]);
+
   // Aggregate metrics
   const totalUnscheduledValue = useMemo(() => {
     return opportunities
@@ -235,11 +257,24 @@ export default function TreatmentPipeline({
       .reduce((acc, curr) => acc + (curr.estimatedFee || 0), 0);
   }, [opportunities]);
 
+  const totalDeclinedValue = useMemo(() => {
+    return opportunities
+      .filter(o => o.status === 'declined')
+      .reduce((acc, curr) => acc + (curr.estimatedFee || 0), 0);
+  }, [opportunities]);
+
   const totalIdentifiedValue = useMemo(() => {
     return opportunities.reduce((acc, curr) => acc + (curr.estimatedFee || 0), 0);
   }, [opportunities]);
 
   const roiMultiple = roiSummary?.netRoiMultiple ?? (totalBookedValue > 0 ? (totalBookedValue / 149).toFixed(1) : 0);
+
+  // Pagination for high-scale performance
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const paginatedList = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return filtered.slice(start, start + PAGE_SIZE);
+  }, [filtered, currentPage]);
 
   // Generate personalized outreach message
   const getOutreachMessage = (opp: TreatmentOpportunity) => {
@@ -254,10 +289,24 @@ export default function TreatmentPipeline({
     setTimeout(() => setCopiedText(false), 2500);
   };
 
-  // Close outreach modal on Escape key
+  const handleConfirmDecline = () => {
+    if (!declineModalOpp) return;
+    const preset = DECLINE_PRESETS.find(p => p.id === selectedDeclineReason);
+    const finalReason = selectedDeclineReason === 'other'
+      ? (customDeclineNote.trim() || 'Patient declined')
+      : (customDeclineNote.trim() ? `${preset?.label}: ${customDeclineNote.trim()}` : (preset?.label || 'Patient declined'));
+
+    handleUpdateStatus(declineModalOpp.id, 'declined', finalReason);
+    setDeclineModalOpp(null);
+  };
+
+  // Close modals on Escape key
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setActiveModalOpp(null);
+      if (e.key === 'Escape') {
+        setActiveModalOpp(null);
+        setDeclineModalOpp(null);
+      }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
@@ -385,7 +434,7 @@ export default function TreatmentPipeline({
               ${totalIdentifiedValue.toLocaleString()}
             </span>
             <div className="flex items-center gap-1.5 mt-1 text-[11px] text-slate-400 font-medium">
-              <span>{opportunities.length} total procedures mapped</span>
+              <span>{opportunities.length} total mapped ({opportunities.filter(o => o.status === 'declined').length} declined)</span>
             </div>
           </div>
         </div>
@@ -409,11 +458,11 @@ export default function TreatmentPipeline({
           {/* Status Pills */}
           <div className="flex items-center gap-1 overflow-x-auto pb-1 md:pb-0">
             {[
-              { id: 'all', label: 'All' },
-              { id: 'unscheduled', label: 'Unscheduled' },
-              { id: 'contacted', label: 'Contacted' },
-              { id: 'booked', label: 'Booked' },
-              { id: 'declined', label: 'Declined' }
+              { id: 'all', label: `All (${opportunities.length})` },
+              { id: 'unscheduled', label: `Unscheduled (${opportunities.filter(o => o.status === 'unscheduled').length})` },
+              { id: 'contacted', label: `Contacted (${opportunities.filter(o => o.status === 'contacted').length})` },
+              { id: 'booked', label: `Booked (${opportunities.filter(o => o.status === 'booked' || o.status === 'completed').length})` },
+              { id: 'declined', label: `Declined (${opportunities.filter(o => o.status === 'declined').length})` }
             ].map(tab => (
               <button
                 key={tab.id}
@@ -472,7 +521,7 @@ export default function TreatmentPipeline({
             </p>
           </div>
         ) : (
-          filtered.map(opp => (
+          paginatedList.map(opp => (
             <motion.div
               key={opp.id}
               initial={{ opacity: 0, y: 8 }}
@@ -520,7 +569,14 @@ export default function TreatmentPipeline({
                   <span className="font-bold text-slate-700">Clinical Indication:</span> {opp.clinicalReason}
                 </p>
 
-                {opp.patientBarrier && (
+                {opp.status === 'declined' && opp.patientBarrier && (
+                  <div className="text-[11px] text-rose-700 bg-rose-50 border border-rose-200/70 rounded-xl px-3 py-1.5 flex items-center gap-2 font-semibold">
+                    <XCircle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                    <span><b>Decline Reason:</b> {opp.patientBarrier}</span>
+                  </div>
+                )}
+
+                {opp.status !== 'declined' && opp.patientBarrier && (
                   <div className="text-[11px] text-slate-400 flex items-center gap-1.5">
                     <span className="font-bold text-slate-500">Patient Note:</span> {opp.patientBarrier}
                   </div>
@@ -529,30 +585,86 @@ export default function TreatmentPipeline({
 
               {/* Right Action Buttons */}
               <div className="flex flex-wrap md:flex-col items-end gap-2 shrink-0">
-                <button
-                  onClick={() => setActiveModalOpp(opp)}
-                  className="px-4 py-2 rounded-xl bg-primary text-white text-xs font-bold hover:bg-primary-hover shadow-sm transition-all flex items-center gap-1.5"
-                >
-                  <MessageSquare className="w-3.5 h-3.5" />
-                  <span>1-Click Patient Follow-up</span>
-                </button>
-
-                {opp.status !== 'booked' ? (
+                {opp.status === 'declined' ? (
                   <button
-                    onClick={() => handleUpdateStatus(opp.id, 'booked')}
-                    className="px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-xs font-bold transition-all flex items-center gap-1"
+                    onClick={() => handleUpdateStatus(opp.id, 'unscheduled', 'Re-opened into active pipeline')}
+                    className="px-3.5 py-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-primary border border-indigo-200 text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm cursor-pointer"
+                    title="Restore into active treatment pipeline"
                   >
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span>Mark as Booked</span>
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Re-open Treatment</span>
                   </button>
                 ) : (
-                  <span className="text-[11px] text-emerald-600 font-extrabold flex items-center gap-1 px-2 py-1">
-                    <Check className="w-3.5 h-3.5" /> Booked & Realized
-                  </span>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <button
+                      onClick={() => setActiveModalOpp(opp)}
+                      className="px-3.5 py-2 rounded-xl bg-primary text-white text-xs font-bold hover:bg-primary-hover shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <MessageSquare className="w-3.5 h-3.5" />
+                      <span>1-Click Outreach</span>
+                    </button>
+
+                    {opp.status !== 'booked' ? (
+                      <button
+                        onClick={() => handleUpdateStatus(opp.id, 'booked')}
+                        className="px-3 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-xs font-bold transition-all flex items-center gap-1 cursor-pointer"
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        <span>Booked</span>
+                      </button>
+                    ) : (
+                      <span className="text-[11px] text-emerald-600 font-extrabold flex items-center gap-1 px-2 py-1">
+                        <Check className="w-3.5 h-3.5" /> Booked
+                      </span>
+                    )}
+
+                    <button
+                      onClick={() => {
+                        setDeclineModalOpp(opp);
+                        setSelectedDeclineReason('cost');
+                        setCustomDeclineNote('');
+                      }}
+                      className="px-2.5 py-2 rounded-xl bg-slate-50 hover:bg-rose-50 text-slate-500 hover:text-rose-700 border border-slate-200/80 hover:border-rose-200 text-xs font-bold transition-all flex items-center gap-1 cursor-pointer"
+                      title="Mark treatment as declined by patient"
+                    >
+                      <XCircle className="w-3.5 h-3.5" />
+                      <span>Decline</span>
+                    </button>
+                  </div>
                 )}
               </div>
             </motion.div>
           ))
+        )}
+
+        {/* Pagination Bar */}
+        {totalPages > 1 && (
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-white rounded-2xl p-4 border border-slate-200/80 text-xs font-bold text-slate-600 shadow-sm">
+            <span className="text-slate-500">
+              Showing {(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, filtered.length)} of {filtered.length} treatments
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+                className="px-3 py-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 cursor-pointer"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+                <span>Previous</span>
+              </button>
+              <span className="px-2 text-slate-700">
+                Page {currentPage} of {totalPages}
+              </span>
+              <button
+                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                disabled={currentPage === totalPages}
+                className="px-3 py-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 cursor-pointer"
+              >
+                <span>Next</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
         )}
       </div>
 
@@ -691,6 +803,116 @@ export default function TreatmentPipeline({
                     </a>
                   )}
                 </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Decline Reason Modal */}
+      <AnimatePresence>
+        {declineModalOpp && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm"
+            onClick={() => setDeclineModalOpp(null)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              onClick={e => e.stopPropagation()}
+              className="bg-white rounded-3xl shadow-2xl border border-slate-200/80 max-w-md w-full p-6 relative overflow-hidden"
+            >
+              <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+                <div className="flex items-center gap-2 text-rose-600">
+                  <div className="w-8 h-8 rounded-xl bg-rose-50 border border-rose-100 flex items-center justify-center">
+                    <XCircle className="w-4 h-4 text-rose-600" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-extrabold text-slate-900">Mark Treatment as Declined</h3>
+                    <p className="text-[11px] text-slate-400">Capture reason for practice analytics</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setDeclineModalOpp(null)}
+                  className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 flex items-center justify-center transition-colors cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Treatment summary */}
+              <div className="mt-4 p-3 bg-slate-50 rounded-2xl border border-slate-200/70 text-xs">
+                <div className="flex items-center justify-between font-bold text-slate-800">
+                  <span>{declineModalOpp.patientName}</span>
+                  <span className="text-emerald-600">${(declineModalOpp.estimatedFee || 0).toLocaleString()}</span>
+                </div>
+                <div className="text-[11px] text-slate-500 mt-0.5">
+                  {declineModalOpp.procedureName} {declineModalOpp.tooth ? `(Tooth ${declineModalOpp.tooth})` : ''} · ADA {declineModalOpp.adaCode}
+                </div>
+              </div>
+
+              {/* Reason presets */}
+              <div className="mt-4 space-y-2">
+                <label className="block text-[11px] font-bold text-slate-500">
+                  Why is the patient declining or deferring?
+                </label>
+                <div className="space-y-1.5 max-h-52 overflow-y-auto pr-1">
+                  {DECLINE_PRESETS.map(preset => (
+                    <label
+                      key={preset.id}
+                      onClick={() => setSelectedDeclineReason(preset.id)}
+                      className={`flex items-start gap-2.5 p-2.5 rounded-xl border cursor-pointer transition-all ${
+                        selectedDeclineReason === preset.id
+                          ? 'border-rose-300 bg-rose-50/60 text-slate-900 shadow-sm'
+                          : 'border-slate-200/80 bg-white hover:bg-slate-50 text-slate-600'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="declineReason"
+                        checked={selectedDeclineReason === preset.id}
+                        onChange={() => setSelectedDeclineReason(preset.id)}
+                        className="mt-1 text-rose-600 focus:ring-rose-500"
+                      />
+                      <div className="text-xs">
+                        <div className="font-bold text-slate-800">{preset.label}</div>
+                        <div className="text-[10px] text-slate-400">{preset.desc}</div>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* Optional custom note */}
+              <div className="mt-3">
+                <label className="block text-[11px] font-bold text-slate-500 mb-1">
+                  Additional Notes (Optional)
+                </label>
+                <input
+                  type="text"
+                  placeholder={selectedDeclineReason === 'other' ? "e.g. Moving interstate next month..." : "e.g. Waiting for insurance refresh in January..."}
+                  value={customDeclineNote}
+                  onChange={e => setCustomDeclineNote(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:border-rose-400 focus:ring-1 focus:ring-rose-400"
+                />
+              </div>
+
+              {/* Modal Actions */}
+              <div className="mt-5 flex items-center justify-end gap-2">
+                <button
+                  onClick={() => setDeclineModalOpp(null)}
+                  className="px-4 py-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-xs font-bold text-slate-600 transition-all cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleConfirmDecline}
+                  className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold shadow-md shadow-rose-600/20 transition-all flex items-center gap-1.5 cursor-pointer"
+                >
+                  <XCircle className="w-3.5 h-3.5" />
+                  <span>Confirm Decline</span>
+                </button>
               </div>
             </motion.div>
           </div>
