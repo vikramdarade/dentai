@@ -61,7 +61,7 @@ export const DEMO_SCENES: DemoScene[] = [
     narration:
       'Welcome to DentAI, the ambient clinical scribe that turns dentist-patient conversations into complete, compliance-aligned clinical notes. In about three minutes we will show you everything a dentist can do — then the management tools built in for clinic owners.',
     tts: "Welcome to Dent-A-I, the ambient clinical scribe that turns dentist patient conversations into complete, compliance-aligned clinical notes. In about three minutes we'll show you everything a dentist can do — then the management tools built in for clinic owners.",
-    duration: 11000,
+    duration: 17000,
   },
 
   // ---------------------------------------------------------------- Dentist
@@ -72,7 +72,7 @@ export const DEMO_SCENES: DemoScene[] = [
     title: 'Secure sign-in',
     narration:
       'Every workstation starts at the secure profile screen. Dentists select their profile and enter a four-digit PIN — no shared passwords, no typing notes mid-treatment. Profiles sync across every workstation in the practice.',
-    duration: 12000,
+    duration: 14000,
   },
   {
     id: 'history',
@@ -81,7 +81,7 @@ export const DEMO_SCENES: DemoScene[] = [
     title: 'The History Hub',
     narration:
       'The History Hub is the dentist\u2019s home base. Every finished consultation lands here instantly — today\u2019s visits grouped at the top, with patient, procedure, and status at a glance. Search by patient name, procedure, or complaint to pull up any past record in seconds.',
-    duration: 12000,
+    duration: 16000,
   },
   {
     id: 'intake-1',
@@ -90,7 +90,7 @@ export const DEMO_SCENES: DemoScene[] = [
     title: 'New consultation · Identity',
     narration:
       'Starting a new consultation takes three quick steps. First, patient identity — first name, last name, and date of birth. Exactly what a compliant record needs.',
-    duration: 11000,
+    duration: 12000,
     props: { step: 1 },
   },
   {
@@ -101,7 +101,7 @@ export const DEMO_SCENES: DemoScene[] = [
     narration:
       'Second, session context. Choose from eight treatment types — examination, scale and clean, emergency, endo, surgical, and more. DentAI automatically selects the matching note template, and that template decides which clinical sections the AI will extract from the conversation.',
     tts: 'Second, session context. Choose from eight treatment types — examination, scale and clean, emergency, endo, surgical, and more. Dent-A-I automatically selects the matching note template, and that template decides which clinical sections the AI will extract from the conversation.',
-    duration: 14000,
+    duration: 17000,
     props: { step: 2 },
   },
   {
@@ -112,7 +112,7 @@ export const DEMO_SCENES: DemoScene[] = [
     narration:
       'Third, clinical consent. DentAI records that the patient has been told artificial intelligence is assisting with charting, under Australian privacy law — and that the practitioner remains responsible for all findings.',
     tts: 'Third, clinical consent. Dent-A-I records that the patient has been told artificial intelligence is assisting with charting, under Australian privacy law — and that the practitioner remains responsible for all findings.',
-    duration: 11000,
+    duration: 14000,
     props: { step: 3 },
   },
   {
@@ -123,7 +123,7 @@ export const DEMO_SCENES: DemoScene[] = [
     narration:
       'Recording is fully ambient. DentAI simply listens to the natural dentist-patient conversation — no dictation, no forms to fill. Each exchange streams in live as a transcript, with a real-time visualizer and secure, filtered audio capture.',
     tts: 'Recording is fully ambient. Dent-A-I simply listens to the natural dentist patient conversation — no dictation, no forms to fill. Each exchange streams in live as a transcript, with a real-time visualizer and secure, filtered audio capture.',
-    duration: 13000,
+    duration: 16000,
     props: { focus: 'transcript' },
   },
   {
@@ -133,7 +133,7 @@ export const DEMO_SCENES: DemoScene[] = [
     title: 'Every capture option',
     narration:
       'Every option lives on this one capture board: a live microphone with one tap, simulated phrases for training, a full library of realistic sample transcripts for each treatment type, and manual clinical comments for anything you want typed in yourself.',
-    duration: 13000,
+    duration: 16000,
     props: { focus: 'options' },
   },
   {
@@ -144,7 +144,7 @@ export const DEMO_SCENES: DemoScene[] = [
     narration:
       'When the consultation ends, DentAI runs the clinical extractor — synthesizing findings, building the tooth map, extracting ADA billing item codes, and drafting a patient-friendly care letter. The dentist keeps full control of everything saved.',
     tts: 'When the consultation ends, Dent-A-I runs the clinical extractor — synthesizing findings, building the tooth map, extracting A D A billing item codes, and drafting a patient friendly care letter. The dentist keeps full control of everything saved.',
-    duration: 13000,
+    duration: 16000,
   },
   {
     id: 'summary',
@@ -153,7 +153,7 @@ export const DEMO_SCENES: DemoScene[] = [
     title: 'Review, edit, save',
     narration:
       'The summary presents every section of the chosen template — chief complaint, history, findings, diagnosis, treatment, advice, and recall — ready to review and refine. Copy the formatted note straight into your practice management system, or save it as a completed record.',
-    duration: 14000,
+    duration: 18000,
   },
   {
     id: 'roi',
@@ -163,7 +163,7 @@ export const DEMO_SCENES: DemoScene[] = [
     narration:
       'DentAI transforms clinic economics. By eliminating manual charting, dentists save 15 to 20 minutes per complex procedure — recovering up to two hours every single day. That means finishing on time with zero night-time charting, or seeing one extra patient each day.',
     tts: 'Dent-A-I transforms clinic economics. By eliminating manual charting, dentists save fifteen to twenty minutes per complex procedure — recovering up to two hours every single day. That means finishing on time with zero night-time charting, or seeing one extra patient each day.',
-    duration: 13000,
+    duration: 18000,
   },
   {
     id: 'share-template',
@@ -172,7 +172,7 @@ export const DEMO_SCENES: DemoScene[] = [
     title: '1-click templates & peer sharing',
     narration:
       'Sharing note standards is frictionless. Dentists can export custom treatment templates or clinic invite codes to locums and colleagues with a single tap. When a peer imports your template, they get instant chairside charting — sparking natural word of mouth across practices.',
-    duration: 13000,
+    duration: 17000,
   },
   {
     id: 'fallback',
@@ -182,7 +182,7 @@ export const DEMO_SCENES: DemoScene[] = [
     narration:
       'DentAI never leaves you stuck. If hosted AI is unavailable, the same screen offers a secure offline draft built only from what was said — or an on-device model. Anything auto-generated is clearly flagged for your review before it can be saved.',
     tts: 'Dent-A-I never leaves you stuck. If hosted AI is unavailable, the same screen offers a secure offline draft built only from what was said — or an on-device model. Anything auto-generated is clearly flagged for your review before it can be saved.',
-    duration: 12000,
+    duration: 16000,
   },
 
   // ------------------------------------------------------------------ Owner
@@ -193,7 +193,7 @@ export const DEMO_SCENES: DemoScene[] = [
     title: 'For clinic owners',
     narration:
       'Now, the clinic owner\u2019s view — the tools that keep an entire practice consistent.',
-    duration: 8000,
+    duration: 9000,
     props: { owner: true },
   },
   {
@@ -203,7 +203,7 @@ export const DEMO_SCENES: DemoScene[] = [
     title: 'Owner view of the practice',
     narration:
       'As an owner, the History Hub shows every note recorded by every dentist in your clinic, each one attributed to the clinician who saw the patient. No chasing notes, no scattered spreadsheets.',
-    duration: 12000,
+    duration: 16000,
   },
   {
     id: 'switcher',
@@ -212,7 +212,7 @@ export const DEMO_SCENES: DemoScene[] = [
     title: 'Clinics & invite codes',
     narration:
       'Every dentist automatically gets a personal solo-practice clinic, and the switcher moves between clinics in one tap. Colleagues join with a simple invite code — landing as pending members until you approve them.',
-    duration: 13000,
+    duration: 16000,
   },
   {
     id: 'clinic-manage',
@@ -221,7 +221,7 @@ export const DEMO_SCENES: DemoScene[] = [
     title: 'Manage members & codes',
     narration:
       'Clinic management puts everything in the owner\u2019s hands: copy the invite code to share with associates and locums, generate a brand-new code if one has been shared too widely, or rename the clinic — all from one screen.',
-    duration: 13000,
+    duration: 17000,
     props: { focus: 'code' },
   },
   {
@@ -231,7 +231,7 @@ export const DEMO_SCENES: DemoScene[] = [
     title: 'Approve your team',
     narration:
       'Join requests appear here, clearly marked pending. Approve to grant access, or decline — and pending members see nothing until you approve them, so the code stays an application credential, not a security risk.',
-    duration: 11000,
+    duration: 15000,
     props: { focus: 'approvals' },
   },
   {
@@ -241,7 +241,7 @@ export const DEMO_SCENES: DemoScene[] = [
     title: 'AI usage, metered per clinic',
     narration:
       'Owners also see AI usage at a glance — a live meter showing how many hosted AI notes the clinic has used today. And if the daily allowance is reached, the dentist still drafts offline with zero loss, so patient care never stops.',
-    duration: 12000,
+    duration: 16000,
   },
   {
     id: 'pricing',
@@ -251,7 +251,7 @@ export const DEMO_SCENES: DemoScene[] = [
     narration:
       'DentAI is free forever for solo clinicians with full ambient charting. Clinic owners upgrade to the Practice Tier for ninety-nine to one hundred forty-nine dollars a month to unlock centralized multi-chair compliance, team template standards, and full practice audit trails.',
     tts: 'Dent-A-I is free forever for solo clinicians with full ambient charting. Clinic owners upgrade to the Practice Tier for ninety nine to one hundred forty nine dollars a month to unlock centralized multi chair compliance, team template standards, and full practice audit trails.',
-    duration: 14000,
+    duration: 18000,
   },
   {
     id: 'recap',
@@ -261,7 +261,7 @@ export const DEMO_SCENES: DemoScene[] = [
     narration:
       'That\u2019s DentAI — ambient charting for the dentist, practice-wide control for the owner, with eight treatment templates, resilient fallbacks, and privacy by design. Ready to see it live? Register your first profile and start your first consultation.',
     tts: 'That\u2019s Dent-A-I — ambient charting for the dentist, practice-wide control for the owner, with eight treatment templates, resilient fallbacks, and privacy by design. Ready to see it live? Register your first profile and start your first consultation.',
-    duration: 13000,
+    duration: 16000,
   },
 ];
 

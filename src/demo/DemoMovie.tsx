@@ -142,11 +142,13 @@ export default function DemoMovie({ onExit }: DemoMovieProps) {
       synth.cancel();
     };
   }, []);
+  const isSpeakingRef = useRef(false);
 
   const speakScene = useCallback((sceneIdx: number) => {
     const synth = window.speechSynthesis;
     if (!synth) return;
     synth.cancel();
+    isSpeakingRef.current = false;
     if (!narrationRef.current) return;
     const scene = DEMO_SCENES[sceneIdx];
     if (!scene) return;
@@ -170,10 +172,20 @@ export default function DemoMovie({ onExit }: DemoMovieProps) {
     u.rate = Math.min(1.8, Math.max(0.85, speedRef.current * 0.98));
     u.pitch = 1.05; // Slightly warmer, conversational tone for female voices
     u.volume = 1;
+
+    isSpeakingRef.current = true;
+    u.onend = () => {
+      isSpeakingRef.current = false;
+    };
+    u.onerror = () => {
+      isSpeakingRef.current = false;
+    };
+
     synth.speak(u);
   }, []);
 
   // Timeline clock — advances while playing (speed-scaled).
+  // Automatically waits for speech synthesis to finish before transitioning to the next scene.
   useEffect(() => {
     let raf = 0;
     let last = performance.now();
@@ -181,18 +193,28 @@ export default function DemoMovie({ onExit }: DemoMovieProps) {
       const dt = now - last;
       last = now;
       if (playingRef.current) {
-        const next = elapsedRef.current + dt * speedRef.current;
-        if (next >= DEMO_TOTAL_MS) {
-          elapsedRef.current = DEMO_TOTAL_MS;
-          setElapsed(DEMO_TOTAL_MS);
-          playingRef.current = false;
-          setPlaying(false);
-          setEnded(true);
-          window.speechSynthesis?.cancel();
-          return;
+        const curIdx = sceneIndexAt(elapsedRef.current);
+        const curSceneEnd = SCENE_ENDS[curIdx];
+
+        // Never cut off narration: if the voice is still speaking, hold at the scene boundary until it finishes
+        if (narrationRef.current && isSpeakingRef.current && elapsedRef.current >= curSceneEnd - 40) {
+          elapsedRef.current = curSceneEnd - 20;
+          setElapsed(elapsedRef.current);
+        } else {
+          const next = elapsedRef.current + dt * speedRef.current;
+          if (next >= DEMO_TOTAL_MS) {
+            elapsedRef.current = DEMO_TOTAL_MS;
+            setElapsed(DEMO_TOTAL_MS);
+            playingRef.current = false;
+            setPlaying(false);
+            setEnded(true);
+            isSpeakingRef.current = false;
+            window.speechSynthesis?.cancel();
+            return;
+          }
+          elapsedRef.current = next;
+          setElapsed(next);
         }
-        elapsedRef.current = next;
-        setElapsed(next);
       }
       raf = requestAnimationFrame(tick);
     };
@@ -218,6 +240,7 @@ export default function DemoMovie({ onExit }: DemoMovieProps) {
       playingRef.current = false;
       setPlaying(false);
       setEnded(false);
+      isSpeakingRef.current = false;
       elapsedRef.current = clamped;
       setElapsed(clamped);
       window.speechSynthesis?.cancel();
@@ -237,6 +260,7 @@ export default function DemoMovie({ onExit }: DemoMovieProps) {
     if (playingRef.current) {
       playingRef.current = false;
       setPlaying(false);
+      isSpeakingRef.current = false;
       synth?.cancel();
     } else {
       if (elapsedRef.current >= DEMO_TOTAL_MS) {
