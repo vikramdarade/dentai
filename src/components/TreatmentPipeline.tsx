@@ -24,11 +24,15 @@ import {
   Calendar,
   X,
   XCircle,
-  RotateCcw
+  RotateCcw,
+  ClipboardCheck,
+  FileText,
+  Send
 } from 'lucide-react';
-import { TreatmentOpportunity, TreatmentStatus, PracticeRoiSummary, Consultation } from '../types';
+import { TreatmentOpportunity, TreatmentStatus, PracticeRoiSummary, Consultation, PmsType } from '../types';
 import { ClinicMembership } from '../lib/clinics';
 import { extractProposedTreatmentsFromFindings } from '../lib/adaFees';
+import { generateTreatmentEstimate, FormattedTreatmentEstimate } from '../lib/treatmentEstimate';
 
 interface TreatmentPipelineProps {
   authToken: string;
@@ -45,36 +49,30 @@ export default function TreatmentPipeline({
   currentDentistId,
   consultations = []
 }: TreatmentPipelineProps) {
-  // Extract treatment opportunities from client-side consultations (for immediate offline & pre-existing data resilience)
+  // Extract treatment opportunities from client consultations if available
   const clientExtractedOpportunities = useMemo(() => {
-    if (!consultations || consultations.length === 0) return [];
     const list: TreatmentOpportunity[] = [];
     for (const c of consultations) {
-      const pName = `${c.firstName || ''} ${c.lastName || ''}`.trim() || 'Patient';
       let items: TreatmentOpportunity[] = [];
-      if (Array.isArray(c.findings?.proposedTreatments) && c.findings.proposedTreatments.length > 0) {
+      if (c.findings?.proposedTreatments && c.findings.proposedTreatments.length > 0) {
         items = c.findings.proposedTreatments;
-      } else {
+      } else if (c.findings) {
         items = extractProposedTreatmentsFromFindings({
           findings: c.findings,
-          patientName: pName,
+          patientName: `${c.firstName} ${c.lastName}`,
           dentistId: c.dentistId || currentDentistId,
-          clinicId: c.clinicId || activeClinic?.clinicId,
+          clinicId: c.clinicId,
           consultationId: c.id
         });
       }
-      for (const opp of items) {
-        list.push({
-          ...opp,
-          patientName: opp.patientName || pName,
-          consultationId: opp.consultationId || c.id,
-          dentistId: opp.dentistId || c.dentistId || currentDentistId,
-          clinicId: opp.clinicId || c.clinicId || activeClinic?.clinicId
-        });
+      for (const item of items) {
+        if (!item.dentistId) item.dentistId = c.dentistId || currentDentistId;
+        if (!item.clinicId && c.clinicId) item.clinicId = c.clinicId;
+        list.push(item);
       }
     }
     return list;
-  }, [consultations, currentDentistId, activeClinic?.clinicId]);
+  }, [consultations, currentDentistId]);
 
   const [opportunities, setOpportunities] = useState<TreatmentOpportunity[]>(() => clientExtractedOpportunities);
   const [roiSummary, setRoiSummary] = useState<PracticeRoiSummary | null>(null);
@@ -82,7 +80,13 @@ export default function TreatmentPipeline({
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [showVerifiedOnly, setShowVerifiedOnly] = useState<boolean>(false);
   const [activeModalOpp, setActiveModalOpp] = useState<TreatmentOpportunity | null>(null);
+  const [estimateModalOpp, setEstimateModalOpp] = useState<TreatmentOpportunity | null>(null);
+  const [pmsVerifyModalOpp, setPmsVerifyModalOpp] = useState<TreatmentOpportunity | null>(null);
+  const [pmsTypeInput, setPmsTypeInput] = useState<PmsType>('d4w');
+  const [pmsAppointmentIdInput, setPmsAppointmentIdInput] = useState<string>('');
+  const [pmsCopySuccess, setPmsCopySuccess] = useState<boolean>(false);
   const [declineModalOpp, setDeclineModalOpp] = useState<TreatmentOpportunity | null>(null);
   const [selectedDeclineReason, setSelectedDeclineReason] = useState<string>('cost');
   const [customDeclineNote, setCustomDeclineNote] = useState<string>('');
@@ -162,7 +166,12 @@ export default function TreatmentPipeline({
   }, [authToken, activeClinic?.clinicId]);
 
   // Update status handler
-  const handleUpdateStatus = async (id: string, newStatus: TreatmentStatus, notes?: string) => {
+  const handleUpdateStatus = async (
+    id: string,
+    newStatus: TreatmentStatus,
+    notes?: string,
+    pmsMeta?: { pmsType?: PmsType; pmsAppointmentId?: string }
+  ) => {
     try {
       const res = await fetch(`/api/pipeline/${id}`, {
         method: 'PATCH',
@@ -170,7 +179,12 @@ export default function TreatmentPipeline({
           'Content-Type': 'application/json',
           Authorization: `Bearer ${authToken}`
         },
-        body: JSON.stringify({ status: newStatus, notes })
+        body: JSON.stringify({
+          status: newStatus,
+          notes,
+          pmsType: pmsMeta?.pmsType,
+          pmsAppointmentId: pmsMeta?.pmsAppointmentId
+        })
       });
 
       if (res.ok) {
@@ -181,7 +195,9 @@ export default function TreatmentPipeline({
         // Refresh ROI summary to update live production numbers
         fetchRoi();
         showNotification(
-          newStatus === 'booked'
+          pmsMeta?.pmsAppointmentId
+            ? `Verified in PMS (${(pmsMeta.pmsType || 'PMS').toUpperCase()} #${pmsMeta.pmsAppointmentId})! Production locked.`
+            : newStatus === 'booked'
             ? 'Treatment marked as Booked! Practice production updated.'
             : newStatus === 'contacted'
             ? 'Outreach logged! Status set to Contacted.'
@@ -235,14 +251,16 @@ export default function TreatmentPipeline({
         matchesCat = (opp.adaCode || '').startsWith('4') || (opp.procedureName || '').toLowerCase().includes('canal');
       }
 
-      return matchesSearch && matchesStatus && matchesCat;
+      const matchesVerified = !showVerifiedOnly || Boolean(opp.pmsAppointmentId || opp.pmsSyncStatus === 'verified' || opp.pmsSyncStatus === 'auto_synced');
+
+      return matchesSearch && matchesStatus && matchesCat && matchesVerified;
     });
-  }, [opportunities, searchQuery, selectedStatus, selectedCategory]);
+  }, [opportunities, searchQuery, selectedStatus, selectedCategory, showVerifiedOnly]);
 
   // Reset page whenever search or filter changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, selectedStatus, selectedCategory]);
+  }, [searchQuery, selectedStatus, selectedCategory, showVerifiedOnly]);
 
   // Aggregate metrics
   const totalUnscheduledValue = useMemo(() => {
@@ -384,20 +402,20 @@ export default function TreatmentPipeline({
           </div>
         </div>
 
-        {/* Card 2: Booked Production (Direct Revenue) */}
+        {/* Card 2: Booked Production (Verified Recovered Revenue) */}
         <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-200/80 flex flex-col justify-between">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-500">Booked Chair Production</span>
+            <span className="text-xs font-bold text-slate-500">Verified Recovered Production</span>
             <div className="w-9 h-9 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center border border-emerald-100">
               <TrendingUp className="w-4 h-4" />
             </div>
           </div>
           <div className="mt-4">
             <span className="text-3xl font-black text-emerald-600 tracking-tight">
-              ${totalBookedValue.toLocaleString()}
+              ${(roiSummary?.verifiedBookedValue ?? totalBookedValue).toLocaleString()}
             </span>
             <div className="flex items-center gap-1.5 mt-1 text-[11px] text-slate-400 font-medium">
-              <span>{opportunities.filter(o => o.status === 'booked' || o.status === 'completed').length} converted appointments</span>
+              <span>{roiSummary?.verifiedBookedCount ?? opportunities.filter(o => o.pmsAppointmentId || o.status === 'booked' || o.status === 'completed').length} PMS-verified appointments</span>
             </div>
           </div>
         </div>
@@ -416,7 +434,7 @@ export default function TreatmentPipeline({
               {Number(roiMultiple) > 0 ? `${roiMultiple}x` : '0x'}
             </span>
             <div className="flex items-center gap-1.5 mt-1 text-[11px] text-indigo-200/80 font-medium">
-              <span>vs. $149/mo Practice Tier</span>
+              <span>{roiSummary?.conversionRatePct ?? (totalIdentifiedValue > 0 ? ((totalBookedValue / totalIdentifiedValue) * 100).toFixed(1) : 0)}% conversion rate</span>
             </div>
           </div>
         </div>
@@ -479,28 +497,43 @@ export default function TreatmentPipeline({
           </div>
         </div>
 
-        {/* Category Filter Pills */}
-        <div className="flex items-center gap-2 pt-1 text-[11px] font-bold text-slate-500 overflow-x-auto">
-          <span>Focus Area:</span>
-          {[
-            { id: 'all', label: 'All Procedures' },
-            { id: 'crowns', label: '👑 Crowns & Bridges ($1,650+)' },
-            { id: 'restorative', label: '🦷 Composites & Fillings' },
-            { id: 'perio', label: '🩺 Periodontal Root Planing' },
-            { id: 'endo', label: '⚡ Root Canal Treatment' }
-          ].map(cat => (
-            <button
-              key={cat.id}
-              onClick={() => setSelectedCategory(cat.id)}
-              className={`px-2.5 py-1 rounded-lg transition-all ${
-                selectedCategory === cat.id
-                  ? 'bg-slate-800 text-white'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
-            >
-              {cat.label}
-            </button>
-          ))}
+        {/* Category & PMS Verified Filter Pills */}
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-[11px] font-bold text-slate-500">
+          <div className="flex items-center gap-2 overflow-x-auto">
+            <span>Focus Area:</span>
+            {[
+              { id: 'all', label: 'All Procedures' },
+              { id: 'crowns', label: '👑 Crowns & Bridges ($1,650+)' },
+              { id: 'restorative', label: '🦷 Composites & Fillings' },
+              { id: 'perio', label: '🩺 Periodontal Root Planing' },
+              { id: 'endo', label: '⚡ Root Canal Treatment' }
+            ].map(cat => (
+              <button
+                key={cat.id}
+                onClick={() => setSelectedCategory(cat.id)}
+                className={`px-2.5 py-1 rounded-lg transition-all ${
+                  selectedCategory === cat.id
+                    ? 'bg-slate-800 text-white'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                {cat.label}
+              </button>
+            ))}
+          </div>
+
+          {/* PMS Verified Filter Toggle */}
+          <button
+            onClick={() => setShowVerifiedOnly(prev => !prev)}
+            className={`px-3 py-1 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border ${
+              showVerifiedOnly
+                ? 'bg-emerald-600 text-white border-emerald-700 shadow-sm'
+                : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-200'
+            }`}
+          >
+            <CheckCircle2 className="w-3.5 h-3.5" />
+            <span>PMS-Verified Only ({opportunities.filter(o => o.pmsAppointmentId || o.pmsSyncStatus === 'verified' || o.pmsSyncStatus === 'auto_synced').length})</span>
+          </button>
         </div>
       </div>
 
@@ -554,6 +587,12 @@ export default function TreatmentPipeline({
                   >
                     {opp.status}
                   </span>
+                  {opp.pmsAppointmentId && (
+                    <span className="px-2 py-0.5 bg-emerald-50 text-emerald-800 border border-emerald-300 rounded-lg text-[10px] font-extrabold flex items-center gap-1">
+                      <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                      <span>{opp.pmsType ? opp.pmsType.toUpperCase() : 'PMS'} #{opp.pmsAppointmentId}</span>
+                    </span>
+                  )}
                 </div>
 
                 <div className="flex items-baseline gap-2">
@@ -597,26 +636,34 @@ export default function TreatmentPipeline({
                 ) : (
                   <div className="flex flex-wrap items-center gap-1.5">
                     <button
-                      onClick={() => setActiveModalOpp(opp)}
-                      className="px-3.5 py-2 rounded-xl bg-primary text-white text-xs font-bold hover:bg-primary-hover shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
+                      onClick={() => {
+                        setEstimateModalOpp(opp);
+                        setOutreachChannel('sms');
+                      }}
+                      className="px-3 py-2 rounded-xl bg-primary text-white text-xs font-bold hover:bg-primary-hover shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
+                      title="Generate patient-friendly estimate with ADA item code for health fund rebates"
                     >
-                      <MessageSquare className="w-3.5 h-3.5" />
-                      <span>1-Click Outreach</span>
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>Patient Estimate</span>
                     </button>
 
-                    {opp.status !== 'booked' ? (
-                      <button
-                        onClick={() => handleUpdateStatus(opp.id, 'booked')}
-                        className="px-3 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-xs font-bold transition-all flex items-center gap-1 cursor-pointer"
-                      >
-                        <CheckCircle2 className="w-3.5 h-3.5" />
-                        <span>Booked</span>
-                      </button>
-                    ) : (
-                      <span className="text-[11px] text-emerald-600 font-extrabold flex items-center gap-1 px-2 py-1">
-                        <Check className="w-3.5 h-3.5" /> Booked
-                      </span>
-                    )}
+                    <button
+                      onClick={() => {
+                        setPmsVerifyModalOpp(opp);
+                        setPmsTypeInput(opp.pmsType || 'd4w');
+                        setPmsAppointmentIdInput(opp.pmsAppointmentId || '');
+                        setPmsCopySuccess(false);
+                      }}
+                      className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border ${
+                        opp.pmsAppointmentId
+                          ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-300 shadow-sm'
+                          : 'bg-slate-50 hover:bg-emerald-50 text-slate-700 hover:text-emerald-700 border-slate-200/80 hover:border-emerald-200'
+                      }`}
+                      title="Verify or update PMS Appointment ID"
+                    >
+                      <ClipboardCheck className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>{opp.pmsAppointmentId ? 'PMS Linked' : 'Verify in PMS'}</span>
+                    </button>
 
                     <button
                       onClick={() => {
@@ -668,140 +715,319 @@ export default function TreatmentPipeline({
         )}
       </div>
 
-      {/* 1-Click Outreach Modal */}
+      {/* Patient Treatment Estimate & Health Fund Rebate Modal */}
       <AnimatePresence>
-        {activeModalOpp && (
+        {estimateModalOpp && (() => {
+          const estimate = generateTreatmentEstimate(estimateModalOpp, activeClinic?.clinicName, dentistName);
+          const activeText = outreachChannel === 'whatsapp'
+            ? estimate.whatsappMessage
+            : outreachChannel === 'email'
+            ? estimate.emailBody
+            : estimate.smsMessage;
+
+          return (
+            <div
+              className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm"
+              onClick={() => setEstimateModalOpp(null)}
+            >
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 10 }}
+                onClick={e => e.stopPropagation()}
+                className="bg-white rounded-3xl shadow-2xl border border-slate-200/80 max-w-xl w-full p-6 relative overflow-hidden max-h-[90vh] overflow-y-auto"
+              >
+                <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+                  <div>
+                    <div className="flex items-center gap-1.5 text-primary text-[10px] font-extrabold uppercase tracking-widest">
+                      <Sparkles className="w-3.5 h-3.5" /> High-Conversion Patient Dispatch
+                    </div>
+                    <h3 className="text-lg font-extrabold text-slate-900 mt-0.5">
+                      Patient Treatment Estimate & Health Fund Breakdown
+                    </h3>
+                  </div>
+                  <button
+                    onClick={() => setEstimateModalOpp(null)}
+                    className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 transition-colors cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <div className="mt-4 space-y-4">
+                  {/* Summary Banner */}
+                  <div className="p-4 rounded-2xl bg-[#faf9f7] border border-slate-200/80 flex items-center justify-between">
+                    <div>
+                      <span className="text-sm font-extrabold text-slate-800">{estimateModalOpp.patientName}</span>
+                      <div className="text-xs text-slate-500 flex items-center gap-1.5 mt-0.5">
+                        <span className="font-bold text-slate-700">{estimateModalOpp.procedureName}</span>
+                        {estimateModalOpp.tooth && (
+                          <span className="px-2 py-0.5 bg-indigo-50 text-primary rounded-md font-extrabold text-[10px]">
+                            Tooth {estimateModalOpp.tooth}
+                          </span>
+                        )}
+                        <span className="px-2 py-0.5 bg-slate-200/70 text-slate-700 rounded-md font-bold text-[10px]">
+                          ADA {estimateModalOpp.adaCode}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-lg font-black text-emerald-600 block">
+                        ${(estimateModalOpp.estimatedFee || 0).toLocaleString()}
+                      </span>
+                      <span className="text-[10px] text-slate-400 font-medium">Estimated Fee</span>
+                    </div>
+                  </div>
+
+                  {/* Clinical Explanation & Health Fund Rebate Alert */}
+                  <div className="p-3.5 rounded-2xl bg-amber-50/70 border border-amber-200/80 space-y-2">
+                    <div className="flex items-start gap-2">
+                      <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                      <div className="text-xs text-amber-900 leading-relaxed">
+                        <span className="font-bold text-amber-950">Patient Overview: </span>
+                        {estimate.plainEnglishDiagnosis}
+                      </div>
+                    </div>
+                    <div className="text-[11px] text-amber-800 bg-amber-100/60 p-2.5 rounded-xl font-medium border border-amber-200/50">
+                      <b>Health Fund Tip:</b> Patient can quote ADA Item Code <b>{estimateModalOpp.adaCode}</b> in their Bupa, Medibank, or HCF app for immediate rebate estimation.
+                    </div>
+                    <div className="text-[11px] text-rose-800 font-semibold flex items-center gap-1.5">
+                      <span>⚠️ <b>Why timing matters:</b> {estimate.urgencyWarning}</span>
+                    </div>
+                  </div>
+
+                  {/* Channel Selector */}
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-500 mb-1.5">
+                      Outreach Channel Template
+                    </label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {[
+                        { id: 'sms', label: 'SMS Text', icon: MessageSquare },
+                        { id: 'whatsapp', label: 'WhatsApp', icon: Phone },
+                        { id: 'email', label: 'Email', icon: Mail }
+                      ].map(ch => {
+                        const Icon = ch.icon;
+                        return (
+                          <button
+                            key={ch.id}
+                            onClick={() => setOutreachChannel(ch.id as any)}
+                            className={`flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                              outreachChannel === ch.id
+                                ? 'bg-primary text-white border-primary shadow-sm'
+                                : 'bg-slate-50 text-slate-600 border-slate-200/70 hover:bg-slate-100'
+                            }`}
+                          >
+                            <Icon className="w-3.5 h-3.5" />
+                            <span>{ch.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Pre-Formatted Contextual Message Box */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-[11px] font-bold text-slate-500">
+                        Personalized Patient Message
+                      </label>
+                      <button
+                        onClick={() => handleCopyOutreach(activeText)}
+                        className="text-[10px] text-primary font-bold hover:underline flex items-center gap-1 cursor-pointer"
+                      >
+                        {copiedText ? (
+                          <>
+                            <Check className="w-3 h-3 text-emerald-600" />
+                            <span className="text-emerald-600">Copied!</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3 h-3" />
+                            <span>Copy Text</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                    <textarea
+                      rows={outreachChannel === 'email' ? 7 : 5}
+                      value={activeText}
+                      readOnly
+                      className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs text-slate-800 font-medium focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary leading-relaxed"
+                    />
+                  </div>
+
+                  {/* Dispatch Actions */}
+                  <div className="flex items-center gap-3 pt-2">
+                    <button
+                      onClick={() => {
+                        handleCopyOutreach(activeText);
+                        handleUpdateStatus(estimateModalOpp.id, 'contacted');
+                        setEstimateModalOpp(null);
+                      }}
+                      className="flex-1 py-3 bg-primary hover:bg-primary-hover text-white rounded-2xl font-bold text-xs shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                      <Check className="w-4 h-4" />
+                      <span>Copy & Mark Contacted</span>
+                    </button>
+
+                    {outreachChannel === 'whatsapp' && (
+                      <a
+                        href={`https://wa.me/?text=${encodeURIComponent(activeText)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={() => {
+                          handleUpdateStatus(estimateModalOpp.id, 'contacted');
+                          setEstimateModalOpp(null);
+                        }}
+                        className="px-4 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-bold text-xs shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <ExternalLink className="w-4 h-4" />
+                        <span>Open WhatsApp</span>
+                      </a>
+                    )}
+                  </div>
+                </div>
+              </motion.div>
+            </div>
+          );
+        })()}
+      </AnimatePresence>
+
+      {/* PMS Appointment Verification Modal */}
+      <AnimatePresence>
+        {pmsVerifyModalOpp && (
           <div
             className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm"
-            onClick={() => setActiveModalOpp(null)}
+            onClick={() => setPmsVerifyModalOpp(null)}
           >
             <motion.div
               initial={{ opacity: 0, scale: 0.95, y: 10 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 10 }}
               onClick={e => e.stopPropagation()}
-              className="bg-white rounded-3xl shadow-2xl border border-slate-200/80 max-w-lg w-full p-6 relative overflow-hidden"
+              className="bg-white rounded-3xl shadow-2xl border border-slate-200/80 max-w-md w-full p-6 relative overflow-hidden"
             >
               <div className="flex items-center justify-between pb-4 border-b border-slate-100">
-                <div>
-                  <div className="flex items-center gap-1.5 text-primary text-[10px] font-extrabold uppercase tracking-widest">
-                    <Sparkles className="w-3.5 h-3.5" /> Practice Coordinator Dispatch
+                <div className="flex items-center gap-2">
+                  <div className="w-9 h-9 rounded-2xl bg-emerald-50 text-emerald-600 border border-emerald-200 flex items-center justify-center">
+                    <ClipboardCheck className="w-5 h-5 text-emerald-600" />
                   </div>
-                  <h3 className="text-lg font-extrabold text-slate-800 mt-0.5">
-                    1-Click Patient Treatment Outreach
-                  </h3>
+                  <div>
+                    <h3 className="text-base font-extrabold text-slate-900">
+                      PMS Appointment Verification
+                    </h3>
+                    <p className="text-[11px] text-slate-400">Lock verified revenue onto practice ledger</p>
+                  </div>
                 </div>
                 <button
-                  onClick={() => setActiveModalOpp(null)}
-                  className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 transition-colors"
+                  onClick={() => setPmsVerifyModalOpp(null)}
+                  className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 transition-colors cursor-pointer"
                 >
                   <X className="w-4 h-4" />
                 </button>
               </div>
 
               <div className="mt-4 space-y-4">
-                {/* Patient / Procedure Summary Banner */}
-                <div className="p-3.5 rounded-2xl bg-[#faf9f7] border border-slate-200/70 flex items-center justify-between">
-                  <div>
-                    <span className="text-xs font-extrabold text-slate-800">{activeModalOpp.patientName}</span>
-                    <div className="text-[11px] text-slate-500">
-                      {activeModalOpp.procedureName} {activeModalOpp.tooth ? `(Tooth ${activeModalOpp.tooth})` : ''}
-                    </div>
+                {/* Treatment summary */}
+                <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200/80 text-xs">
+                  <div className="flex items-center justify-between font-bold text-slate-800">
+                    <span>{pmsVerifyModalOpp.patientName}</span>
+                    <span className="text-emerald-600 font-black">${(pmsVerifyModalOpp.estimatedFee || 0).toLocaleString()}</span>
                   </div>
-                  <span className="text-sm font-black text-emerald-600">
-                    ${(activeModalOpp.estimatedFee || 0).toLocaleString()}
-                  </span>
-                </div>
-
-                {/* Channel Selector */}
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-500 mb-1.5">
-                    Communication Channel
-                  </label>
-                  <div className="grid grid-cols-3 gap-2">
-                    {[
-                      { id: 'sms', label: 'SMS Text', icon: MessageSquare },
-                      { id: 'whatsapp', label: 'WhatsApp', icon: Phone },
-                      { id: 'email', label: 'Email', icon: Mail }
-                    ].map(ch => {
-                      const Icon = ch.icon;
-                      return (
-                        <button
-                          key={ch.id}
-                          onClick={() => setOutreachChannel(ch.id as any)}
-                          className={`flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-bold border transition-all ${
-                            outreachChannel === ch.id
-                              ? 'bg-primary text-white border-primary shadow-sm'
-                              : 'bg-slate-50 text-slate-600 border-slate-200/70 hover:bg-slate-100'
-                          }`}
-                        >
-                          <Icon className="w-3.5 h-3.5" />
-                          <span>{ch.label}</span>
-                        </button>
-                      );
-                    })}
+                  <div className="text-[11px] text-slate-500 mt-1">
+                    {pmsVerifyModalOpp.procedureName} {pmsVerifyModalOpp.tooth ? `(Tooth ${pmsVerifyModalOpp.tooth})` : ''} · ADA {pmsVerifyModalOpp.adaCode}
                   </div>
                 </div>
 
-                {/* Pre-Formatted Contextual Message Box */}
+                {/* 1-Click Copy for Legacy Desktop PMS (D4W / EXACT) */}
                 <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="text-[11px] font-bold text-slate-500">
-                      Personalized Message Body
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-[11px] font-bold text-slate-600">
+                      Quick Note for PMS Appointment Book
                     </label>
                     <button
-                      onClick={() => handleCopyOutreach(getOutreachMessage(activeModalOpp))}
-                      className="text-[10px] text-primary font-bold hover:underline flex items-center gap-1"
+                      onClick={() => {
+                        const note = `[DentAI] ${pmsVerifyModalOpp.procedureName} (Tooth ${pmsVerifyModalOpp.tooth || 'N/A'}) · ADA ${pmsVerifyModalOpp.adaCode} · Est: $${pmsVerifyModalOpp.estimatedFee} · Note: ${pmsVerifyModalOpp.clinicalReason}`;
+                        navigator.clipboard.writeText(note);
+                        setPmsCopySuccess(true);
+                        setTimeout(() => setPmsCopySuccess(false), 2000);
+                      }}
+                      className="text-[10px] text-primary font-bold hover:underline flex items-center gap-1 cursor-pointer"
                     >
-                      {copiedText ? (
+                      {pmsCopySuccess ? (
                         <>
                           <Check className="w-3 h-3 text-emerald-600" />
-                          <span className="text-emerald-600">Copied!</span>
+                          <span className="text-emerald-600">Copied to Clipboard!</span>
                         </>
                       ) : (
                         <>
                           <Copy className="w-3 h-3" />
-                          <span>Copy Text</span>
+                          <span>Copy for D4W/EXACT Memo</span>
                         </>
                       )}
                     </button>
                   </div>
-                  <textarea
-                    rows={5}
-                    defaultValue={getOutreachMessage(activeModalOpp)}
-                    className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs text-slate-800 font-medium focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary leading-relaxed"
-                  />
+                  <div className="p-2.5 bg-slate-100/70 border border-slate-200 rounded-xl text-[11px] text-slate-700 font-mono select-all">
+                    {`[DentAI] ${pmsVerifyModalOpp.procedureName} (Tooth ${pmsVerifyModalOpp.tooth || 'N/A'}) · ADA ${pmsVerifyModalOpp.adaCode} · Est: $${pmsVerifyModalOpp.estimatedFee}`}
+                  </div>
                 </div>
 
-                {/* Dispatch Actions */}
-                <div className="flex items-center gap-3 pt-2">
+                {/* PMS System & Appointment ID inputs */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-500 mb-1">
+                      PMS System
+                    </label>
+                    <select
+                      value={pmsTypeInput}
+                      onChange={e => setPmsTypeInput(e.target.value as any)}
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 font-semibold focus:outline-none focus:border-primary cursor-pointer"
+                    >
+                      <option value="d4w">Dental4Windows (D4W)</option>
+                      <option value="exact">EXACT (SoE)</option>
+                      <option value="cliniko">Cliniko</option>
+                      <option value="corepractice">Core Practice</option>
+                      <option value="dentrix">Dentrix</option>
+                      <option value="other">Other PMS</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-500 mb-1">
+                      Appointment / Ledger ID
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. 8491, APP-209"
+                      value={pmsAppointmentIdInput}
+                      onChange={e => setPmsAppointmentIdInput(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 font-semibold focus:outline-none focus:border-primary"
+                    />
+                  </div>
+                </div>
+
+                {/* Modal Actions */}
+                <div className="pt-2 flex items-center justify-end gap-2">
+                  <button
+                    onClick={() => setPmsVerifyModalOpp(null)}
+                    className="px-4 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-xs font-bold text-slate-600 transition-all cursor-pointer"
+                  >
+                    Cancel
+                  </button>
                   <button
                     onClick={() => {
-                      handleCopyOutreach(getOutreachMessage(activeModalOpp));
-                      handleUpdateStatus(activeModalOpp.id, 'contacted');
-                      setActiveModalOpp(null);
+                      handleUpdateStatus(pmsVerifyModalOpp.id, 'booked', undefined, {
+                        pmsType: pmsTypeInput,
+                        pmsAppointmentId: pmsAppointmentIdInput.trim() || 'VERIFIED'
+                      });
+                      setPmsVerifyModalOpp(null);
                     }}
-                    className="flex-1 py-3 bg-primary hover:bg-primary-hover text-white rounded-2xl font-bold text-xs shadow-md transition-all flex items-center justify-center gap-2"
+                    className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-md shadow-emerald-600/20 transition-all flex items-center gap-1.5 cursor-pointer"
                   >
-                    <Check className="w-4 h-4" />
-                    <span>Copy & Mark Contacted</span>
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>Confirm & Lock Revenue</span>
                   </button>
-
-                  {outreachChannel === 'whatsapp' && (
-                    <a
-                      href={`https://wa.me/?text=${encodeURIComponent(getOutreachMessage(activeModalOpp))}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={() => {
-                        handleUpdateStatus(activeModalOpp.id, 'contacted');
-                        setActiveModalOpp(null);
-                      }}
-                      className="px-4 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-bold text-xs shadow-md transition-all flex items-center gap-1.5"
-                    >
-                      <ExternalLink className="w-4 h-4" />
-                      <span>Open WhatsApp</span>
-                    </a>
-                  )}
                 </div>
               </div>
             </motion.div>

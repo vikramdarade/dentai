@@ -1842,10 +1842,11 @@ function PricingScene({ progress }: SceneProps) {
 }
 
 function PipelineScene({ progress }: SceneProps) {
-  const showModal = progress > 0.5;
+  const showModal = progress > 0.45;
+  const isBooked = progress > 0.65;
   const card1Val = Math.min(34800, Math.floor(progress * 4 * 34800));
-  const card2Val = progress > 0.25 ? 16800 : 0;
-  const roiVal = progress > 0.25 ? '112.8x' : '0x';
+  const card2Val = progress > 0.25 ? 18400 : 0;
+  const roiVal = progress > 0.25 ? '123.5x' : '0x';
 
   return (
     <div className="h-full w-full bg-[#F8F7F5] flex flex-col relative overflow-hidden">
@@ -1874,8 +1875,22 @@ function PipelineScene({ progress }: SceneProps) {
               </span>
               <span className="px-3 py-1 rounded-lg text-[10px] font-bold bg-white text-primary shadow-sm flex items-center gap-1">
                 <Sparkles className="w-3 h-3 text-amber-500" />
-                <span>Treatment Pipeline & ROI</span>
+                <span>Revenue Engine & PMS Sync</span>
               </span>
+            </div>
+          </div>
+
+          {/* Subheader with universal PMS bridge indicator */}
+          <div className="flex items-center justify-between text-xs pt-0.5 px-0.5">
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-bold text-slate-700">Closed-Loop Recovery Pipeline</span>
+              <span className="px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 text-[8px] font-bold border border-indigo-200">
+                Universal PMS Bridge
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5 text-[8px] font-semibold text-slate-500 bg-white px-2 py-1 rounded-lg border border-slate-200">
+              <CheckCircle2 className="w-3 h-3 text-emerald-500" />
+              <span>D4W · EXACT · Cliniko Verified</span>
             </div>
           </div>
 
@@ -1910,7 +1925,7 @@ function PipelineScene({ progress }: SceneProps) {
               <div className="text-lg font-black text-emerald-600 mt-1">
                 ${card2Val.toLocaleString()}
               </div>
-              <span className="text-[8px] text-slate-400 font-medium">8 converted appts</span>
+              <span className="text-[8px] text-emerald-600 font-semibold">9 verified in PMS</span>
             </motion.div>
 
             <motion.div
@@ -1964,6 +1979,16 @@ function PipelineScene({ progress }: SceneProps) {
                     <span className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200 text-[9px] font-bold">
                       FDI Tooth 16
                     </span>
+                    {isBooked ? (
+                      <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-[9px] font-bold flex items-center gap-1">
+                        <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600" />
+                        <span>✓ D4W #8491 Verified</span>
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 text-[9px] font-bold">
+                        Unscheduled
+                      </span>
+                    )}
                   </div>
                   <div className="text-[10px] text-slate-400 font-medium">
                     Dr. Sarah Chen · Comprehensive Exam (Aug 20)
@@ -1977,21 +2002,27 @@ function PipelineScene({ progress }: SceneProps) {
             </div>
 
             <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-150 text-[10px] text-slate-600 leading-snug">
-              <b>Clinical Reason:</b> Micro-crack across mesio-palatal cusp requiring cuspal protection. Patient departed without booking to review private health insurance rebate.
+              <b>Clinical Reason:</b> Micro-crack across mesio-palatal cusp requiring cuspal protection. Risk of complete fracture into pulp if left unrestored.
             </div>
 
             <div className="flex items-center justify-between pt-1">
-              <div className="flex items-center gap-1 text-[9px] text-amber-600 font-bold">
-                <Clock className="w-3 h-3" />
-                <span>Unscheduled · Follow-up Ready</span>
+              <div className="flex items-center gap-1 text-[9px] text-slate-500 font-medium">
+                <Clock className="w-3 h-3 text-amber-500" />
+                <span>Proposed 4 days ago · Follow-up Ready</span>
               </div>
               <div className="flex items-center gap-2">
                 <span className="px-2.5 py-1 rounded-xl bg-primary text-white text-[9px] font-bold flex items-center gap-1 shadow-sm">
                   <Sparkles className="w-3 h-3" />
-                  <span>1-Click Follow-up</span>
+                  <span>1-Click Estimate & Rebate</span>
                 </span>
-                <span className="px-2.5 py-1 rounded-xl bg-slate-100 text-slate-600 text-[9px] font-bold">
-                  Mark as Booked
+                <span
+                  className={`px-2.5 py-1 rounded-xl text-[9px] font-bold ${
+                    isBooked
+                      ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                      : 'bg-slate-100 text-slate-600'
+                  }`}
+                >
+                  {isBooked ? 'Booked in D4W' : 'Mark as Booked'}
                 </span>
               </div>
             </div>
@@ -2008,22 +2039,23 @@ function PipelineScene({ progress }: SceneProps) {
         >
           <div className="flex items-center justify-between border-b border-slate-100 pb-2">
             <div className="flex items-center gap-1.5 text-primary text-[10px] font-black uppercase tracking-wider">
-              <Sparkles className="w-3 h-3" /> 1-Click Patient Treatment Outreach
+              <Sparkles className="w-3 h-3 text-amber-500" /> Patient Treatment Estimate & Rebate Info
             </div>
-            <span className="text-[9px] text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded-full">
-              SMS / WhatsApp Ready
+            <span className="text-[9px] text-emerald-700 font-bold bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
+              Bupa · Medibank · HCF Quote Ready
             </span>
           </div>
           <div className="mt-2 p-2.5 rounded-xl bg-[#F8F7F5] border border-slate-200 text-[10px] text-slate-700 leading-relaxed font-sans">
-            "Hi Priya, following up on your visit with Dr. Sarah Chen. Dr. Chen noted that tooth 16 requires a protective ceramic crown to prevent further splitting. We have reserved priority appointments next week. Would morning or afternoon suit you best?"
+            "Hi Priya, following up on your consultation with Dr. Sarah Chen. Dr. Chen recommended a protective porcelain ceramic crown (Item ADA 611) for tooth 16 to prevent structural cracking. Estimated investment is $1,650. Quote item 611 to your health fund for your rebate. Would next Tuesday morning suit you?"
           </div>
           <div className="mt-2.5 flex items-center gap-2">
-            <div className="flex-1 py-1.5 rounded-xl bg-primary text-white text-center text-[10px] font-bold shadow-sm">
-              Copy & Mark Contacted
+            <div className="flex-1 py-1.5 rounded-xl bg-primary text-white text-center text-[10px] font-bold shadow-sm flex items-center justify-center gap-1">
+              <Copy className="w-3 h-3" />
+              <span>Copy SMS / WhatsApp</span>
             </div>
-            <div className="py-1.5 px-3 rounded-xl bg-emerald-600 text-white text-[10px] font-bold shadow-sm flex items-center gap-1">
-              <Phone className="w-3 h-3" />
-              <span>WhatsApp</span>
+            <div className="py-1.5 px-3 rounded-xl bg-slate-800 text-white text-[10px] font-bold shadow-sm flex items-center gap-1">
+              <ShieldCheck className="w-3 h-3 text-emerald-400" />
+              <span>Sync to D4W</span>
             </div>
           </div>
         </motion.div>

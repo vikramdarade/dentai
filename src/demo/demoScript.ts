@@ -210,12 +210,12 @@ export const DEMO_SCENES: DemoScene[] = [
     id: 'treatment-pipeline',
     act: 'owner',
     kind: 'pipeline',
-    title: 'Treatment Pipeline & Closed-Loop ROI',
+    title: 'Closed-Loop Revenue Recovery & PMS Sync',
     narration:
-      'And here is DentAI\u2019s most powerful advantage for clinic owners: the Treatment Pipeline. While the dentist speaks, DentAI automatically extracts unscheduled treatment proposals — like Priya\u2019s tooth 16 ceramic crown valued at $1,650. Front desk teams follow up via SMS or WhatsApp in one click. When patients book, DentAI measures the exact chairside revenue recovered — proving over 100x return on investment on your subscription tier.',
+      'And here is DentAI\u2019s most powerful advantage for clinic owners: the Closed-Loop Treatment Revenue Engine. While the dentist speaks, DentAI extracts unscheduled treatment proposals — like Priya\u2019s tooth 16 crown valued at $1,650. Front desk teams generate patient-friendly estimates with ADA rebate codes in one click, and verify bookings directly in Dental4Windows, EXACT, or Cliniko. DentAI tracks verified recovered production on your ledger — proving over 100x return on investment on your subscription.',
     tts:
-      "And here is Dent-A-I's most powerful advantage for clinic owners: the Treatment Pipeline. While the dentist speaks, Dent-A-I automatically extracts unscheduled treatment proposals — like Priya's tooth 16 ceramic crown valued at sixteen hundred and fifty dollars. Front desk teams follow up via S M S or WhatsApp in one click. When patients book, Dent-A-I measures the exact chairside revenue recovered — proving over one hundred times return on investment on your subscription tier.",
-    duration: 21000,
+      "And here is Dent-A-I's most powerful advantage for clinic owners: the Closed-Loop Treatment Revenue Engine. While the dentist speaks, Dent-A-I extracts unscheduled treatment proposals — like Priya's tooth 16 crown valued at sixteen hundred and fifty dollars. Front desk teams generate patient-friendly estimates with A D A rebate codes in one click, and verify bookings directly in Dental4Windows, EXACT, or Cliniko. Dent-A-I tracks verified recovered production on your ledger — proving over one hundred times return on investment on your subscription.",
+    duration: 23000,
   },
   {
     id: 'switcher',

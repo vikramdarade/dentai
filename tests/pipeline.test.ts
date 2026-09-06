@@ -387,5 +387,78 @@ describe('Treatment Revenue Moat & ADA Valuation Engine', () => {
       expect(patchRes.status).toBe(200);
       expect(patchRes.body.opportunity.status).toBe('contacted');
     });
+
+    it('verifies opportunity booking with PMS appointment ID and tracks verified ROI', async () => {
+      // 1. Manually mark opportunity as booked with PMS details
+      const pmsRes = await request(app)
+        .patch(`/api/pipeline/${targetOppId}`)
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({
+          status: 'booked',
+          pmsType: 'd4w',
+          pmsAppointmentId: 'D4W-8831',
+          notes: 'Confirmed in Dental4Windows appointment book'
+        });
+
+      expect(pmsRes.status).toBe(200);
+      expect(pmsRes.body.opportunity.status).toBe('booked');
+      expect(pmsRes.body.opportunity.pmsType).toBe('d4w');
+      expect(pmsRes.body.opportunity.pmsAppointmentId).toBe('D4W-8831');
+      expect(pmsRes.body.opportunity.pmsSyncStatus).toBe('verified');
+
+      // 2. Check that GET /api/pipeline/roi includes closed-loop verified metrics
+      const roiRes = await request(app)
+        .get('/api/pipeline/roi')
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(roiRes.status).toBe(200);
+      expect(roiRes.body.verifiedBookedValue).toBeGreaterThanOrEqual(1650);
+      expect(roiRes.body.verifiedBookedCount).toBeGreaterThanOrEqual(1);
+      expect(roiRes.body.conversionRatePct).toBeGreaterThan(0);
+    });
+
+    it('processes inbound cloud PMS booking webhook and automatically marks opportunity booked', async () => {
+      // Create a fresh unscheduled opportunity first
+      const freshConsult = {
+        firstName: 'Sarah',
+        lastName: 'Connor',
+        dob: '1984-05-12',
+        appointmentType: 'general',
+        date: 'Nov 14',
+        time: '2:00 PM',
+        status: 'Completed',
+        transcript: [{ sender: 'Dentist', text: 'Tooth 26 needs a ceramic crown.' }],
+        findings: {
+          chiefComplaint: 'Checkup',
+          diagnosis: 'Cusp fracture 26',
+          treatmentPerformed: 'Exam 011',
+          recommendations: 'Recommend full crown on tooth 26.'
+        }
+      };
+
+      const postRes = await request(app)
+        .post('/api/consultations')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send(freshConsult);
+
+      expect(postRes.status).toBe(201);
+      const freshOppId = postRes.body.findings.proposedTreatments[0].id;
+
+      // Simulate inbound webhook from Cliniko / Cloud PMS
+      const webhookRes = await request(app)
+        .post('/api/webhooks/pms-booking')
+        .send({
+          opportunityId: freshOppId,
+          pmsType: 'cliniko',
+          pmsAppointmentId: 'CLINIKO-APP-5521',
+          bookedAt: new Date().toISOString()
+        });
+
+      expect(webhookRes.status).toBe(200);
+      expect(webhookRes.body.opportunity.status).toBe('booked');
+      expect(webhookRes.body.opportunity.pmsType).toBe('cliniko');
+      expect(webhookRes.body.opportunity.pmsAppointmentId).toBe('CLINIKO-APP-5521');
+      expect(webhookRes.body.opportunity.pmsSyncStatus).toBe('auto_synced');
+    });
   });
 });

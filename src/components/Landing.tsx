@@ -4,6 +4,7 @@ import {
   ArrowRight,
   BadgeCheck,
   CalendarClock,
+  CheckCircle2,
   ClipboardCheck,
   Clock,
   DollarSign,
@@ -345,19 +346,20 @@ export default function Landing({ onGetStarted }: LandingProps) {
             <div className="inline-flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-4 py-1.5 backdrop-blur-md">
               <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
               <span className="text-[11px] font-extrabold uppercase tracking-[0.18em] text-emerald-300">
-                The Practice Revenue Moat
+                Closed-Loop Revenue Recovery Engine
               </span>
             </div>
             <h2 className="mt-6 text-3xl font-extrabold tracking-tight text-white md:text-5xl">
               Turn unbooked chairside treatment into{' '}
               <span className="bg-gradient-to-r from-emerald-400 to-teal-200 bg-clip-text text-transparent">
-                recovered practice revenue.
+                verified practice revenue.
               </span>
             </h2>
             <p className="mt-4 text-base leading-relaxed text-slate-300 md:text-lg">
-              Over $30,000+ in proposed crowns, fillings, and endodontics is discussed in dental chairs
-              every month, only to be lost when patients leave the operatory. DentAI automatically extracts
-              unbooked treatment plans, values them with ADA fee schedules, and equips your front desk to recover them.
+              Over $30,000+ in proposed crowns, fillings, and endodontics is discussed in operatory chairs
+              every month, only to be lost to patient hesitation and forgotten follow-ups. DentAI extracts
+              unbooked treatment plans, generates patient estimates with private health fund rebate codes,
+              and verifies confirmed bookings directly in your PMS appointment book.
             </p>
           </div>
 
@@ -366,22 +368,22 @@ export default function Landing({ onGetStarted }: LandingProps) {
             <div className="rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur-md">
               <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Unscheduled Pipeline</span>
               <p className="mt-2 text-3xl font-black text-white">$34,800</p>
-              <span className="mt-1 inline-block text-xs font-semibold text-emerald-400">24 active treatment plans</span>
+              <span className="mt-1 inline-block text-xs font-semibold text-amber-400">24 active treatment plans</span>
             </div>
             <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-6 backdrop-blur-md">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-300">Recovered Booked</span>
-              <p className="mt-2 text-3xl font-black text-emerald-400">$16,800</p>
-              <span className="mt-1 inline-block text-xs font-semibold text-emerald-300">12 patients booked</span>
+              <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-300">Verified Recovered Production</span>
+              <p className="mt-2 text-3xl font-black text-emerald-400">$18,400</p>
+              <span className="mt-1 inline-block text-xs font-semibold text-emerald-300">12 PMS-verified bookings</span>
             </div>
             <div className="rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur-md">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Software ROI</span>
-              <p className="mt-2 text-3xl font-black text-white">112.8x</p>
-              <span className="mt-1 inline-block text-xs font-semibold text-indigo-300">On $149/mo practice plan</span>
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Practice ROI Multiple</span>
+              <p className="mt-2 text-3xl font-black text-white">123.5x</p>
+              <span className="mt-1 inline-block text-xs font-semibold text-indigo-300">Verified on $149/mo plan</span>
             </div>
             <div className="rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur-md">
               <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Recapture Rate</span>
-              <p className="mt-2 text-3xl font-black text-white">50.0%</p>
-              <span className="mt-1 inline-block text-xs font-semibold text-slate-300">Average response &lt; 48 hrs</span>
+              <p className="mt-2 text-3xl font-black text-white">52.8%</p>
+              <span className="mt-1 inline-block text-xs font-semibold text-slate-300">Avg booking velocity &lt; 48 hrs</span>
             </div>
           </div>
 
@@ -400,16 +402,19 @@ export default function Landing({ onGetStarted }: LandingProps) {
                       <p className="text-xs text-slate-400">Comprehensive Exam · Operatory 2</p>
                     </div>
                   </div>
-                  <span className="rounded-full bg-rose-500/20 px-3 py-1 text-[11px] font-extrabold uppercase tracking-wider text-rose-300 border border-rose-500/30">
-                    High Urgency
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="rounded-full bg-emerald-500/20 px-3 py-1 text-[11px] font-extrabold uppercase tracking-wider text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                      D4W #8491 Verified
+                    </span>
+                  </div>
                 </div>
 
                 <div className="mt-5 space-y-3">
                   <div className="flex items-center justify-between rounded-xl bg-white/5 p-3.5 border border-white/5">
                     <div>
-                      <span className="text-xs font-bold text-slate-300">Tooth 16 · Ceramic / Porcelain Crown</span>
-                      <p className="text-[11px] text-slate-400">Distal-incisal fracture detected under heavy occlusal load</p>
+                      <span className="text-xs font-bold text-slate-300">Tooth 16 · Full Ceramic Crown</span>
+                      <p className="text-[11px] text-slate-400">Hairline crack under mesial amalgam · High risk of vertical root fracture</p>
                     </div>
                     <div className="text-right">
                       <span className="rounded bg-indigo-500/20 px-2 py-0.5 font-mono text-xs font-bold text-indigo-300">ADA 611</span>
@@ -418,27 +423,30 @@ export default function Landing({ onGetStarted }: LandingProps) {
                   </div>
                 </div>
 
-                {/* Outreach drawer preview */}
+                {/* Patient Estimate & Health Fund Rebate preview */}
                 <div className="mt-5 rounded-2xl border border-emerald-500/30 bg-emerald-950/40 p-4">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-emerald-300 flex items-center gap-1.5">
-                      <MessageSquare className="h-3.5 w-3.5 text-emerald-400" />
-                      1-Click Patient Outreach
+                      <Sparkles className="h-3.5 w-3.5 text-emerald-400" />
+                      Patient Treatment Estimate & Health Fund Rebates
                     </span>
-                    <span className="text-[10px] uppercase tracking-wider text-slate-400">Pre-drafted script</span>
+                    <span className="text-[10px] font-bold text-slate-400 bg-white/5 px-2 py-0.5 rounded">
+                      Bupa · Medibank · HCF Ready
+                    </span>
                   </div>
-                  <p className="mt-2 text-xs leading-relaxed text-slate-300 italic">
-                    “Hi Priya, Dr. Sarah noted tooth 16 has a fracture that needs a ceramic crown to prevent splitting. We have an opening this Thursday at 2:15 PM…”
-                  </p>
-                  <div className="mt-4 flex flex-wrap items-center gap-2">
+                  <div className="mt-2.5 p-2.5 rounded-xl bg-white/5 border border-white/10 text-xs text-slate-300 leading-relaxed font-sans">
+                    <span className="text-amber-300 font-bold block mb-1">Plain-English Clinical Risk:</span>
+                    "Tooth 16 has structural crack damage requiring crown reinforcement. Delaying care risks complete root split requiring extraction."
+                  </div>
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
                     <span className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-extrabold text-slate-950 shadow-sm">
-                      <Phone className="h-3.5 w-3.5" /> WhatsApp Reminder
+                      <Phone className="h-3.5 w-3.5" /> 1-Click WhatsApp
                     </span>
                     <span className="inline-flex items-center gap-1.5 rounded-lg border border-white/20 bg-white/5 px-3 py-1.5 text-xs font-bold text-white">
-                      SMS Outreach
+                      <MessageSquare className="h-3.5 w-3.5" /> SMS Estimate
                     </span>
                     <span className="ml-auto inline-flex items-center gap-1 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-bold text-white">
-                      Mark as Booked ($1,650)
+                      <ClipboardCheck className="h-3.5 w-3.5" /> Copy for PMS ($1,650)
                     </span>
                   </div>
                 </div>
@@ -449,24 +457,24 @@ export default function Landing({ onGetStarted }: LandingProps) {
             <div className="space-y-6 lg:col-span-5">
               <div className="flex items-start gap-4">
                 <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-emerald-500/20 text-emerald-400">
-                  <Mic className="h-5 w-5" />
+                  <Sparkles className="h-5 w-5" />
                 </span>
                 <div>
-                  <h4 className="text-base font-extrabold text-white">Zero Manual Data Entry</h4>
+                  <h4 className="text-base font-extrabold text-white">Patient Estimates with ADA Health Fund Codes</h4>
                   <p className="mt-1 text-sm text-slate-400 leading-relaxed">
-                    AI listens to the clinical conversation in real-time, detecting proposed restorative, endodontic, and crown procedures without the dentist touching a keyboard.
+                    Overcomes the #1 barrier to treatment acceptance: cost anxiety. Pre-formats clinical urgency and itemized ADA codes (611, 532) so patients can instantly check private health rebates in their fund app.
                   </p>
                 </div>
               </div>
 
               <div className="flex items-start gap-4">
                 <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-emerald-500/20 text-emerald-400">
-                  <DollarSign className="h-5 w-5" />
+                  <ClipboardCheck className="h-5 w-5" />
                 </span>
                 <div>
-                  <h4 className="text-base font-extrabold text-white">Official ADA Fee Guide Pricing</h4>
+                  <h4 className="text-base font-extrabold text-white">Universal PMS Bridge (D4W, EXACT, Cliniko)</h4>
                   <p className="mt-1 text-sm text-slate-400 leading-relaxed">
-                    Every detected procedure is mapped to Australian Dental Association 3-digit item codes (531, 611, 417, 688) with standard clinical valuations.
+                    Zero risky database installs. Front-desk teams copy perfectly formatted appointment notes with 1 click into legacy desktop systems, while cloud PMS webhooks automatically update booking status.
                   </p>
                 </div>
               </div>
@@ -476,9 +484,9 @@ export default function Landing({ onGetStarted }: LandingProps) {
                   <TrendingUp className="h-5 w-5" />
                 </span>
                 <div>
-                  <h4 className="text-base font-extrabold text-white">Auditable Closed-Loop ROI</h4>
+                  <h4 className="text-base font-extrabold text-white">Verified Owner ROI Scorecard</h4>
                   <p className="mt-1 text-sm text-slate-400 leading-relaxed">
-                    Track exactly when unbooked care converts into confirmed appointments. Practice owners can verify software ROI in hard numbers every month.
+                    Proves exact dollar yield recovered on the practice appointment ledger. Clinic owners see verified recovered production and net ROI multiples (40x–100x+) every single month.
                   </p>
                 </div>
               </div>

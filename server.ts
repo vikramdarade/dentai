@@ -1956,7 +1956,7 @@ app.get('/api/pipeline', authenticateToken, async (req: any, res) => {
 app.patch('/api/pipeline/:id', authenticateToken, async (req: any, res) => {
   try {
     const { id } = req.params;
-    const { status, notes } = req.body;
+    const { status, notes, pmsType, pmsAppointmentId, pmsBookingRef } = req.body;
 
     const validStatuses: TreatmentStatus[] = ['unscheduled', 'contacted', 'booked', 'completed', 'declined'];
     if (!status || !validStatuses.includes(status)) {
@@ -2000,6 +2000,14 @@ app.patch('/api/pipeline/:id', authenticateToken, async (req: any, res) => {
           }
           if (notes && status !== 'declined' && status !== 'unscheduled') match.patientBarrier = notes;
 
+          // Closed-loop PMS attribution fields
+          if (pmsType) match.pmsType = pmsType;
+          if (pmsAppointmentId) {
+            match.pmsAppointmentId = pmsAppointmentId;
+            match.pmsSyncStatus = 'verified';
+          }
+          if (pmsBookingRef) match.pmsBookingRef = pmsBookingRef;
+
           foundOpp = match;
           c.findings = { ...c.findings, proposedTreatments: items };
           c.proposedTreatments = items;
@@ -2038,6 +2046,14 @@ app.patch('/api/pipeline/:id', authenticateToken, async (req: any, res) => {
           }
           if (notes && status !== 'declined' && status !== 'unscheduled') match.patientBarrier = notes;
 
+          // Closed-loop PMS attribution fields
+          if (pmsType) match.pmsType = pmsType;
+          if (pmsAppointmentId) {
+            match.pmsAppointmentId = pmsAppointmentId;
+            match.pmsSyncStatus = 'verified';
+          }
+          if (pmsBookingRef) match.pmsBookingRef = pmsBookingRef;
+
           foundOpp = match;
           c.findings = { ...c.findings, proposedTreatments: items };
           c.proposedTreatments = items;
@@ -2056,6 +2072,8 @@ app.patch('/api/pipeline/:id', authenticateToken, async (req: any, res) => {
       opportunityId: id,
       newStatus: status,
       barrierReason: notes,
+      pmsType,
+      pmsAppointmentId,
       consultationId: targetConsult?.id
     });
 
@@ -2063,6 +2081,102 @@ app.patch('/api/pipeline/:id', authenticateToken, async (req: any, res) => {
   } catch (err) {
     logger.error('Failed to update pipeline opportunity:', err);
     res.status(500).json({ error: 'Failed to update treatment opportunity.' });
+  }
+});
+
+// Inbound PMS Booking Webhook (Cliniko, Core Practice, or Zapier integration)
+app.post('/api/webhooks/pms-booking', async (req: any, res) => {
+  try {
+    const { opportunityId, pmsType = 'cliniko', pmsAppointmentId, patientName, bookedAt = new Date().toISOString(), clinicId } = req.body;
+
+    if (!pmsAppointmentId && !opportunityId) {
+      return res.status(400).json({ error: 'Missing required parameters: opportunityId or pmsAppointmentId required.' });
+    }
+
+    let foundOpp: TreatmentOpportunity | null = null;
+    let targetConsult: any = null;
+
+    if (dbEnabled) {
+      const fastConsultId = opportunityId && opportunityId.includes('-tx-') ? opportunityId.split('-tx-')[0] : null;
+      const allConsults = clinicId ? await dbListConsultationsForClinic(clinicId) : [];
+      const searchPool = fastConsultId ? allConsults.filter((c: any) => c.id === fastConsultId) : allConsults;
+
+      for (const c of searchPool) {
+        const items = c.findings?.proposedTreatments || extractProposedTreatmentsFromFindings({
+          findings: c.findings,
+          patientName: `${c.firstName} ${c.lastName}`,
+          dentistId: c.dentistId,
+          clinicId: c.clinicId,
+          consultationId: c.id
+        });
+        const match = opportunityId
+          ? items.find((i: any) => i.id === opportunityId)
+          : items.find((i: any) => patientName && `${c.firstName} ${c.lastName}`.toLowerCase().includes(patientName.toLowerCase().trim()));
+
+        if (match) {
+          match.status = 'booked';
+          match.bookedAt = bookedAt;
+          match.pmsType = pmsType;
+          match.pmsAppointmentId = pmsAppointmentId;
+          match.pmsSyncStatus = 'auto_synced';
+          foundOpp = match;
+          c.findings = { ...c.findings, proposedTreatments: items };
+          c.proposedTreatments = items;
+          await dbUpdateConsultation(c.id, c.dentistId, c);
+          targetConsult = c;
+          break;
+        }
+      }
+    } else {
+      const data = await readConsultationsDb();
+      const fastConsultId = opportunityId && opportunityId.includes('-tx-') ? opportunityId.split('-tx-')[0] : null;
+      const searchPool = fastConsultId
+        ? data.consultations.filter((c: any) => c.id === fastConsultId)
+        : data.consultations;
+
+      for (const c of searchPool) {
+        const items = c.findings?.proposedTreatments || extractProposedTreatmentsFromFindings({
+          findings: c.findings,
+          patientName: `${c.firstName} ${c.lastName}`,
+          dentistId: c.dentistId,
+          clinicId: c.clinicId,
+          consultationId: c.id
+        });
+        const match = opportunityId
+          ? items.find((i: any) => i.id === opportunityId)
+          : items.find((i: any) => patientName && `${c.firstName} ${c.lastName}`.toLowerCase().includes(patientName.toLowerCase().trim()));
+
+        if (match) {
+          match.status = 'booked';
+          match.bookedAt = bookedAt;
+          match.pmsType = pmsType;
+          match.pmsAppointmentId = pmsAppointmentId;
+          match.pmsSyncStatus = 'auto_synced';
+          foundOpp = match;
+          c.findings = { ...c.findings, proposedTreatments: items };
+          c.proposedTreatments = items;
+          await writeConsultationsDb(data);
+          targetConsult = c;
+          break;
+        }
+      }
+    }
+
+    if (!foundOpp) {
+      return res.status(404).json({ error: 'No matching treatment opportunity found for PMS booking.' });
+    }
+
+    logAudit('pipeline_pms_webhook_received', targetConsult?.dentistId || 'system', {
+      opportunityId: foundOpp.id,
+      pmsType,
+      pmsAppointmentId,
+      consultationId: targetConsult?.id
+    });
+
+    res.json({ success: true, opportunity: foundOpp });
+  } catch (err) {
+    logger.error('Failed to process PMS booking webhook:', err);
+    res.status(500).json({ error: 'Failed to process PMS booking webhook.' });
   }
 });
 
@@ -2108,6 +2222,12 @@ app.get('/api/pipeline/roi', authenticateToken, async (req: any, res) => {
     let bookedCount = 0;
     let declinedCount = 0;
 
+    // Closed-loop verified metrics
+    let verifiedBookedValue = 0;
+    let verifiedBookedCount = 0;
+    let daysToBookTotal = 0;
+    let daysToBookCount = 0;
+
     for (const c of consults) {
       const items = c.findings?.proposedTreatments || extractProposedTreatmentsFromFindings({
         findings: c.findings,
@@ -2125,15 +2245,40 @@ app.get('/api/pipeline/roi', authenticateToken, async (req: any, res) => {
         } else if (item.status === 'booked') {
           bookedCount++;
           totalBookedValue += fee;
+          if (item.pmsAppointmentId || item.pmsSyncStatus === 'verified' || item.pmsSyncStatus === 'auto_synced') {
+            verifiedBookedCount++;
+            verifiedBookedValue += fee;
+          }
+          if (item.bookedAt && (item.createdAt || c.date)) {
+            const start = new Date(item.createdAt || c.date).getTime();
+            const end = new Date(item.bookedAt).getTime();
+            if (!isNaN(start) && !isNaN(end) && end >= start) {
+              const diffDays = Math.max(0, Math.round((end - start) / (1000 * 60 * 60 * 24)));
+              daysToBookTotal += diffDays;
+              daysToBookCount++;
+            }
+          }
         } else if (item.status === 'completed') {
           totalCompletedValue += fee;
           totalBookedValue += fee;
+          if (item.pmsAppointmentId || item.pmsSyncStatus === 'verified' || item.pmsSyncStatus === 'auto_synced') {
+            verifiedBookedCount++;
+            verifiedBookedValue += fee;
+          }
         } else if (item.status === 'declined') {
           declinedCount++;
           declinedValue += fee;
         }
       }
     }
+
+    const conversionRatePct = totalIdentifiedValue > 0
+      ? Number(((totalBookedValue / totalIdentifiedValue) * 100).toFixed(1))
+      : 0;
+
+    const averageDaysToBook = daysToBookCount > 0
+      ? Number((daysToBookTotal / daysToBookCount).toFixed(1))
+      : 0;
 
     const subscriptionCost = 149;
     const netRoiMultiple = totalBookedValue > 0
@@ -2151,7 +2296,11 @@ app.get('/api/pipeline/roi', authenticateToken, async (req: any, res) => {
       declinedCount,
       declinedValue,
       subscriptionCost,
-      netRoiMultiple
+      netRoiMultiple,
+      verifiedBookedValue,
+      verifiedBookedCount,
+      conversionRatePct,
+      averageDaysToBook
     };
 
     res.json(summary);

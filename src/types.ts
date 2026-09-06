@@ -15,6 +15,8 @@ export interface AdaCodeItem {
 
 export type TreatmentStatus = 'unscheduled' | 'contacted' | 'booked' | 'completed' | 'declined';
 
+export type PmsType = 'cliniko' | 'corepractice' | 'd4w' | 'exact' | 'dentrix' | 'other';
+
 export interface TreatmentOpportunity {
   id: string;
   consultationId: string;
@@ -34,6 +36,11 @@ export interface TreatmentOpportunity {
   lastContactedAt?: string;
   bookedAt?: string;
   createdAt: string;
+  // Closed-loop PMS verification fields
+  pmsType?: PmsType;
+  pmsAppointmentId?: string;
+  pmsBookingRef?: string;
+  pmsSyncStatus?: 'unlinked' | 'verified' | 'auto_synced';
 }
 
 export interface PracticeRoiSummary {
@@ -48,6 +55,11 @@ export interface PracticeRoiSummary {
   declinedValue?: number;
   subscriptionCost: number;
   netRoiMultiple: number;
+  // Closed-loop verified metrics
+  verifiedBookedValue?: number;
+  verifiedBookedCount?: number;
+  conversionRatePct?: number;
+  averageDaysToBook?: number;
 }
 
 export interface ClinicalFindings {
