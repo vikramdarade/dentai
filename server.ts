@@ -38,6 +38,16 @@ import {
   personalClinicName,
   sanitizeClinicName
 } from './src/lib/clinics';
+import {
+  extractProposedTreatmentsFromFindings,
+  lookupAdaFee,
+  type AdaFeeItem
+} from './src/lib/adaFees';
+import type {
+  TreatmentOpportunity,
+  TreatmentStatus,
+  PracticeRoiSummary
+} from './src/types';
 import { logger } from './logger';
 import fs from 'fs';
 import crypto from 'crypto';
@@ -1710,6 +1720,25 @@ app.post('/api/consultations', authenticateToken, async (req: any, res) => {
       logger.warn('Could not resolve clinic scope for consultation; saving without clinicId.', err);
     }
 
+    // Auto-extract and quantify unscheduled treatment opportunities if not explicitly populated
+    if (!newConsultation.findings?.proposedTreatments || newConsultation.findings.proposedTreatments.length === 0) {
+      const patientFullName = `${newConsultation.firstName || ''} ${newConsultation.lastName || ''}`.trim() || 'Patient';
+      const extracted = extractProposedTreatmentsFromFindings({
+        findings: newConsultation.findings,
+        patientName: patientFullName,
+        dentistId: newConsultation.dentistId,
+        clinicId: newConsultation.clinicId,
+        consultationId: newConsultation.id
+      });
+      if (extracted.length > 0) {
+        newConsultation.findings = {
+          ...(newConsultation.findings || {}),
+          proposedTreatments: extracted
+        };
+        newConsultation.proposedTreatments = extracted;
+      }
+    }
+
     if (dbEnabled) {
       await dbInsertConsultation(newConsultation);
     } else {
@@ -1784,6 +1813,247 @@ app.put('/api/consultations/:id', authenticateToken, async (req: any, res) => {
   } catch (err) {
     logger.error('Failed to update consultation:', err);
     res.status(500).json({ error: 'Failed to update consultation record.' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Practice Treatment Pipeline & Closed-Loop ROI Endpoints
+// ---------------------------------------------------------------------------
+
+app.get('/api/pipeline', authenticateToken, async (req: any, res) => {
+  try {
+    const dentistId = req.dentist.id;
+    const requestedClinicId = typeof req.query.clinicId === 'string' ? req.query.clinicId : undefined;
+    const statusFilter = typeof req.query.status === 'string' ? req.query.status.toLowerCase() : 'all';
+
+    let clinicId: string | null = null;
+    try {
+      clinicId = await resolveClinicScope(dentistId, requestedClinicId);
+    } catch {
+      clinicId = null;
+    }
+
+    let consults: any[] = [];
+    if (dbEnabled) {
+      if (clinicId) {
+        consults = await dbListConsultationsForClinic(clinicId);
+      } else {
+        consults = await dbListConsultations(dentistId);
+      }
+    } else {
+      const consultationsData = await readConsultationsDb();
+      if (clinicId) {
+        consults = consultationsData.consultations.filter((c: any) => c.clinicId === clinicId);
+      } else {
+        consults = consultationsData.consultations.filter((c: any) => c.dentistId === dentistId);
+      }
+    }
+
+    // Collect treatment opportunities across consults
+    const opportunities: TreatmentOpportunity[] = [];
+    for (const c of consults) {
+      const patientName = `${c.firstName || ''} ${c.lastName || ''}`.trim() || 'Patient';
+      let items: TreatmentOpportunity[] = [];
+      if (Array.isArray(c.findings?.proposedTreatments) && c.findings.proposedTreatments.length > 0) {
+        items = c.findings.proposedTreatments;
+      } else if (Array.isArray(c.proposedTreatments) && c.proposedTreatments.length > 0) {
+        items = c.proposedTreatments;
+      } else {
+        items = extractProposedTreatmentsFromFindings({
+          findings: c.findings,
+          patientName,
+          dentistId: c.dentistId || dentistId,
+          clinicId: c.clinicId || clinicId || undefined,
+          consultationId: c.id
+        });
+      }
+
+      for (const item of items) {
+        const enriched: TreatmentOpportunity = {
+          ...item,
+          patientName: item.patientName || patientName,
+          consultationId: item.consultationId || c.id,
+          dentistId: item.dentistId || c.dentistId || dentistId,
+          clinicId: item.clinicId || c.clinicId || clinicId || undefined
+        };
+        if (statusFilter === 'all' || enriched.status === statusFilter) {
+          opportunities.push(enriched);
+        }
+      }
+    }
+
+    const totalIdentifiedValue = opportunities.reduce((sum, opp) => sum + (opp.estimatedFee || 0), 0);
+    const unscheduledValue = opportunities
+      .filter(o => o.status === 'unscheduled')
+      .reduce((sum, opp) => sum + (opp.estimatedFee || 0), 0);
+    const bookedValue = opportunities
+      .filter(o => o.status === 'booked' || o.status === 'completed')
+      .reduce((sum, opp) => sum + (opp.estimatedFee || 0), 0);
+
+    res.json({
+      opportunities,
+      totalCount: opportunities.length,
+      totalIdentifiedValue,
+      unscheduledValue,
+      bookedValue
+    });
+  } catch (err) {
+    logger.error('Failed to get treatment pipeline:', err);
+    res.status(500).json({ error: 'Failed to retrieve treatment pipeline.' });
+  }
+});
+
+app.patch('/api/pipeline/:id', authenticateToken, async (req: any, res) => {
+  try {
+    const { id } = req.params;
+    const { status, notes } = req.body;
+
+    const validStatuses: TreatmentStatus[] = ['unscheduled', 'contacted', 'booked', 'completed', 'declined'];
+    if (!status || !validStatuses.includes(status)) {
+      return res.status(400).json({ error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` });
+    }
+
+    let foundOpp: TreatmentOpportunity | null = null;
+    let targetConsult: any = null;
+
+    if (dbEnabled) {
+      const userConsults = await dbListConsultations(req.dentist.id);
+      for (const c of userConsults) {
+        const items = c.findings?.proposedTreatments || extractProposedTreatmentsFromFindings({
+          findings: c.findings,
+          patientName: `${c.firstName} ${c.lastName}`,
+          dentistId: c.dentistId,
+          clinicId: c.clinicId,
+          consultationId: c.id
+        });
+        const match = items.find((i: any) => i.id === id);
+        if (match) {
+          match.status = status;
+          if (status === 'contacted') match.lastContactedAt = new Date().toISOString();
+          if (status === 'booked') match.bookedAt = new Date().toISOString();
+          if (notes) match.patientBarrier = notes;
+          foundOpp = match;
+          c.findings = { ...c.findings, proposedTreatments: items };
+          c.proposedTreatments = items;
+          await dbUpdateConsultation(c.id, c.dentistId, c);
+          targetConsult = c;
+          break;
+        }
+      }
+    } else {
+      const data = await readConsultationsDb();
+      for (const c of data.consultations) {
+        const items = c.findings?.proposedTreatments || extractProposedTreatmentsFromFindings({
+          findings: c.findings,
+          patientName: `${c.firstName} ${c.lastName}`,
+          dentistId: c.dentistId,
+          clinicId: c.clinicId,
+          consultationId: c.id
+        });
+        const match = items.find((i: any) => i.id === id);
+        if (match) {
+          match.status = status;
+          if (status === 'contacted') match.lastContactedAt = new Date().toISOString();
+          if (status === 'booked') match.bookedAt = new Date().toISOString();
+          if (notes) match.patientBarrier = notes;
+          foundOpp = match;
+          c.findings = { ...c.findings, proposedTreatments: items };
+          c.proposedTreatments = items;
+          await writeConsultationsDb(data);
+          targetConsult = c;
+          break;
+        }
+      }
+    }
+
+    if (!foundOpp) {
+      return res.status(404).json({ error: 'Treatment opportunity not found.' });
+    }
+
+    logAudit('pipeline_treatment_updated', req.dentist.id, {
+      opportunityId: id,
+      newStatus: status,
+      consultationId: targetConsult?.id
+    });
+
+    res.json({ success: true, opportunity: foundOpp });
+  } catch (err) {
+    logger.error('Failed to update pipeline opportunity:', err);
+    res.status(500).json({ error: 'Failed to update treatment opportunity.' });
+  }
+});
+
+app.get('/api/pipeline/roi', authenticateToken, async (req: any, res) => {
+  try {
+    const dentistId = req.dentist.id;
+    const requestedClinicId = typeof req.query.clinicId === 'string' ? req.query.clinicId : undefined;
+    let clinicId: string | null = null;
+    try {
+      clinicId = await resolveClinicScope(dentistId, requestedClinicId);
+    } catch {
+      clinicId = null;
+    }
+
+    let consults: any[] = [];
+    if (dbEnabled) {
+      consults = clinicId ? await dbListConsultationsForClinic(clinicId) : await dbListConsultations(dentistId);
+    } else {
+      const data = await readConsultationsDb();
+      consults = clinicId
+        ? data.consultations.filter((c: any) => c.clinicId === clinicId)
+        : data.consultations.filter((c: any) => c.dentistId === dentistId);
+    }
+
+    let totalIdentifiedValue = 0;
+    let totalBookedValue = 0;
+    let totalCompletedValue = 0;
+    let unscheduledCount = 0;
+    let bookedCount = 0;
+
+    for (const c of consults) {
+      const items = c.findings?.proposedTreatments || extractProposedTreatmentsFromFindings({
+        findings: c.findings,
+        patientName: `${c.firstName} ${c.lastName}`,
+        dentistId: c.dentistId,
+        clinicId: c.clinicId,
+        consultationId: c.id
+      });
+      for (const item of items) {
+        const fee = Number(item.estimatedFee) || 0;
+        totalIdentifiedValue += fee;
+        if (item.status === 'unscheduled') unscheduledCount++;
+        if (item.status === 'booked') {
+          bookedCount++;
+          totalBookedValue += fee;
+        }
+        if (item.status === 'completed') {
+          totalCompletedValue += fee;
+          totalBookedValue += fee;
+        }
+      }
+    }
+
+    const subscriptionCost = 149;
+    const netRoiMultiple = totalBookedValue > 0
+      ? Number((totalBookedValue / subscriptionCost).toFixed(1))
+      : 0;
+
+    const summary: PracticeRoiSummary = {
+      clinicId: clinicId || 'personal',
+      month: new Date().toISOString().slice(0, 7),
+      totalIdentifiedValue,
+      totalBookedValue,
+      totalCompletedValue,
+      unscheduledCount,
+      bookedCount,
+      subscriptionCost,
+      netRoiMultiple
+    };
+
+    res.json(summary);
+  } catch (err) {
+    logger.error('Failed to compute pipeline ROI:', err);
+    res.status(500).json({ error: 'Failed to calculate pipeline ROI metrics.' });
   }
 });
 

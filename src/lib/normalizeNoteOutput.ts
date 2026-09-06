@@ -27,6 +27,7 @@ export interface NormalizedNoteOutput {
   customSections: Record<string, string>;
   patientSummary: string;
   adaCodes: AdaCodeLike[];
+  proposedTreatments?: any[];
 }
 
 const MAX_NOTE_SECTION_LENGTH = 4000;
@@ -65,6 +66,7 @@ export function normalizeTemplateOutput(template: NoteTemplate, raw: any): Norma
     customSections: {},
     patientSummary: '',
     adaCodes: [],
+    proposedTreatments: Array.isArray(raw?.proposedTreatments) ? raw.proposedTreatments : undefined,
   };
 
   for (const section of template.sections) {
@@ -110,6 +112,7 @@ export function normalizedToPayload(template: NoteTemplate, out: any): Generated
     customSections,
     patientSummary: sanitizeString(out?.patientSummary),
     adaCodes: parseAdaCodes(out?.adaCodes),
+    proposedTreatments: Array.isArray(out?.proposedTreatments) ? out.proposedTreatments : undefined,
   };
 }
 

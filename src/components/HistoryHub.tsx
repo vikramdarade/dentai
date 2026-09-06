@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { Search, Plus, FileText, Menu, Building2 } from 'lucide-react';
+import { Search, Plus, FileText, Menu, Building2, Sparkles, TrendingUp } from 'lucide-react';
 import { Consultation, getTodayStr, getYesterdayStr } from '../types';
 import { motion } from 'motion/react';
 import ClinicSwitcher from './ClinicSwitcher';
 import ClinicMembersModal from './ClinicMembersModal';
+import TreatmentPipeline from './TreatmentPipeline';
 import { ClinicMembership } from '../lib/clinics';
 
 interface HistoryHubProps {
@@ -40,6 +41,7 @@ export default function HistoryHub({
   memberNames
 }: HistoryHubProps) {
   const [manageOpen, setManageOpen] = useState(false);
+  const [hubTab, setHubTab] = useState<'records' | 'pipeline'>('records');
   const getInitials = (name: string) => {
     return name
       .split(' ')
@@ -147,152 +149,174 @@ export default function HistoryHub({
 
       {/* Main Container */}
       <main className="flex-grow pt-20 px-4 md:px-8 max-w-4xl mx-auto w-full">
-        {/* Hero Section */}
-        <section className="py-6 space-y-4">
-          <div className="flex flex-col gap-1">
-            <h2 className="font-headline-lg text-headline-lg font-bold text-on-surface">History Hub</h2>
-            <p className="text-secondary font-body-md text-slate-500">
-              Manage and review clinical patient records. Select any past visit to review charts or start a new recording session.
-            </p>
-          </div>
+        {/* Navigation Tabs */}
+        <div className="flex items-center gap-2 border-b border-slate-200/80 pt-4 mb-6">
+          <button
+            onClick={() => setHubTab('records')}
+            className={`pb-3 px-3 text-xs font-bold transition-all border-b-2 flex items-center gap-2 ${
+              hubTab === 'records'
+                ? 'border-primary text-primary'
+                : 'border-transparent text-slate-400 hover:text-slate-600'
+            }`}
+          >
+            <FileText className="w-4 h-4" />
+            <span>Patient Records ({filtered.length})</span>
+          </button>
+          <button
+            onClick={() => setHubTab('pipeline')}
+            className={`pb-3 px-3 text-xs font-bold transition-all border-b-2 flex items-center gap-2 ${
+              hubTab === 'pipeline'
+                ? 'border-primary text-primary'
+                : 'border-transparent text-slate-400 hover:text-slate-600'
+            }`}
+          >
+            <Sparkles className="w-4 h-4 text-amber-500" />
+            <span>Treatment Pipeline & ROI</span>
+            <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-black border border-emerald-200">
+              Revenue Engine
+            </span>
+          </button>
+        </div>
 
-          {activeClinic?.role === 'owner' && (
-            <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-primary-light/60 border border-indigo-100 text-primary text-xs font-semibold">
-              <Building2 className="w-4 h-4 shrink-0" />
-              <span>
-                Owner view — showing notes recorded by every dentist in{' '}
-                <span className="font-extrabold">{activeClinic.clinicName}</span>.
-              </span>
-            </div>
-          )}
-
-          {/* Search Bar Component */}
-          <div className="relative group">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5 pointer-events-none group-focus-within:text-primary transition-colors" />
-            <input
-              type="text"
-              placeholder="Search patient name, procedure, or complaints..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full h-12 pl-12 pr-4 bg-white border border-outline-variant rounded-xl focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all font-body-md shadow-sm text-on-surface"
-            />
-          </div>
-
-          {/* Mobile New Consultation bar */}
-          <div id="mobile-new-consult" className="md:hidden pt-2">
-            <button
-              onClick={onStartNewConsultation}
-              className="flex items-center justify-center gap-2 w-full h-12 bg-primary border hover:bg-opacity-90 text-white rounded-xl font-medium shadow-sm transition-all"
-            >
-              <Plus className="w-5 h-5" />
-              <span>New Consultation</span>
-            </button>
-          </div>
-        </section>
-
-        {/* List of Consultations */}
-        <section className="space-y-6 pt-2">
-          {uniqueDates.map((date, idx) => {
-            const dateConsultations = filtered.filter(c => c.date === date);
-            const isToday = date === todayStr;
-            const isYesterday = date === yesterdayStr;
-            const headerLabel = isToday
-              ? `Today, ${date}`
-              : isYesterday
-              ? `Yesterday, ${date}`
-              : date;
-
-            return (
-              <div key={date} className="space-y-3">
-                <div className={`flex items-center gap-2 px-1 ${idx > 0 ? 'pt-2' : ''}`}>
-                  <div className="h-px flex-1 bg-outline-variant"></div>
-                  <span className="font-label-sm text-slate-400 uppercase tracking-widest text-[11px] font-bold">
-                    {headerLabel}
-                  </span>
-                  <div className="h-px flex-1 bg-outline-variant"></div>
-                </div>
-
-                <div className="space-y-3">
-                  {dateConsultations.map((c) => {
-                    const initials = `${c.firstName[0]}${c.lastName[0]}`;
-                    return (
-                      <motion.div
-                        key={c.id}
-                        initial={{ opacity: 0, y: 12 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        whileHover={{ y: -2, scale: 1.01 }}
-                        whileTap={{ scale: 0.99 }}
-                        onClick={() => onSelectConsultation(c)}
-                        className="p-1 bg-[#1a1a2e]/5 hover:bg-indigo-50/20 rounded-2xl cursor-pointer transition-all duration-300 hover:shadow-md border border-slate-200/40"
-                      >
-                        <div className="bg-white border border-slate-100 rounded-[calc(1rem-0.25rem)] p-4 flex items-center justify-between shadow-sm">
-                          <div className="flex items-center gap-4">
-                            <div
-                              className={`w-12 h-12 rounded-xl flex items-center justify-center font-bold text-base shadow-sm ${getAvatarBg(
-                                initials
-                              )}`}
-                            >
-                              {initials}
-                            </div>
-                            <div className="flex flex-col">
-                              <span className="font-bold text-slate-800 text-base group-hover:text-primary transition-colors">
-                                {c.firstName} {c.lastName}
-                              </span>
-                              <span className="text-secondary font-body-md text-slate-500 text-xs mt-0.5">
-                                {getProcedureLabel(c.appointmentType)}
-                              </span>
-                              {c.dentistId && c.dentistId !== currentDentistId && (
-                                <span className="text-[10px] font-semibold text-slate-400 mt-0.5">
-                                  Recorded by {memberNames[c.dentistId] || 'a colleague'}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-
-                          <div className="flex flex-col items-end gap-2 text-right">
-                            <span
-                              className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 ${
-                                c.status === 'Completed'
-                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
-                                  : 'bg-indigo-50 text-indigo-700 border border-indigo-100'
-                              }`}
-                            >
-                              <span
-                                className={`w-1.5 h-1.5 rounded-full ${
-                                  c.status === 'Completed' ? 'bg-emerald-600' : 'bg-indigo-600'
-                                }`}
-                              ></span>
-                              {c.status}
-                            </span>
-                            <span className="font-mono text-slate-400 text-xs">
-                              {c.time}
-                            </span>
-                          </div>
-                        </div>
-                      </motion.div>
-                    );
-                  })}
-                </div>
+        {hubTab === 'pipeline' ? (
+          <TreatmentPipeline
+            authToken={authToken}
+            activeClinic={activeClinic}
+            dentistName={dentistName}
+            currentDentistId={currentDentistId}
+          />
+        ) : (
+          <>
+            {/* Hero Section */}
+            <section className="py-2 space-y-4">
+              <div className="flex flex-col gap-1">
+                <h2 className="font-headline-lg text-headline-lg font-bold text-on-surface">History Hub</h2>
+                <p className="text-secondary font-body-md text-slate-500">
+                  Manage and review clinical patient records. Select any past visit to review charts or start a new recording session.
+                </p>
               </div>
-            );
-          })}
 
-          {/* Empty State */}
-          {filtered.length === 0 && (
-            <div className="text-center py-12 bg-white rounded-2xl border border-dashed border-outline-variant p-8 flex flex-col items-center gap-3">
-              <FileText className="text-slate-300 w-16 h-16" />
-              <div className="text-lg font-bold text-slate-800">No Patient Records Found</div>
-              <p className="text-slate-500 max-w-sm">No clinical notes or consultations match your search. Make sure the spelling is correct or check the appointment filters.</p>
-              <button
-                onClick={onStartNewConsultation}
-                className="mt-2 inline-flex items-center gap-2 px-6 py-2 bg-primary text-white rounded-lg font-medium shadow transition-all hover:bg-opacity-95"
-              >
-                <Plus className="w-4 h-4" />
-                <span>Add First Consultation</span>
-              </button>
-            </div>
-          )}
-        </section>
+              {activeClinic?.role === 'owner' && (
+                <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-primary-light/60 border border-indigo-100 text-primary text-xs font-semibold">
+                  <Building2 className="w-4 h-4 shrink-0" />
+                  <span>
+                    Owner view — showing notes recorded by every dentist in{' '}
+                    <span className="font-extrabold">{activeClinic.clinicName}</span>.
+                  </span>
+                </div>
+              )}
+
+              {/* Search Bar Component */}
+              <div className="relative group">
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5 pointer-events-none group-focus-within:text-primary transition-colors" />
+                <input
+                  type="text"
+                  placeholder="Search patient name, procedure, or complaints..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full h-12 pl-12 pr-4 bg-white border border-outline-variant rounded-xl focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all font-body-md shadow-sm text-on-surface"
+                />
+              </div>
+
+              {/* Mobile New Consultation bar */}
+              <div id="mobile-new-consult" className="md:hidden pt-2">
+                <button
+                  onClick={onStartNewConsultation}
+                  className="flex items-center justify-center gap-2 w-full h-12 bg-primary border hover:bg-opacity-90 text-white rounded-xl font-medium shadow-sm transition-all"
+                >
+                  <Plus className="w-5 h-5" />
+                  <span>New Consultation</span>
+                </button>
+              </div>
+            </section>
+
+            {/* List of Consultations */}
+            <section className="space-y-6 pt-2">
+              {uniqueDates.map((date, idx) => {
+                const dateConsultations = filtered.filter(c => c.date === date);
+                const isToday = date === todayStr;
+                const isYesterday = date === yesterdayStr;
+                const headerLabel = isToday
+                  ? `Today, ${date}`
+                  : isYesterday
+                  ? `Yesterday, ${date}`
+                  : date;
+
+                return (
+                  <div key={date} className="space-y-3">
+                    <div className={`flex items-center gap-2 px-1 ${idx > 0 ? 'pt-2' : ''}`}>
+                      <div className="h-px flex-1 bg-outline-variant"></div>
+                      <span className="font-label-sm text-slate-400 uppercase tracking-widest text-[11px] font-bold">
+                        {headerLabel}
+                      </span>
+                      <div className="h-px flex-1 bg-outline-variant"></div>
+                    </div>
+
+                    <div className="space-y-3">
+                      {dateConsultations.map((c) => {
+                        const initials = `${c.firstName[0]}${c.lastName[0]}`;
+                        return (
+                          <motion.div
+                            key={c.id}
+                            onClick={() => onSelectConsultation(c)}
+                            whileHover={{ y: -2 }}
+                            whileTap={{ scale: 0.99 }}
+                            className="bg-white border border-outline-variant hover:border-primary rounded-2xl p-4 transition-all cursor-pointer shadow-sm hover:shadow-md flex flex-col md:flex-row md:items-center justify-between gap-4"
+                          >
+                            <div className="flex items-center gap-4">
+                              <div className={`w-12 h-12 rounded-xl flex items-center justify-center font-bold text-base shadow-sm ${getAvatarBg(initials)}`}>
+                                {initials}
+                              </div>
+                              <div className="flex flex-col">
+                                <span className="font-title-md font-bold text-on-surface text-base">
+                                  {c.firstName} {c.lastName}
+                                </span>
+                                <span className="text-slate-500 font-body-sm text-xs">
+                                  {getProcedureLabel(c.appointmentType)}
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center justify-between md:justify-end gap-3 pt-2 md:pt-0 border-t md:border-t-0 border-outline-variant">
+                              <div className="flex items-center gap-2">
+                                <span className="text-slate-400 font-label-sm text-xs">
+                                  {c.time}
+                                </span>
+                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                  c.status === 'Completed'
+                                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                    : 'bg-amber-50 text-amber-700 border border-amber-200'
+                                }`}>
+                                  {c.status}
+                                </span>
+                              </div>
+                            </div>
+                          </motion.div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+
+              {/* Empty State */}
+              {filtered.length === 0 && (
+                <div className="text-center py-12 bg-white rounded-2xl border border-dashed border-outline-variant p-8 flex flex-col items-center gap-3">
+                  <FileText className="text-slate-300 w-16 h-16" />
+                  <div className="text-lg font-bold text-slate-800">No Patient Records Found</div>
+                  <p className="text-slate-500 max-w-sm">No clinical notes or consultations match your search. Make sure the spelling is correct or check the appointment filters.</p>
+                  <button
+                    onClick={onStartNewConsultation}
+                    className="mt-2 inline-flex items-center gap-2 px-6 py-2 bg-primary text-white rounded-lg font-medium shadow transition-all hover:bg-opacity-95"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Add First Consultation</span>
+                  </button>
+                </div>
+              )}
+            </section>
+          </>
+        )}
       </main>
 
       {/* Owner clinic management (invite code, members, approvals) */}

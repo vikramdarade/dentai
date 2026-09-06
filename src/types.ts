@@ -13,6 +13,41 @@ export interface AdaCodeItem {
   tooth?: string;
 }
 
+export type TreatmentStatus = 'unscheduled' | 'contacted' | 'booked' | 'completed' | 'declined';
+
+export interface TreatmentOpportunity {
+  id: string;
+  consultationId: string;
+  dentistId: string;
+  clinicId?: string;
+  patientName: string;
+  patientPhone?: string;
+  patientEmail?: string;
+  tooth?: string; // FDI notation e.g. "16"
+  surfaces?: string; // e.g. "MOD"
+  adaCode: string; // e.g. "611"
+  procedureName: string; // e.g. "Full Crown - Ceramic"
+  estimatedFee: number; // e.g. 1650
+  clinicalReason: string;
+  patientBarrier?: string;
+  status: TreatmentStatus;
+  lastContactedAt?: string;
+  bookedAt?: string;
+  createdAt: string;
+}
+
+export interface PracticeRoiSummary {
+  clinicId: string;
+  month: string;
+  totalIdentifiedValue: number;
+  totalBookedValue: number;
+  totalCompletedValue: number;
+  unscheduledCount: number;
+  bookedCount: number;
+  subscriptionCost: number;
+  netRoiMultiple: number;
+}
+
 export interface ClinicalFindings {
   chiefComplaint: string;
   history: string;
@@ -24,6 +59,7 @@ export interface ClinicalFindings {
   recallRequirements: string;
   customSections?: Record<string, string>;
   adaCodes?: AdaCodeItem[];
+  proposedTreatments?: TreatmentOpportunity[];
 }
 
 /** How the note content in this record was produced — surfaced transparently in the UI. */
@@ -48,6 +84,7 @@ export interface GeneratedNotePayload {
   customSections: Record<string, string>;
   patientSummary: string;
   adaCodes: AdaCodeItem[];
+  proposedTreatments?: TreatmentOpportunity[];
 }
 
 export interface Consultation {
@@ -67,6 +104,7 @@ export interface Consultation {
   patientSummary: string;
   templateId?: string;
   noteOrigin?: NoteOrigin;
+  proposedTreatments?: TreatmentOpportunity[];
 }
 
 export const getTodayStr = (when: Date = new Date()) => {
