@@ -52,5 +52,8 @@
     "typescript": "~5.8.2",
     "vite": "^8.0.16",
     "vitest": "^4.1.8"
+  },
+  "overrides": {
+    "browserslist": "^4.28.9"
   }
 }
