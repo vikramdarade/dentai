@@ -291,7 +291,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
   };
 
   return (
-    <div className="min-h-screen w-full flex items-center justify-center bg-[#F8F7F5] px-4 py-16 font-sans relative overflow-hidden">
+    <div className="min-h-screen w-full flex flex-col items-center justify-center bg-[#F8F7F5] px-4 py-16 font-sans relative overflow-hidden">
       {/* Cinematic subtle mesh orbs in background */}
       <div className="absolute top-[-20%] left-[-10%] w-[500px] h-[500px] rounded-full bg-indigo-50/50 blur-[120px] pointer-events-none"></div>
       <div className="absolute bottom-[-10%] right-[-10%] w-[600px] h-[600px] rounded-full bg-emerald-50/30 blur-[130px] pointer-events-none"></div>
