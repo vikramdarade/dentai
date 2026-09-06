@@ -11,7 +11,15 @@
     "lint": "tsc --noEmit",
     "test": "vitest run --test-timeout=30000",
     "test:integration": "vitest run tests/server.test.ts --run --test-timeout=30000",
-    "prepare": "husky"
+    "prepare": "husky",
+    "demo:auth": "tsx scripts/demo/recorder-auth.ts",
+    "demo:dentist": "tsx scripts/demo/recorder-dentist.ts",
+    "demo:owner": "tsx scripts/demo/recorder-owner.ts",
+    "demo:outro": "tsx scripts/demo/recorder-outro.ts",
+    "demo:narrate": "tsx scripts/demo/narrator.ts",
+    "demo:assemble": "tsx scripts/demo/assemble.ts",
+    "demo": "npm run demo:auth && npm run demo:dentist && npm run demo:owner && npm run demo:outro && npm run demo:narrate && npm run demo:assemble",
+    "demo:cleanup": "tsx scripts/demo/cleanup.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
@@ -35,7 +43,9 @@
     "@types/supertest": "^6.0.2",
     "autoprefixer": "^10.4.21",
     "esbuild": "^0.28.1",
+    "ffmpeg-static": "^5.2.0",
     "husky": "^9.1.7",
+    "playwright": "^1.49.0",
     "supertest": "^7.0.0",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",

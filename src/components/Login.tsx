@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { User, Lock, Plus, ArrowLeft, AlertCircle, Sparkles, UserPlus, Trash2, X } from 'lucide-react';
+import { User, Lock, Plus, ArrowLeft, AlertCircle, Sparkles, UserPlus, Trash2, X, CirclePlay } from 'lucide-react';
 
 interface DentistProfile {
   id: string;
@@ -632,6 +632,18 @@ export default function Login({ onLoginSuccess }: LoginProps) {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Narrated product demo — opens the public #/demo theater (no auth needed) */}
+      <button
+        onClick={() => {
+          window.location.hash = '#/demo';
+        }}
+        className="relative mt-6 mx-auto flex items-center gap-2 px-4 py-2 rounded-full bg-white/70 hover:bg-white border border-slate-200 text-primary text-xs font-bold shadow-sm hover:shadow-md transition-all cursor-pointer"
+      >
+        <CirclePlay className="w-4 h-4" />
+        <span>Watch the narrated product demo</span>
+        <span className="text-[9px] text-slate-400 font-semibold uppercase tracking-wider">3 min</span>
+      </button>
 
       {/* PIN-Protected Profile Deletion Modal */}
       <AnimatePresence>

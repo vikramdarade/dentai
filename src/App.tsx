@@ -9,6 +9,7 @@ import PatientIntake from './components/PatientIntake';
 import LiveRecording from './components/LiveRecording';
 import ClinicalSummary from './components/ClinicalSummary';
 import Login from './components/Login';
+import DemoMovie from './demo/DemoMovie';
 import {
   saveAuth,
   getAuth,
@@ -27,6 +28,15 @@ import {
 type ViewType = 'history' | 'intake' | 'record' | 'summary';
 
 export default function App() {
+  // Public narrated product demo at #/demo — no auth, no backend required.
+  const [demoOpen, setDemoOpen] = useState<boolean>(() => window.location.hash.startsWith('#/demo'));
+
+  useEffect(() => {
+    const onHashChange = () => setDemoOpen(window.location.hash.startsWith('#/demo'));
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, []);
+
   const [view, setView] = useState<ViewType>('history');
   const [consultations, setConsultations] = useState<Consultation[]>(() => {
     return getLocalConsultations() || [];
@@ -670,6 +680,17 @@ export default function App() {
       <div className="min-h-screen w-full flex items-center justify-center bg-[#F8F7F5]">
         <div className="w-8 h-8 border-4 border-indigo-100 border-t-indigo-650 rounded-full animate-spin"></div>
       </div>
+    );
+  }
+
+  if (demoOpen) {
+    return (
+      <DemoMovie
+        onExit={() => {
+          window.location.hash = '';
+          setDemoOpen(false);
+        }}
+      />
     );
   }
 
