@@ -184,6 +184,7 @@ export default function HistoryHub({
             activeClinic={activeClinic}
             dentistName={dentistName}
             currentDentistId={currentDentistId}
+            consultations={consultations}
           />
         ) : (
           <>

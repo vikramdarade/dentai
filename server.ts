@@ -648,6 +648,16 @@ const dbCache: Record<string, any> = {
 
 const isKvConfigured = !!(process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN);
 
+export function invalidateDbCache(key?: string) {
+  if (key) {
+    delete dbCache[key];
+  } else {
+    for (const k of Object.keys(dbCache)) {
+      delete dbCache[k];
+    }
+  }
+}
+
 async function readDb(kvKey: string, filePath: string, defaultValue: any) {
   if (isKvConfigured) {
     try {
@@ -1837,13 +1847,24 @@ app.get('/api/pipeline', authenticateToken, async (req: any, res) => {
     if (dbEnabled) {
       if (clinicId) {
         consults = await dbListConsultationsForClinic(clinicId);
+        // Include historical consultations created by this dentist prior to clinic scoping
+        const ownConsults = await dbListConsultations(dentistId);
+        const unassigned = ownConsults.filter((c: any) => !c.clinicId);
+        const existingIds = new Set(consults.map((c: any) => c.id));
+        for (const un of unassigned) {
+          if (!existingIds.has(un.id)) {
+            consults.push(un);
+          }
+        }
       } else {
         consults = await dbListConsultations(dentistId);
       }
     } else {
       const consultationsData = await readConsultationsDb();
       if (clinicId) {
-        consults = consultationsData.consultations.filter((c: any) => c.clinicId === clinicId);
+        consults = consultationsData.consultations.filter((c: any) =>
+          c.clinicId === clinicId || (!c.clinicId && c.dentistId === dentistId)
+        );
       } else {
         consults = consultationsData.consultations.filter((c: any) => c.dentistId === dentistId);
       }
@@ -1996,11 +2017,23 @@ app.get('/api/pipeline/roi', authenticateToken, async (req: any, res) => {
 
     let consults: any[] = [];
     if (dbEnabled) {
-      consults = clinicId ? await dbListConsultationsForClinic(clinicId) : await dbListConsultations(dentistId);
+      if (clinicId) {
+        consults = await dbListConsultationsForClinic(clinicId);
+        const ownConsults = await dbListConsultations(dentistId);
+        const unassigned = ownConsults.filter((c: any) => !c.clinicId);
+        const existingIds = new Set(consults.map((c: any) => c.id));
+        for (const un of unassigned) {
+          if (!existingIds.has(un.id)) {
+            consults.push(un);
+          }
+        }
+      } else {
+        consults = await dbListConsultations(dentistId);
+      }
     } else {
       const data = await readConsultationsDb();
       consults = clinicId
-        ? data.consultations.filter((c: any) => c.clinicId === clinicId)
+        ? data.consultations.filter((c: any) => c.clinicId === clinicId || (!c.clinicId && c.dentistId === dentistId))
         : data.consultations.filter((c: any) => c.dentistId === dentistId);
     }
 

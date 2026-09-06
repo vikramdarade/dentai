@@ -13,7 +13,7 @@ process.env.NODE_ENV = 'test';
 process.env.GEMINI_API_KEY = 'TEST_API_KEY';
 process.env.DATABASE_URL = '';
 
-const { app } = await import('../server.ts');
+const { app, invalidateDbCache } = await import('../server.ts');
 
 const dbPath = path.join(__dirname, '..', 'data', 'consultations.json');
 const usersDbPath = path.join(__dirname, '..', 'data', 'users.json');
@@ -54,6 +54,7 @@ describe('Treatment Revenue Moat & ADA Valuation Engine', () => {
       fs.unlinkSync(clinicsDbPath);
     }
     if (auditDbBackup !== null) fs.writeFileSync(auditDbPath, auditDbBackup);
+    invalidateDbCache();
   });
 
   // -------------------------------------------------------------------------
@@ -268,6 +269,48 @@ describe('Treatment Revenue Moat & ADA Valuation Engine', () => {
         .send({ status: 'booked' });
 
       expect(res.status).toBe(404);
+    });
+
+    it('surfaces treatment pipeline opportunities for pre-existing consultations without clinicId or pre-computed treatments', async () => {
+      // Direct raw insertion simulating a consultation saved prior to this feature
+      const legacyConsult = {
+        id: 'legacy-prior-feature-1',
+        firstName: 'Jessica',
+        lastName: 'Taylor',
+        dob: '1990-08-15',
+        appointmentType: 'emergency',
+        date: 'Aug 22',
+        time: '10:41 AM',
+        status: 'Completed',
+        dentistId, // belonging to this dentist, but no clinicId and no proposedTreatments
+        findings: {
+          chiefComplaint: 'Acute throbbing sensitivity on upper right molar.',
+          toothFindings: 'FDI Tooth 16: Pulpitis detected requiring root canal treatment. Tooth 33: Deep carious lesion.',
+          diagnosis: 'Symptomatic pulpitis on tooth 16; caries on 33.',
+          treatmentPerformed: 'Initial emergency extirpation.',
+          recommendations: 'Complete root canal therapy on tooth 16 and composite restoration on tooth 33.'
+        }
+      };
+
+      const consultationsRaw = JSON.parse(fs.readFileSync(dbPath, 'utf-8'));
+      consultationsRaw.consultations.push(legacyConsult);
+      fs.writeFileSync(dbPath, JSON.stringify(consultationsRaw, null, 2));
+      invalidateDbCache();
+
+      // Query pipeline as the logged-in dentist
+      const res = await request(app)
+        .get('/api/pipeline')
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(res.status).toBe(200);
+      const jessicaOpps = res.body.opportunities.filter((o: any) => o.patientName.includes('Jessica Taylor'));
+      expect(jessicaOpps.length).toBeGreaterThan(0);
+
+      // Verify endodontic treatment opportunity was extracted
+      const endoOpp = jessicaOpps.find((o: any) => o.adaCode === '417' && o.tooth === '16');
+      expect(endoOpp).toBeDefined();
+      expect(endoOpp.estimatedFee).toBe(440);
+      expect(endoOpp.status).toBe('unscheduled');
     });
   });
 });

@@ -23,23 +23,57 @@ import {
   Calendar,
   X
 } from 'lucide-react';
-import { TreatmentOpportunity, TreatmentStatus, PracticeRoiSummary } from '../types';
+import { TreatmentOpportunity, TreatmentStatus, PracticeRoiSummary, Consultation } from '../types';
 import { ClinicMembership } from '../lib/clinics';
+import { extractProposedTreatmentsFromFindings } from '../lib/adaFees';
 
 interface TreatmentPipelineProps {
   authToken: string;
   activeClinic: ClinicMembership | null;
   dentistName: string;
   currentDentistId: string;
+  consultations?: Consultation[];
 }
 
 export default function TreatmentPipeline({
   authToken,
   activeClinic,
   dentistName,
-  currentDentistId
+  currentDentistId,
+  consultations = []
 }: TreatmentPipelineProps) {
-  const [opportunities, setOpportunities] = useState<TreatmentOpportunity[]>([]);
+  // Extract treatment opportunities from client-side consultations (for immediate offline & pre-existing data resilience)
+  const clientExtractedOpportunities = useMemo(() => {
+    if (!consultations || consultations.length === 0) return [];
+    const list: TreatmentOpportunity[] = [];
+    for (const c of consultations) {
+      const pName = `${c.firstName || ''} ${c.lastName || ''}`.trim() || 'Patient';
+      let items: TreatmentOpportunity[] = [];
+      if (Array.isArray(c.findings?.proposedTreatments) && c.findings.proposedTreatments.length > 0) {
+        items = c.findings.proposedTreatments;
+      } else {
+        items = extractProposedTreatmentsFromFindings({
+          findings: c.findings,
+          patientName: pName,
+          dentistId: c.dentistId || currentDentistId,
+          clinicId: c.clinicId || activeClinic?.clinicId,
+          consultationId: c.id
+        });
+      }
+      for (const opp of items) {
+        list.push({
+          ...opp,
+          patientName: opp.patientName || pName,
+          consultationId: opp.consultationId || c.id,
+          dentistId: opp.dentistId || c.dentistId || currentDentistId,
+          clinicId: opp.clinicId || c.clinicId || activeClinic?.clinicId
+        });
+      }
+    }
+    return list;
+  }, [consultations, currentDentistId, activeClinic?.clinicId]);
+
+  const [opportunities, setOpportunities] = useState<TreatmentOpportunity[]>(() => clientExtractedOpportunities);
   const [roiSummary, setRoiSummary] = useState<PracticeRoiSummary | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -49,6 +83,13 @@ export default function TreatmentPipeline({
   const [outreachChannel, setOutreachChannel] = useState<'sms' | 'whatsapp' | 'email'>('sms');
   const [copiedText, setCopiedText] = useState<boolean>(false);
   const [actionSuccessMessage, setActionSuccessMessage] = useState<string | null>(null);
+
+  // Sync client extracted if opportunities is currently empty but client has items
+  useEffect(() => {
+    if (opportunities.length === 0 && clientExtractedOpportunities.length > 0) {
+      setOpportunities(clientExtractedOpportunities);
+    }
+  }, [clientExtractedOpportunities]);
 
   // Fetch pipeline and ROI data
   const fetchData = async () => {
@@ -66,14 +107,34 @@ export default function TreatmentPipeline({
 
       if (pipeRes.ok) {
         const pipeData = await pipeRes.json();
-        setOpportunities(pipeData.opportunities || []);
+        const serverOpps: TreatmentOpportunity[] = pipeData.opportunities || [];
+        if (serverOpps.length > 0) {
+          const existingIds = new Set(serverOpps.map(o => o.id));
+          const combined = [...serverOpps];
+          for (const co of clientExtractedOpportunities) {
+            if (!existingIds.has(co.id)) {
+              combined.push(co);
+            }
+          }
+          setOpportunities(combined);
+        } else if (clientExtractedOpportunities.length > 0) {
+          setOpportunities(clientExtractedOpportunities);
+        } else {
+          setOpportunities([]);
+        }
+      } else if (clientExtractedOpportunities.length > 0) {
+        setOpportunities(clientExtractedOpportunities);
       }
+
       if (roiRes.ok) {
         const roiData = await roiRes.json();
         setRoiSummary(roiData);
       }
     } catch (err) {
       console.error('Failed to load treatment pipeline:', err);
+      if (clientExtractedOpportunities.length > 0) {
+        setOpportunities(clientExtractedOpportunities);
+      }
     } finally {
       setIsLoading(false);
     }

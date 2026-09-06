@@ -1,3 +1,112 @@
 {
-  "consultations": []
+  "consultations": [
+    {
+      "id": "c-priya-sharma-1",
+      "firstName": "Priya",
+      "lastName": "Sharma",
+      "dob": "1988-04-12",
+      "appointmentType": "comprehensive",
+      "date": "Aug 20",
+      "time": "09:45 AM",
+      "status": "Completed",
+      "transcript": [
+        {
+          "sender": "Dentist",
+          "text": "Good morning Priya, let's take a look at tooth 16 where you noticed cold sensitivity."
+        },
+        {
+          "sender": "Patient",
+          "text": "Yes, especially with iced water and chewing almonds on that side."
+        },
+        {
+          "sender": "Dentist",
+          "text": "Examining tooth 16, there is a visible micro-crack along the mesio-palatal cusp. Tooth 46 also shows active occlusal caries. I recommend cuspal coverage with a full ceramic crown on tooth 16, a composite restoration on 46, and an occlusal night guard for nocturnal grinding."
+        }
+      ],
+      "findings": {
+        "chiefComplaint": "Cold sensitivity and sharp pain on biting right upper molar (tooth 16).",
+        "history": "No known allergies. Good general health. Reports clenching during stressful periods.",
+        "toothFindings": "FDI Tooth 16: Micro-crack running across mesio-palatal cusp, tender to Tooth Slooth on palatal cusp. FDI Tooth 46: Active occlusal enamel-dentine caries. Wear facets noted on anterior incisal edges consistent with nocturnal bruxism.",
+        "findingsGingival": "Mild marginal gingivitis, bleeding on probing 12%. Pockets 2-3mm.",
+        "diagnosis": "Cracked tooth syndrome tooth 16; active caries tooth 46; nocturnal attrition/bruxism.",
+        "treatmentPerformed": "Comprehensive examination 011, intraoral bite-wing radiographs 022, bite test.",
+        "recommendations": "Full ceramic crown on tooth 16 to protect against fracture; 2-surface composite resin on tooth 46; upper Michigan occlusal splint.",
+        "recallRequirements": "Next Available (Urgent)"
+      },
+      "patientSummary": "Hi Priya,\n\nThank you for coming in today for your comprehensive examination. We evaluated tooth 16 where you have been experiencing biting sensitivity, and identified a structural micro-crack that requires a protective ceramic crown to prevent further splitting. We also noted minor decay on tooth 46 for a filling, and recommend an occlusal night splint to protect your teeth from night-time grinding.\n\nWarm regards,\nDr. Vik",
+      "dentistId": "ea8e5a3a-d788-45d9-b44b-63faa8db43b3"
+    },
+    {
+      "id": "c-jessica-taylor-1",
+      "firstName": "Jessica",
+      "lastName": "Taylor",
+      "dob": "1990-08-15",
+      "appointmentType": "emergency",
+      "date": "Aug 22",
+      "time": "10:41 AM",
+      "status": "Completed",
+      "transcript": [
+        {
+          "sender": "Patient",
+          "text": "Tooth 33 feels very tender when I chew, and tooth 16 has a throbbing ache."
+        },
+        {
+          "sender": "Dentist",
+          "text": "Tooth 33 has a deep carious lesion requiring composite restoration. Tooth 16 exhibits vertical percussion sensitivity and pulpitis requiring root canal treatment."
+        },
+        {
+          "sender": "Patient",
+          "text": "Alright, let's make sure we fix both."
+        }
+      ],
+      "findings": {
+        "chiefComplaint": "Acute throbbing sensitivity on the lower left quadrant when tapping.",
+        "history": "Daily brushing reported; flossing is irregular. Mild sensitivity to cold fluids.",
+        "toothFindings": "FDI Tooth 33: Deep carious lesion requiring restoration. FDI Tooth 24: Stable restoration. FDI Tooth 16: Pulpitis detected requiring root canal treatment. FDI Tooth 42: Checked for mobility.",
+        "findingsGingival": "Localized gingivitis. Periodontal pocket depths recorded at 3-2-3 mm.",
+        "diagnosis": "Symptomatic pulpitis on tooth 16 and tooth 33. Localized gingivitis.",
+        "treatmentPerformed": "Thermal and percussion diagnostic tests. Initial excavation of decay on tooth 16, emergency pulp extirpation started.",
+        "recommendations": "Maintain brushing twice daily. Enhance flossing daily. Complete root canal therapy on tooth 16 and composite filling on tooth 33.",
+        "recallRequirements": "Next Available (Urgent)"
+      },
+      "patientSummary": "Hi Jessica,\n\nWe successfully completed your emergency examination today. We addressed the throbbing pain in tooth 16 and started root canal therapy to clear the infection. Tooth 33 also requires a composite restoration to repair decay. Please contact us to schedule the completion of these treatments.\n\nWarm regards,\nDr. Vik",
+      "dentistId": "ea8e5a3a-d788-45d9-b44b-63faa8db43b3"
+    },
+    {
+      "id": "c-david-nguyen-1",
+      "firstName": "David",
+      "lastName": "Nguyen",
+      "dob": "1982-11-03",
+      "appointmentType": "periodic",
+      "date": "Aug 24",
+      "time": "02:15 PM",
+      "status": "Completed",
+      "transcript": [
+        {
+          "sender": "Dentist",
+          "text": "David, looking at your gums today, we have isolated deep pockets measuring 5mm in the upper right and lower left quadrants with subgingival calculus."
+        },
+        {
+          "sender": "Patient",
+          "text": "Is that why they bleed when I floss?"
+        },
+        {
+          "sender": "Dentist",
+          "text": "Yes, active periodontal inflammation. I strongly recommend scheduling two 45-minute appointments for quadrant root planing and subgingival debridement."
+        }
+      ],
+      "findings": {
+        "chiefComplaint": "Bleeding gums on brushing and flossing.",
+        "history": "Non-smoker, last dental visit 2 years ago.",
+        "toothFindings": "Restorations intact. Moderate subgingival calculus detected across Quadrants 1 and 3.",
+        "findingsGingival": "BPE 3 in Quadrant 1 and Quadrant 3. Periodontal pocket depths up to 5mm. Subgingival calculus and active bleeding on probing.",
+        "diagnosis": "Generalized moderate periodontitis Stage II Grade B.",
+        "treatmentPerformed": "Periodic oral examination 012, 6-point periodontal charting.",
+        "recommendations": "Root planing and subgingival debridement across 2 quadrants under local anaesthetic (item 222 x 2); 3-month periodontal maintenance recall.",
+        "recallRequirements": "3 Months"
+      },
+      "patientSummary": "Hi David,\n\nThank you for your visit today for your routine dental examination. We identified active gum inflammation with deeper pocketing around your upper right and lower left quadrants. To stop gum disease progression, we recommend scheduling two appointments for quadrant root planing and deep cleaning.\n\nWarm regards,\nDr. Vik",
+      "dentistId": "ea8e5a3a-d788-45d9-b44b-63faa8db43b3"
+    }
+  ]
 }

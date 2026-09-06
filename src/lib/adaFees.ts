@@ -238,7 +238,7 @@ export function extractProposedTreatmentsFromFindings(params: {
     }
   }
 
-  // Pattern D: Nightguard / Occlusal Splint for Bruxim / Wear
+  // Pattern D: Nightguard / Occlusal Splint for Bruxism / Wear
   if (textCorpus.match(/(?:bruxism|wear\s*facets|grinding|occlusal\s*splint|night\s*guard)/i)) {
     if (!performedCorpus.includes('splint') && !performedCorpus.includes('night guard')) {
       const feeItem = lookupAdaFee('965');
@@ -258,6 +258,64 @@ export function extractProposedTreatmentsFromFindings(params: {
         status: 'unscheduled',
         createdAt: new Date().toISOString()
       });
+    }
+  }
+
+  // Pattern E: Endodontics / Root Canal Therapy (e.g. pulpitis, RCT, endo, root canal)
+  const endoRegex = /(?:root\s*canal|rct|endo|pulpectomy|pulpitis)[^.\n]{0,60}?(?:tooth\s*|fdi\s*)?([1-4][1-8])|(?:tooth\s*|fdi\s*)?([1-4][1-8])[^.\n]{0,60}?(?:root\s*canal|rct|endo|pulpectomy|pulpitis)/gi;
+  let endoMatch: RegExpExecArray | null;
+  while ((endoMatch = endoRegex.exec(textCorpus)) !== null) {
+    const tooth = endoMatch[1] || endoMatch[2];
+    if (tooth) {
+      const isAlreadyCompleted = performedCorpus.includes(tooth) && (performedCorpus.includes('completed rct') || performedCorpus.includes('obturation'));
+      if (!isAlreadyCompleted && !results.some(r => r.tooth === tooth && r.adaCode?.startsWith('4'))) {
+        const feeItem = lookupAdaFee('417');
+        results.push({
+          id: `${consultationId}-tx-endo-${tooth}`,
+          consultationId,
+          dentistId,
+          clinicId,
+          patientName,
+          patientPhone: '0412 555 789',
+          patientEmail: `${patientName.toLowerCase().replace(/[^a-z0-9]/g, '.')}@example.com`,
+          tooth,
+          adaCode: feeItem.code,
+          procedureName: feeItem.name,
+          estimatedFee: feeItem.standardFee,
+          clinicalReason: `Endodontic therapy (root canal) required for symptomatic pulpitis on tooth ${tooth}`,
+          patientBarrier: 'Requires multiple-stage appointment scheduling',
+          status: 'unscheduled',
+          createdAt: new Date().toISOString()
+        });
+        break;
+      }
+    }
+  }
+
+  // Pattern F: Implants / Edentulous Site
+  const implantRegex = /(?:implant|fixture|crown\s*on\s*implant|missing\s*tooth)[^.\n]{0,60}?(?:tooth\s*|fdi\s*)?([1-4][1-8])|(?:tooth\s*|fdi\s*)?([1-4][1-8])[^.\n]{0,60}?(?:implant|fixture|crown\s*on\s*implant|missing\s*tooth)/gi;
+  let implantMatch: RegExpExecArray | null;
+  while ((implantMatch = implantRegex.exec(textCorpus)) !== null) {
+    const tooth = implantMatch[1] || implantMatch[2];
+    if (tooth && !results.some(r => r.tooth === tooth && r.adaCode === '688')) {
+      results.push({
+        id: `${consultationId}-tx-implant-${tooth}`,
+        consultationId,
+        dentistId,
+        clinicId,
+        patientName,
+        patientPhone: '0433 111 222',
+        patientEmail: `${patientName.toLowerCase().replace(/[^a-z0-9]/g, '.')}@example.com`,
+        tooth,
+        adaCode: '688',
+        procedureName: 'Dental Implant Fixture & Restoration',
+        estimatedFee: 2200,
+        clinicalReason: `Single tooth implant reconstruction indicated for site ${tooth}`,
+        patientBarrier: 'Evaluating financial plan / superannuation release',
+        status: 'unscheduled',
+        createdAt: new Date().toISOString()
+      });
+      break;
     }
   }
 
