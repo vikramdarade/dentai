@@ -7,6 +7,8 @@ import { SAMPLE_TRANSCRIPTS, getSampleForType } from '../lib/sampleTranscripts';
 import { generateOfflineDraft } from '../lib/draftEngine';
 import { generateWithOnDeviceModel, type OnDeviceResult } from '../lib/onDeviceModel';
 import { normalizedToPayload } from '../lib/normalizeNoteOutput';
+import { normalizeSpokenDentalText } from '../lib/dentalPhoneticLexicon';
+import { OPERATORY_AUDIO_DEFAULTS } from '../lib/operatoryAudioFilter';
 
 const isQuotaFailure = (msg: string): boolean =>
   msg.toLowerCase().includes('quota') ||
@@ -213,15 +215,17 @@ export default function LiveRecording({
       analyserRef.current = analyser;
 
       if (vocalBridgeActive) {
-        // High-pass filter to block low frequency hums (<150Hz)
+        // High-pass filter to block low frequency motor, HVAC, compressor hums (<120Hz)
         const hpFilter = audioContextRef.current.createBiquadFilter();
         hpFilter.type = 'highpass';
-        hpFilter.frequency.value = 150;
+        hpFilter.frequency.value = OPERATORY_AUDIO_DEFAULTS.highPassFreq;
+        hpFilter.Q.value = OPERATORY_AUDIO_DEFAULTS.q;
 
-        // Low-pass filter to block high frequency drill shrieks (>3400Hz)
+        // Low-pass filter to block high frequency ultrasonic scaler whine & suction hiss (>4200Hz)
         const lpFilter = audioContextRef.current.createBiquadFilter();
         lpFilter.type = 'lowpass';
-        lpFilter.frequency.value = 3400;
+        lpFilter.frequency.value = OPERATORY_AUDIO_DEFAULTS.lowPassFreq;
+        lpFilter.Q.value = OPERATORY_AUDIO_DEFAULTS.q;
 
         source.connect(hpFilter);
         hpFilter.connect(lpFilter);
@@ -338,7 +342,8 @@ export default function LiveRecording({
         for (let i = event.resultIndex; i < event.results.length; ++i) {
           const result = event.results[i];
           if (result.isFinal) {
-            const text = result[0].transcript.trim();
+            const rawText = result[0].transcript.trim();
+            const text = normalizeSpokenDentalText(rawText);
             if (text) {
               setTranscript((prev) => [...prev, { sender: 'Dialogue', text }]);
               setItemTimes((prev) => [...prev, secondsRef.current]);
@@ -347,7 +352,7 @@ export default function LiveRecording({
             interim += result[0].transcript;
           }
         }
-        setInterimTranscript(interim);
+        setInterimTranscript(normalizeSpokenDentalText(interim));
       };
 
       recognitionRef.current = rec;
@@ -517,7 +522,8 @@ export default function LiveRecording({
 
   const handleAppendPhrase = (sender: 'Dentist' | 'Patient' | 'Dialogue' | 'Clinical Comment', text: string) => {
     if (!text.trim()) return;
-    setTranscript((prev) => [...prev, { sender, text }]);
+    const normalizedText = normalizeSpokenDentalText(text);
+    setTranscript((prev) => [...prev, { sender, text: normalizedText }]);
     setItemTimes((prev) => [...prev, secondsRef.current]);
   };
 
@@ -1052,7 +1058,7 @@ export default function LiveRecording({
                         : 'bg-slate-50 border-slate-200 text-slate-650'
                     }`}
                   >
-                    {vocalBridgeActive ? 'ACTIVE (150Hz - 3.4kHz)' : 'INACTIVE'}
+                    {vocalBridgeActive ? 'ACTIVE (120Hz - 4.2kHz Operatory Filter)' : 'INACTIVE'}
                   </button>
                 </div>
 

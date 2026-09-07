@@ -137,4 +137,27 @@ describe('Chairside Deliverables Suite ("Eliminating CoTreat")', () => {
     expect(quote.phasedMilestones?.length).toBeGreaterThanOrEqual(2);
     expect(quote.phasedMilestones?.[0].phaseTitle).toContain('Phase 1: Urgent Relief');
   });
+
+  it('verifies telegraphic tooth-by-tooth ledger and AHPRA informed consent formatting', () => {
+    const rawAiOutput = {
+      toothFindings: [
+        '#16 (MOD): DB cusp fracture & recurrent secondary caries | Cold (+ lingered >15s), TTP (+), EPT 62/80 | Rec: Full ceramic crown (ADA 611)',
+        '#24 (MO): Primary carious lesion into mid-dentin | Cold (+ normal), TTP (-) | Rec: 2-surface composite resin (ADA 532)',
+        '#36: Defective occlusal margin on existing amalgam | Asymptomatic | Rec: Monitor at recall',
+        'Remaining Dentition: Sound enamel, stable existing restorations, no active caries detected.'
+      ].join('\n'),
+      recommendations: [
+        '1. Tooth 16: Complete RCT step 2 and full ceramic crown.',
+        '2. Tooth 24: 2-surface composite resin restoration.',
+        'Informed Consent: Discussed diagnosis, procedural stages, risks (post-op sensitivity, restoration failure), alternative options (extraction), and itemized ADA schedule fees. Patient understood and provided informed consent to proceed.'
+      ].join('\n')
+    };
+
+    const normalized = normalizeTemplateOutput(standardTemplate, rawAiOutput);
+    expect(normalized.toothFindings).toContain('#16 (MOD): DB cusp fracture');
+    expect(normalized.toothFindings).toContain('#24 (MO): Primary carious lesion');
+    expect(normalized.toothFindings).toContain('#36: Defective occlusal margin');
+    expect(normalized.recommendations).toContain('Informed Consent: Discussed diagnosis');
+  });
 });
+
