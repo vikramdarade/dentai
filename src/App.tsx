@@ -11,6 +11,7 @@ import ClinicalSummary from './components/ClinicalSummary';
 import Login from './components/Login';
 import Landing from './components/Landing';
 import DemoMovie from './demo/DemoMovie';
+import PatientRoadmapPrototype from './components/PatientRoadmapPrototype';
 import {
   saveAuth,
   getAuth,
@@ -35,12 +36,19 @@ export default function App() {
   const [landingOpen, setLandingOpen] = useState<boolean>(() =>
     window.location.hash.startsWith('#/landing') || window.location.hash.startsWith('#landing')
   );
+  // Concept review prototype at #/roadmap-prototype
+  const [prototypeOpen, setPrototypeOpen] = useState<boolean>(() =>
+    window.location.hash.startsWith('#/roadmap-prototype') || window.location.hash.startsWith('#roadmap-prototype')
+  );
 
   useEffect(() => {
     const onHashChange = () => {
       setDemoOpen(window.location.hash.startsWith('#/demo'));
       setLandingOpen(
         window.location.hash.startsWith('#/landing') || window.location.hash.startsWith('#landing')
+      );
+      setPrototypeOpen(
+        window.location.hash.startsWith('#/roadmap-prototype') || window.location.hash.startsWith('#roadmap-prototype')
       );
     };
     window.addEventListener('hashchange', onHashChange);
@@ -711,6 +719,19 @@ export default function App() {
           window.location.hash = '';
           setLandingOpen(false);
         }}
+      />
+    );
+  }
+
+  if (prototypeOpen) {
+    return (
+      <PatientRoadmapPrototype
+        onClose={() => {
+          window.location.hash = '';
+          setPrototypeOpen(false);
+        }}
+        dentistName={currentUser?.name || 'Dr. Sarah Chen'}
+        clinicName={activeClinic?.clinicName || 'Bright Smile Dental'}
       />
     );
   }

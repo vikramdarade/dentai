@@ -27,12 +27,14 @@ import {
   RotateCcw,
   ClipboardCheck,
   FileText,
-  Send
+  Send,
+  Stethoscope
 } from 'lucide-react';
 import { TreatmentOpportunity, TreatmentStatus, PracticeRoiSummary, Consultation, PmsType } from '../types';
 import { ClinicMembership } from '../lib/clinics';
 import { extractProposedTreatmentsFromFindings } from '../lib/adaFees';
 import { generateTreatmentEstimate, FormattedTreatmentEstimate } from '../lib/treatmentEstimate';
+import PatientRoadmapPrototype from './PatientRoadmapPrototype';
 
 interface TreatmentPipelineProps {
   authToken: string;
@@ -95,6 +97,7 @@ export default function TreatmentPipeline({
   const [outreachChannel, setOutreachChannel] = useState<'sms' | 'whatsapp' | 'email'>('sms');
   const [copiedText, setCopiedText] = useState<boolean>(false);
   const [actionSuccessMessage, setActionSuccessMessage] = useState<string | null>(null);
+  const [showRoadmapPrototype, setShowRoadmapPrototype] = useState<boolean>(false);
 
   const DECLINE_PRESETS = [
     { id: 'cost', label: 'Cost / Financial Constraint', desc: 'Out of pocket expense or lack of private health cover' },
@@ -372,7 +375,14 @@ export default function TreatmentPipeline({
           </p>
         </div>
 
-        <div className="flex items-center gap-3 self-start md:self-auto">
+        <div className="flex items-center gap-2.5 self-start md:self-auto flex-wrap">
+          <button
+            onClick={() => setShowRoadmapPrototype(true)}
+            className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm"
+          >
+            <Stethoscope className="w-3.5 h-3.5 text-indigo-200" />
+            <span>Review Phased Care Prototype</span>
+          </button>
           <button
             onClick={fetchData}
             className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-all"
@@ -1142,6 +1152,17 @@ export default function TreatmentPipeline({
               </div>
             </motion.div>
           </div>
+        )}
+      </AnimatePresence>
+
+      {/* Phased Care Roadmap & Clinical Oversight Visual Prototype Modal */}
+      <AnimatePresence>
+        {showRoadmapPrototype && (
+          <PatientRoadmapPrototype
+            onClose={() => setShowRoadmapPrototype(false)}
+            dentistName={dentistName}
+            clinicName={activeClinic?.clinicName}
+          />
         )}
       </AnimatePresence>
     </div>
