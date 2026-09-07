@@ -206,7 +206,22 @@ defineTemplate({
   ],
 });
 
-/** 3. Hygiene (scale & clean) template — default for scale_clean. */
+/** 3. Concise Summary — compact 4-point structure for rapid clinical charting. */
+defineTemplate({
+  id: 'concise',
+  name: 'Concise Summary',
+  tagline: 'Fast 4-Point Format',
+  description: 'Compact 4-point structure for routine visits: presenting complaint, clinical findings, treatment provided, and next steps / recall.',
+  isFormat: true,
+  sections: [
+    { key: 'chiefComplaint', label: 'Presenting Complaint & History', placeholder: 'Reason for visit, symptoms, duration, relevant medical alerts' },
+    { key: 'toothFindings', label: 'Clinical Findings & Assessment', placeholder: 'Teeth examined (FDI), caries, periodontal status, diagnosis' },
+    { key: 'treatmentPerformed', label: 'Treatment Provided Today', placeholder: 'Procedures completed, materials, local anaesthesia, isolation' },
+    { key: 'recallRequirements', label: 'Next Steps & Recall Plan', placeholder: 'Follow-up appointment, planned future treatment, recall interval' },
+  ],
+});
+
+/** 4. Hygiene (scale & clean) template — default for scale_clean. */
 defineTemplate({
   id: 'hygiene',
   name: 'Hygiene / Periodontal Care',
@@ -339,6 +354,7 @@ defineTemplate({
 export const BUILT_IN_TEMPLATES: NoteTemplate[] = [
   TEMPLATE_BY_ID.standard,
   TEMPLATE_BY_ID.soap,
+  TEMPLATE_BY_ID.concise,
   TEMPLATE_BY_ID.hygiene,
   TEMPLATE_BY_ID.emergency,
   TEMPLATE_BY_ID.restorative,
@@ -346,6 +362,13 @@ export const BUILT_IN_TEMPLATES: NoteTemplate[] = [
   TEMPLATE_BY_ID.surgical,
   TEMPLATE_BY_ID.prostho,
   TEMPLATE_BY_ID.paediatric,
+];
+
+/** The 3 core format styles presented to clinicians in Patient Intake. */
+export const CORE_FORMAT_TEMPLATES: NoteTemplate[] = [
+  TEMPLATE_BY_ID.standard,
+  TEMPLATE_BY_ID.soap,
+  TEMPLATE_BY_ID.concise,
 ];
 
 export const getTemplateById = (id: string | undefined | null): NoteTemplate =>

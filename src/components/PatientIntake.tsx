@@ -3,7 +3,7 @@ import { X, User, ArrowLeft, ArrowRight, Mic, Info, Hammer, Check } from 'lucide
 import { motion, AnimatePresence } from 'motion/react';
 import { maskDobInput, isValidDob, parseDobToIso } from '../utils/date';
 import { getSavedTemplates, getActiveTemplateId, setActiveTemplateId, NoteTemplate } from '../utils/templates';
-import { APPOINTMENT_TYPES, AppointmentType, getDefaultTemplateIdForType, getTemplateById, getAppointmentTypeLabel } from '../lib/dentalLibrary';
+import { APPOINTMENT_TYPES, AppointmentType, CORE_FORMAT_TEMPLATES, getTemplateById, getAppointmentTypeLabel } from '../lib/dentalLibrary';
 
 interface PatientIntakeProps {
   onCancel: () => void;
@@ -25,8 +25,11 @@ export default function PatientIntake({ onCancel, onSubmit }: PatientIntakeProps
   const [dob, setDob] = useState('');
   const [appointmentType, setAppointmentType] = useState<AppointmentType | ''>('');
   const [consent, setConsent] = useState(false);
-  const [selectedTemplateId, setSelectedTemplateId] = useState<string>(getActiveTemplateId());
-  const [templates] = useState<NoteTemplate[]>(getSavedTemplates());
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>(() => {
+    const active = getActiveTemplateId();
+    if (active === 'soap' || active === 'concise' || active === 'standard') return active;
+    return 'standard';
+  });
 
   // Simple validation for current step
   const canGoNext = () => {
@@ -228,11 +231,12 @@ export default function PatientIntake({ onCancel, onSubmit }: PatientIntakeProps
                 <div>
                   <h2 className="font-headline-lg text-2xl font-bold text-on-surface">Session Context</h2>
                   <p className="text-secondary text-slate-500 font-body-md mt-1">
-                    Select the primary reason for today's clinical visit.
+                    Select the clinical appointment type and documentation format.
                   </p>
                 </div>
 
-                <div className="flex flex-col gap-4">
+                <div className="flex flex-col gap-5">
+                  {/* Appointment Type Selector */}
                   <div className="flex flex-col gap-1.5">
                     <label className="font-label-md text-xs font-bold text-slate-500 uppercase tracking-wider">
                       Treatment / Appointment Type
@@ -244,11 +248,8 @@ export default function PatientIntake({ onCancel, onSubmit }: PatientIntakeProps
                         onChange={(e) => {
                           const value = e.target.value as AppointmentType;
                           setAppointmentType(value);
-                          // Auto-select the built-in note template recommended for
-                          // this treatment type (dentist can still override below).
-                          setSelectedTemplateId(getDefaultTemplateIdForType(value));
                         }}
-                        className="w-full h-12 px-4 bg-[#fcf8ff] border border-outline-variant rounded-lg text-lg focus:border-primary-container focus:ring-1 focus:ring-primary-container outline-none transition-all text-on-surface appearance-none pr-10"
+                        className="w-full h-12 px-4 bg-[#fcf8ff] border border-outline-variant rounded-lg text-base font-semibold focus:border-primary-container focus:ring-1 focus:ring-primary-container outline-none transition-all text-on-surface appearance-none pr-10"
                       >
                         <option value="" disabled>Select a treatment type</option>
                         {APPOINTMENT_TYPES.map((info) => (
@@ -262,51 +263,79 @@ export default function PatientIntake({ onCancel, onSubmit }: PatientIntakeProps
                       </div>
                     </div>
                     {appointmentType && (
-                      <span className="text-[10px] text-slate-400 leading-relaxed">
+                      <span className="text-[11px] text-indigo-600 font-medium leading-relaxed mt-0.5">
                         {APPOINTMENT_TYPES.find((t) => t.value === appointmentType)?.description}
                       </span>
                     )}
                   </div>
 
-                  {/* Note template — pre-selected to match the treatment type */}
-                  <div className="flex flex-col gap-1.5">
+                  {/* Note Format Selection - Exactly 3 Core Formats */}
+                  <div className="flex flex-col gap-2">
                     <div className="flex items-center justify-between">
                       <label className="font-label-md text-xs font-bold text-slate-500 uppercase tracking-wider">
-                        Note Template
+                        Note Documentation Format
                       </label>
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Recommended</span>
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">3 Core Styles</span>
                     </div>
-                    <div className="relative">
-                      <select
-                        value={selectedTemplateId}
-                        onChange={(e) => setSelectedTemplateId(e.target.value)}
-                        className="w-full h-12 px-4 bg-[#fcf8ff] border border-outline-variant rounded-lg text-sm font-medium focus:border-primary-container focus:ring-1 focus:ring-primary-container outline-none transition-all text-slate-700 appearance-none pr-10"
-                      >
-                        {templates.map(t => (
-                          <option key={t.id} value={t.id}>
-                            {t.name} ({t.tagline})
-                          </option>
-                        ))}
-                      </select>
-                      <div className="absolute top-1/2 right-4 -translate-y-1/2 pointer-events-none text-slate-400">
-                        ▼
-                      </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                      {CORE_FORMAT_TEMPLATES.map((tmpl) => {
+                        const isSelected = selectedTemplateId === tmpl.id;
+                        return (
+                          <button
+                            key={tmpl.id}
+                            type="button"
+                            onClick={() => {
+                              setSelectedTemplateId(tmpl.id);
+                              setActiveTemplateId(tmpl.id);
+                            }}
+                            className={`p-3.5 rounded-2xl border text-left transition-all flex flex-col justify-between cursor-pointer relative ${
+                              isSelected
+                                ? 'border-indigo-600 bg-indigo-50/60 shadow-sm ring-2 ring-indigo-500/10'
+                                : 'border-outline-variant bg-[#fcf8ff] hover:bg-slate-50'
+                            }`}
+                          >
+                            <div className="flex items-start justify-between w-full mb-1">
+                              <span className="font-bold text-xs text-slate-900 leading-tight">
+                                {tmpl.name}
+                              </span>
+                              <div
+                                className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 ml-1.5 transition-colors ${
+                                  isSelected
+                                    ? 'border-indigo-600 bg-indigo-600 text-white'
+                                    : 'border-slate-300 bg-white'
+                                }`}
+                              >
+                                {isSelected && <Check className="w-2.5 h-2.5 stroke-[3]" />}
+                              </div>
+                            </div>
+                            <span className="text-[10px] font-bold text-indigo-600 mb-1">
+                              {tmpl.tagline}
+                            </span>
+                            <p className="text-[10px] text-slate-500 leading-snug">
+                              {tmpl.id === 'standard'
+                                ? 'Statutory 8-point board format covering exam, perio, diagnosis & recall.'
+                                : tmpl.id === 'soap'
+                                ? 'Subjective, Objective, Assessment & Plan medical standard.'
+                                : 'Fast 4-point summary: Complaint, Findings, Treatment & Next Steps.'}
+                            </p>
+                          </button>
+                        );
+                      })}
                     </div>
-                    {appointmentType && selectedTemplateId && (
-                      <span className="text-[10px] text-indigo-500 font-semibold leading-relaxed">
-                        {selectedTemplateId === getDefaultTemplateIdForType(appointmentType)
-                          ? `DentAI will extract this template's sections (${getTemplateById(selectedTemplateId).name}) from the transcript.`
-                          : `Optional: overriding the recommended template for ${getAppointmentTypeLabel(appointmentType)}.`}
-                      </span>
-                    )}
                   </div>
 
                   {/* Informational Box */}
-                  <div className="p-4 bg-indigo-50/70 rounded-xl border border-indigo-100 flex items-start gap-3">
-                    <Info className="text-primary w-5 h-5 flex-shrink-0 mt-0.5" />
-                    <p className="text-slate-600 font-body-md text-sm leading-relaxed">
-                      DentAI preconfigures a note template for each treatment type (exam, hygiene, emergency, restorative, endo, surgical, crown &amp; bridge, paediatric). The template decides which sections the AI fills from the transcript — and how they are formatted for your PMS.
-                    </p>
+                  <div className="p-3.5 bg-indigo-50/70 rounded-xl border border-indigo-100 flex items-start gap-3">
+                    <Info className="text-primary w-4 h-4 flex-shrink-0 mt-0.5" />
+                    <div className="text-slate-600 font-body-md text-xs leading-relaxed space-y-1">
+                      <p>
+                        <b>Clinical Context:</b> The selected appointment type instructs DentAI on clinical terminology and procedural focus during live transcription.
+                      </p>
+                      <p>
+                        <b>Treatment Recovery Engine:</b> Unscheduled care, recommended crowns/restorations, or recall intervals detected in the session automatically feed into your <b>Treatment Recovery Pipeline</b>.
+                      </p>
+                    </div>
                   </div>
                 </div>
               </motion.section>

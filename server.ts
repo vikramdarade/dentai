@@ -10,7 +10,9 @@ import {
   TemplateSection,
   getTemplateById,
   TEMPLATE_BY_ID,
-  isValidAppointmentType
+  isValidAppointmentType,
+  AppointmentType,
+  APPOINTMENT_TYPE_BY_VALUE
 } from './src/lib/dentalLibrary';
 import { normalizeTemplateOutput } from './src/lib/normalizeNoteOutput';
 import {
@@ -235,7 +237,7 @@ async function runHostedGeneration(payload: {
       return { ok: false, quota: false, message: resolved.error };
     }
     const noteTemplate = resolved.template;
-    const noteAIConfig = buildTemplateAIConfig(noteTemplate);
+    const noteAIConfig = buildTemplateAIConfig(noteTemplate, payload.intakeData?.appointmentType);
 
     // Server-side compaction: the forgotten-recording guard. Enforced here so
     // a client-side bypass can never blow the quota pool for other clinics.
@@ -301,7 +303,7 @@ async function runHostedGeneration(payload: {
           const resolved = resolveNoteTemplate(payload.intakeData);
           if (!resolved.error) {
             const noteTemplate = resolved.template;
-            const noteAIConfig = buildTemplateAIConfig(noteTemplate);
+            const noteAIConfig = buildTemplateAIConfig(noteTemplate, payload.intakeData?.appointmentType);
             const compacted = compactTranscriptForGeneration(payload.transcript);
             const promptContext = buildNotePrompt(payload.intakeData, noteTemplate.name, compacted.transcript);
             const fallbackAi = new GoogleGenAI({ apiKey: fallbackKey });
@@ -2397,8 +2399,8 @@ MANDATORY RULES:
 `;
 
 
-/** Builds the JSON schema + system instruction for one note template. */
-function buildTemplateAIConfig(template: NoteTemplate) {
+/** Builds the JSON schema + system instruction for one note template, infused with appointment context. */
+function buildTemplateAIConfig(template: NoteTemplate, appointmentType?: AppointmentType) {
   const properties: Record<string, any> = {};
   for (const section of template.sections) {
     properties[section.key] = { type: Type.STRING };
@@ -2416,9 +2418,16 @@ function buildTemplateAIConfig(template: NoteTemplate) {
     .map(s => `- "${s.key}" (${s.label}): ${s.placeholder} Only include content the transcript supports; otherwise an empty string.`)
     .join('\n');
 
+  let appointmentContextSection = '';
+  if (appointmentType && isValidAppointmentType(appointmentType)) {
+    const info = APPOINTMENT_TYPE_BY_VALUE[appointmentType];
+    appointmentContextSection = `\n\n=== CLINICAL APPOINTMENT CONTEXT: ${info.label.toUpperCase()} ===\nClinical Description: ${info.description}\nStructure and focus the extracted content appropriately for this ${info.label} visit:\n- Prioritise clinical findings, tooth numbers (FDI), and procedures relevant to ${info.short}.\n- If future treatment, unscheduled care, or recall requirements are discussed, document them clearly in the recall / recommendations / plan section so they feed into the practice treatment recovery & recall engine.\n`;
+  }
+
   const systemInstruction =
     TEMPLATE_DRIVEN_SYSTEM_INSTRUCTION +
-    `\n\n=== CURRENT NOTE TEMPLATE: ${template.name} ===\nReturn exactly ONE JSON object containing exactly these string sections:\n${sectionInstructions}\n`;
+    appointmentContextSection +
+    `\n\n=== CURRENT NOTE TEMPLATE FORMAT: ${template.name} ===\nReturn exactly ONE JSON object containing exactly these string sections:\n${sectionInstructions}\n`;
 
   return { responseMimeType: 'application/json', responseSchema, systemInstruction };
 }
@@ -2546,7 +2555,7 @@ app.post('/api/generate-notes', authenticateToken, async (req: express.Request, 
       return res.status(400).json({ error: resolved.error });
     }
     noteTemplate = resolved.template;
-    noteAIConfig = buildTemplateAIConfig(noteTemplate);
+    noteAIConfig = buildTemplateAIConfig(noteTemplate, intakeData.appointmentType);
     intakeData.templateId = noteTemplate.id;
 
     logAudit('notes_generated', (req as any).dentist?.id || 'unknown', {

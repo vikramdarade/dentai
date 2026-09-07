@@ -147,6 +147,8 @@ export function extractProposedTreatmentsFromFindings(params: {
     findings.toothFindings || '',
     findings.diagnosis || '',
     findings.recallRequirements || '',
+    findings.plan || '',
+    findings.assessment || '',
     JSON.stringify(findings.customSections || {})
   ].join('\n');
 
