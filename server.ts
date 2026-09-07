@@ -2383,11 +2383,17 @@ const CLINICAL_AI_CONFIG = {
  * procedure/review fields, etc. — instead of the legacy fixed 8-field schema.
  * ------------------------------------------------------------------------- */
 
-const RESERVED_NOTE_KEYS = new Set(['patientSummary', 'adaCodes']);
+const RESERVED_NOTE_KEYS = new Set([
+  'patientSummary',
+  'adaCodes',
+  'specialistReferral',
+  'patientConsent',
+  'treatmentQuote'
+]);
 
-const TEMPLATE_DRIVEN_SYSTEM_INSTRUCTION = `You are an expert dental transcription assistant and charting AI for Australian dental practice. You receive a patient intake form and a clinical session transcript (speaker roles: 'Dentist', 'Patient', 'Dialogue', 'Clinical Comment' — infer who actually spoke from context). Return TWO things: (1) structured clinical notes whose sections are defined by the supplied note template, and (2) a patient summary letter.
+const TEMPLATE_DRIVEN_SYSTEM_INSTRUCTION = `You are an expert dental transcription assistant and clinical charting AI for Australian dental practice. You receive a patient intake form and a clinical session transcript (speaker roles: 'Dentist', 'Patient', 'Dialogue', 'Clinical Comment' — infer who actually spoke from context). Return: (1) structured clinical notes whose sections are defined by the supplied note template, (2) a warm patient summary letter, (3) specialist referral details if indicated, and (4) patient informed consent & care guidance.
 
-Your output must comply with Dental Board of Australia record-keeping guidelines.
+Your output must comply with Dental Board of Australia record-keeping guidelines and AHPRA Section 133 standards.
 
 MANDATORY RULES:
 1. FDI NOTATION: Use the FDI two-digit system exclusively (quadrants 1-4: 11-18, 21-28, 31-38, 41-48) whenever a tooth is referenced. Map spoken forms ("tooth one six", "tooth 16", "sixteen") to the correct two-digit FDI form.
@@ -2396,6 +2402,8 @@ MANDATORY RULES:
 4. NO FABRICATION (CRITICAL CLINICAL SAFETY): Extract ONLY what the intake form and transcript support. NEVER invent a diagnosis, treatment, drug, radiograph, test result, or recall interval that was not stated, and never guess a tooth number. If a section has no supporting evidence, return an empty string for it. Never pad a section with plausible-sounding content.
 5. PATIENT SUMMARY: A warm, friendly, plain-English letter to the patient (en-AU spelling) that explains the visit and any follow-up simply. Do not restate clinical jargon verbatim and never invent advice.
 6. ADA ITEM CODES: In adaCodes, list Australian Dental Association 3-digit item numbers that were actually mentioned or clearly performed in the session, as a comma-separated string e.g. "011 - Comprehensive oral examination, 022 - Intraoral periapical radiograph (Tooth 16), 414 - Pulp extirpation (Tooth 16)". If none were performed, return an empty string — never invent codes.
+7. SPECIALIST REFERRAL: If the clinician or dialogue discusses referring the patient to a dental specialist (Endodontist, Periodontist, Oral & Maxillofacial Surgeon, Orthodontist, Prosthodontist, or Paediatric Dentist), set specialistReferral.required to true and generate a peer-to-peer referral letter in letterText using Australian clinical formatting (listing tooth FDI, clinical question, history, test findings, and interim treatment). If NO referral is discussed, set specialistReferral.required to false and clinicalQuestion and letterText to empty strings.
+8. PATIENT CONSENT & CARE: In patientConsent, provide an AHPRA-compliant layperson summary of proposed/performed treatment: options discussed (with benefits, risks, and estimated costs if mentioned), risks of no treatment, post-operative home care instructions, and red-flag warning signs that require urgent review.
 `;
 
 
@@ -2407,6 +2415,40 @@ function buildTemplateAIConfig(template: NoteTemplate, appointmentType?: Appoint
   }
   properties.patientSummary = { type: Type.STRING };
   properties.adaCodes = { type: Type.STRING };
+
+  // Specialist Referral Object Schema
+  properties.specialistReferral = {
+    type: Type.OBJECT,
+    properties: {
+      required: { type: Type.BOOLEAN },
+      specialty: { type: Type.STRING },
+      specialistName: { type: Type.STRING },
+      recipientClinic: { type: Type.STRING },
+      teethInvolved: { type: Type.STRING },
+      urgency: { type: Type.STRING },
+      clinicalQuestion: { type: Type.STRING },
+      backgroundAndFindings: { type: Type.STRING },
+      provisionalDiagnosis: { type: Type.STRING },
+      interimTreatmentProvided: { type: Type.STRING },
+      medicalAlerts: { type: Type.STRING },
+      letterText: { type: Type.STRING }
+    },
+    required: ['required', 'specialty', 'clinicalQuestion', 'letterText']
+  };
+
+  // Patient Consent & Care Schema
+  properties.patientConsent = {
+    type: Type.OBJECT,
+    properties: {
+      plainSummary: { type: Type.STRING },
+      optionsDiscussed: { type: Type.STRING },
+      risksOfNoTreatment: { type: Type.STRING },
+      postOpCareInstructions: { type: Type.STRING },
+      redFlagsWarning: { type: Type.STRING },
+      consentStatus: { type: Type.STRING }
+    },
+    required: ['plainSummary', 'risksOfNoTreatment', 'postOpCareInstructions', 'redFlagsWarning']
+  };
 
   const responseSchema = {
     type: Type.OBJECT,

@@ -62,6 +62,61 @@ export interface PracticeRoiSummary {
   averageDaysToBook?: number;
 }
 
+export interface SpecialistReferral {
+  required: boolean;
+  specialty?: 'Endodontics' | 'Periodontics' | 'Oral & Maxillofacial Surgery' | 'Orthodontics' | 'Prosthodontics' | 'Paediatric Dentistry' | 'General Referral';
+  specialistName?: string;
+  recipientClinic?: string;
+  teethInvolved?: string[]; // FDI notation e.g. ["16"]
+  urgency?: 'Routine' | 'Urgent' | 'Immediate (Emergency)';
+  clinicalQuestion: string; // e.g. "Assessment and root canal therapy for tooth 16"
+  backgroundAndFindings: string; // concise clinical summary, pulp vitality, radiographic signs
+  provisionalDiagnosis: string;
+  interimTreatmentProvided?: string; // e.g. "Pulp extirpation under rubber dam, ledermix dressing placed"
+  medicalAlerts?: string;
+  letterText: string; // ready-to-send formal referral letter
+}
+
+export interface PatientConsentOption {
+  optionName: string;
+  benefits: string;
+  risks: string;
+  estimatedCost?: string;
+}
+
+export interface PatientConsentAndCare {
+  plainSummary: string;
+  optionsDiscussed: PatientConsentOption[];
+  risksOfNoTreatment: string;
+  postOpCareInstructions: string;
+  redFlagsWarning: string;
+  consentStatus?: 'discussed_pending_signature' | 'verbally_consented' | 'written_consent_signed';
+}
+
+export interface TreatmentQuoteItem {
+  adaCode: string;
+  description: string;
+  tooth?: string;
+  fee: number;
+  healthFundEstimatedRebate: number;
+  gapEstimate: number;
+  category: 'Diagnostic' | 'Preventive' | 'Periodontics' | 'Endodontics' | 'Restorative' | 'Crown & Bridge' | 'Surgery' | 'Orthodontics';
+}
+
+export interface TreatmentQuoteData {
+  items: TreatmentQuoteItem[];
+  totalFee: number;
+  estimatedRebate: number;
+  netGap: number;
+  visualCaseCategory?: 'crown' | 'implant' | 'endo' | 'veneer' | 'aligner' | 'perio' | 'general';
+  phasedMilestones?: Array<{
+    phaseNumber: number;
+    phaseTitle: string;
+    items: string[];
+    totalPhaseFee: number;
+  }>;
+}
+
 export interface ClinicalFindings {
   chiefComplaint: string;
   history: string;
@@ -99,6 +154,9 @@ export interface GeneratedNotePayload {
   patientSummary: string;
   adaCodes: AdaCodeItem[];
   proposedTreatments?: TreatmentOpportunity[];
+  specialistReferral?: SpecialistReferral;
+  patientConsent?: PatientConsentAndCare;
+  treatmentQuote?: TreatmentQuoteData;
 }
 
 export interface Consultation {
@@ -119,6 +177,9 @@ export interface Consultation {
   templateId?: string;
   noteOrigin?: NoteOrigin;
   proposedTreatments?: TreatmentOpportunity[];
+  specialistReferral?: SpecialistReferral;
+  patientConsent?: PatientConsentAndCare;
+  treatmentQuote?: TreatmentQuoteData;
 }
 
 export const getTodayStr = (when: Date = new Date()) => {

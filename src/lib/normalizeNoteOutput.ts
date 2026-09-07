@@ -13,7 +13,13 @@
  * offline draft engine (draftEngine.ts) all import from here.
  */
 import { NoteTemplate, isCanonicalField } from './dentalLibrary';
-import type { GeneratedNotePayload } from '../types';
+import type {
+  GeneratedNotePayload,
+  SpecialistReferral,
+  PatientConsentAndCare,
+  TreatmentQuoteData
+} from '../types';
+import { buildTreatmentQuoteData } from './adaFees';
 
 export interface AdaCodeLike {
   code: string;
@@ -28,6 +34,9 @@ export interface NormalizedNoteOutput {
   patientSummary: string;
   adaCodes: AdaCodeLike[];
   proposedTreatments?: any[];
+  specialistReferral?: SpecialistReferral;
+  patientConsent?: PatientConsentAndCare;
+  treatmentQuote?: TreatmentQuoteData;
 }
 
 const MAX_NOTE_SECTION_LENGTH = 4000;
@@ -80,6 +89,69 @@ export function normalizeTemplateOutput(template: NoteTemplate, raw: any): Norma
 
   output.patientSummary = sanitizeString(raw?.patientSummary);
   output.adaCodes = parseAdaCodes(raw?.adaCodes);
+
+  // Specialist Referral Normalisation
+  if (raw?.specialistReferral && typeof raw.specialistReferral === 'object') {
+    const sr = raw.specialistReferral;
+    output.specialistReferral = {
+      required: Boolean(sr.required),
+      specialty: sr.specialty || 'General Referral',
+      specialistName: sanitizeString(sr.specialistName),
+      recipientClinic: sanitizeString(sr.recipientClinic),
+      teethInvolved: Array.isArray(sr.teethInvolved)
+        ? sr.teethInvolved.map(String)
+        : typeof sr.teethInvolved === 'string'
+        ? sr.teethInvolved.split(/[,;\s]+/).map((s: string) => s.trim()).filter(Boolean)
+        : [],
+      urgency: sr.urgency || 'Routine',
+      clinicalQuestion: sanitizeString(sr.clinicalQuestion),
+      backgroundAndFindings: sanitizeString(sr.backgroundAndFindings),
+      provisionalDiagnosis: sanitizeString(sr.provisionalDiagnosis),
+      interimTreatmentProvided: sanitizeString(sr.interimTreatmentProvided),
+      medicalAlerts: sanitizeString(sr.medicalAlerts),
+      letterText: sanitizeString(sr.letterText)
+    };
+  }
+
+  // Patient Consent & Care Normalisation
+  if (raw?.patientConsent && typeof raw.patientConsent === 'object') {
+    const pc = raw.patientConsent;
+    output.patientConsent = {
+      plainSummary: sanitizeString(pc.plainSummary) || output.patientSummary,
+      optionsDiscussed: Array.isArray(pc.optionsDiscussed)
+        ? pc.optionsDiscussed.map((opt: any) => ({
+            optionName: sanitizeString(opt.optionName),
+            benefits: sanitizeString(opt.benefits),
+            risks: sanitizeString(opt.risks),
+            estimatedCost: sanitizeString(opt.estimatedCost)
+          }))
+        : typeof pc.optionsDiscussed === 'string' && pc.optionsDiscussed.trim()
+        ? [{ optionName: 'Proposed Treatment', benefits: sanitizeString(pc.optionsDiscussed), risks: '' }]
+        : [],
+      risksOfNoTreatment: sanitizeString(pc.risksOfNoTreatment),
+      postOpCareInstructions: sanitizeString(pc.postOpCareInstructions),
+      redFlagsWarning: sanitizeString(pc.redFlagsWarning),
+      consentStatus: pc.consentStatus || 'discussed_pending_signature'
+    };
+  } else if (output.patientSummary) {
+    output.patientConsent = {
+      plainSummary: output.patientSummary,
+      optionsDiscussed: [],
+      risksOfNoTreatment: 'Progression of untreated pathology may require more extensive restorative or surgical intervention.',
+      postOpCareInstructions: 'Maintain regular oral hygiene with a soft brush and adhere to scheduled recall appointments.',
+      redFlagsWarning: 'Contact the clinic immediately if you experience severe increasing pain, swelling, fever, or prolonged bleeding.',
+      consentStatus: 'discussed_pending_signature'
+    };
+  }
+
+  // Treatment Quote Normalisation & Auto-Derivation
+  if (raw?.treatmentQuote && typeof raw.treatmentQuote === 'object' && Array.isArray(raw.treatmentQuote.items)) {
+    output.treatmentQuote = raw.treatmentQuote;
+  } else {
+    const clinicalText = Object.values(output).filter(v => typeof v === 'string').join(' ');
+    output.treatmentQuote = buildTreatmentQuoteData(output.adaCodes, output.proposedTreatments, clinicalText);
+  }
+
   return output;
 }
 
@@ -113,6 +185,10 @@ export function normalizedToPayload(template: NoteTemplate, out: any): Generated
     patientSummary: sanitizeString(out?.patientSummary),
     adaCodes: parseAdaCodes(out?.adaCodes),
     proposedTreatments: Array.isArray(out?.proposedTreatments) ? out.proposedTreatments : undefined,
+    specialistReferral: out?.specialistReferral,
+    patientConsent: out?.patientConsent,
+    treatmentQuote: out?.treatmentQuote,
   };
 }
+
 

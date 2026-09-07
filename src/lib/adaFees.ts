@@ -5,7 +5,8 @@
  * and entity extraction to identify unscheduled dental treatments from clinical findings.
  */
 
-import { TreatmentOpportunity, TreatmentStatus } from '../types';
+import { TreatmentOpportunity, TreatmentStatus, TreatmentQuoteData, TreatmentQuoteItem } from '../types';
+import { detectVisualCaseCategory } from './visualCaseLibrary';
 
 export interface AdaFeeItem {
   code: string;
@@ -323,3 +324,125 @@ export function extractProposedTreatmentsFromFindings(params: {
 
   return results;
 }
+
+/**
+ * Builds comprehensive Treatment Quote Data for patients ("CoTreat Pack" equivalent)
+ * with itemized ADA fees, estimated Australian health fund rebates, and phased milestones.
+ */
+export function buildTreatmentQuoteData(
+  adaCodes: Array<{ code: string; description?: string; tooth?: string }>,
+  proposedTreatments: TreatmentOpportunity[] = [],
+  clinicalText: string = ''
+): TreatmentQuoteData {
+  const quoteItems: TreatmentQuoteItem[] = [];
+  const seenKeys = new Set<string>();
+
+  // 1. Incorporate proposed future treatments first
+  for (const opp of proposedTreatments) {
+    const code = opp.adaCode || '611';
+    const feeInfo = lookupAdaFee(code);
+    const fee = opp.estimatedFee || feeInfo.standardFee;
+    const rebateRate = feeInfo.category === 'Diagnostic' || feeInfo.category === 'Preventive' ? 0.75 : 0.55;
+    const estimatedRebate = Math.round(fee * rebateRate);
+    const gapEstimate = Math.max(0, fee - estimatedRebate);
+    const key = `${code}-${opp.tooth || 'general'}`;
+    if (!seenKeys.has(key)) {
+      seenKeys.add(key);
+      quoteItems.push({
+        adaCode: code,
+        description: opp.procedureName || feeInfo.name,
+        tooth: opp.tooth,
+        fee,
+        healthFundEstimatedRebate: estimatedRebate,
+        gapEstimate,
+        category: (feeInfo.category === 'Oral Surgery' ? 'Surgery' : feeInfo.category === 'General' ? 'Preventive' : feeInfo.category) as any
+      });
+    }
+  }
+
+  // 2. Incorporate any additional future / indicated ADA codes
+  for (const item of adaCodes) {
+    const key = `${item.code}-${item.tooth || 'general'}`;
+    if (!seenKeys.has(key)) {
+      seenKeys.add(key);
+      const feeInfo = lookupAdaFee(item.code);
+      const fee = feeInfo.standardFee;
+      const rebateRate = feeInfo.category === 'Diagnostic' || feeInfo.category === 'Preventive' ? 0.75 : 0.55;
+      const estimatedRebate = Math.round(fee * rebateRate);
+      const gapEstimate = Math.max(0, fee - estimatedRebate);
+      quoteItems.push({
+        adaCode: item.code,
+        description: item.description || feeInfo.name,
+        tooth: item.tooth,
+        fee,
+        healthFundEstimatedRebate: estimatedRebate,
+        gapEstimate,
+        category: (feeInfo.category === 'Oral Surgery' ? 'Surgery' : feeInfo.category === 'General' ? 'Preventive' : feeInfo.category) as any
+      });
+    }
+  }
+
+  // If no items were identified, supply standard comprehensive evaluation item
+  if (quoteItems.length === 0) {
+    const defaultInfo = lookupAdaFee('011');
+    quoteItems.push({
+      adaCode: '011',
+      description: defaultInfo.name,
+      fee: defaultInfo.standardFee,
+      healthFundEstimatedRebate: Math.round(defaultInfo.standardFee * 0.8),
+      gapEstimate: Math.max(0, defaultInfo.standardFee - Math.round(defaultInfo.standardFee * 0.8)),
+      category: 'Diagnostic'
+    });
+  }
+
+  const totalFee = quoteItems.reduce((sum, it) => sum + it.fee, 0);
+  const estimatedRebate = quoteItems.reduce((sum, it) => sum + it.healthFundEstimatedRebate, 0);
+  const netGap = Math.max(0, totalFee - estimatedRebate);
+
+  const visualCategory = detectVisualCaseCategory(adaCodes, clinicalText);
+
+  // Phased milestones
+  const urgent = quoteItems.filter(i => i.category === 'Endodontics' || i.category === 'Surgery');
+  const restorative = quoteItems.filter(i => i.category === 'Crown & Bridge' || i.category === 'Restorative' || i.category === 'Periodontics');
+  const preventive = quoteItems.filter(i => i.category === 'Diagnostic' || i.category === 'Preventive' || i.category === 'Orthodontics');
+
+  const phasedMilestones: TreatmentQuoteData['phasedMilestones'] = [];
+  let phaseNum = 1;
+
+  if (urgent.length > 0) {
+    phasedMilestones.push({
+      phaseNumber: phaseNum++,
+      phaseTitle: 'Phase 1: Urgent Relief & Stabilisation',
+      items: urgent.map(u => `${u.description}${u.tooth ? ` (Tooth ${u.tooth})` : ''}`),
+      totalPhaseFee: urgent.reduce((sum, u) => sum + u.fee, 0)
+    });
+  }
+
+  if (restorative.length > 0) {
+    phasedMilestones.push({
+      phaseNumber: phaseNum++,
+      phaseTitle: `Phase ${phaseNum}: Restorative Reconstruction & Longevity`,
+      items: restorative.map(r => `${r.description}${r.tooth ? ` (Tooth ${r.tooth})` : ''}`),
+      totalPhaseFee: restorative.reduce((sum, r) => sum + r.fee, 0)
+    });
+  }
+
+  if (preventive.length > 0 || phasedMilestones.length === 0) {
+    phasedMilestones.push({
+      phaseNumber: phaseNum++,
+      phaseTitle: `Phase ${phaseNum}: Preventive Maintenance & Recall Protection`,
+      items: preventive.map(p => `${p.description}${p.tooth ? ` (Tooth ${p.tooth})` : ''}`),
+      totalPhaseFee: preventive.reduce((sum, p) => sum + p.fee, 0)
+    });
+  }
+
+  return {
+    items: quoteItems,
+    totalFee,
+    estimatedRebate,
+    netGap,
+    visualCaseCategory: visualCategory,
+    phasedMilestones
+  };
+}
+
