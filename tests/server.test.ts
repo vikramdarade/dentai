@@ -117,6 +117,14 @@ describe('DentAI Server - Mocked Unit Tests', () => {
     process.env.NODE_ENV = 'test';
   });
 
+  it('should return 200 OK with healthy status and metadata on GET /api/health', async () => {
+    const res = await request(app).get('/api/health');
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('healthy');
+    expect(res.body.version).toBe('1.2.0');
+    expect(typeof res.body.uptimeSeconds).toBe('number');
+  });
+
   it('should return 400 Bad Request if intakeData is missing', async () => {
     const res = await request(app)
       .post('/api/generate-notes')

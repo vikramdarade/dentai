@@ -2816,6 +2816,17 @@ ${transcript.map((t: any) => `${t.sender}: ${t.text}`).join('\n')}
   }
 });
 
+// Production health check endpoint for container / serverless orchestrators
+app.get('/api/health', (req, res) => {
+  res.json({
+    status: 'healthy',
+    timestamp: new Date().toISOString(),
+    version: '1.2.0',
+    storageMode: dbEnabled ? 'database' : 'ephemeral-resilient',
+    uptimeSeconds: Math.floor(process.uptime()),
+  });
+});
+
 // Telemetry check endpoint
 app.get('/api/telemetry', (req, res) => {
   res.json(logger.getTelemetry());
