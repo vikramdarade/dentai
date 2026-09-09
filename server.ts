@@ -137,7 +137,10 @@ const apiLimiter = rateLimit({
   // ~1.5s while a note generates, and each poll opportunistically ticks the
   // worker. Counting polls here would spend the dentist's entire 100-request
   // window mid-consult; the POST that enqueues is still metered.
-  skip: (req) => req.method === 'GET' && /^\/api\/notes\/jobs\/[0-9a-fA-F-]+$/.test(req.originalUrl || ''),
+  skip: (req) =>
+    (req.method === 'GET' && /^\/api\/notes\/jobs\/[0-9a-fA-F-]+$/.test(req.originalUrl || '')) ||
+    (req.method === 'GET' && /^\/api\/beacon\/chair\/[^/]+\/status$/.test(req.originalUrl || '')) ||
+    (req.method === 'POST' && /^\/api\/beacon\/chair\/[^/]+\/telemetry$/.test(req.originalUrl || '')),
 });
 
 app.use('/api/', apiLimiter);
@@ -2813,6 +2816,345 @@ ${transcript.map((t: any) => `${t.sender}: ${t.text}`).join('\n')}
       error: error.message || 'Failed to process clinical transcript and generate notes.',
       code: errorCode
     });
+  }
+});
+
+/* ===========================================================================
+ * Operatory Phone Beacon & Remote Desktop Pairing Engine
+ *
+ * Implements the "Set & Forget" Chairside Phone Beacon architecture.
+ * Operatory PC pairs with a smartphone via 4-digit PIN / QR code.
+ * The phone acts as a hands-free wireless ambient mic, controlled remotely
+ * from the operatory desktop PC.
+ * =========================================================================== */
+
+interface ChairSessionState {
+  chairId: string;
+  pinCode: string;
+  roomName: string;
+  clinicId?: string;
+  dentistId?: string;
+  dentistName?: string;
+  createdAt: number;
+  expiresAt: number;
+  token: string;
+  status: 'waiting' | 'paired' | 'active' | 'generating' | 'completed';
+  deviceInfo?: {
+    model: string;
+    batteryLevel?: number;
+    isCharging?: boolean;
+    userAgent: string;
+  };
+  commands: Array<{
+    id: string;
+    chairId: string;
+    action: string;
+    timestamp: number;
+    payload?: any;
+  }>;
+  telemetry: {
+    chairId: string;
+    status: 'idle' | 'recording' | 'paused' | 'uploading' | 'completed';
+    batteryLevel?: number;
+    isCharging?: boolean;
+    audioLevel?: number;
+    bufferedChunksCount: number;
+    recordingSeconds: number;
+    dismissalDetected?: {
+      phrase: string;
+      confidence: number;
+      detectedAt: number;
+    };
+    inactivitySeconds?: number;
+    lastHeartbeat: number;
+  };
+  audioChunks: Array<{
+    chunkIndex: number;
+    dataBase64?: string;
+    sizeBytes: number;
+    timestamp: number;
+  }>;
+}
+
+const chairSessions = new Map<string, ChairSessionState>();
+
+function generateChairToken(payload: { chairId: string; pinCode: string; roomName: string; clinicId?: string; exp?: number }): string {
+  const finalPayload = {
+    ...payload,
+    iat: Math.floor(Date.now() / 1000),
+    exp: payload.exp || Math.floor(Date.now() / 1000) + 12 * 60 * 60, // 12 hours
+  };
+  const payloadStr = JSON.stringify(finalPayload);
+  const base64Payload = Buffer.from(payloadStr).toString('base64url');
+  const signature = crypto
+    .createHmac('sha256', SESSION_SECRET)
+    .update(base64Payload)
+    .digest('base64url');
+  return `${base64Payload}.${signature}`;
+}
+
+function verifyChairToken(token: string): { chairId: string; pinCode: string; roomName: string; clinicId?: string } | null {
+  const parts = token.split('.');
+  if (parts.length !== 2) return null;
+  const [base64Payload, signature] = parts;
+  const expectedSignature = crypto
+    .createHmac('sha256', SESSION_SECRET)
+    .update(base64Payload)
+    .digest('base64url');
+  if (signature !== expectedSignature) return null;
+  try {
+    const payloadStr = Buffer.from(base64Payload, 'base64url').toString('utf8');
+    const parsed = JSON.parse(payloadStr);
+    if (parsed.exp && parsed.exp < Math.floor(Date.now() / 1000)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+// 1. Create a chair pairing session (called by Desktop Operatory PC)
+app.post('/api/beacon/chair/create', (req, res) => {
+  try {
+    const { roomName = 'Chair 1', clinicId, dentistId, dentistName } = req.body || {};
+    const chairId = `chair-${crypto.randomBytes(3).toString('hex')}`;
+    const pinCode = String(Math.floor(1000 + Math.random() * 9000));
+    const token = generateChairToken({ chairId, pinCode, roomName, clinicId });
+    const expiresAt = Date.now() + 12 * 3600 * 1000;
+
+    const session: ChairSessionState = {
+      chairId,
+      pinCode,
+      roomName,
+      clinicId,
+      dentistId,
+      dentistName,
+      createdAt: Date.now(),
+      expiresAt,
+      token,
+      status: 'waiting',
+      commands: [],
+      telemetry: {
+        chairId,
+        status: 'idle',
+        bufferedChunksCount: 0,
+        recordingSeconds: 0,
+        lastHeartbeat: Date.now()
+      },
+      audioChunks: []
+    };
+
+    chairSessions.set(chairId, session);
+
+    // Evict old sessions (> 12 hours)
+    for (const [id, s] of chairSessions.entries()) {
+      if (s.expiresAt < Date.now()) {
+        chairSessions.delete(id);
+      }
+    }
+
+    res.status(201).json({
+      chairId,
+      pinCode,
+      roomName,
+      token,
+      expiresAt,
+      qrPayload: `#/beacon?chair=${chairId}&pin=${pinCode}`,
+      qrUrl: `/#/beacon?chair=${chairId}&pin=${pinCode}&token=${token}`
+    });
+  } catch (err) {
+    logger.error('Failed to create chair beacon session:', err);
+    res.status(500).json({ error: 'Failed to create chair beacon session.' });
+  }
+});
+
+// 2. Mobile Phone pairs with Chair using PIN
+app.post('/api/beacon/chair/pair', (req, res) => {
+  try {
+    const { chairId, pinCode, deviceInfo, deviceModel, batteryLevel, isCharging } = req.body || {};
+    if (!chairId || !pinCode) {
+      return res.status(400).json({ error: 'Chair ID and PIN code are required.' });
+    }
+
+    const session = chairSessions.get(chairId);
+    if (!session || session.pinCode !== String(pinCode).trim()) {
+      return res.status(401).json({ error: 'Invalid or expired PIN code.' });
+    }
+
+    session.status = 'paired';
+    session.deviceInfo = deviceInfo || {
+      model: deviceModel || 'Smartphone',
+      platform: 'mobile'
+    };
+    if (typeof batteryLevel === 'number') session.telemetry.batteryLevel = batteryLevel;
+    if (typeof isCharging === 'boolean') session.telemetry.isCharging = isCharging;
+    session.telemetry.lastHeartbeat = Date.now();
+
+    res.json({
+      success: true,
+      paired: true,
+      chairId,
+      roomName: session.roomName,
+      token: session.token,
+      status: session.status
+    });
+  } catch (err) {
+    logger.error('Failed to pair phone beacon:', err);
+    res.status(500).json({ error: 'Failed to pair phone beacon.' });
+  }
+});
+
+// 3. Status inspection & polling (used by both Desktop and Phone)
+app.get('/api/beacon/chair/:chairId/status', (req, res) => {
+  const { chairId } = req.params;
+  const session = chairSessions.get(chairId);
+  if (!session) {
+    return res.status(404).json({ error: 'Chair session not found or expired.' });
+  }
+
+  // Detect if phone has gone silent / disconnected for > 15s
+  const phoneConnected = Date.now() - session.telemetry.lastHeartbeat < 15_000;
+
+  res.json({
+    chairId: session.chairId,
+    status: session.status,
+    roomName: session.roomName,
+    pinCode: session.pinCode,
+    phoneConnected: session.status !== 'waiting' && phoneConnected,
+    isRecordingActive: session.status === 'active',
+    deviceModel: session.deviceInfo?.model || 'Smartphone',
+    deviceInfo: session.deviceInfo || null,
+    latestCommand: session.commands[session.commands.length - 1] || null,
+    pendingCommand: session.commands[session.commands.length - 1]?.action || null,
+    telemetry: session.telemetry,
+    batteryLevel: session.telemetry.batteryLevel,
+    audioLevel: session.telemetry.audioLevel,
+    dismissalDetected: session.telemetry.dismissalDetected,
+    chunkCount: session.audioChunks.length,
+    expiresAt: session.expiresAt
+  });
+});
+
+// 4. Desktop dispatches remote command to Phone Beacon
+app.post('/api/beacon/chair/:chairId/command', (req, res) => {
+  try {
+    const { chairId } = req.params;
+    const { action: reqAction, command: reqCommand, payload } = req.body || {};
+    const action = reqAction || reqCommand;
+    const session = chairSessions.get(chairId);
+    if (!session) {
+      return res.status(404).json({ error: 'Chair session not found.' });
+    }
+
+    const validActions = [
+      'start_recording',
+      'stop_recording',
+      'pause_recording',
+      'resume_recording',
+      'cancel',
+      'dismissal_cue_detected',
+      'inactivity_warning',
+      'ping'
+    ];
+
+    if (!action || !validActions.includes(action)) {
+      return res.status(400).json({ error: `Action must be one of: ${validActions.join(', ')}` });
+    }
+
+    const command = {
+      id: `cmd-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      chairId,
+      action,
+      timestamp: Date.now(),
+      payload
+    };
+
+    session.commands.push(command);
+    if (session.commands.length > 50) {
+      session.commands = session.commands.slice(-50);
+    }
+
+    if (action === 'start_recording') session.status = 'active';
+    if (action === 'stop_recording') session.status = 'generating';
+    if (action === 'cancel') session.status = 'paired';
+
+    res.json({ success: true, command });
+  } catch (err) {
+    logger.error('Failed to post beacon command:', err);
+    res.status(500).json({ error: 'Failed to dispatch command.' });
+  }
+});
+
+// 5. Phone Beacon posts heartbeat telemetry and audio levels
+app.post('/api/beacon/chair/:chairId/telemetry', (req, res) => {
+  try {
+    const { chairId } = req.params;
+    const session = chairSessions.get(chairId);
+    if (!session) {
+      return res.status(404).json({ error: 'Chair session not found.' });
+    }
+
+    const {
+      status,
+      batteryLevel,
+      isCharging,
+      audioLevel,
+      bufferedChunksCount,
+      recordingSeconds,
+      dismissalDetected,
+      dismissalPhrase,
+      dismissalTime,
+      inactivitySeconds
+    } = req.body || {};
+
+    const dismissal = dismissalDetected || (dismissalPhrase ? { phrase: dismissalPhrase, time: dismissalTime || Date.now() } : session.telemetry.dismissalDetected);
+
+    session.telemetry = {
+      ...session.telemetry,
+      status: status || session.telemetry.status,
+      batteryLevel: typeof batteryLevel === 'number' ? batteryLevel : session.telemetry.batteryLevel,
+      isCharging: typeof isCharging === 'boolean' ? isCharging : session.telemetry.isCharging,
+      audioLevel: typeof audioLevel === 'number' ? audioLevel : session.telemetry.audioLevel,
+      bufferedChunksCount: typeof bufferedChunksCount === 'number' ? bufferedChunksCount : session.telemetry.bufferedChunksCount,
+      recordingSeconds: typeof recordingSeconds === 'number' ? recordingSeconds : session.telemetry.recordingSeconds,
+      dismissalDetected: dismissal,
+      inactivitySeconds: typeof inactivitySeconds === 'number' ? inactivitySeconds : session.telemetry.inactivitySeconds,
+      lastHeartbeat: Date.now()
+    };
+
+    if (status === 'recording') session.status = 'active';
+
+    res.json({ success: true, acknowledged: true, latestCommand: session.commands[session.commands.length - 1] || null });
+  } catch (err) {
+    logger.error('Failed to update beacon telemetry:', err);
+    res.status(500).json({ error: 'Failed to record telemetry.' });
+  }
+});
+
+// 6. Phone Beacon uploads audio chunk
+app.post('/api/beacon/chair/:chairId/upload-chunk', (req, res) => {
+  try {
+    const { chairId } = req.params;
+    const session = chairSessions.get(chairId);
+    if (!session) {
+      return res.status(404).json({ error: 'Chair session not found.' });
+    }
+
+    const { chunkIndex = 0, dataBase64, audioData, sizeBytes = 0 } = req.body || {};
+
+    session.audioChunks.push({
+      chunkIndex: Number(chunkIndex),
+      dataBase64: typeof dataBase64 === 'string' ? dataBase64 : (typeof audioData === 'string' ? audioData : undefined),
+      sizeBytes: Number(sizeBytes) || 0,
+      timestamp: Date.now()
+    });
+
+    session.telemetry.bufferedChunksCount = session.audioChunks.length;
+    session.telemetry.lastHeartbeat = Date.now();
+
+    res.json({ success: true, saved: true, chunkCount: session.audioChunks.length });
+  } catch (err) {
+    logger.error('Failed to ingest audio chunk:', err);
+    res.status(500).json({ error: 'Failed to upload audio chunk.' });
   }
 });
 

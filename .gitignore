@@ -15,3 +15,7 @@ server.js
 
 # TypeScript incremental build info
 *.tsbuildinfo
+assets/dentai_demo_recording.mp4
+assets/dentai-comment-demo.gif
+assets/dentai-comment-demo.mp4
+assets/page@2ac1c768d0a2949e611a286ae1d53cae.webm

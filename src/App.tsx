@@ -12,6 +12,7 @@ import Login from './components/Login';
 import Landing from './components/Landing';
 import DemoMovie from './demo/DemoMovie';
 import PatientRoadmapPrototype from './components/PatientRoadmapPrototype';
+import PhoneBeaconMode from './components/PhoneBeaconMode';
 import {
   saveAuth,
   getAuth,
@@ -40,6 +41,10 @@ export default function App() {
   const [prototypeOpen, setPrototypeOpen] = useState<boolean>(() =>
     window.location.hash.startsWith('#/roadmap-prototype') || window.location.hash.startsWith('#roadmap-prototype')
   );
+  // Operatory Phone Beacon PWA mode at #/beacon — connects phone mic via PIN/QR token without desktop login
+  const [beaconOpen, setBeaconOpen] = useState<boolean>(() =>
+    window.location.hash.startsWith('#/beacon') || window.location.hash.startsWith('#beacon')
+  );
 
   useEffect(() => {
     const onHashChange = () => {
@@ -49,6 +54,9 @@ export default function App() {
       );
       setPrototypeOpen(
         window.location.hash.startsWith('#/roadmap-prototype') || window.location.hash.startsWith('#roadmap-prototype')
+      );
+      setBeaconOpen(
+        window.location.hash.startsWith('#/beacon') || window.location.hash.startsWith('#beacon')
       );
     };
     window.addEventListener('hashchange', onHashChange);
@@ -731,6 +739,17 @@ export default function App() {
         }}
         dentistName={currentUser?.name || 'Dr. Sarah Chen'}
         clinicName={activeClinic?.clinicName || 'Bright Smile Dental'}
+      />
+    );
+  }
+
+  if (beaconOpen) {
+    return (
+      <PhoneBeaconMode
+        onExit={() => {
+          window.location.hash = '';
+          setBeaconOpen(false);
+        }}
       />
     );
   }

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, UserRound, Pause, Play, ArrowRight, Sparkles, ArrowUpDown, CornerDownLeft, AlertCircle, X, Mic, MicOff, RotateCcw, RefreshCw, WifiOff, Bot, Check, CheckCircle } from 'lucide-react';
+import { ArrowLeft, UserRound, Pause, Play, ArrowRight, Sparkles, ArrowUpDown, CornerDownLeft, AlertCircle, X, Mic, MicOff, RotateCcw, RefreshCw, WifiOff, Bot, Check, CheckCircle, Smartphone } from 'lucide-react';
+import ChairBeaconModal from './ChairBeaconModal';
 import { TranscriptItem, GeneratedNotePayload } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { AppointmentType, getTemplateById, getAppointmentTypeLabel } from '../lib/dentalLibrary';
@@ -92,6 +93,7 @@ export default function LiveRecording({
   // Ambient Mode & Reset states
   const [isAmbientMode, setIsAmbientMode] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [showBeaconModal, setShowBeaconModal] = useState(false);
 
   // Voice transcription state
   const [isListening, setIsListening] = useState(false);
@@ -471,6 +473,28 @@ export default function LiveRecording({
     };
   }, [isRecording]);
 
+  // Operatory keyboard trigger: Spacebar toggles recording hands-free (when not focused on text fields)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.code === 'Space') {
+        const target = e.target as HTMLElement;
+        const isInputField = target && (
+          target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
+          target.isContentEditable
+        );
+        if (!isInputField && !showBeaconModal && !isProcessing) {
+          e.preventDefault();
+          setIsRecording((prev) => !prev);
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showBeaconModal, isProcessing]);
+
+
   // Keep refs in sync for use inside long-lived callbacks (SpeechRecognition handlers).
   useEffect(() => {
     isRecordingRef.current = isRecording;
@@ -727,6 +751,15 @@ export default function LiveRecording({
               {clinicUsage.used}/{clinicUsage.limit} AI notes today
             </span>
           )}
+          <button
+            type="button"
+            onClick={() => setShowBeaconModal(true)}
+            title="Pair chairside smartphone as hands-free beacon microphone"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 transition-all cursor-pointer shadow-sm hover:shadow-md"
+          >
+            <Smartphone className="w-3.5 h-3.5 text-indigo-600" />
+            <span className="text-[10px] font-bold uppercase tracking-wider">Phone Beacon</span>
+          </button>
           <button
             onClick={() => setIsAmbientMode(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-outline-variant bg-white hover:bg-slate-50 text-primary transition-all cursor-pointer mr-2 shadow-sm hover:shadow-md"
@@ -1593,6 +1626,17 @@ export default function LiveRecording({
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Operatory Phone Beacon Pairing & Remote Control Modal */}
+      <ChairBeaconModal
+        isOpen={showBeaconModal}
+        onClose={() => setShowBeaconModal(false)}
+        roomName="Operatory Chair 1"
+        clinicId={activeClinicId || undefined}
+        onStartRecordingFromDesktop={() => setIsRecording(true)}
+        onStopRecordingFromDesktop={() => setIsRecording(false)}
+        isRecordingActive={isRecording}
+      />
     </div>
   );
 }
