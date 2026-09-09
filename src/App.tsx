@@ -525,7 +525,7 @@ export default function App() {
         }
 
         const { jobId } = await submitRes.json();
-        const deadline = Date.now() + 90_000;
+        const deadline = Date.now() + 50_000;
         let jobPayload: any = null;
 
         while (Date.now() < deadline) {
@@ -535,7 +535,7 @@ export default function App() {
           });
           if (!pollRes.ok) {
             const pollErr = await pollRes.json().catch(() => ({}));
-            throw new Error(pollErr.error || `Lost track of the note job (status ${pollRes.status}). Your transcript is preserved — retry from the recording screen.`);
+            throw new Error(pollErr.error || `Lost track of the note job (status ${pollRes.status}). Your transcript is preserved — retry or draft offline.`);
           }
           const jobState = await pollRes.json();
 
@@ -544,19 +544,18 @@ export default function App() {
             break;
           }
           if (jobState.status === 'failed') {
-            throw new Error(jobState.error || 'The AI could not generate this note. Your transcript is preserved — draft offline or retry.');
+            throw new Error(jobState.error || 'The AI could not generate this note. Your transcript is preserved — draft offline now.');
           }
-          if (jobState.nextAttemptAt) {
+          if (jobState.statusDetail) {
+            setProcessingHint(jobState.statusDetail);
+          } else if (jobState.nextAttemptAt) {
             const waitS = Math.max(1, Math.round((Date.parse(jobState.nextAttemptAt) - Date.now()) / 1000));
-            setProcessingHint(`Hosted AI is busy — retrying automatically in ~${waitS}s (attempt ${jobState.attempts}).`);
+            setProcessingHint(`Cloud AI is busy (rate-limited) — retrying automatically in ~${waitS}s (attempt ${jobState.attempts}).`);
           }
         }
 
         if (!jobPayload) {
-          // The job keeps retrying server-side with backoff and, on success, is
-          // persisted as a consultation under `consultationId` automatically —
-          // the dentist will find it in the History Hub even if they leave now.
-          throw new Error('The note is still generating on the server. It will appear in the History Hub automatically when done — your transcript is preserved here, or draft offline now.');
+          throw new Error('Cloud AI is experiencing extended delays or traffic limits. Your transcript is preserved — generate your clinical note offline instantly.');
         }
         payload = jobPayload;
         setProcessingHint(null);

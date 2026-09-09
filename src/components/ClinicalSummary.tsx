@@ -17,7 +17,10 @@ import {
   DollarSign,
   ChevronRight,
   Printer,
-  ShieldCheck
+  ShieldCheck,
+  Plus,
+  Trash2,
+  Info
 } from 'lucide-react';
 import {
   Consultation,
@@ -25,7 +28,8 @@ import {
   ClinicalFindings,
   SpecialistReferral,
   PatientConsentAndCare,
-  TreatmentQuoteData
+  TreatmentQuoteData,
+  TreatmentQuoteItem
 } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -187,7 +191,107 @@ export default function ClinicalSummary({
   const [referralCopied, setReferralCopied] = useState(false);
   const [quoteCopied, setQuoteCopied] = useState(false);
   const [pmsCopied, setPmsCopied] = useState(false);
+  const [adaCopied, setAdaCopied] = useState(false);
   const [showSavedOverlay, setShowSavedOverlay] = useState(false);
+
+  const [rebateMode, setRebateMode] = useState<'practice_fees_only' | 'show_rebate_estimate'>(() => {
+    return treatmentQuote.rebateMode || 'practice_fees_only';
+  });
+
+  const recalculateQuote = (
+    items: TreatmentQuoteItem[],
+    mode: 'practice_fees_only' | 'show_rebate_estimate' = rebateMode
+  ) => {
+    const totalFee = items.reduce((sum, it) => sum + (Number(it.fee) || 0), 0);
+    const estimatedRebate = mode === 'practice_fees_only'
+      ? 0
+      : items.reduce((sum, it) => sum + (Number(it.healthFundEstimatedRebate) || 0), 0);
+    const netGap = Math.max(0, totalFee - estimatedRebate);
+
+    const urgent = items.filter((i) => i.category === 'Endodontics' || i.category === 'Surgery');
+    const restorative = items.filter(
+      (i) => i.category === 'Crown & Bridge' || i.category === 'Restorative' || i.category === 'Periodontics'
+    );
+    const preventive = items.filter(
+      (i) => i.category === 'Diagnostic' || i.category === 'Preventive' || i.category === 'Orthodontics'
+    );
+
+    const phasedMilestones: TreatmentQuoteData['phasedMilestones'] = [];
+    let phaseNum = 1;
+
+    if (urgent.length > 0) {
+      phasedMilestones.push({
+        phaseNumber: phaseNum++,
+        phaseTitle: 'Phase 1: Urgent Relief & Stabilisation',
+        items: urgent.map((u) => `${u.description}${u.tooth ? ` (Tooth ${u.tooth})` : ''}`),
+        totalPhaseFee: urgent.reduce((sum, u) => sum + (Number(u.fee) || 0), 0)
+      });
+    }
+
+    if (restorative.length > 0) {
+      phasedMilestones.push({
+        phaseNumber: phaseNum++,
+        phaseTitle: `Phase ${phaseNum}: Restorative Reconstruction & Longevity`,
+        items: restorative.map((r) => `${r.description}${r.tooth ? ` (Tooth ${r.tooth})` : ''}`),
+        totalPhaseFee: restorative.reduce((sum, r) => sum + (Number(r.fee) || 0), 0)
+      });
+    }
+
+    if (preventive.length > 0 || phasedMilestones.length === 0) {
+      phasedMilestones.push({
+        phaseNumber: phaseNum++,
+        phaseTitle: `Phase ${phaseNum}: Prevention & Maintenance`,
+        items: (preventive.length > 0 ? preventive : items).map((p) => `${p.description}${p.tooth ? ` (Tooth ${p.tooth})` : ''}`),
+        totalPhaseFee: (preventive.length > 0 ? preventive : items).reduce((sum, p) => sum + (Number(p.fee) || 0), 0)
+      });
+    }
+
+    const updated: TreatmentQuoteData = {
+      ...treatmentQuote,
+      items,
+      totalFee,
+      estimatedRebate,
+      netGap,
+      rebateMode: mode,
+      phasedMilestones
+    };
+    setTreatmentQuote(updated);
+    return updated;
+  };
+
+  const handleUpdateQuoteItem = (index: number, patch: Partial<TreatmentQuoteItem>) => {
+    const nextItems = treatmentQuote.items.map((item, idx) => {
+      if (idx !== index) return item;
+      const updated = { ...item, ...patch };
+      const fee = Number(updated.fee) || 0;
+      const rebate = Number(updated.healthFundEstimatedRebate) || 0;
+      updated.gapEstimate = Math.max(0, fee - rebate);
+      return updated;
+    });
+    recalculateQuote(nextItems);
+  };
+
+  const handleAddQuoteItem = () => {
+    const newItem: TreatmentQuoteItem = {
+      adaCode: '022',
+      description: 'Intraoral periapical radiograph',
+      tooth: '',
+      fee: 45,
+      healthFundEstimatedRebate: 35,
+      gapEstimate: 10,
+      category: 'Diagnostic'
+    };
+    recalculateQuote([...treatmentQuote.items, newItem]);
+  };
+
+  const handleDeleteQuoteItem = (index: number) => {
+    if (treatmentQuote.items.length <= 1) {
+      alert('A quote must contain at least one procedure item.');
+      return;
+    }
+    const nextItems = treatmentQuote.items.filter((_, idx) => idx !== index);
+    recalculateQuote(nextItems);
+  };
 
   const needsReview = !!consultation.noteOrigin?.needsReview;
   const originEngine = consultation.noteOrigin?.engine || 'gemini';
@@ -227,25 +331,39 @@ export default function ClinicalSummary({
     setTimeout(() => setReferralCopied(false), 2000);
   };
 
+  const handleCopyAdaCodesOnly = () => {
+    const lines = adaCodes.map(
+      (code) => `[${code.code}] ${code.description}${code.tooth ? ` (Tooth FDI ${code.tooth})` : ''}`
+    );
+    navigator.clipboard.writeText(lines.join('\n'));
+    setAdaCopied(true);
+    setTimeout(() => setAdaCopied(false), 2000);
+  };
+
   const handleCopyQuote = () => {
+    const isFeesOnly = rebateMode === 'practice_fees_only';
     const lines = [
       `=== TREATMENT ESTIMATE & ITEMISED QUOTE ===`,
       `PATIENT: ${consultation.firstName} ${consultation.lastName}`,
       `DATE: ${consultation.date}`,
       ``,
-      ...treatmentQuote.items.map(
-        (it) => `ADA [${it.adaCode}] ${it.description}${it.tooth ? ` (Tooth ${it.tooth})` : ''} - Fee: $${it.fee} | Est. Rebate: $${it.healthFundEstimatedRebate} | Net Gap: $${it.gapEstimate}`
+      ...treatmentQuote.items.map((it) =>
+        isFeesOnly
+          ? `ADA [${it.adaCode}] ${it.description}${it.tooth ? ` (Tooth ${it.tooth})` : ''} - Practice Fee: $${it.fee} | Rebate: Check with health fund`
+          : `ADA [${it.adaCode}] ${it.description}${it.tooth ? ` (Tooth ${it.tooth})` : ''} - Fee: $${it.fee} | Est. Rebate: $${it.healthFundEstimatedRebate} | Net Gap: $${it.gapEstimate}`
       ),
       ``,
-      `Total Estimated Fee: $${treatmentQuote.totalFee}`,
-      `Estimated Health Fund Coverage: $${treatmentQuote.estimatedRebate}`,
-      `Net Out-of-Pocket Gap: $${treatmentQuote.netGap}`
+      `Total Practice Fee: $${treatmentQuote.totalFee}`,
+      isFeesOnly
+        ? `Health Fund Coverage: Private health insurance rebates depend on your individual fund table, waiting periods, and annual limits already used this year. Quote item numbers above to your insurer for your exact benefit.`
+        : `Estimated Health Fund Coverage: $${treatmentQuote.estimatedRebate}\nNet Out-of-Pocket Gap: $${treatmentQuote.netGap}\n*Note: Rebate amounts are estimates only and depend on your health fund table, waiting periods, and remaining annual limits.`
     ];
     navigator.clipboard.writeText(lines.join('\n'));
     setQuoteCopied(true);
     setTimeout(() => setQuoteCopied(false), 2000);
   };
 
+  // One-click copy for PMS: Progress notes ONLY (ADA codes excluded per Australian practice workflow)
   const handleCopyPmsNote = () => {
     const lines: string[] = [
       `=== CLINICAL NOTE (${activeTemplate.name.toUpperCase()}) ===`,
@@ -257,13 +375,6 @@ export default function ClinicalSummary({
     for (const section of activeTemplate.sections) {
       lines.push(`${section.label.toUpperCase()}:`);
       lines.push(getSectionValue(section.key) || '(not recorded)');
-      lines.push(``);
-    }
-    if (adaCodes.length > 0) {
-      lines.push(`--- ADA BILLING ITEM CODES ---`);
-      adaCodes.forEach((code) => {
-        lines.push(`[${code.code}] ${code.description}${code.tooth ? ` (Tooth FDI ${code.tooth})` : ''}`);
-      });
       lines.push(``);
     }
     lines.push(`Clinician: ${dentistName || 'Dentist'} (AHPRA Reg)`);
@@ -308,7 +419,8 @@ export default function ClinicalSummary({
       patientConsent,
       treatmentQuote: {
         ...treatmentQuote,
-        visualCaseCategory: selectedVisualCategory
+        visualCaseCategory: selectedVisualCategory,
+        rebateMode
       }
     };
 
@@ -471,9 +583,20 @@ export default function ClinicalSummary({
                       <Tag className="w-4 h-4 text-emerald-400" />
                       <span className="text-xs font-bold uppercase tracking-wider text-slate-200">ADA Billing Codes</span>
                     </div>
-                    <span className="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full font-mono font-semibold">
-                      {adaCodes.length} {adaCodes.length === 1 ? 'Item' : 'Items'}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleCopyAdaCodesOnly}
+                        title="Copy item numbers for PMS ledger / invoice entry"
+                        className="flex items-center gap-1 text-[10px] text-emerald-400 hover:text-emerald-300 font-bold bg-slate-800 hover:bg-slate-700/80 px-2.5 py-1 rounded-lg border border-slate-700 transition-all cursor-pointer"
+                      >
+                        {adaCopied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                        <span>{adaCopied ? 'Codes Copied!' : 'Copy Billing Codes'}</span>
+                      </button>
+                      <span className="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full font-mono font-semibold">
+                        {adaCodes.length} {adaCodes.length === 1 ? 'Item' : 'Items'}
+                      </span>
+                    </div>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {adaCodes.map((item, idx) => (
@@ -880,57 +1003,194 @@ export default function ClinicalSummary({
                     </div>
                   </div>
 
-                  {/* Financial Overview Metrics Cards */}
-                  <div className="grid grid-cols-3 gap-3">
-                    <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-center">
-                      <span className="text-[10px] font-bold uppercase text-slate-400 block">Total Treatment</span>
-                      <span className="text-lg font-extrabold text-slate-800">${treatmentQuote.totalFee}</span>
+                  {/* Health Fund Presentation Mode & Risk Disclaimer */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
+                    <div className="flex items-center gap-2.5">
+                      <ShieldCheck className="w-5 h-5 text-emerald-600 flex-shrink-0" />
+                      <div>
+                        <span className="text-xs font-bold text-slate-800">Health Fund Rebate Mode</span>
+                        <p className="text-[11px] text-slate-500">
+                          {rebateMode === 'practice_fees_only'
+                            ? 'Displaying practice fees only. Advises patient to verify rebates with their insurer.'
+                            : 'Displaying estimated rebates. Subject to patient annual policy limits.'}
+                        </p>
+                      </div>
                     </div>
-                    <div className="bg-emerald-50 p-3.5 rounded-xl border border-emerald-200 text-center">
-                      <span className="text-[10px] font-bold uppercase text-emerald-600 block">Est. Health Fund Rebate</span>
-                      <span className="text-lg font-extrabold text-emerald-700">-${treatmentQuote.estimatedRebate}</span>
-                    </div>
-                    <div className="bg-blue-50 p-3.5 rounded-xl border border-blue-200 text-center">
-                      <span className="text-[10px] font-bold uppercase text-blue-600 block">Est. Patient Gap</span>
-                      <span className="text-lg font-extrabold text-[#004ac6]">${treatmentQuote.netGap}</span>
+                    <div className="flex items-center gap-1.5 p-1 bg-white rounded-lg border border-slate-200 shadow-sm self-start sm:self-auto">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setRebateMode('practice_fees_only');
+                          recalculateQuote(treatmentQuote.items, 'practice_fees_only');
+                        }}
+                        className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all cursor-pointer ${
+                          rebateMode === 'practice_fees_only'
+                            ? 'bg-[#004ac6] text-white shadow-sm'
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        Practice Fees Only (Safe)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setRebateMode('show_rebate_estimate');
+                          recalculateQuote(treatmentQuote.items, 'show_rebate_estimate');
+                        }}
+                        className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all cursor-pointer ${
+                          rebateMode === 'show_rebate_estimate'
+                            ? 'bg-emerald-600 text-white shadow-sm'
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        Show Est. Rebate
+                      </button>
                     </div>
                   </div>
 
-                  {/* Itemized ADA Fee Schedule Table */}
-                  <div className="border border-slate-200 rounded-xl overflow-hidden shadow-sm">
-                    <table className="w-full text-left text-xs border-collapse">
-                      <thead>
-                        <tr className="bg-slate-100/80 text-slate-500 font-bold border-b border-slate-200 text-[10px] uppercase tracking-wider">
-                          <th className="p-3">ADA Code</th>
-                          <th className="p-3">Procedure Description</th>
-                          <th className="p-3 text-right">Standard Fee</th>
-                          <th className="p-3 text-right">Est. Rebate</th>
-                          <th className="p-3 text-right">Net Gap</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {treatmentQuote.items.map((item, idx) => (
-                          <tr key={idx} className="hover:bg-slate-50/80 transition-colors">
-                            <td className="p-3 font-mono font-bold text-slate-800">
-                              <span className="px-1.5 py-0.5 rounded bg-slate-200/70 border border-slate-300 text-[11px]">
-                                {item.adaCode}
-                              </span>
-                            </td>
-                            <td className="p-3 text-slate-700">
-                              <span className="font-medium">{item.description}</span>
-                              {item.tooth && (
-                                <span className="ml-2 text-[10px] font-bold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
-                                  Tooth {item.tooth}
-                                </span>
-                              )}
-                            </td>
-                            <td className="p-3 text-right font-semibold text-slate-800">${item.fee}</td>
-                            <td className="p-3 text-right text-emerald-600 font-semibold">${item.healthFundEstimatedRebate}</td>
-                            <td className="p-3 text-right font-bold text-[#004ac6]">${item.gapEstimate}</td>
+                  {/* Patient Advisory Notice for Insurance Limits */}
+                  <div className="flex items-start gap-2.5 p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs">
+                    <Info className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                    <div className="leading-relaxed">
+                      <strong className="font-semibold text-amber-950">Private Health Insurance Notice:</strong> Rebate amounts depend on your private health fund table of cover, waiting periods, and any annual limits you have already used this year (especially on Major Dental). Please quote the ADA item numbers below directly to your health fund to verify your exact rebate and out-of-pocket gap prior to treatment.
+                    </div>
+                  </div>
+
+                  {/* Financial Overview Metrics Cards */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-center">
+                      <span className="text-[10px] font-bold uppercase text-slate-400 block">Total Treatment Fee</span>
+                      <span className="text-lg font-extrabold text-slate-800">${treatmentQuote.totalFee}</span>
+                    </div>
+                    <div className="bg-emerald-50 p-3.5 rounded-xl border border-emerald-200 text-center">
+                      <span className="text-[10px] font-bold uppercase text-emerald-600 block">
+                        {rebateMode === 'practice_fees_only' ? 'Health Fund Rebate' : 'Est. Health Fund Rebate'}
+                      </span>
+                      <span className="text-sm font-extrabold text-emerald-700 block mt-1">
+                        {rebateMode === 'practice_fees_only'
+                          ? 'Claim Directly with Fund'
+                          : `-$${treatmentQuote.estimatedRebate}`}
+                      </span>
+                    </div>
+                    <div className="bg-blue-50 p-3.5 rounded-xl border border-blue-200 text-center">
+                      <span className="text-[10px] font-bold uppercase text-blue-600 block">
+                        {rebateMode === 'practice_fees_only' ? 'Out-of-Pocket Gap' : 'Est. Patient Gap'}
+                      </span>
+                      <span className="text-lg font-extrabold text-[#004ac6]">
+                        {rebateMode === 'practice_fees_only'
+                          ? `$${treatmentQuote.totalFee} (Less Rebate)`
+                          : `$${treatmentQuote.netGap}`}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Editable Itemized ADA Fee Schedule Table */}
+                  <div className="border border-slate-200 rounded-xl overflow-hidden shadow-sm bg-white">
+                    <div className="p-3 bg-slate-100/80 border-b border-slate-200 flex items-center justify-between">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-600">
+                        Itemized Procedure Quote (Clinician Editable)
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleAddQuoteItem}
+                        className="flex items-center gap-1 text-[11px] font-bold text-primary hover:text-blue-700 bg-white hover:bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-lg transition-all cursor-pointer shadow-sm"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Add Procedure Item</span>
+                      </button>
+                    </div>
+
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs border-collapse">
+                        <thead>
+                          <tr className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200 text-[10px] uppercase tracking-wider">
+                            <th className="p-2.5 w-24">ADA Code</th>
+                            <th className="p-2.5">Procedure Description</th>
+                            <th className="p-2.5 w-20 text-center">Tooth</th>
+                            <th className="p-2.5 w-28 text-right">Fee ($)</th>
+                            <th className="p-2.5 w-36 text-right">
+                              {rebateMode === 'practice_fees_only' ? 'Rebate Status' : 'Est. Rebate ($)'}
+                            </th>
+                            <th className="p-2.5 w-28 text-right">Net Gap</th>
+                            <th className="p-2.5 w-12 text-center"></th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {treatmentQuote.items.map((item, idx) => (
+                            <tr key={idx} className="hover:bg-slate-50/80 transition-colors">
+                              <td className="p-2.5 font-mono">
+                                <input
+                                  type="text"
+                                  value={item.adaCode}
+                                  onChange={(e) => handleUpdateQuoteItem(idx, { adaCode: e.target.value })}
+                                  placeholder="ADA"
+                                  className="w-20 px-2 py-1 bg-white border border-slate-200 rounded font-mono font-bold text-xs text-slate-800 focus:ring-1 focus:ring-primary outline-none"
+                                />
+                              </td>
+                              <td className="p-2.5">
+                                <input
+                                  type="text"
+                                  value={item.description}
+                                  onChange={(e) => handleUpdateQuoteItem(idx, { description: e.target.value })}
+                                  placeholder="Procedure description..."
+                                  className="w-full px-2 py-1 bg-white border border-slate-200 rounded text-xs text-slate-800 font-medium focus:ring-1 focus:ring-primary outline-none"
+                                />
+                              </td>
+                              <td className="p-2.5 text-center">
+                                <input
+                                  type="text"
+                                  value={item.tooth || ''}
+                                  onChange={(e) => handleUpdateQuoteItem(idx, { tooth: e.target.value })}
+                                  placeholder="—"
+                                  className="w-14 px-1.5 py-1 bg-white border border-slate-200 rounded text-xs text-center font-bold text-amber-700 focus:ring-1 focus:ring-primary outline-none"
+                                />
+                              </td>
+                              <td className="p-2.5 text-right">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="5"
+                                  value={item.fee}
+                                  onChange={(e) => handleUpdateQuoteItem(idx, { fee: Math.max(0, Number(e.target.value) || 0) })}
+                                  className="w-24 px-2 py-1 bg-white border border-slate-200 rounded text-xs font-semibold text-slate-800 text-right focus:ring-1 focus:ring-primary outline-none"
+                                />
+                              </td>
+                              <td className="p-2.5 text-right">
+                                {rebateMode === 'practice_fees_only' ? (
+                                  <span className="text-[11px] text-slate-500 font-medium italic">
+                                    Check with fund
+                                  </span>
+                                ) : (
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step="5"
+                                    value={item.healthFundEstimatedRebate}
+                                    onChange={(e) => handleUpdateQuoteItem(idx, { healthFundEstimatedRebate: Math.max(0, Number(e.target.value) || 0) })}
+                                    className="w-24 px-2 py-1 bg-white border border-slate-200 rounded text-xs font-semibold text-emerald-700 text-right focus:ring-1 focus:ring-primary outline-none"
+                                  />
+                                )}
+                              </td>
+                              <td className="p-2.5 text-right font-bold text-[#004ac6]">
+                                {rebateMode === 'practice_fees_only'
+                                  ? `$${item.fee}`
+                                  : `$${item.gapEstimate}`}
+                              </td>
+                              <td className="p-2.5 text-center">
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteQuoteItem(idx)}
+                                  title="Remove procedure line"
+                                  className="p-1 text-slate-400 hover:text-red-600 rounded transition-colors cursor-pointer"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
 
                   {/* Phased Care Roadmap Timeline */}
@@ -1120,16 +1380,24 @@ export default function ClinicalSummary({
         {treatmentQuote.items.length > 0 && (
           <div className="mb-8 font-sans" style={{ pageBreakBefore: 'always' }}>
             <h3 className="text-[10px] font-extrabold uppercase text-slate-400 tracking-wider mb-2 border-b border-slate-100 pb-1">
-              Treatment Estimate & Private Health Fund Gap Calculation
+              Treatment Estimate & Itemized Practice Fee Schedule
             </h3>
+
+            {/* Health Fund Notice for Printed Report */}
+            <div className="mb-3 p-3 bg-slate-50 border border-slate-200 rounded-lg text-[10px] text-slate-600 leading-relaxed">
+              <strong className="text-slate-800">Notice Regarding Private Health Insurance Rebates:</strong> Private health fund rebates depend on your individual fund table of cover, waiting periods, and remaining annual limits (which may have been drawn upon earlier this year). Please quote the ADA item numbers below directly to your private health insurer to verify your exact rebate and out-of-pocket gap prior to booking chair time.
+            </div>
+
             <div className="border border-slate-200 rounded-xl overflow-hidden mb-4">
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
                   <tr className="bg-slate-100 text-slate-600 font-bold border-b border-slate-200 text-[10px] uppercase">
                     <th className="p-2.5">Item</th>
                     <th className="p-2.5">Description</th>
-                    <th className="p-2.5 text-right">Fee</th>
-                    <th className="p-2.5 text-right">Est. Rebate</th>
+                    <th className="p-2.5 text-right">Practice Fee</th>
+                    <th className="p-2.5 text-right">
+                      {rebateMode === 'practice_fees_only' ? 'Health Fund Rebate' : 'Est. Rebate'}
+                    </th>
                     <th className="p-2.5 text-right">Net Gap</th>
                   </tr>
                 </thead>
@@ -1139,17 +1407,33 @@ export default function ClinicalSummary({
                       <td className="p-2.5 font-mono">{it.adaCode}</td>
                       <td className="p-2.5">{it.description}{it.tooth ? ` (Tooth ${it.tooth})` : ''}</td>
                       <td className="p-2.5 text-right font-semibold">${it.fee}</td>
-                      <td className="p-2.5 text-right text-emerald-700">${it.healthFundEstimatedRebate}</td>
-                      <td className="p-2.5 text-right font-bold text-[#004ac6]">${it.gapEstimate}</td>
+                      <td className="p-2.5 text-right text-emerald-700">
+                        {rebateMode === 'practice_fees_only'
+                          ? 'Check with fund'
+                          : `$${it.healthFundEstimatedRebate}`}
+                      </td>
+                      <td className="p-2.5 text-right font-bold text-[#004ac6]">
+                        {rebateMode === 'practice_fees_only'
+                          ? `$${it.fee}`
+                          : `$${it.gapEstimate}`}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
             <div className="flex justify-end gap-6 text-xs font-bold bg-slate-50 p-3 rounded-xl border border-slate-200">
-              <span>Total Fee: ${treatmentQuote.totalFee}</span>
-              <span className="text-emerald-700">Total Est. Rebate: ${treatmentQuote.estimatedRebate}</span>
-              <span className="text-[#004ac6]">Estimated Patient Gap: ${treatmentQuote.netGap}</span>
+              <span>Total Practice Fee: ${treatmentQuote.totalFee}</span>
+              {rebateMode === 'show_rebate_estimate' ? (
+                <>
+                  <span className="text-emerald-700">Total Est. Rebate: ${treatmentQuote.estimatedRebate}</span>
+                  <span className="text-[#004ac6]">Estimated Patient Gap: ${treatmentQuote.netGap}</span>
+                </>
+              ) : (
+                <span className="text-slate-500 font-medium italic">
+                  Health fund rebate claimable directly with insurer
+                </span>
+              )}
             </div>
           </div>
         )}

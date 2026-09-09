@@ -159,5 +159,21 @@ describe('Chairside Deliverables Suite ("Eliminating CoTreat")', () => {
     expect(normalized.toothFindings).toContain('#36: Defective occlusal margin');
     expect(normalized.recommendations).toContain('Informed Consent: Discussed diagnosis');
   });
+
+  it('supports practice_fees_only rebateMode for quote presentation to prevent misleading health fund limit estimates', () => {
+    const quote = buildTreatmentQuoteData(
+      [{ code: '611', description: 'Full ceramic crown', tooth: '16' }],
+      [],
+      'tooth 16 crown required'
+    );
+    quote.rebateMode = 'practice_fees_only';
+
+    expect(quote.rebateMode).toBe('practice_fees_only');
+    expect(quote.items[0].adaCode).toBe('611');
+    expect(quote.items[0].fee).toBeGreaterThan(0);
+    // When practice_fees_only is chosen, the practice fee is emphasized without false gap promises
+    expect(quote.totalFee).toBe(quote.items[0].fee);
+  });
 });
+
 

@@ -221,6 +221,23 @@ function buildNotePrompt(intakeData: any, templateName: string, transcript: any[
 }
 
 /**
+ * Wraps a promise with a timeout so external AI API hangs never freeze workers.
+ */
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: NodeJS.Timeout;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), ms);
+  });
+  return Promise.race([
+    promise.then((res) => {
+      clearTimeout(timer);
+      return res;
+    }),
+    timeoutPromise
+  ]);
+}
+
+/**
  * Shared hosted-generation core used by the job worker. Mirrors the sync
  * endpoint's routing (Vertex → developer key → secondary key) but returns a
  * classified result instead of an HTTP response so backoff decisions stay in
@@ -264,11 +281,15 @@ async function runHostedGeneration(payload: {
       }
       try {
         const ai = new GoogleGenAI(options);
-        const response = await ai.models.generateContent({
-          model: process.env.GEMINI_MODEL || 'gemini-3.6-flash',
-          contents: promptContext,
-          config: noteAIConfig
-        });
+        const response = await withTimeout(
+          ai.models.generateContent({
+            model: process.env.GEMINI_MODEL || 'gemini-3.6-flash',
+            contents: promptContext,
+            config: noteAIConfig
+          }),
+          35000,
+          'Cloud AI request timed out after 35 seconds. Please use instant offline draft.'
+        );
         if (response.text) output = JSON.parse(response.text);
       } catch (vertexErr: any) {
         const msg = (vertexErr.message || '').toLowerCase();
@@ -284,11 +305,15 @@ async function runHostedGeneration(payload: {
         return { ok: false, quota: false, message: 'Gemini API key is not configured on the server.' };
       }
       const ai = new GoogleGenAI({ apiKey });
-      const response = await ai.models.generateContent({
-        model: process.env.GEMINI_MODEL || 'gemini-3.6-flash',
-        contents: promptContext,
-        config: noteAIConfig
-      });
+      const response = await withTimeout(
+        ai.models.generateContent({
+          model: process.env.GEMINI_MODEL || 'gemini-3.6-flash',
+          contents: promptContext,
+          config: noteAIConfig
+        }),
+        35000,
+        'Cloud AI request timed out after 35 seconds. Please use instant offline draft.'
+      );
       if (!response.text) throw new Error('Gemini API returned an empty text field.');
       output = JSON.parse(response.text);
     }
@@ -307,11 +332,15 @@ async function runHostedGeneration(payload: {
             const compacted = compactTranscriptForGeneration(payload.transcript);
             const promptContext = buildNotePrompt(payload.intakeData, noteTemplate.name, compacted.transcript);
             const fallbackAi = new GoogleGenAI({ apiKey: fallbackKey });
-            const fallbackResponse = await fallbackAi.models.generateContent({
-              model: process.env.GEMINI_FALLBACK_MODEL || process.env.GEMINI_MODEL || 'gemini-3.6-flash',
-              contents: promptContext,
-              config: noteAIConfig
-            });
+            const fallbackResponse = await withTimeout(
+              fallbackAi.models.generateContent({
+                model: process.env.GEMINI_FALLBACK_MODEL || process.env.GEMINI_MODEL || 'gemini-3.6-flash',
+                contents: promptContext,
+                config: noteAIConfig
+              }),
+              25000,
+              'Secondary AI request timed out.'
+            );
             if (fallbackResponse.text) {
               logAudit('notes_generation_secondary_key', 'job-worker', {});
               return { ok: true, output: normalizeTemplateOutput(noteTemplate, JSON.parse(fallbackResponse.text)) };
@@ -595,12 +624,40 @@ app.get('/api/notes/jobs/:id', authenticateToken, async (req: any, res: express.
       return res.status(404).json({ error: 'Note job not found.' });
     }
 
+    const elapsedSeconds = Math.max(0, Math.round((Date.now() - Date.parse(job.createdAt)) / 1000));
+    let statusDetail = 'Processing clinical consultation with dental AI model...';
+    let isQuotaRetry = false;
+    let retryWaitSeconds: number | undefined = undefined;
+
+    if (job.status === 'queued') {
+      if (job.nextAttemptAt) {
+        const waitS = Math.max(1, Math.round((Date.parse(job.nextAttemptAt) - Date.now()) / 1000));
+        statusDetail = `Cloud AI is busy (Google rate-limit). Backing off and retrying in ~${waitS}s (attempt ${job.attempts})...`;
+        isQuotaRetry = true;
+        retryWaitSeconds = waitS;
+      } else {
+        statusDetail = 'Queued in priority queue for Dental LLM synthesis...';
+      }
+    } else if (job.status === 'processing') {
+      statusDetail = elapsedSeconds > 10
+        ? `Structuring oral examination findings and tooth chart (${elapsedSeconds}s elapsed)...`
+        : 'Connecting to Dental AI clinical extractor model...';
+    } else if (job.status === 'done') {
+      statusDetail = 'Clinical note generated successfully!';
+    } else if (job.status === 'failed') {
+      statusDetail = job.error || 'Clinical note generation failed.';
+    }
+
     const body: Record<string, any> = {
       id: job.id,
       status: job.status,
       priority: job.priority,
       attempts: job.attempts,
-      createdAt: job.createdAt
+      createdAt: job.createdAt,
+      elapsedSeconds,
+      statusDetail,
+      isQuotaRetry,
+      retryWaitSeconds
     };
     if (job.status === 'done' && job.result) body.result = job.result;
     if (job.error) body.error = job.error;

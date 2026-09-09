@@ -109,6 +109,8 @@ export interface TreatmentQuoteData {
   estimatedRebate: number;
   netGap: number;
   visualCaseCategory?: 'crown' | 'implant' | 'endo' | 'veneer' | 'aligner' | 'perio' | 'general';
+  rebateMode?: 'practice_fees_only' | 'show_rebate_estimate';
+  rebateDisclaimer?: string;
   phasedMilestones?: Array<{
     phaseNumber: number;
     phaseTitle: string;
