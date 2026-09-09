@@ -198,11 +198,17 @@ export default function ClinicalSummary({
     return treatmentQuote.rebateMode || 'practice_fees_only';
   });
 
+  const formatItemTitle = (item: { description: string; tooth?: string }) =>
+    `${item.description}${item.tooth ? ` (Tooth ${item.tooth})` : ''}`;
+
+  const sumFees = (items: TreatmentQuoteItem[]) =>
+    items.reduce((sum, it) => sum + (Number(it.fee) || 0), 0);
+
   const recalculateQuote = (
     items: TreatmentQuoteItem[],
     mode: 'practice_fees_only' | 'show_rebate_estimate' = rebateMode
   ) => {
-    const totalFee = items.reduce((sum, it) => sum + (Number(it.fee) || 0), 0);
+    const totalFee = sumFees(items);
     const estimatedRebate = mode === 'practice_fees_only'
       ? 0
       : items.reduce((sum, it) => sum + (Number(it.healthFundEstimatedRebate) || 0), 0);
@@ -216,34 +222,28 @@ export default function ClinicalSummary({
       (i) => i.category === 'Diagnostic' || i.category === 'Preventive' || i.category === 'Orthodontics'
     );
 
-    const phasedMilestones: TreatmentQuoteData['phasedMilestones'] = [];
+    const phasedMilestones: NonNullable<TreatmentQuoteData['phasedMilestones']> = [];
     let phaseNum = 1;
 
-    if (urgent.length > 0) {
+    const addMilestone = (title: string, phaseItems: TreatmentQuoteItem[]) => {
       phasedMilestones.push({
         phaseNumber: phaseNum++,
-        phaseTitle: 'Phase 1: Urgent Relief & Stabilisation',
-        items: urgent.map((u) => `${u.description}${u.tooth ? ` (Tooth ${u.tooth})` : ''}`),
-        totalPhaseFee: urgent.reduce((sum, u) => sum + (Number(u.fee) || 0), 0)
+        phaseTitle: title,
+        items: phaseItems.map(formatItemTitle),
+        totalPhaseFee: sumFees(phaseItems)
       });
+    };
+
+    if (urgent.length > 0) {
+      addMilestone('Phase 1: Urgent Relief & Stabilisation', urgent);
     }
 
     if (restorative.length > 0) {
-      phasedMilestones.push({
-        phaseNumber: phaseNum++,
-        phaseTitle: `Phase ${phaseNum}: Restorative Reconstruction & Longevity`,
-        items: restorative.map((r) => `${r.description}${r.tooth ? ` (Tooth ${r.tooth})` : ''}`),
-        totalPhaseFee: restorative.reduce((sum, r) => sum + (Number(r.fee) || 0), 0)
-      });
+      addMilestone(`Phase ${phaseNum}: Restorative Reconstruction & Longevity`, restorative);
     }
 
     if (preventive.length > 0 || phasedMilestones.length === 0) {
-      phasedMilestones.push({
-        phaseNumber: phaseNum++,
-        phaseTitle: `Phase ${phaseNum}: Prevention & Maintenance`,
-        items: (preventive.length > 0 ? preventive : items).map((p) => `${p.description}${p.tooth ? ` (Tooth ${p.tooth})` : ''}`),
-        totalPhaseFee: (preventive.length > 0 ? preventive : items).reduce((sum, p) => sum + (Number(p.fee) || 0), 0)
-      });
+      addMilestone(`Phase ${phaseNum}: Prevention & Maintenance`, preventive.length > 0 ? preventive : items);
     }
 
     const updated: TreatmentQuoteData = {
@@ -347,11 +347,12 @@ export default function ClinicalSummary({
       `PATIENT: ${consultation.firstName} ${consultation.lastName}`,
       `DATE: ${consultation.date}`,
       ``,
-      ...treatmentQuote.items.map((it) =>
-        isFeesOnly
-          ? `ADA [${it.adaCode}] ${it.description}${it.tooth ? ` (Tooth ${it.tooth})` : ''} - Practice Fee: $${it.fee} | Rebate: Check with health fund`
-          : `ADA [${it.adaCode}] ${it.description}${it.tooth ? ` (Tooth ${it.tooth})` : ''} - Fee: $${it.fee} | Est. Rebate: $${it.healthFundEstimatedRebate} | Net Gap: $${it.gapEstimate}`
-      ),
+      ...treatmentQuote.items.map((it) => {
+        const itemHeader = `ADA [${it.adaCode}] ${formatItemTitle(it)}`;
+        return isFeesOnly
+          ? `${itemHeader} - Practice Fee: $${it.fee} | Rebate: Check with health fund`
+          : `${itemHeader} - Fee: $${it.fee} | Est. Rebate: $${it.healthFundEstimatedRebate} | Net Gap: $${it.gapEstimate}`;
+      }),
       ``,
       `Total Practice Fee: $${treatmentQuote.totalFee}`,
       isFeesOnly
@@ -936,7 +937,7 @@ export default function ClinicalSummary({
                   </div>
 
                   {/* Procedure Visual Mode Selector */}
-                  <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-xl w-full overflow-x-auto border border-slate-200">
+                  <div className="flex items-center gap-1.5 p-1 bg-slate-100/90 rounded-xl w-full overflow-x-auto border border-slate-200/80 shadow-inner">
                     {[
                       { id: 'crown', label: 'Ceramic Crown' },
                       { id: 'implant', label: 'Dental Implant' },
@@ -950,10 +951,10 @@ export default function ClinicalSummary({
                         key={cat.id}
                         type="button"
                         onClick={() => setSelectedVisualCategory(cat.id as VisualCaseCategory)}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap active:scale-[0.98] ${
                           selectedVisualCategory === cat.id
-                            ? 'bg-[#004ac6] text-white shadow-sm'
-                            : 'text-slate-600 hover:text-slate-900'
+                            ? 'bg-[#004ac6] text-white shadow-sm ring-1 ring-blue-700/20'
+                            : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
                         }`}
                       >
                         {cat.label}
@@ -962,41 +963,53 @@ export default function ClinicalSummary({
                   </div>
 
                   {/* Visual 3-Stage Case Cards (The Visualizer that wows patients) */}
-                  <div className="bg-gradient-to-b from-blue-50/30 to-indigo-50/20 border border-blue-100 rounded-2xl p-5 flex flex-col gap-4">
+                  <div className="bg-gradient-to-b from-blue-50/40 via-indigo-50/20 to-white border border-blue-100/80 rounded-2xl p-5 flex flex-col gap-4 shadow-sm">
                     <div className="flex items-center justify-between">
                       <div>
                         <h4 className="font-bold text-sm text-slate-800">{activeVisualPresentation.treatmentName}</h4>
                         <p className="text-xs text-slate-500">{activeVisualPresentation.tagline}</p>
                       </div>
-                      <span className="text-[10px] font-mono font-bold bg-white text-blue-700 border border-blue-200 px-2.5 py-1 rounded-full">
+                      <span className="text-[10px] font-mono font-bold bg-white text-blue-700 border border-blue-200/80 px-2.5 py-1 rounded-full shadow-xs">
                         ADA {activeVisualPresentation.typicalAdaCodes.join(', ')}
                       </span>
                     </div>
 
                     {/* 3-Stage Visual Progression Grid */}
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
-                      {activeVisualPresentation.stages.map((stage) => (
-                        <div key={stage.step} className="bg-white rounded-xl border border-slate-200 p-3.5 flex flex-col shadow-sm">
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="text-[9px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full bg-slate-100 text-slate-700">
-                              Stage {stage.step}: {stage.badge}
-                            </span>
-                          </div>
-                          {/* SVG Visual Graphic */}
+                      {activeVisualPresentation.stages.map((stage) => {
+                        const stageBadgeStyle =
+                          stage.step === 1
+                            ? 'bg-blue-50 text-blue-700 border-blue-200/80'
+                            : stage.step === 2
+                            ? 'bg-indigo-50 text-indigo-700 border-indigo-200/80'
+                            : 'bg-emerald-50 text-emerald-700 border-emerald-200/80';
+
+                        return (
                           <div
-                            className="w-full h-32 mb-3 rounded-lg overflow-hidden flex items-center justify-center bg-slate-50 border border-slate-100"
-                            dangerouslySetInnerHTML={{ __html: stage.illustrationSvg }}
-                          />
-                          <h5 className="font-bold text-xs text-slate-800">{stage.title}</h5>
-                          <p className="text-[11px] text-slate-500 leading-relaxed mt-1 flex-grow">
-                            {stage.description}
-                          </p>
-                        </div>
-                      ))}
+                            key={stage.step}
+                            className="group relative bg-white rounded-2xl border border-slate-200/80 p-4 flex flex-col shadow-xs hover:shadow-md hover:border-blue-200 transition-all duration-200"
+                          >
+                            <div className="flex items-center justify-between mb-2.5">
+                              <span className={`text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full border ${stageBadgeStyle}`}>
+                                Stage {stage.step}: {stage.badge}
+                              </span>
+                            </div>
+                            {/* SVG Visual Graphic */}
+                            <div
+                              className="w-full h-32 mb-3 rounded-xl overflow-hidden flex items-center justify-center bg-slate-50/80 border border-slate-100 group-hover:scale-[1.02] transition-transform duration-300"
+                              dangerouslySetInnerHTML={{ __html: stage.illustrationSvg }}
+                            />
+                            <h5 className="font-bold text-xs text-slate-800">{stage.title}</h5>
+                            <p className="text-[11px] text-slate-500 leading-relaxed mt-1 flex-grow">
+                              {stage.description}
+                            </p>
+                          </div>
+                        );
+                      })}
                     </div>
 
                     {/* Value Proposition & Anatomy Highlights */}
-                    <div className="p-3.5 bg-white/80 rounded-xl border border-blue-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                    <div className="p-3.5 bg-white/90 rounded-xl border border-blue-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
                       <div className="text-slate-600">
                         <strong className="text-slate-800">Patient Outcome:</strong> {activeVisualPresentation.patientValueProposition}
                       </div>
@@ -1016,17 +1029,17 @@ export default function ClinicalSummary({
                         </p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-1.5 p-1 bg-white rounded-lg border border-slate-200 shadow-sm self-start sm:self-auto">
+                    <div className="flex items-center gap-1 p-1 bg-slate-100/90 rounded-xl border border-slate-200/80 shadow-inner self-start sm:self-auto">
                       <button
                         type="button"
                         onClick={() => {
                           setRebateMode('practice_fees_only');
                           recalculateQuote(treatmentQuote.items, 'practice_fees_only');
                         }}
-                        className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all cursor-pointer ${
+                        className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer active:scale-[0.98] ${
                           rebateMode === 'practice_fees_only'
-                            ? 'bg-[#004ac6] text-white shadow-sm'
-                            : 'text-slate-600 hover:text-slate-900'
+                            ? 'bg-white text-slate-900 shadow-sm ring-1 ring-slate-200/70'
+                            : 'text-slate-500 hover:text-slate-800'
                         }`}
                       >
                         Practice Fees Only (Safe)
@@ -1037,10 +1050,10 @@ export default function ClinicalSummary({
                           setRebateMode('show_rebate_estimate');
                           recalculateQuote(treatmentQuote.items, 'show_rebate_estimate');
                         }}
-                        className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all cursor-pointer ${
+                        className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer active:scale-[0.98] ${
                           rebateMode === 'show_rebate_estimate'
                             ? 'bg-emerald-600 text-white shadow-sm'
-                            : 'text-slate-600 hover:text-slate-900'
+                            : 'text-slate-500 hover:text-slate-800'
                         }`}
                       >
                         Show Est. Rebate
@@ -1049,7 +1062,7 @@ export default function ClinicalSummary({
                   </div>
 
                   {/* Patient Advisory Notice for Insurance Limits */}
-                  <div className="flex items-start gap-2.5 p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs">
+                  <div className="flex items-start gap-2.5 p-3.5 rounded-2xl bg-amber-50/80 border border-amber-200 text-amber-900 text-xs shadow-sm">
                     <Info className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
                     <div className="leading-relaxed">
                       <strong className="font-semibold text-amber-950">Private Health Insurance Notice:</strong> Rebate amounts depend on your private health fund table of cover, waiting periods, and any annual limits you have already used this year (especially on Major Dental). Please quote the ADA item numbers below directly to your health fund to verify your exact rebate and out-of-pocket gap prior to treatment.
@@ -1057,26 +1070,26 @@ export default function ClinicalSummary({
                   </div>
 
                   {/* Financial Overview Metrics Cards */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-center">
-                      <span className="text-[10px] font-bold uppercase text-slate-400 block">Total Treatment Fee</span>
-                      <span className="text-lg font-extrabold text-slate-800">${treatmentQuote.totalFee}</span>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+                    <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm text-center">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Total Treatment Fee</span>
+                      <span className="font-mono text-2xl font-black text-slate-900 mt-1 block">${treatmentQuote.totalFee}</span>
                     </div>
-                    <div className="bg-emerald-50 p-3.5 rounded-xl border border-emerald-200 text-center">
-                      <span className="text-[10px] font-bold uppercase text-emerald-600 block">
+                    <div className="bg-emerald-50/70 p-4 rounded-2xl border border-emerald-200/80 shadow-sm text-center">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 block">
                         {rebateMode === 'practice_fees_only' ? 'Health Fund Rebate' : 'Est. Health Fund Rebate'}
                       </span>
-                      <span className="text-sm font-extrabold text-emerald-700 block mt-1">
+                      <span className="font-mono text-base font-extrabold text-emerald-700 mt-1.5 block">
                         {rebateMode === 'practice_fees_only'
                           ? 'Claim Directly with Fund'
                           : `-$${treatmentQuote.estimatedRebate}`}
                       </span>
                     </div>
-                    <div className="bg-blue-50 p-3.5 rounded-xl border border-blue-200 text-center">
-                      <span className="text-[10px] font-bold uppercase text-blue-600 block">
+                    <div className="bg-blue-50/70 p-4 rounded-2xl border border-blue-200/80 shadow-sm text-center">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-[#004ac6] block">
                         {rebateMode === 'practice_fees_only' ? 'Out-of-Pocket Gap' : 'Est. Patient Gap'}
                       </span>
-                      <span className="text-lg font-extrabold text-[#004ac6]">
+                      <span className="font-mono text-2xl font-black text-[#004ac6] mt-1 block">
                         {rebateMode === 'practice_fees_only'
                           ? `$${treatmentQuote.totalFee} (Less Rebate)`
                           : `$${treatmentQuote.netGap}`}
@@ -1195,22 +1208,32 @@ export default function ClinicalSummary({
 
                   {/* Phased Care Roadmap Timeline */}
                   {treatmentQuote.phasedMilestones && treatmentQuote.phasedMilestones.length > 0 && (
-                    <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 flex flex-col gap-3">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                        Phased Care Roadmap (Bite-Sized Chapters)
-                      </span>
-                      <div className="space-y-2.5">
+                    <div className="p-5 bg-slate-50/80 rounded-2xl border border-slate-200/90 flex flex-col gap-3.5 shadow-sm">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-extrabold uppercase tracking-widest text-slate-500">
+                          Phased Care Roadmap (Bite-Sized Chapters)
+                        </span>
+                        <span className="text-[11px] font-semibold text-primary font-mono">
+                          {treatmentQuote.phasedMilestones.length} Strategic Care Phases
+                        </span>
+                      </div>
+                      <div className="space-y-3">
                         {treatmentQuote.phasedMilestones.map((milestone) => (
-                          <div key={milestone.phaseNumber} className="flex items-start gap-3 bg-white p-3 rounded-lg border border-slate-200/80">
-                            <div className="w-6 h-6 rounded-full bg-blue-100 text-[#004ac6] font-bold text-xs flex items-center justify-center flex-shrink-0 mt-0.5">
+                          <div
+                            key={milestone.phaseNumber}
+                            className="flex items-start gap-3.5 bg-white p-4 rounded-xl border border-slate-200/80 shadow-sm hover:border-primary/20 transition-all"
+                          >
+                            <div className="w-7 h-7 rounded-full bg-primary/10 text-primary font-mono font-bold text-xs flex items-center justify-center flex-shrink-0 mt-0.5 ring-1 ring-primary/20">
                               {milestone.phaseNumber}
                             </div>
                             <div className="flex-grow">
                               <div className="flex items-center justify-between">
-                                <span className="font-bold text-xs text-slate-800">{milestone.phaseTitle}</span>
-                                <span className="font-bold text-xs text-slate-700 font-mono">${milestone.totalPhaseFee}</span>
+                                <span className="font-extrabold text-xs text-slate-900">{milestone.phaseTitle}</span>
+                                <span className="font-mono font-bold text-xs text-slate-800 bg-slate-100/90 px-2 py-0.5 rounded-md border border-slate-200/60">
+                                  ${milestone.totalPhaseFee}
+                                </span>
                               </div>
-                              <p className="text-[11px] text-slate-500 mt-0.5">
+                              <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
                                 {milestone.items.join(' • ')}
                               </p>
                             </div>
@@ -1405,7 +1428,7 @@ export default function ClinicalSummary({
                   {treatmentQuote.items.map((it, idx) => (
                     <tr key={idx}>
                       <td className="p-2.5 font-mono">{it.adaCode}</td>
-                      <td className="p-2.5">{it.description}{it.tooth ? ` (Tooth ${it.tooth})` : ''}</td>
+                      <td className="p-2.5">{formatItemTitle(it)}</td>
                       <td className="p-2.5 text-right font-semibold">${it.fee}</td>
                       <td className="p-2.5 text-right text-emerald-700">
                         {rebateMode === 'practice_fees_only'

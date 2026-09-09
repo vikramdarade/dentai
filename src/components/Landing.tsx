@@ -125,23 +125,22 @@ export default function Landing({ onGetStarted }: LandingProps) {
               </span>
             </h1>
 
-            <p className="mt-6 max-w-xl text-base leading-relaxed text-slate-500 md:text-lg">
-              DentAI turns dentist–patient conversations into structured notes, ADA billing codes,
-              and patient care letters — while automatically tracking unbooked treatments into an
-              automated practice revenue pipeline.
+            <p className="mt-6 max-w-xl text-base leading-relaxed text-slate-600 md:text-lg">
+              DentAI listens chairside, generating structured AHPRA notes, ADA billing codes,
+              and patient treatment estimates directly into your practice workflow.
             </p>
 
             <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">
               <button
                 onClick={onGetStarted}
-                className="group flex h-12 items-center justify-center gap-2 rounded-xl bg-primary px-7 text-sm font-bold text-white shadow-lg shadow-primary/25 transition-all hover:bg-primary-dark cursor-pointer"
+                className="group flex h-12 items-center justify-center gap-2 rounded-xl bg-primary px-7 text-sm font-bold text-white shadow-lg shadow-primary/25 transition-all hover:bg-primary-dark active:scale-[0.98] cursor-pointer"
               >
                 Try DentAI free
                 <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
               </button>
               <a
                 href="#revenue-engine"
-                className="flex h-12 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-7 text-sm font-bold text-slate-700 shadow-sm transition-all hover:border-indigo-200 hover:text-primary"
+                className="flex h-12 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-7 text-sm font-bold text-slate-700 shadow-sm transition-all hover:border-indigo-200 hover:text-primary active:scale-[0.98]"
               >
                 See Revenue Engine
               </a>
@@ -503,54 +502,126 @@ export default function Landing({ onGetStarted }: LandingProps) {
             sub="Every feature exists to get one thing done: a complete, compliant clinical note with zero typing during the appointment."
           />
 
-          <div className="mt-14 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
-            {[
-              {
-                icon: FileText,
-                title: 'Structured clinical notes',
-                body: 'Chief complaint, history, tooth findings in FDI notation, gingival state, diagnosis, treatment, recommendations and recall — every time.'
-              },
-              {
-                icon: ClipboardCheck,
-                title: 'ADA billing codes extracted',
-                body: 'Item codes like 011, 111 and 511 are pulled straight from the conversation, so billing capture stops being guesswork.'
-              },
-              {
-                icon: Sparkles,
-                title: 'Patient care letter',
-                body: 'A warm, jargon-free summary the patient can read, print or take home — building trust and follow-through on every plan.'
-              },
-              {
-                icon: LayoutTemplate,
-                title: 'Your clinic’s template',
-                body: 'Match AHPRA 8-point, SOAP or restorative formats — or define custom section headings that mirror your practice macros.'
-              },
-              {
-                icon: Languages,
-                title: 'Accent-resilient parsing',
-                body: 'Phonetic variants of tooth numbers and clinical terms are resolved to correct FDI notation — “dirty tree” becomes 33, every time.'
-              },
-              {
-                icon: ShieldCheck,
-                title: 'Offline-safe & secure',
-                body: 'PIN-protected profiles, an audit log and session lock. Notes queue locally when the network drops and sync when it returns.'
-              }
-            ].map((feat, i) => (
-              <motion.div
-                key={feat.title}
-                initial={{ opacity: 0, y: 20 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true, margin: '-40px' }}
-                transition={{ duration: 0.45, delay: (i % 3) * 0.08 }}
-                className="group rounded-2xl border border-slate-200/70 bg-[#F8F7F5] p-6 transition-all hover:-translate-y-0.5 hover:border-indigo-100 hover:bg-white hover:shadow-lg hover:shadow-primary/5"
-              >
-                <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-white text-primary shadow-sm ring-1 ring-slate-200/70 transition-colors group-hover:bg-primary group-hover:text-white">
-                  <feat.icon className="h-5 w-5" />
+          <div className="mt-14 grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
+            {/* Bento Card 1: Accent Resilience (Wide) */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, margin: '-40px' }}
+              transition={{ duration: 0.45 }}
+              className="group relative rounded-3xl border border-slate-200/80 bg-white p-7 shadow-sm transition-all hover:border-primary/30 hover:shadow-xl md:col-span-2 flex flex-col justify-between"
+            >
+              <div>
+                <div className="flex items-center justify-between mb-4">
+                  <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-50 text-primary shadow-sm ring-1 ring-indigo-100">
+                    <Languages className="h-5 w-5" />
+                  </span>
+                  <span className="rounded-full bg-emerald-50 px-3 py-1 font-mono text-[10px] font-extrabold uppercase tracking-wider text-emerald-700 border border-emerald-100">
+                    Phonetic Engine Active
+                  </span>
+                </div>
+                <h3 className="text-xl font-extrabold tracking-tight text-slate-900">
+                  Accent-Resilient Australian Dental Lexicon
+                </h3>
+                <p className="mt-2 text-sm leading-relaxed text-slate-500 max-w-xl">
+                  Trained on multi-cultural Australian dental clinics. Resolves mumbled speech, suction noise, and phonetic variations of tooth numbers directly into standardized FDI notation.
+                </p>
+              </div>
+              <div className="mt-6 flex flex-wrap items-center gap-2 pt-4 border-t border-slate-100">
+                <span className="px-2.5 py-1 rounded-lg bg-slate-100 font-mono text-xs font-bold text-slate-700">
+                  “dirty tree” → FDI 33
                 </span>
-                <h3 className="mt-4 text-base font-extrabold tracking-tight text-slate-900">{feat.title}</h3>
-                <p className="mt-2 text-sm leading-relaxed text-slate-500">{feat.body}</p>
-              </motion.div>
-            ))}
+                <span className="px-2.5 py-1 rounded-lg bg-slate-100 font-mono text-xs font-bold text-slate-700">
+                  “upper right six” → FDI 16
+                </span>
+                <span className="px-2.5 py-1 rounded-lg bg-slate-100 font-mono text-xs font-bold text-slate-700">
+                  “MOD resin” → ADA 533
+                </span>
+              </div>
+            </motion.div>
+
+            {/* Bento Card 2: ADA Billing Extraction */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, margin: '-40px' }}
+              transition={{ duration: 0.45, delay: 0.1 }}
+              className="group relative rounded-3xl border border-slate-200/80 bg-white p-7 shadow-sm transition-all hover:border-primary/30 hover:shadow-xl flex flex-col justify-between"
+            >
+              <div>
+                <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-50 text-primary shadow-sm ring-1 ring-indigo-100 mb-4">
+                  <ClipboardCheck className="h-5 w-5" />
+                </span>
+                <h3 className="text-xl font-extrabold tracking-tight text-slate-900">
+                  ADA Billing Item Capture
+                </h3>
+                <p className="mt-2 text-sm leading-relaxed text-slate-500">
+                  Item codes are parsed continuously from operatory dialogue, ensuring high-value procedures are never missed at checkout.
+                </p>
+              </div>
+              <div className="mt-6 flex gap-1.5 pt-4 border-t border-slate-100">
+                {['011', '111', '532', '611'].map((code) => (
+                  <span key={code} className="px-2 py-0.5 rounded bg-primary/10 text-primary font-mono font-bold text-xs">
+                    {code}
+                  </span>
+                ))}
+              </div>
+            </motion.div>
+
+            {/* Bento Card 3: AHPRA Standards */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, margin: '-40px' }}
+              transition={{ duration: 0.45, delay: 0.15 }}
+              className="group relative rounded-3xl border border-slate-200/80 bg-white p-7 shadow-sm transition-all hover:border-primary/30 hover:shadow-xl flex flex-col justify-between"
+            >
+              <div>
+                <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-50 text-primary shadow-sm ring-1 ring-indigo-100 mb-4">
+                  <ShieldCheck className="h-5 w-5" />
+                </span>
+                <h3 className="text-xl font-extrabold tracking-tight text-slate-900">
+                  AHPRA 8-Point Compliance
+                </h3>
+                <p className="mt-2 text-sm leading-relaxed text-slate-500">
+                  Formatted specifically for the Dental Board of Australia’s record-keeping standards, including chief complaint, tooth charting, and clinical consent.
+                </p>
+              </div>
+              <div className="mt-6 flex items-center gap-2 pt-4 border-t border-slate-100 text-xs font-bold text-emerald-700">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                <span>Audit-ready clinical notes</span>
+              </div>
+            </motion.div>
+
+            {/* Bento Card 4: Patient Deliverables & Case Pack (Wide) */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, margin: '-40px' }}
+              transition={{ duration: 0.45, delay: 0.2 }}
+              className="group relative rounded-3xl border border-slate-200/80 bg-white p-7 shadow-sm transition-all hover:border-primary/30 hover:shadow-xl md:col-span-2 flex flex-col justify-between"
+            >
+              <div>
+                <div className="flex items-center justify-between mb-4">
+                  <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-50 text-primary shadow-sm ring-1 ring-indigo-100">
+                    <Sparkles className="h-5 w-5" />
+                  </span>
+                  <span className="rounded-full bg-blue-50 px-3 py-1 font-mono text-[10px] font-extrabold uppercase tracking-wider text-primary border border-blue-100">
+                    Visual Case Pack Ready
+                  </span>
+                </div>
+                <h3 className="text-xl font-extrabold tracking-tight text-slate-900">
+                  Itemized Treatment Quotes & Patient Deliverables
+                </h3>
+                <p className="mt-2 text-sm leading-relaxed text-slate-500 max-w-xl">
+                  Eliminates patient cost anxiety. Automatically computes fee schedules, safe private health fund verification reminders, and warm plain-English care summaries ready for chairside presentation.
+                </p>
+              </div>
+              <div className="mt-6 flex items-center justify-between pt-4 border-t border-slate-100 text-xs text-slate-500 font-medium">
+                <span>Printable Case Packs • Phased Roadmaps • 1-Click WhatsApp Delivery</span>
+                <span className="font-bold text-primary">Explore Case Pack →</span>
+              </div>
+            </motion.div>
           </div>
         </div>
       </section>

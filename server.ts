@@ -248,22 +248,22 @@ async function runHostedGeneration(payload: {
   transcript: any[];
 }): Promise<{ ok: true; output: any } | { ok: false; quota: true; message: string } | { ok: false; quota: false; message: string }> {
   const gcpProject = process.env.GCP_PROJECT_ID;
+  const resolved = resolveNoteTemplate(payload.intakeData);
+  if (resolved.error) {
+    return { ok: false, quota: false, message: resolved.error };
+  }
+  const noteTemplate = resolved.template;
+  const noteAIConfig = buildTemplateAIConfig(noteTemplate, payload.intakeData?.appointmentType);
+
+  // Server-side compaction: the forgotten-recording guard. Enforced here so
+  // a client-side bypass can never blow the quota pool for other clinics.
+  const compacted = compactTranscriptForGeneration(payload.transcript);
+  if (compacted.compacted) {
+    logger.warn('[JobFabric] Transcript compacted before generation', { summary: compacted.summary });
+  }
+  const promptContext = buildNotePrompt(payload.intakeData, noteTemplate.name, compacted.transcript);
+
   try {
-    const resolved = resolveNoteTemplate(payload.intakeData);
-    if (resolved.error) {
-      return { ok: false, quota: false, message: resolved.error };
-    }
-    const noteTemplate = resolved.template;
-    const noteAIConfig = buildTemplateAIConfig(noteTemplate, payload.intakeData?.appointmentType);
-
-    // Server-side compaction: the forgotten-recording guard. Enforced here so
-    // a client-side bypass can never blow the quota pool for other clinics.
-    const compacted = compactTranscriptForGeneration(payload.transcript);
-    if (compacted.compacted) {
-      logger.warn('[JobFabric] Transcript compacted before generation', { summary: compacted.summary });
-    }
-    const promptContext = buildNotePrompt(payload.intakeData, noteTemplate.name, compacted.transcript);
-
     let output: any | null = null;
 
     if (gcpProject) {
@@ -325,26 +325,19 @@ async function runHostedGeneration(payload: {
       const fallbackKey = process.env.GEMINI_FALLBACK_API_KEY;
       if (fallbackKey && fallbackKey !== 'MY_GEMINI_API_KEY') {
         try {
-          const resolved = resolveNoteTemplate(payload.intakeData);
-          if (!resolved.error) {
-            const noteTemplate = resolved.template;
-            const noteAIConfig = buildTemplateAIConfig(noteTemplate, payload.intakeData?.appointmentType);
-            const compacted = compactTranscriptForGeneration(payload.transcript);
-            const promptContext = buildNotePrompt(payload.intakeData, noteTemplate.name, compacted.transcript);
-            const fallbackAi = new GoogleGenAI({ apiKey: fallbackKey });
-            const fallbackResponse = await withTimeout(
-              fallbackAi.models.generateContent({
-                model: process.env.GEMINI_FALLBACK_MODEL || process.env.GEMINI_MODEL || 'gemini-3.6-flash',
-                contents: promptContext,
-                config: noteAIConfig
-              }),
-              25000,
-              'Secondary AI request timed out.'
-            );
-            if (fallbackResponse.text) {
-              logAudit('notes_generation_secondary_key', 'job-worker', {});
-              return { ok: true, output: normalizeTemplateOutput(noteTemplate, JSON.parse(fallbackResponse.text)) };
-            }
+          const fallbackAi = new GoogleGenAI({ apiKey: fallbackKey });
+          const fallbackResponse = await withTimeout(
+            fallbackAi.models.generateContent({
+              model: process.env.GEMINI_FALLBACK_MODEL || process.env.GEMINI_MODEL || 'gemini-3.6-flash',
+              contents: promptContext,
+              config: noteAIConfig
+            }),
+            25000,
+            'Secondary AI request timed out.'
+          );
+          if (fallbackResponse.text) {
+            logAudit('notes_generation_secondary_key', 'job-worker', {});
+            return { ok: true, output: normalizeTemplateOutput(noteTemplate, JSON.parse(fallbackResponse.text)) };
           }
         } catch (secondaryErr: any) {
           logger.warn('[JobFabric] Secondary-key fallback also failed:', secondaryErr.message || secondaryErr);

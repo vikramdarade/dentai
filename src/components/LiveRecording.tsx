@@ -577,7 +577,6 @@ export default function LiveRecording({
 
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [processingSeconds, setProcessingSeconds] = useState(0);
-  const processingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const processingTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Only claim AI detection when clinical terminology is actually present in the transcript.
@@ -585,11 +584,19 @@ export default function LiveRecording({
     /(percussion|sensitivity|pulp|decay|caries|bleeding|mobility|root canal|filling|tooth\s*\d{1,2})/i.test(t.text)
   );
 
-  const stopProcessingTicker = () => {
-    if (processingIntervalRef.current) {
-      clearInterval(processingIntervalRef.current);
-      processingIntervalRef.current = null;
+  const getProcessingStageDescription = (seconds: number, baseState: string): string => {
+    if (baseState && baseState !== 'Formatting consultation dialogue...') {
+      return baseState;
     }
+    if (seconds >= 22) return 'Synthesizing complex multi-tooth examination findings...';
+    if (seconds >= 15) return 'Structuring medical-legal clinical record & recommendations...';
+    if (seconds >= 9) return 'Analyzing tooth chart, periodontal findings & clinical dialogue...';
+    if (seconds >= 5) return 'Connecting to Dental AI clinical extractor...';
+    if (seconds >= 2) return 'Transcribing consultation & mapping FDI tooth numbers...';
+    return baseState || 'Formatting consultation dialogue...';
+  };
+
+  const stopProcessingTicker = () => {
     if (processingTimerRef.current) {
       clearInterval(processingTimerRef.current);
       processingTimerRef.current = null;
@@ -606,21 +613,7 @@ export default function LiveRecording({
 
     if (processingTimerRef.current) clearInterval(processingTimerRef.current);
     processingTimerRef.current = setInterval(() => {
-      setProcessingSeconds((prev) => {
-        const next = prev + 1;
-        if (next === 2) {
-          setProcessingState('Transcribing consultation & mapping FDI tooth numbers...');
-        } else if (next === 5) {
-          setProcessingState('Connecting to Dental AI clinical extractor...');
-        } else if (next === 9) {
-          setProcessingState('Analyzing tooth chart, periodontal findings & clinical dialogue...');
-        } else if (next === 15) {
-          setProcessingState('Structuring medical-legal clinical record & recommendations...');
-        } else if (next === 22) {
-          setProcessingState('Synthesizing complex multi-tooth examination findings...');
-        }
-        return next;
-      });
+      setProcessingSeconds((prev) => prev + 1);
     }, 1000);
   };
 
@@ -1245,9 +1238,7 @@ export default function LiveRecording({
               {/* Active Elapsed Seconds Counter Badge */}
               <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-white/10 border border-white/15 text-indigo-200 text-xs font-mono font-bold mb-6">
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                <span>
-                  Elapsed: {Math.floor(processingSeconds / 60).toString().padStart(2, '0')}:{(processingSeconds % 60).toString().padStart(2, '0')}
-                </span>
+                <span>Elapsed: {formatTime(processingSeconds)}</span>
               </div>
 
               {/* Spinning sparkling indicator orb */}
@@ -1273,10 +1264,10 @@ export default function LiveRecording({
 
               {/* Live job status & stage description */}
               <div
-                key={processingHint || processingState}
+                key={processingHint || getProcessingStageDescription(processingSeconds, processingState)}
                 className="text-xs font-mono text-[#6ffbbe] tracking-wide animate-fade-in max-w-xs leading-relaxed"
               >
-                {processingHint || processingState}
+                {processingHint || getProcessingStageDescription(processingSeconds, processingState)}
               </div>
 
               {/* Proactive Zero-Wait Instant Offline Fallback (Appears if AI exceeds 8s or reports delay) */}
