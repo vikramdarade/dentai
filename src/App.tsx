@@ -27,6 +27,7 @@ import {
   removePendingSync,
   AuthUser
 } from './utils/storage';
+import { DayScheduleItem, updateScheduleItem, formatNoteForPmsClipboard } from './lib/dayScheduleStorage';
 
 type ViewType = 'history' | 'intake' | 'record' | 'summary';
 
@@ -98,6 +99,7 @@ export default function App() {
     dob: string;
     appointmentType: AppointmentType;
     templateId?: string;
+    scheduleItemId?: string;
   } | null>(null);
 
   // Load token and currentUser from persistent storage on mount
@@ -472,6 +474,26 @@ export default function App() {
     setView('record');
   };
 
+  const handleStartScheduledConsultation = (item: DayScheduleItem) => {
+    const nameParts = item.patientName.trim().split(/\s+/);
+    const firstName = nameParts[0] || 'Patient';
+    const lastName = nameParts.slice(1).join(' ') || '';
+
+    const intakeData = {
+      firstName,
+      lastName,
+      dob: '1990-01-01', // Placeholder per pilot request: DOB not needed
+      appointmentType: item.appointmentType,
+      templateId: item.templateId || 'standard',
+      scheduleItemId: item.id
+    };
+
+    setActiveIntake(intakeData);
+    saveActiveIntake(intakeData);
+    updateScheduleItem(item.id, { status: 'recording' });
+    setView('record');
+  };
+
   const handleRecordFinish = async (
     finalTranscript: TranscriptItem[],
     fallbackNote?: { engine: 'offline-draft' | 'on-device'; modelId?: string; payload: GeneratedNotePayload }
@@ -486,6 +508,155 @@ export default function App() {
       // it with the job so the server's durable completion lands on the same
       // record the client saves; fallback paths use it for the local record.
       const consultationId = crypto.randomUUID();
+
+      // Background Scribe for PMS Day Queue:
+      // When started from an appointment schedule item, immediately return to Day Schedule
+      // and synthesize the clinical note asynchronously in the background.
+      if (activeIntake.scheduleItemId && !fallbackNote) {
+        const schedId = activeIntake.scheduleItemId;
+        const currentIntake = { ...activeIntake };
+        const assignedConsultationId = consultationId;
+
+        const submitRes = await fetch('/api/notes/jobs', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${authToken}`
+          },
+          body: JSON.stringify({
+            intakeData: { ...currentIntake, templateId: template.id },
+            transcript: finalTranscript,
+            clinicId: activeClinic?.clinicId,
+            consultationId: assignedConsultationId,
+          }),
+        });
+
+        if (!submitRes.ok) {
+          const errData = await submitRes.json().catch(() => ({}));
+          updateScheduleItem(schedId, {
+            status: 'failed',
+            error: errData.error || 'Failed to submit background note job.'
+          });
+          clearActiveIntake();
+          sessionStorage.removeItem('dentai_active_transcript');
+          sessionStorage.removeItem('dentai_active_seconds');
+          sessionStorage.removeItem('dentai_active_preset_index');
+          sessionStorage.removeItem('dentai_active_item_times');
+          setView('history');
+          return;
+        }
+
+        const { jobId } = await submitRes.json();
+        updateScheduleItem(schedId, {
+          status: 'processing',
+          jobId,
+          consultationId: assignedConsultationId
+        });
+
+        // Immediately free up the UI and return to Day Schedule!
+        clearActiveIntake();
+        sessionStorage.removeItem('dentai_active_transcript');
+        sessionStorage.removeItem('dentai_active_seconds');
+        sessionStorage.removeItem('dentai_active_preset_index');
+        sessionStorage.removeItem('dentai_active_item_times');
+        setView('history');
+
+        // Detached background worker drains the job and auto-saves the consultation
+        (async () => {
+          try {
+            const deadline = Date.now() + 85_000;
+            let jobPayload: any = null;
+
+            while (Date.now() < deadline) {
+              await new Promise((r) => setTimeout(r, 2000));
+              const pollRes = await fetch(`/api/notes/jobs/${jobId}`, {
+                headers: { 'Authorization': `Bearer ${authToken}` }
+              });
+              if (!pollRes.ok) break;
+              const jobState = await pollRes.json();
+              if (jobState.status === 'done') {
+                jobPayload = normalizedToPayload(template, jobState.result);
+                break;
+              }
+              if (jobState.status === 'failed') break;
+            }
+
+            if (jobPayload) {
+              const findings: ClinicalFindings = {
+                chiefComplaint: jobPayload.canonical.chiefComplaint || '',
+                history: jobPayload.canonical.history || '',
+                toothFindings: jobPayload.canonical.toothFindings || '',
+                findingsGingival: jobPayload.canonical.findingsGingival || '',
+                diagnosis: jobPayload.canonical.diagnosis || '',
+                treatmentPerformed: jobPayload.canonical.treatmentPerformed || '',
+                recommendations: jobPayload.canonical.recommendations || '',
+                recallRequirements: jobPayload.canonical.recallRequirements || '6 Months (Standard)',
+                customSections: jobPayload.customSections || {},
+                adaCodes: jobPayload.adaCodes || []
+              };
+
+              const newConsult: Consultation = {
+                id: assignedConsultationId,
+                dentistId: currentUser.id,
+                clinicId: activeClinic?.clinicId,
+                firstName: currentIntake.firstName,
+                lastName: currentIntake.lastName,
+                dob: currentIntake.dob,
+                appointmentType: currentIntake.appointmentType,
+                date: getTodayStr(),
+                time: getCurrentTimeStr(),
+                status: 'Completed',
+                transcript: finalTranscript,
+                templateId: template.id,
+                findings,
+                patientSummary: jobPayload.patientSummary || '',
+                noteOrigin: { engine: 'gemini', needsReview: false }
+              };
+
+              setConsultations((prev) => [newConsult, ...prev]);
+              saveLocalConsultations([newConsult, ...consultations], currentUser.id);
+
+              fetch('/api/consultations', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${authToken}`
+                },
+                body: JSON.stringify(newConsult)
+              }).catch(() => {});
+
+              const formatted = formatNoteForPmsClipboard({
+                id: schedId,
+                time: '',
+                patientName: `${currentIntake.firstName} ${currentIntake.lastName}`,
+                procedureText: '',
+                appointmentType: currentIntake.appointmentType,
+                templateId: template.id,
+                status: 'ready'
+              }, newConsult);
+
+              updateScheduleItem(schedId, {
+                status: 'ready',
+                clinicalNote: formatted,
+                adaCodes: jobPayload.adaCodes || [],
+                completedAt: new Date().toISOString()
+              });
+            } else {
+              updateScheduleItem(schedId, {
+                status: 'failed',
+                error: 'Note generation timed out in background.'
+              });
+            }
+          } catch (err: any) {
+            updateScheduleItem(schedId, {
+              status: 'failed',
+              error: err?.message || 'Background synthesis error.'
+            });
+          }
+        })();
+
+        return;
+      }
 
       if (fallbackNote) {
         // Fallback tier produced the note on this device — no hosted AI fetch.
@@ -765,6 +936,7 @@ export default function App() {
           consultations={visibleConsultations}
           onSelectConsultation={handleSelectConsultation}
           onStartNewConsultation={handleStartNewConsultation}
+          onStartScheduledConsultation={handleStartScheduledConsultation}
           dentistName={currentUser.name}
           onLogout={handleLogout}
           clinics={clinics}

@@ -1,16 +1,20 @@
 import React, { useState } from 'react';
-import { Search, Plus, FileText, Menu, Building2, Sparkles, TrendingUp } from 'lucide-react';
+import { Search, Plus, FileText, Menu, Building2, Sparkles, TrendingUp, Calendar } from 'lucide-react';
 import { Consultation, getTodayStr, getYesterdayStr } from '../types';
 import { motion } from 'motion/react';
 import ClinicSwitcher from './ClinicSwitcher';
 import ClinicMembersModal from './ClinicMembersModal';
 import TreatmentPipeline from './TreatmentPipeline';
+import DayScheduleQueue from './DayScheduleQueue';
+import { DayScheduleItem } from '../lib/dayScheduleStorage';
+import { isPmsPreviewEnabled } from '../utils/previewMode';
 import { ClinicMembership } from '../lib/clinics';
 
 interface HistoryHubProps {
   consultations: Consultation[];
   onSelectConsultation: (consultation: Consultation) => void;
   onStartNewConsultation: () => void;
+  onStartScheduledConsultation?: (item: DayScheduleItem) => void;
   dentistName: string;
   onLogout: () => void;
   // Clinic ecosystem (multi-clinic practice / invite codes)
@@ -29,6 +33,7 @@ export default function HistoryHub({
   consultations,
   onSelectConsultation,
   onStartNewConsultation,
+  onStartScheduledConsultation,
   dentistName,
   onLogout,
   clinics,
@@ -41,7 +46,10 @@ export default function HistoryHub({
   memberNames
 }: HistoryHubProps) {
   const [manageOpen, setManageOpen] = useState(false);
-  const [hubTab, setHubTab] = useState<'records' | 'pipeline'>('records');
+  const previewEnabled = isPmsPreviewEnabled();
+  const [hubTab, setHubTab] = useState<'schedule' | 'records' | 'pipeline'>(() => {
+    return previewEnabled ? 'schedule' : 'records';
+  });
   const getInitials = (name: string) => {
     return name
       .split(' ')
@@ -150,10 +158,27 @@ export default function HistoryHub({
       {/* Main Container */}
       <main className="flex-grow pt-20 px-4 md:px-8 max-w-4xl mx-auto w-full">
         {/* Navigation Tabs */}
-        <div className="flex items-center gap-2 border-b border-slate-200/80 pt-4 mb-6">
+        <div className="flex items-center gap-2 border-b border-slate-200/80 pt-4 mb-6 flex-wrap">
+          {previewEnabled && (
+            <button
+              onClick={() => setHubTab('schedule')}
+              className={`pb-3 px-3 text-xs font-bold transition-all border-b-2 flex items-center gap-2 cursor-pointer ${
+                hubTab === 'schedule'
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-slate-400 hover:text-slate-600'
+              }`}
+            >
+              <Calendar className="w-4 h-4 text-primary" />
+              <span>Today's Schedule</span>
+              <span className="px-2 py-0.5 rounded-full bg-teal-50 text-teal-700 text-[10px] font-black border border-teal-200">
+                PMS Queue
+              </span>
+            </button>
+          )}
+
           <button
             onClick={() => setHubTab('records')}
-            className={`pb-3 px-3 text-xs font-bold transition-all border-b-2 flex items-center gap-2 ${
+            className={`pb-3 px-3 text-xs font-bold transition-all border-b-2 flex items-center gap-2 cursor-pointer ${
               hubTab === 'records'
                 ? 'border-primary text-primary'
                 : 'border-transparent text-slate-400 hover:text-slate-600'
@@ -164,7 +189,7 @@ export default function HistoryHub({
           </button>
           <button
             onClick={() => setHubTab('pipeline')}
-            className={`pb-3 px-3 text-xs font-bold transition-all border-b-2 flex items-center gap-2 ${
+            className={`pb-3 px-3 text-xs font-bold transition-all border-b-2 flex items-center gap-2 cursor-pointer ${
               hubTab === 'pipeline'
                 ? 'border-primary text-primary'
                 : 'border-transparent text-slate-400 hover:text-slate-600'
@@ -178,7 +203,21 @@ export default function HistoryHub({
           </button>
         </div>
 
-        {hubTab === 'pipeline' ? (
+        {hubTab === 'schedule' && previewEnabled ? (
+          <DayScheduleQueue
+            onStartRecording={(item) => {
+              if (onStartScheduledConsultation) {
+                onStartScheduledConsultation(item);
+              }
+            }}
+            onViewConsultation={(consultId) => {
+              const match = consultations.find(c => c.id === consultId);
+              if (match) onSelectConsultation(match);
+            }}
+            dentistName={dentistName}
+            authToken={authToken}
+          />
+        ) : hubTab === 'pipeline' ? (
           <TreatmentPipeline
             authToken={authToken}
             activeClinic={activeClinic}
