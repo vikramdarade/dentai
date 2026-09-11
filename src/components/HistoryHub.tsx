@@ -6,6 +6,7 @@ import ClinicSwitcher from './ClinicSwitcher';
 import ClinicMembersModal from './ClinicMembersModal';
 import TreatmentPipeline from './TreatmentPipeline';
 import DayScheduleQueue from './DayScheduleQueue';
+import ErrorBoundary from './ErrorBoundary';
 import { DayScheduleItem } from '../lib/dayScheduleStorage';
 import { isPmsPreviewEnabled } from '../utils/previewMode';
 import { ClinicMembership } from '../lib/clinics';
@@ -204,19 +205,21 @@ export default function HistoryHub({
         </div>
 
         {hubTab === 'schedule' && previewEnabled ? (
-          <DayScheduleQueue
-            onStartRecording={(item) => {
-              if (onStartScheduledConsultation) {
-                onStartScheduledConsultation(item);
-              }
-            }}
-            onViewConsultation={(consultId) => {
-              const match = consultations.find(c => c.id === consultId);
-              if (match) onSelectConsultation(match);
-            }}
-            dentistName={dentistName}
-            authToken={authToken}
-          />
+          <ErrorBoundary fallbackTitle="Day Schedule Roster Self-Recovered">
+            <DayScheduleQueue
+              onStartRecording={(item) => {
+                if (onStartScheduledConsultation) {
+                  onStartScheduledConsultation(item);
+                }
+              }}
+              onViewConsultation={(consultId) => {
+                const match = consultations.find(c => c.id === consultId);
+                if (match) onSelectConsultation(match);
+              }}
+              dentistName={dentistName}
+              authToken={authToken}
+            />
+          </ErrorBoundary>
         ) : hubTab === 'pipeline' ? (
           <TreatmentPipeline
             authToken={authToken}

@@ -95,8 +95,18 @@ export default function TopSurgeryBar({
 
     return () => {
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
-      if (source) source.disconnect();
-      if (audioCtx && audioCtx.state !== 'closed') audioCtx.close().catch(() => {});
+      try {
+        if (source) source.disconnect();
+      } catch (err) {
+        console.warn('[TopSurgeryBar] Audio source disconnect ignored:', err);
+      }
+      try {
+        if (audioCtx && audioCtx.state !== 'closed') {
+          audioCtx.close().catch(() => {});
+        }
+      } catch (err) {
+        console.warn('[TopSurgeryBar] AudioContext close ignored:', err);
+      }
     };
   }, [mediaStream]);
 

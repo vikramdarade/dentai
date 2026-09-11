@@ -33,10 +33,12 @@ import {
   formatNoteForPmsClipboard,
   getTodayDateStr,
   mergeScheduleItems,
-  calculateDailyProduction
+  calculateDailyProduction,
+  generateSafeUuid
 } from '../lib/dayScheduleStorage';
 import { AppointmentType, APPOINTMENT_TYPES, getAppointmentTypeLabel } from '../lib/dentalLibrary';
 import TopSurgeryBar from './TopSurgeryBar';
+import ErrorBoundary from './ErrorBoundary';
 
 interface DayScheduleQueueProps {
   onStartRecording?: (item: DayScheduleItem) => void;
@@ -238,16 +240,40 @@ export default function DayScheduleQueue({
   const startInPlaceRecording = async (item: DayScheduleItem) => {
     setMicError(null);
     try {
+      // 1. Clean up any previous recording resources
+      if (speechRecognitionRef.current) {
+        try { speechRecognitionRef.current.stop(); } catch {}
+        speechRecognitionRef.current = null;
+      }
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        try { mediaRecorderRef.current.stop(); } catch {}
+      }
+      if (mediaStream) {
+        try { mediaStream.getTracks().forEach(t => t.stop()); } catch {}
+        setMediaStream(null);
+      }
+
+      // 2. Clean up any orphaned 'recording' status on other items
+      const currentRoster = loadTodaySchedule();
+      const cleanedRoster = currentRoster.map(i => {
+        if (i.id !== item.id && i.status === 'recording') {
+          return { ...i, status: 'scheduled' as const };
+        }
+        return i;
+      });
+      saveTodaySchedule(cleanedRoster);
+
+      // 3. Request microphone access
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       setMediaStream(stream);
       setRecordingItem(item);
       setLiveTranscript('');
 
-      // Mark row as recording
+      // 4. Mark target row as recording
       const updated = updateScheduleItem(item.id, { status: 'recording' });
       setItems(updated);
 
-      // Start MediaRecorder
+      // 5. Start MediaRecorder
       audioChunksRef.current = [];
       const recorder = new MediaRecorder(stream);
       mediaRecorderRef.current = recorder;
@@ -258,7 +284,7 @@ export default function DayScheduleQueue({
       };
       recorder.start(2500);
 
-      // Speech Recognition for live ADA tag chips (progressive enhancement)
+      // 6. Speech Recognition for live ADA tag chips (progressive enhancement)
       const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
       if (SpeechRec) {
         try {
@@ -296,21 +322,25 @@ export default function DayScheduleQueue({
     }
 
     // 2. Stop MediaRecorder & gather audio
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop();
-    }
+    try {
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.stop();
+      }
+    } catch {}
 
     // 3. Stop Stream tracks
     if (mediaStream) {
-      mediaStream.getTracks().forEach(track => track.stop());
+      try {
+        mediaStream.getTracks().forEach(track => track.stop());
+      } catch {}
       setMediaStream(null);
     }
 
     // Collapse TopSurgeryBar immediately
     setRecordingItem(null);
 
-    // Update row to processing
-    const assignedConsultationId = crypto.randomUUID();
+    // Update row to processing with safe UUID
+    const assignedConsultationId = generateSafeUuid();
     let updated = updateScheduleItem(targetItem.id, {
       status: 'processing',
       consultationId: assignedConsultationId
@@ -377,6 +407,14 @@ export default function DayScheduleQueue({
           }
 
           if (jobResult) {
+            // Normalize ADA codes safely into clean strings for storage
+            const rawAdaCodes = Array.isArray(jobResult.adaCodes) ? jobResult.adaCodes : [];
+            const sanitizedAdaCodeStrings: string[] = rawAdaCodes.map((c: any) => {
+              if (typeof c === 'string') return c;
+              if (typeof c === 'object' && c?.code) return String(c.code);
+              return '';
+            }).filter(Boolean);
+
             const formatted = formatNoteForPmsClipboard({
               id: targetItem.id,
               time: targetItem.time,
@@ -395,16 +433,17 @@ export default function DayScheduleQueue({
                 clinicalFindings: jobResult.clinicalFindings || jobResult.toothFindings || 'Clinical examination complete.',
                 treatmentRendered: jobResult.treatmentRendered || jobResult.treatmentPerformed || targetItem.procedureText,
                 localAnaesthetic: jobResult.localAnaesthetic || '',
+                prescriptions: jobResult.prescriptions || '',
                 postOpAdvice: jobResult.postOpAdvice || 'Maintain regular oral hygiene.',
                 nextVisit: jobResult.nextVisit || '6 Months Recall'
               },
-              adaCodes: jobResult.adaCodes || []
+              adaCodes: rawAdaCodes
             });
 
             const fresh = updateScheduleItem(targetItem.id, {
               status: 'ready',
               clinicalNote: formatted,
-              adaCodes: jobResult.adaCodes || [],
+              adaCodes: sanitizedAdaCodeStrings,
               completedAt: new Date().toISOString()
             });
             setItems(fresh);
@@ -823,6 +862,20 @@ export default function DayScheduleQueue({
                     >
                       <Play className="w-3.5 h-3.5 fill-current" />
                       Record
+                    </button>
+                  )}
+
+                  {item.status === 'recording' && !recordingItem && (
+                    <button
+                      onClick={() => {
+                        const updated = updateScheduleItem(item.id, { status: 'scheduled' });
+                        setItems(updated);
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                      title="Reset status back to scheduled"
+                    >
+                      <RotateCw className="w-3.5 h-3.5" />
+                      Reset
                     </button>
                   )}
 

@@ -306,6 +306,58 @@ describe('Day Schedule Queue Storage & Helpers', () => {
     const total = calculateDailyProduction(completedItems);
     expect(total).toBe(1750 + 165 + 45); // $1,960
   });
+
+  it('safely handles raw object adaCodes from AI note jobs without crashing (TypeError protection)', () => {
+    const aiJobItems: any[] = [
+      {
+        id: 'job_item_1',
+        time: '11:00',
+        patientName: 'David Miller',
+        procedureText: 'Crown Prep',
+        appointmentType: 'prosthodontic',
+        status: 'ready',
+        // Raw object format returned by AI synthesis before string normalization
+        adaCodes: [
+          { code: '611', description: 'Full crown - ceramic' },
+          { code: '022', description: 'Intraoral periapical radiograph' }
+        ]
+      }
+    ];
+
+    // Must never throw "code.replace is not a function"
+    expect(() => calculateDailyProduction(aiJobItems)).not.toThrow();
+    const production = calculateDailyProduction(aiJobItems);
+    expect(production).toBe(1750 + 50); // $1,800
+  });
+
+  it('formats ADA codes from object format cleanly without [object Object]', () => {
+    const item: DayScheduleItem = {
+      id: 'test_obj',
+      time: '09:00',
+      patientName: 'Jane Doe',
+      procedureText: 'Filling #16',
+      appointmentType: 'restorative',
+      templateId: 'standard',
+      status: 'ready'
+    };
+
+    const consultWithObjectCodes = {
+      firstName: 'Jane',
+      lastName: 'Doe',
+      date: '2026-09-12',
+      appointmentType: 'restorative',
+      findings: {
+        treatmentRendered: 'Composite resin placed.'
+      },
+      adaCodes: [
+        { code: '532', description: '2-surface composite resin', tooth: '16' }
+      ]
+    };
+
+    const formatted = formatNoteForPmsClipboard(item, consultWithObjectCodes);
+    expect(formatted).not.toContain('[object Object]');
+    expect(formatted).toContain('532 (2-surface composite resin) [Tooth #16]');
+  });
 });
 
 describe('Preview Mode Gate', () => {

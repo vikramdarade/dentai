@@ -61,6 +61,17 @@ function removeStorageItem(key: string): void {
   }
 }
 
+export function generateSafeUuid(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    try {
+      return crypto.randomUUID();
+    } catch {
+      // Insecure context fallback
+    }
+  }
+  return `consult_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+}
+
 export function getTodayDateStr(): string {
   const now = new Date();
   const year = now.getFullYear();
@@ -74,7 +85,24 @@ export function loadTodaySchedule(dateStr = getTodayDateStr()): DayScheduleItem[
     const raw = getStorageItem(`${STORAGE_KEY_PREFIX}${dateStr}`);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) return [];
+
+    // Auto-sanitize existing items in storage (e.g. if adaCodes were stored as objects)
+    return parsed.map((item: any) => {
+      if (!item || typeof item !== 'object') return null;
+      let sanitizedCodes: string[] = [];
+      if (Array.isArray(item.adaCodes)) {
+        sanitizedCodes = item.adaCodes.map((c: any) => {
+          if (typeof c === 'string') return c;
+          if (typeof c === 'object' && c?.code) return String(c.code);
+          return '';
+        }).filter(Boolean);
+      }
+      return {
+        ...item,
+        adaCodes: sanitizedCodes
+      };
+    }).filter(Boolean) as DayScheduleItem[];
   } catch (err) {
     console.error('Failed to load today schedule from storage:', err);
     return [];
@@ -140,7 +168,7 @@ export function clearTodaySchedule(dateStr = getTodayDateStr()): void {
  * e.g. "09:15 - 10:00" -> "09:15", "9:15 AM" -> "09:15", "14:00" -> "14:00"
  */
 export function normalizeStartTime(timeStr: string): string {
-  if (!timeStr) return '09:00';
+  if (!timeStr || typeof timeStr !== 'string') return '09:00';
   const match = timeStr.match(/(\d{1,2}):(\d{2})/);
   if (match) {
     let hour = parseInt(match[1], 10);
@@ -271,15 +299,24 @@ const ADA_BENCHMARK_FEES: Record<string, number> = {
 
 export function calculateDailyProduction(items: DayScheduleItem[]): number {
   let total = 0;
+  if (!Array.isArray(items)) return 0;
+
   for (const item of items) {
+    if (!item) continue;
     if (item.status === 'ready' || item.status === 'processing') {
-      if (item.adaCodes && item.adaCodes.length > 0) {
-        for (const code of item.adaCodes) {
-          const cleanCode = code.replace(/[^0-9]/g, '');
+      if (Array.isArray(item.adaCodes) && item.adaCodes.length > 0) {
+        for (const rawCode of item.adaCodes) {
+          const codeStr = typeof rawCode === 'string'
+            ? rawCode
+            : typeof rawCode === 'object' && rawCode !== null
+            ? (rawCode as any).code || ''
+            : String(rawCode || '');
+          const cleanCode = codeStr.replace(/[^0-9]/g, '');
           total += ADA_BENCHMARK_FEES[cleanCode] || 120;
         }
       } else {
-        total += ADA_BENCHMARK_FEES[`default_${item.appointmentType}`] || 180;
+        const feeKey = `default_${item.appointmentType}`;
+        total += ADA_BENCHMARK_FEES[feeKey] || 180;
       }
     }
   }
@@ -291,20 +328,20 @@ export function calculateDailyProduction(items: DayScheduleItem[]): number {
  * clinical progress notes tab.
  */
 export function formatNoteForPmsClipboard(item: DayScheduleItem, consultation?: any): string {
-  if (item.clinicalNote) {
+  if (item?.clinicalNote) {
     return item.clinicalNote;
   }
 
   if (!consultation) {
-    return `Patient: ${item.patientName}\nAppointment: ${item.procedureText}\nStatus: Completed`;
+    return `Patient: ${item?.patientName || 'Patient'}\nAppointment: ${item?.procedureText || 'Consultation'}\nStatus: Completed`;
   }
 
   const f = consultation.findings || {};
   const lines: string[] = [
     `=== DENTAI AMBIENT CLINICAL NOTE ===`,
     `Patient: ${consultation.firstName || ''} ${consultation.lastName || ''}`.trim(),
-    `Date: ${consultation.date || getTodayDateStr()} | Time: ${item.time || ''}`,
-    `Procedure: ${item.procedureText || consultation.appointmentType}`,
+    `Date: ${consultation.date || getTodayDateStr()} | Time: ${item?.time || ''}`,
+    `Procedure: ${item?.procedureText || consultation.appointmentType || 'General Consultation'}`,
     ``
   ];
 
@@ -330,10 +367,30 @@ export function formatNoteForPmsClipboard(item: DayScheduleItem, consultation?: 
     lines.push(`NEXT VISIT / RECALL:`, f.nextVisit, ``);
   }
 
-  const adaList = Array.isArray(consultation.adaCodes) ? consultation.adaCodes : item.adaCodes;
+  const adaList = Array.isArray(consultation?.adaCodes) 
+    ? consultation.adaCodes 
+    : Array.isArray(item?.adaCodes) 
+    ? item.adaCodes 
+    : [];
+
   if (adaList && adaList.length > 0) {
-    lines.push(`ADA ITEM CODES:`, adaList.join(', '), ``);
+    const formattedAda = adaList.map((entry: any) => {
+      if (!entry) return '';
+      if (typeof entry === 'string') return entry;
+      if (typeof entry === 'object') {
+        const code = entry.code || '';
+        const desc = entry.description ? ` (${entry.description})` : '';
+        const tooth = entry.tooth ? ` [Tooth #${entry.tooth}]` : '';
+        return `${code}${desc}${tooth}`.trim();
+      }
+      return String(entry);
+    }).filter(Boolean);
+
+    if (formattedAda.length > 0) {
+      lines.push(`ADA ITEM CODES:`, formattedAda.join(', '), ``);
+    }
   }
 
   return lines.join('\n').trim();
 }
+
