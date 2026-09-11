@@ -82,8 +82,14 @@ export default function DayScheduleQueue({
 
   // Sync with storage on mount and interval (for background jobs)
   useEffect(() => {
+    let lastRosterSnapshot = '';
     const refresh = () => {
-      setItems(loadTodaySchedule());
+      const current = loadTodaySchedule();
+      const snapshot = JSON.stringify(current);
+      if (snapshot !== lastRosterSnapshot) {
+        lastRosterSnapshot = snapshot;
+        setItems(current);
+      }
     };
     refresh();
     const interval = setInterval(refresh, 2500);
@@ -111,7 +117,7 @@ export default function DayScheduleQueue({
 
     window.addEventListener('paste', handlePaste);
     return () => window.removeEventListener('paste', handlePaste);
-  }, [items]);
+  }, []);
 
   const handleImageFile = async (file: File) => {
     setIsParsing(true);
@@ -157,7 +163,8 @@ export default function DayScheduleQueue({
           }
 
           // 3-Way Smart Hash Merge: eliminates duplicates & preserves existing progress
-          const merged = mergeScheduleItems(items, newAppointments, getTodayDateStr());
+          const currentRoster = loadTodaySchedule();
+          const merged = mergeScheduleItems(currentRoster, newAppointments, getTodayDateStr());
           setItems(merged);
           saveTodaySchedule(merged);
         } catch (err: any) {

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, beforeAll } from 'vitest';
 import request from 'supertest';
 
 process.env.NODE_ENV = 'test';
@@ -367,20 +367,50 @@ describe('Preview Mode Gate', () => {
 });
 
 describe('PMS Schedule Vision API (/api/schedule/parse-image)', () => {
-  it('rejects requests missing imageBase64 with 400', async () => {
+  let authToken = '';
+
+  beforeAll(async () => {
+    const regRes = await request(app)
+      .post('/api/auth/register')
+      .send({ name: 'Dr. Vision Tester', specialty: 'General Dentistry', pin: '5555' });
+    if (regRes.status === 201) {
+      authToken = regRes.body.token;
+    } else {
+      const profilesRes = await request(app).get('/api/auth/profiles');
+      const tester = profilesRes.body.find((p: any) => p.name === 'Dr. Vision Tester');
+      if (tester) {
+        const loginRes = await request(app)
+          .post('/api/auth/login')
+          .send({ dentistId: tester.id, pin: '5555' });
+        authToken = loginRes.body.token;
+      }
+    }
+  });
+
+  it('rejects unauthenticated requests with 401', async () => {
     const res = await request(app)
       .post('/api/schedule/parse-image')
+      .send({});
+    expect(res.status).toBe(401);
+    expect(res.body.error).toContain('token');
+  });
+
+  it('rejects requests missing imageBase64 with 400 when authenticated', async () => {
+    const res = await request(app)
+      .post('/api/schedule/parse-image')
+      .set('Authorization', `Bearer ${authToken}`)
       .send({});
     expect(res.status).toBe(400);
     expect(res.body.error).toContain('imageBase64');
   });
 
-  it('returns structured appointment cards from base64 image input', async () => {
+  it('returns structured appointment cards from base64 image input when authenticated', async () => {
     // 1x1 transparent PNG base64
     const samplePng = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
 
     const res = await request(app)
       .post('/api/schedule/parse-image')
+      .set('Authorization', `Bearer ${authToken}`)
       .send({
         imageBase64: samplePng,
         mimeType: 'image/png',

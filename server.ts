@@ -2865,7 +2865,7 @@ MANDATORY RULES:
 }
 `;
 
-app.post('/api/schedule/parse-image', async (req: any, res) => {
+app.post('/api/schedule/parse-image', authenticateToken, async (req: any, res) => {
   try {
     const { imageBase64, mimeType, providerName } = req.body || {};
 
@@ -3364,7 +3364,7 @@ if (process.env.NODE_ENV !== 'production' && process.env.NODE_ENV !== 'test') {
   });
 }
 
-export { app };
+export { app, generateToken };
 
 const PORT = process.env.PORT || 3000;
 if (process.env.NODE_ENV !== 'test' && !process.env.VERCEL) {
