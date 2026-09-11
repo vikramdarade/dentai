@@ -13,7 +13,12 @@ import {
   deleteScheduleItem,
   clearTodaySchedule,
   formatNoteForPmsClipboard,
-  getTodayDateStr
+  getTodayDateStr,
+  normalizeStartTime,
+  normalizePatientName,
+  generateSlotFingerprint,
+  mergeScheduleItems,
+  calculateDailyProduction
 } from '../src/lib/dayScheduleStorage';
 import { isPmsPreviewEnabled } from '../src/utils/previewMode';
 
@@ -136,6 +141,170 @@ describe('Day Schedule Queue Storage & Helpers', () => {
     expect(formatted).toContain('Cold sensitivity upper right molar');
     expect(formatted).toContain('TREATMENT PERFORMED:');
     expect(formatted).toContain('ADA ITEM CODES:\n532, 022');
+  });
+
+  it('normalizes times and patient names across differing PMS crop formats', () => {
+    expect(normalizeStartTime('09:15 - 10:00')).toBe('09:15');
+    expect(normalizeStartTime('9:15 am')).toBe('09:15');
+    expect(normalizeStartTime('2:30 pm')).toBe('14:30');
+
+    expect(normalizePatientName('Smith, John')).toBe('johnsmith');
+    expect(normalizePatientName('SMITH, JONATH...')).toBe('jonathsmith');
+    expect(normalizePatientName("David O'Connor")).toBe('davidoconnor');
+
+    const fp1 = generateSlotFingerprint('2026-09-12', '09:15 - 10:00', 'Smith, John');
+    const fp2 = generateSlotFingerprint('2026-09-12', '9:15 am', 'John Smith');
+    expect(fp1).toBe(fp2);
+  });
+
+  it('3-way merges midday PMS snips with zero duplicate cards and protects completed consults', () => {
+    const existingRoster: DayScheduleItem[] = [
+      {
+        id: 'item_1',
+        time: '08:30',
+        patientName: 'Sarah Connor',
+        procedureText: 'Check & Clean',
+        appointmentType: 'examination',
+        templateId: 'standard',
+        status: 'ready', // Completed & immutable!
+        clinicalNote: 'Patient examined and teeth charted.'
+      },
+      {
+        id: 'item_2',
+        time: '09:15',
+        patientName: 'David Miller',
+        procedureText: 'Crown Prep',
+        appointmentType: 'prosthodontic',
+        templateId: 'standard',
+        status: 'scheduled'
+      }
+    ];
+
+    // Midday snip: contains Sarah Connor again (overlapping crop), David Miller with updated notes, and a new walk-in!
+    const incomingSnip: DayScheduleItem[] = [
+      {
+        id: 'incoming_1',
+        time: '08:30',
+        patientName: 'Sarah Connor',
+        procedureText: 'Check & Clean',
+        appointmentType: 'examination',
+        templateId: 'standard',
+        status: 'scheduled'
+      },
+      {
+        id: 'incoming_2',
+        time: '09:15',
+        patientName: 'David Miller',
+        procedureText: 'Tooth #16 Ceramic Crown Prep (611)', // Updated procedure details!
+        appointmentType: 'prosthodontic',
+        templateId: 'standard',
+        status: 'scheduled'
+      },
+      {
+        id: 'incoming_3',
+        time: '10:30',
+        patientName: 'Liam O\'Connor',
+        procedureText: 'Emergency Toothache',
+        appointmentType: 'emergency',
+        templateId: 'soap',
+        status: 'scheduled'
+      },
+      // Internal duplicate row in the same snip
+      {
+        id: 'incoming_3_dup',
+        time: '10:30',
+        patientName: 'Liam O\'Connor',
+        procedureText: 'Emergency Toothache',
+        appointmentType: 'emergency',
+        templateId: 'soap',
+        status: 'scheduled'
+      }
+    ];
+
+    const merged = mergeScheduleItems(existingRoster, incomingSnip, '2026-09-12');
+
+    // Exactly 3 unique appointments (zero duplicates!)
+    expect(merged.length).toBe(3);
+
+    // Rule 1: Sarah Connor was 'ready' -> remains 'ready' and kept original clinicalNote!
+    const sarah = merged.find(i => i.patientName === 'Sarah Connor');
+    expect(sarah?.status).toBe('ready');
+    expect(sarah?.clinicalNote).toBe('Patient examined and teeth charted.');
+    expect(sarah?.id).toBe('item_1');
+
+    // Rule 2: David Miller was 'scheduled' -> updated with richer procedure notes!
+    const david = merged.find(i => i.patientName === 'David Miller');
+    expect(david?.procedureText).toContain('Ceramic Crown Prep');
+
+    // Rule 3: Liam O'Connor is inserted once, sorted chronologically
+    const liam = merged.find(i => i.patientName.includes('Connor') && i.time === '10:30');
+    expect(liam).toBeDefined();
+    expect(merged[2].patientName).toContain('Connor');
+  });
+
+  it('preserves double-booked patients at the same start time', () => {
+    const incomingDoubleBooked: DayScheduleItem[] = [
+      {
+        id: 'd1',
+        time: '10:00',
+        patientName: 'Alice Springs',
+        procedureText: 'Scale & Clean',
+        appointmentType: 'scale_clean',
+        templateId: 'concise',
+        status: 'scheduled'
+      },
+      {
+        id: 'd2',
+        time: '10:00',
+        patientName: 'Bob Dylan',
+        procedureText: 'Emergency',
+        appointmentType: 'emergency',
+        templateId: 'soap',
+        status: 'scheduled'
+      }
+    ];
+
+    const merged = mergeScheduleItems([], incomingDoubleBooked, '2026-09-12');
+    expect(merged.length).toBe(2);
+    expect(merged[0].patientName).toBe('Alice Springs');
+    expect(merged[1].patientName).toBe('Bob Dylan');
+  });
+
+  it('calculates daily ADA production value accurately', () => {
+    const completedItems: DayScheduleItem[] = [
+      {
+        id: '1',
+        time: '08:30',
+        patientName: 'Patient A',
+        procedureText: 'Crown Prep',
+        appointmentType: 'prosthodontic',
+        templateId: 'standard',
+        status: 'ready',
+        adaCodes: ['611'] // $1750
+      },
+      {
+        id: '2',
+        time: '09:30',
+        patientName: 'Patient B',
+        procedureText: 'Scale & Clean',
+        appointmentType: 'scale_clean',
+        templateId: 'concise',
+        status: 'ready',
+        adaCodes: ['114', '121'] // $165 + $45 = $210
+      },
+      {
+        id: '3',
+        time: '10:30',
+        patientName: 'Patient C',
+        procedureText: 'Filling',
+        appointmentType: 'restorative',
+        templateId: 'standard',
+        status: 'scheduled' // Not completed -> $0
+      }
+    ];
+
+    const total = calculateDailyProduction(completedItems);
+    expect(total).toBe(1750 + 165 + 45); // $1,960
   });
 });
 
