@@ -111,6 +111,7 @@ export default function DayScheduleQueue({
   const [showChartingModal, setShowChartingModal] = useState(false);
   const [showImagingModal, setShowImagingModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [showClearConfirmModal, setShowClearConfirmModal] = useState(false);
 
   // Cockpit Inspection Drawer State
   const [selectedInspectionId, setSelectedInspectionId] = useState<string | null>(() => {
@@ -760,12 +761,8 @@ export default function DayScheduleQueue({
 
             {items.length > 0 && (
               <button
-                onClick={() => {
-                  if (confirm('Clear today\'s schedule queue?')) {
-                    clearTodaySchedule();
-                    setItems([]);
-                  }
-                }}
+                type="button"
+                onClick={() => setShowClearConfirmModal(true)}
                 className="p-2 text-slate-500 hover:text-rose-400 rounded-xl hover:bg-[#121E2E] transition-colors cursor-pointer"
                 title="Clear roster"
               >
@@ -1438,6 +1435,70 @@ export default function DayScheduleQueue({
                 >
                   <ShieldCheck className="w-4 h-4" />
                   Confirm Consent & Record
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Clear Schedule Queue Non-Blocking Confirmation Modal (Zero INP Jitter) */}
+      <AnimatePresence>
+        {showClearConfirmModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-xs p-4">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-[#101923] rounded-2xl max-w-md w-full p-6 shadow-2xl border border-[#1E2E40] text-slate-100"
+            >
+              <div className="flex items-center justify-between pb-3 border-b border-[#1E2E40]">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-400">
+                    <Trash2 className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-extrabold text-white">Clear Today's Schedule</h3>
+                    <p className="text-[11px] text-slate-400">Reset operatory roster for {formattedDateTitle}</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowClearConfirmModal(false)}
+                  className="p-1.5 text-slate-400 hover:text-white rounded-lg cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="mt-4 p-3.5 bg-rose-950/30 rounded-xl border border-rose-900/40 text-xs text-rose-200 leading-relaxed">
+                <p className="font-semibold text-rose-100">
+                  Are you sure you want to remove all {items.length} appointments from today's active roster?
+                </p>
+                <p className="mt-1 text-slate-400 text-[11px]">
+                  Completed clinical records and consultation notes will remain saved in your Patient Records Hub.
+                </p>
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 mt-5">
+                <button
+                  type="button"
+                  onClick={() => setShowClearConfirmModal(false)}
+                  className="px-3.5 py-2 text-xs font-semibold text-slate-400 hover:text-white hover:bg-[#16222F] rounded-xl transition-colors cursor-pointer"
+                >
+                  Keep Roster
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    clearTodaySchedule();
+                    setItems([]);
+                    setShowClearConfirmModal(false);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white text-xs font-black rounded-xl transition-all shadow-md shadow-rose-950/40 cursor-pointer active:scale-95"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  Clear All Appointments
                 </button>
               </div>
             </motion.div>
