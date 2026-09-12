@@ -20,6 +20,7 @@ import {
   mergeScheduleItems,
   calculateDailyProduction
 } from '../src/lib/dayScheduleStorage';
+import { verifyTranscriptGrounding, extractToothNumbers } from '../src/lib/transcriptGrounding';
 import { isPmsPreviewEnabled } from '../src/utils/previewMode';
 
 describe('Day Schedule Queue Storage & Helpers', () => {
@@ -430,3 +431,179 @@ describe('PMS Schedule Vision API (/api/schedule/parse-image)', () => {
     expect(first).toHaveProperty('templateId');
   });
 });
+
+describe('Transcript Grounding & Zero-Hallucination Verification Engine', () => {
+  it('extracts FDI two-digit tooth numbers from clinical dialogue and notes', () => {
+    const text1 = 'Examined tooth 16 and tooth 24 for occlusal caries. #36 has existing amalgam.';
+    const teeth1 = extractToothNumbers(text1);
+    expect(teeth1).toContain('16');
+    expect(teeth1).toContain('24');
+    expect(teeth1).toContain('36');
+
+    const text2 = 'Patient reported pain in upper right molar and lower left premolar.';
+    const teeth2 = extractToothNumbers(text2);
+    expect(teeth2).toContain('16');
+    expect(teeth2).toContain('34');
+  });
+
+  it('produces 100% grounding report when note is fully grounded in verbatim dialogue', () => {
+    const transcript = [
+      { sender: 'Dentist', text: 'Good morning, today we are preparing tooth 16 for a ceramic crown.' },
+      { sender: 'Patient', text: 'Yes, the upper right tooth has been cracked for two months.' },
+      { sender: 'Dentist', text: 'Administered one cartridge of 4% Articaine with 1:100000 adrenaline via infiltration.' },
+      { sender: 'Dentist', text: 'Composite core build-up completed and crown preparation refined.' }
+    ];
+
+    const note = `
+      CHIEF COMPLAINT: Tooth 16 cracked tooth.
+      TREATMENT: Tooth 16 crown preparation.
+      LOCAL ANAESTHETIC: Articaine infiltration.
+      MATERIALS: Composite core.
+    `;
+
+    const report = verifyTranscriptGrounding(note, transcript, ['611']);
+    expect(report.isFullyGrounded).toBe(true);
+    expect(report.groundingScore).toBe(100);
+    expect(report.unverifiedClaims).toEqual([]);
+    expect(report.groundedEntities).toContain('Tooth #16');
+    expect(report.groundedEntities).toContain('Articaine');
+  });
+
+  it('flags ungrounded inferences when note contains teeth or drugs not spoken in audio', () => {
+    const transcript = [
+      { sender: 'Dentist', text: 'Examined tooth 24 for a simple composite filling.' },
+      { sender: 'Patient', text: 'No pain at all.' }
+    ];
+
+    // Hallucinated note: mentions tooth 48 and Scandonest which were NEVER spoken
+    const hallucinatedNote = `
+      CHIEF COMPLAINT: Tooth 24 and tooth 48 restoration.
+      LOCAL ANAESTHETIC: Scandonest 3% plain.
+      TREATMENT: Composite filling tooth 24.
+    `;
+
+    const report = verifyTranscriptGrounding(hallucinatedNote, transcript);
+    expect(report.isFullyGrounded).toBe(false);
+    expect(report.groundingScore).toBeLessThan(100);
+    expect(report.unverifiedClaims).toContain('Tooth #48');
+    expect(report.unverifiedClaims).toContain('Scandonest');
+    expect(report.summary).toContain('Attention');
+  });
+});
+
+describe('Chairside Verbal Recording Consent Capture', () => {
+  const testDate = '2026-09-12';
+
+  beforeEach(() => {
+    clearTodaySchedule(testDate);
+  });
+
+  it('captures and stamps verbal recording consent against appointment records', () => {
+    const item = addScheduleItem({
+      time: '09:00',
+      patientName: 'David Miller',
+      procedureText: 'Crown Prep #16',
+      appointmentType: 'prosthodontic',
+      templateId: 'standard'
+    }, testDate);
+
+    expect(item.consentObtained).toBeFalsy();
+
+    // Toggle verbal consent
+    const nowIso = new Date().toISOString();
+    const updated = updateScheduleItem(item.id, {
+      consentObtained: true,
+      consentCapturedAt: nowIso,
+      consentPractitionerId: 'Dr. Sarah Chen'
+    }, testDate);
+
+    const saved = updated.find(i => i.id === item.id);
+    expect(saved?.consentObtained).toBe(true);
+    expect(saved?.consentCapturedAt).toBe(nowIso);
+    expect(saved?.consentPractitionerId).toBe('Dr. Sarah Chen');
+
+    // Verify PMS clipboard note omits the internal consent tag to keep notes clinical
+    const pmsNote = formatNoteForPmsClipboard(saved!);
+    expect(pmsNote).not.toContain('Verbal Consent');
+    expect(pmsNote).not.toContain('consentCapturedAt');
+  });
+
+  it('preserves consent across status transitions into recording and processing', () => {
+    const item = addScheduleItem({
+      time: '11:00',
+      patientName: 'Emma Watson',
+      procedureText: 'Adult Hygiene (114, 121)',
+      appointmentType: 'scale_clean',
+      templateId: 'concise',
+      consentObtained: true,
+      consentCapturedAt: '2026-09-12T10:55:00.000Z',
+      consentPractitionerId: 'Dr. Sarah Chen'
+    }, testDate);
+
+    // Transition to recording
+    let roster = updateScheduleItem(item.id, { status: 'recording' }, testDate);
+    expect(roster.find(i => i.id === item.id)?.consentObtained).toBe(true);
+
+    // Transition to processing with transcript
+    const transcript = [
+      { sender: 'Dentist', text: 'Full mouth ultrasonic scale completed.' }
+    ];
+    roster = updateScheduleItem(item.id, {
+      status: 'processing',
+      transcript,
+      jobId: 'job_sample_123'
+    }, testDate);
+
+    const processing = roster.find(i => i.id === item.id);
+    expect(processing?.consentObtained).toBe(true);
+    expect(processing?.transcript?.length).toBe(1);
+  });
+});
+
+describe('Async Note Jobs API with Verbal Consent Audit Logging', () => {
+  let authToken = '';
+
+  beforeAll(async () => {
+    const regRes = await request(app)
+      .post('/api/auth/register')
+      .send({ name: 'Dr. Consent Tester', specialty: 'General Dentistry', pin: '7777' });
+    if (regRes.status === 201) {
+      authToken = regRes.body.token;
+    } else {
+      const profilesRes = await request(app).get('/api/auth/profiles');
+      const tester = profilesRes.body.find((p: any) => p.name === 'Dr. Consent Tester');
+      if (tester) {
+        const loginRes = await request(app)
+          .post('/api/auth/login')
+          .send({ dentistId: tester.id, pin: '7777' });
+        authToken = loginRes.body.token;
+      }
+    }
+  });
+
+  it('accepts consentObtained in /api/notes/jobs payload and queues job successfully', async () => {
+    const res = await request(app)
+      .post('/api/notes/jobs')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({
+        intakeData: {
+          firstName: 'Consent',
+          lastName: 'Patient',
+          dob: '1985-05-15',
+          appointmentType: 'examination',
+          templateId: 'standard'
+        },
+        transcript: [
+          { sender: 'Dentist', text: 'Periodic oral exam tooth 16 and tooth 26 sound.' }
+        ],
+        consentObtained: true,
+        consentCapturedAt: new Date().toISOString(),
+        consentPractitionerId: 'Dr. Consent Tester'
+      });
+
+    expect(res.status).toBe(202);
+    expect(res.body).toHaveProperty('jobId');
+    expect(res.body.status).toBe('queued');
+  });
+});
+

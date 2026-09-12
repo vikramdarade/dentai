@@ -19,9 +19,16 @@ export interface DayScheduleItem {
   consultationId?: string;
   error?: string;
   clinicalNote?: string;
+  transcript?: { sender: string; text: string }[];
   adaCodes?: string[];
   completedAt?: string;
   source?: 'snip' | 'manual';
+  consentObtained?: boolean;
+  consentCapturedAt?: string;
+  consentPractitionerId?: string;
+  groundingScore?: number;
+  isFullyGrounded?: boolean;
+  unverifiedClaims?: string[];
 }
 
 const STORAGE_KEY_PREFIX = 'dentai_day_schedule_';
