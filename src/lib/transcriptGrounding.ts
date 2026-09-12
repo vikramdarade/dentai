@@ -83,7 +83,13 @@ function normalizeForMatching(text: string): string {
  * Extracts 2-digit FDI tooth numbers (e.g. 16, 24, 36, 48) and tooth mentions (#16, tooth 16, upper right first molar)
  */
 export function extractToothNumbers(text: string): string[] {
-  const normalized = normalizeForMatching(text);
+  // First mask out dates and clock times (e.g. 14:30, 2026-09-12, 12/09/2026) so hours/minutes like 14 or 24 are not treated as FDI teeth
+  const sanitizedText = text
+    .replace(/\b\d{1,2}:\d{2}(?::\d{2})?\b/g, ' ')
+    .replace(/\b\d{4}[-/]\d{1,2}[-/]\d{1,2}\b/g, ' ')
+    .replace(/\b\d{1,2}[-/]\d{1,2}[-/]\d{2,4}\b/g, ' ');
+
+  const normalized = normalizeForMatching(sanitizedText);
   const results = new Set<string>();
 
   // Explicit tooth numbers like "#16", "tooth 16", or standalone 2-digit FDI codes (11-48)
@@ -93,22 +99,25 @@ export function extractToothNumbers(text: string): string[] {
     results.add(match[1]);
   }
 
-  // Common descriptive tooth quadrant references
-  if (normalized.includes('upper right') || normalized.includes('ur')) {
-    if (normalized.includes('molar')) results.add('16');
-    if (normalized.includes('premolar')) results.add('14');
+  // Common descriptive tooth quadrant references with strict word boundaries
+  const hasMolar = /\bmolars?\b/.test(normalized);
+  const hasPremolar = /\bpremolars?\b/.test(normalized);
+
+  if (/\b(upper\s+right|ur)\b/.test(normalized)) {
+    if (hasMolar) results.add('16');
+    if (hasPremolar) results.add('14');
   }
-  if (normalized.includes('upper left') || normalized.includes('ul')) {
-    if (normalized.includes('molar')) results.add('26');
-    if (normalized.includes('premolar')) results.add('24');
+  if (/\b(upper\s+left|ul)\b/.test(normalized)) {
+    if (hasMolar) results.add('26');
+    if (hasPremolar) results.add('24');
   }
-  if (normalized.includes('lower left') || normalized.includes('ll')) {
-    if (normalized.includes('molar')) results.add('36');
-    if (normalized.includes('premolar')) results.add('34');
+  if (/\b(lower\s+left|ll)\b/.test(normalized)) {
+    if (hasMolar) results.add('36');
+    if (hasPremolar) results.add('34');
   }
-  if (normalized.includes('lower right') || normalized.includes('lr')) {
-    if (normalized.includes('molar')) results.add('46');
-    if (normalized.includes('premolar')) results.add('44');
+  if (/\b(lower\s+right|lr)\b/.test(normalized)) {
+    if (hasMolar) results.add('46');
+    if (hasPremolar) results.add('44');
   }
 
   return Array.from(results);

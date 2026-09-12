@@ -23,6 +23,8 @@ import {
   calculateDailyProduction
 } from '../src/lib/dayScheduleStorage';
 import { verifyTranscriptGrounding, extractToothNumbers } from '../src/lib/transcriptGrounding';
+import { generateOfflineDraft } from '../src/lib/draftEngine';
+import { getTemplateById } from '../src/lib/dentalLibrary';
 import { isPmsPreviewEnabled } from '../src/utils/previewMode';
 
 const dataDir = path.resolve(__dirname, '..', 'data');
@@ -672,6 +674,96 @@ describe('Async Note Jobs API with Verbal Consent Audit Logging', () => {
     expect(res.status).toBe(202);
     expect(res.body).toHaveProperty('jobId');
     expect(res.body.status).toBe('queued');
+  });
+
+  it('preserves captured transcript on synthesis failure and allows 1-click offline recovery into ready note', () => {
+    const testDate = '2026-09-12';
+    clearTodaySchedule(testDate);
+
+    // 1. Add appointment and simulate recording with real transcript
+    const scheduled = addScheduleItem({
+      time: '14:30',
+      patientName: 'Robert Langdon',
+      procedureText: 'Tooth #46 Occlusal Composite Restoration',
+      appointmentType: 'restorative',
+      templateId: 'standard',
+      source: 'snip'
+    }, testDate);
+
+    const consultationTranscript = [
+      { sender: 'Patient' as const, text: 'I felt a sharp edge on my lower right molar when eating crusty bread.' },
+      { sender: 'Dentist' as const, text: 'Clinical exam shows defective restoration on tooth 46 occlusal. Cold test positive and normal. No lingering pain.' },
+      { sender: 'Dentist' as const, text: 'Administered 2.2mL Scandonest 3% plain for infiltration. Cavity prepared, resin composite placed on 46 occlusal, polished, occlusion checked.' }
+    ];
+
+    // 2. Mark processing
+    updateScheduleItem(scheduled.id, {
+      status: 'processing',
+      transcript: consultationTranscript
+    }, testDate);
+
+    // 3. Mark failed with transparent quota error
+    const failedItem = updateScheduleItem(scheduled.id, {
+      status: 'failed',
+      error: 'Google Gemini API quota depleted (429). Retries exhausted.'
+    }, testDate).find(i => i.id === scheduled.id);
+
+    expect(failedItem).toBeDefined();
+    expect(failedItem?.status).toBe('failed');
+    expect(failedItem?.error).toContain('429');
+    // Critical Invariant: Transcript must be completely preserved
+    expect(failedItem?.transcript).toHaveLength(3);
+    expect(failedItem?.transcript?.[0].text).toContain('lower right molar');
+
+    // 4. Trigger deterministic offline recovery
+    const template = getTemplateById(failedItem!.templateId || 'standard');
+    const typedTranscript = failedItem!.transcript!.map(t => ({
+      sender: t.sender as 'Dentist' | 'Patient' | 'Dialogue' | 'Clinical Comment',
+      text: t.text
+    }));
+    const draft = generateOfflineDraft(template, typedTranscript, 'Restorative Consultation');
+
+    const formatted = formatNoteForPmsClipboard({
+      id: failedItem!.id,
+      time: failedItem!.time,
+      patientName: failedItem!.patientName,
+      procedureText: failedItem!.procedureText,
+      appointmentType: failedItem!.appointmentType,
+      templateId: failedItem!.templateId,
+      status: 'ready'
+    }, {
+      firstName: 'Robert',
+      lastName: 'Langdon',
+      date: testDate,
+      appointmentType: failedItem!.appointmentType,
+      findings: {
+        chiefComplaint: draft.canonical.chiefComplaint || failedItem!.procedureText,
+        clinicalFindings: draft.canonical.clinicalFindings || draft.canonical.toothFindings,
+        treatmentRendered: draft.canonical.treatmentRendered || draft.canonical.treatmentPerformed || failedItem!.procedureText,
+        localAnaesthetic: draft.canonical.localAnaesthetic || '',
+        prescriptions: draft.canonical.prescriptions || '',
+        postOpAdvice: draft.canonical.postOpAdvice || 'Maintain regular oral hygiene.',
+        nextVisit: draft.canonical.nextVisit || '6 Months Recall'
+      },
+      adaCodes: draft.adaCodes
+    });
+
+    const grounding = verifyTranscriptGrounding(formatted, failedItem!.transcript!, draft.adaCodes);
+
+    const recoveredItem = updateScheduleItem(failedItem!.id, {
+      status: 'ready',
+      clinicalNote: formatted,
+      completedAt: new Date().toISOString(),
+      groundingScore: grounding.groundingScore,
+      isFullyGrounded: grounding.isFullyGrounded,
+      error: undefined
+    }, testDate).find(i => i.id === failedItem!.id);
+
+    expect(recoveredItem?.status).toBe('ready');
+    expect(recoveredItem?.error).toBeUndefined();
+    expect(recoveredItem?.clinicalNote).toContain('Robert Langdon');
+    expect(recoveredItem?.clinicalNote).toContain('EXAMINATION & FINDINGS:');
+    expect(recoveredItem?.isFullyGrounded).toBe(true);
   });
 });
 

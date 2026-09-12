@@ -566,6 +566,7 @@ export default function App() {
           try {
             const deadline = Date.now() + 85_000;
             let jobPayload: any = null;
+            let failureReason = '';
 
             while (Date.now() < deadline) {
               await new Promise((r) => setTimeout(r, 2000));
@@ -578,7 +579,10 @@ export default function App() {
                 jobPayload = normalizedToPayload(template, jobState.result);
                 break;
               }
-              if (jobState.status === 'failed') break;
+              if (jobState.status === 'failed') {
+                failureReason = jobState.error || jobState.statusDetail || 'Note generation failed.';
+                break;
+              }
             }
 
             if (jobPayload) {
@@ -644,7 +648,7 @@ export default function App() {
             } else {
               updateScheduleItem(schedId, {
                 status: 'failed',
-                error: 'Note generation timed out in background.'
+                error: failureReason || 'Note generation timed out in background.'
               });
             }
           } catch (err: any) {

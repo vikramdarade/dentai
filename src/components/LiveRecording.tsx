@@ -795,6 +795,8 @@ export default function LiveRecording({
                 ];
                 setTranscript(currentTranscript);
               }
+            } else if (txRes.status === 429) {
+              console.warn('[LiveRecording] Multimodal audio transcription 429 rate limit reached.');
             }
           }
         }
@@ -802,6 +804,9 @@ export default function LiveRecording({
         console.warn('[LiveRecording] Multimodal audio transcription fallback warning:', audioFallbackErr);
       }
     }
+
+    // Free audio buffer memory
+    audioChunksRef.current = [];
 
     setProcessingState('Synthesizing structured clinical notes...');
 

@@ -318,6 +318,11 @@ export function SurgeryIslandProvider({
       }
     }
 
+    // Clean up audio buffers & live transcript state to prevent memory leaks during all-day surgery sessions
+    audioChunksRef.current = [];
+    accumulatedTranscriptRef.current = '';
+    setLiveTranscript('');
+
     // Update row to processing with safe UUID and cached transcript
     const assignedConsultationId = generateSafeUuid();
     let updated = updateScheduleItem(targetItem.id, {
@@ -367,6 +372,7 @@ export function SurgeryIslandProvider({
         try {
           const deadline = Date.now() + 85_000;
           let jobResult: any = null;
+          let failureReason = '';
 
           while (Date.now() < deadline) {
             await new Promise(r => setTimeout(r, 2000));
@@ -379,7 +385,10 @@ export function SurgeryIslandProvider({
               jobResult = jobState.result;
               break;
             }
-            if (jobState.status === 'failed') break;
+            if (jobState.status === 'failed') {
+              failureReason = jobState.error || jobState.statusDetail || 'Synthesis failed.';
+              break;
+            }
           }
 
           if (jobResult) {
@@ -436,7 +445,7 @@ export function SurgeryIslandProvider({
           } else {
             const fresh = updateScheduleItem(targetItem.id, {
               status: 'failed',
-              error: 'Synthesis timed out in background.'
+              error: failureReason || 'Synthesis timed out in background.'
             });
             onScheduleUpdated?.(fresh);
           }
@@ -459,6 +468,11 @@ export function SurgeryIslandProvider({
   };
 
   const cancelInPlaceRecording = () => {
+    isRecordingActiveRef.current = false;
+    audioChunksRef.current = [];
+    accumulatedTranscriptRef.current = '';
+    setLiveTranscript('');
+
     if (speechRecognitionRef.current) {
       try { speechRecognitionRef.current.stop(); } catch {}
       speechRecognitionRef.current = null;
@@ -473,6 +487,12 @@ export function SurgeryIslandProvider({
         mediaStream.getTracks().forEach(track => track.stop());
       } catch {}
       setMediaStream(null);
+    }
+    if (wakeLockRef.current) {
+      try {
+        wakeLockRef.current.release();
+      } catch {}
+      wakeLockRef.current = null;
     }
     if (recordingItem) {
       const fresh = updateScheduleItem(recordingItem.id, { status: 'scheduled' });

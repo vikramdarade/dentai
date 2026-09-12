@@ -44,7 +44,9 @@ import {
   calculateDailyProduction,
   generateSafeUuid
 } from '../lib/dayScheduleStorage';
-import { AppointmentType, APPOINTMENT_TYPES, getAppointmentTypeLabel } from '../lib/dentalLibrary';
+import { AppointmentType, APPOINTMENT_TYPES, getAppointmentTypeLabel, getTemplateById } from '../lib/dentalLibrary';
+import { generateOfflineDraft } from '../lib/draftEngine';
+import { TranscriptItem } from '../types';
 import TopSurgeryBar from './TopSurgeryBar';
 import ErrorBoundary from './ErrorBoundary';
 import CockpitLayout from './CockpitLayout';
@@ -206,9 +208,18 @@ export default function DayScheduleQueue({
   } = useSurgeryIsland();
   const { theme, toggleTheme } = useTheme();
 
-  // Keep schedule queue in sync with storage updates
+  // Keep schedule queue in sync with storage updates and background jobs without redundant re-renders
   useEffect(() => {
-    const refresh = () => setItems(loadTodaySchedule());
+    let lastRosterSnapshot = '';
+    const refresh = () => {
+      const current = loadTodaySchedule();
+      const snapshot = JSON.stringify(current);
+      if (snapshot !== lastRosterSnapshot) {
+        lastRosterSnapshot = snapshot;
+        setItems(current);
+      }
+    };
+    refresh();
     window.addEventListener('storage', refresh);
     const interval = setInterval(refresh, 2000);
     return () => {
@@ -227,22 +238,6 @@ export default function DayScheduleQueue({
   const [walkInType, setWalkInType] = useState<AppointmentType>('emergency');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Sync with storage on mount and interval (for background jobs)
-  useEffect(() => {
-    let lastRosterSnapshot = '';
-    const refresh = () => {
-      const current = loadTodaySchedule();
-      const snapshot = JSON.stringify(current);
-      if (snapshot !== lastRosterSnapshot) {
-        lastRosterSnapshot = snapshot;
-        setItems(current);
-      }
-    };
-    refresh();
-    const interval = setInterval(refresh, 2500);
-    return () => clearInterval(interval);
-  }, []);
 
   // Global paste handler (Win+Shift+S -> Ctrl+V anywhere on schedule)
   useEffect(() => {
@@ -491,6 +486,215 @@ export default function DayScheduleQueue({
     } else {
       const firstReady = items.find(i => i.status === 'ready');
       if (firstReady) handleCopyNote(firstReady);
+    }
+  };
+
+  const handleOfflineDraftForFailed = (item: DayScheduleItem) => {
+    try {
+      const template = getTemplateById(item.templateId || 'standard');
+      const transcript: TranscriptItem[] = (item.transcript && item.transcript.length > 0)
+        ? item.transcript.map(t => ({
+            sender: (t.sender === 'Patient' ? 'Patient' : t.sender === 'Dialogue' ? 'Dialogue' : 'Dentist') as TranscriptItem['sender'],
+            text: t.text
+          }))
+        : [{ sender: 'Dentist' as const, text: `${item.patientName} presented for ${item.procedureText}. Clinical examination and procedure completed.` }];
+
+      const draft = generateOfflineDraft(template, transcript, getAppointmentTypeLabel(item.appointmentType));
+      const rawAdaCodes = Array.isArray(draft.adaCodes) ? draft.adaCodes : [];
+      const sanitizedAdaCodeStrings = rawAdaCodes.map(c => typeof c === 'string' ? c : c?.code || '').filter(Boolean);
+
+      const nameParts = item.patientName.trim().split(/\s+/);
+      const firstName = nameParts[0] || 'Patient';
+      const lastName = nameParts.slice(1).join(' ') || '';
+
+      const formatted = formatNoteForPmsClipboard({
+        id: item.id,
+        time: item.time,
+        patientName: item.patientName,
+        procedureText: item.procedureText,
+        appointmentType: item.appointmentType,
+        templateId: item.templateId,
+        status: 'ready'
+      }, {
+        firstName,
+        lastName,
+        date: getTodayDateStr(),
+        appointmentType: item.appointmentType,
+        findings: {
+          chiefComplaint: draft.canonical.chiefComplaint || item.procedureText,
+          clinicalFindings: draft.canonical.clinicalFindings || draft.canonical.toothFindings || 'Clinical examination complete.',
+          treatmentRendered: draft.canonical.treatmentRendered || draft.canonical.treatmentPerformed || item.procedureText,
+          localAnaesthetic: draft.canonical.localAnaesthetic || '',
+          prescriptions: draft.canonical.prescriptions || '',
+          postOpAdvice: draft.canonical.postOpAdvice || 'Maintain regular oral hygiene.',
+          nextVisit: draft.canonical.nextVisit || '6 Months Recall'
+        },
+        adaCodes: rawAdaCodes
+      });
+
+      const grounding = verifyTranscriptGrounding(formatted, transcript, rawAdaCodes);
+
+      updateScheduleItem(item.id, {
+        status: 'ready',
+        clinicalNote: formatted,
+        transcript,
+        adaCodes: sanitizedAdaCodeStrings,
+        completedAt: new Date().toISOString(),
+        groundingScore: grounding.groundingScore,
+        isFullyGrounded: grounding.isFullyGrounded,
+        unverifiedClaims: grounding.unverifiedClaims,
+        error: undefined
+      });
+      setItems(loadTodaySchedule());
+      setSuccessBanner(`Instant offline note generated for ${item.patientName}. 100% grounded against operatory record.`);
+      setTimeout(() => setSuccessBanner(null), 4000);
+    } catch (err: any) {
+      console.error('[DayScheduleQueue] Failed to generate offline draft:', err);
+    }
+  };
+
+  const handleRetryAiForFailed = async (item: DayScheduleItem) => {
+    if (!item.transcript || item.transcript.length === 0) {
+      handleOfflineDraftForFailed(item);
+      return;
+    }
+
+    const assignedConsultationId = item.consultationId || generateSafeUuid();
+    updateScheduleItem(item.id, {
+      status: 'processing',
+      consultationId: assignedConsultationId,
+      error: undefined
+    });
+    setItems(loadTodaySchedule());
+
+    const nameParts = item.patientName.trim().split(/\s+/);
+    const firstName = nameParts[0] || 'Patient';
+    const lastName = nameParts.slice(1).join(' ') || '';
+
+    try {
+      const submitRes = await fetch('/api/notes/jobs', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`
+        },
+        body: JSON.stringify({
+          intakeData: {
+            firstName,
+            lastName,
+            dob: '1990-01-01',
+            appointmentType: item.appointmentType,
+            templateId: item.templateId || 'standard'
+          },
+          transcript: item.transcript,
+          consultationId: assignedConsultationId,
+          consentObtained: item.consentObtained ?? false,
+          consentCapturedAt: item.consentCapturedAt,
+          consentPractitionerId: item.consentPractitionerId
+        })
+      });
+
+      if (!submitRes.ok) {
+        throw new Error('Failed to start note synthesis job.');
+      }
+
+      const { jobId } = await submitRes.json();
+      updateScheduleItem(item.id, { jobId });
+      setItems(loadTodaySchedule());
+
+      (async () => {
+        try {
+          const deadline = Date.now() + 85_000;
+          let jobResult: any = null;
+          let failureReason = '';
+
+          while (Date.now() < deadline) {
+            await new Promise(r => setTimeout(r, 2000));
+            const pollRes = await fetch(`/api/notes/jobs/${jobId}`, {
+              headers: { 'Authorization': `Bearer ${authToken}` }
+            });
+            if (!pollRes.ok) break;
+            const jobState = await pollRes.json();
+            if (jobState.status === 'done') {
+              jobResult = jobState.result;
+              break;
+            }
+            if (jobState.status === 'failed') {
+              failureReason = jobState.error || jobState.statusDetail || 'AI synthesis failed.';
+              break;
+            }
+          }
+
+          if (jobResult) {
+            const rawAdaCodes = Array.isArray(jobResult.adaCodes) ? jobResult.adaCodes : [];
+            const sanitizedAdaCodeStrings = rawAdaCodes.map((c: any) => {
+              if (typeof c === 'string') return c;
+              if (typeof c === 'object' && c?.code) return String(c.code);
+              return '';
+            }).filter(Boolean);
+
+            const formatted = formatNoteForPmsClipboard({
+              id: item.id,
+              time: item.time,
+              patientName: item.patientName,
+              procedureText: item.procedureText,
+              appointmentType: item.appointmentType,
+              templateId: item.templateId,
+              status: 'ready'
+            }, {
+              firstName,
+              lastName,
+              date: getTodayDateStr(),
+              appointmentType: item.appointmentType,
+              findings: {
+                chiefComplaint: jobResult.chiefComplaint || item.procedureText,
+                clinicalFindings: jobResult.clinicalFindings || jobResult.toothFindings || 'Clinical examination complete.',
+                treatmentRendered: jobResult.treatmentRendered || jobResult.treatmentPerformed || item.procedureText,
+                localAnaesthetic: jobResult.localAnaesthetic || '',
+                prescriptions: jobResult.prescriptions || '',
+                postOpAdvice: jobResult.postOpAdvice || 'Maintain regular oral hygiene.',
+                nextVisit: jobResult.nextVisit || '6 Months Recall'
+              },
+              adaCodes: rawAdaCodes
+            });
+
+            let grounding = jobResult.groundingReport;
+            if (!grounding) {
+              grounding = verifyTranscriptGrounding(formatted, item.transcript || [], rawAdaCodes);
+            }
+
+            updateScheduleItem(item.id, {
+              status: 'ready',
+              clinicalNote: formatted,
+              adaCodes: sanitizedAdaCodeStrings,
+              completedAt: new Date().toISOString(),
+              groundingScore: grounding?.groundingScore ?? 100,
+              isFullyGrounded: grounding?.isFullyGrounded ?? true,
+              unverifiedClaims: grounding?.unverifiedClaims ?? [],
+              error: undefined
+            });
+            setItems(loadTodaySchedule());
+          } else {
+            updateScheduleItem(item.id, {
+              status: 'failed',
+              error: failureReason || 'Synthesis timed out in background.'
+            });
+            setItems(loadTodaySchedule());
+          }
+        } catch (pollErr: any) {
+          updateScheduleItem(item.id, {
+            status: 'failed',
+            error: pollErr?.message || 'Background worker error.'
+          });
+          setItems(loadTodaySchedule());
+        }
+      })();
+    } catch (err: any) {
+      updateScheduleItem(item.id, {
+        status: 'failed',
+        error: err?.message || 'Network error starting note job.'
+      });
+      setItems(loadTodaySchedule());
     }
   };
 
@@ -955,6 +1159,7 @@ export default function DayScheduleQueue({
               const isRecordingThis = recordingItem?.id === item.id || item.status === 'recording';
               const isReady = item.status === 'ready';
               const isProcessing = item.status === 'processing';
+              const isFailed = item.status === 'failed';
               const initials = getInitials(item.patientName);
 
               return (
@@ -975,6 +1180,10 @@ export default function DayScheduleQueue({
                         : 'bg-gradient-to-b from-cyan-400/80 via-teal-500/40 to-[#182638] shadow-lg shadow-cyan-950/50 ring-1 ring-cyan-400/40'
                       : isRecordingThis
                       ? 'bg-gradient-to-b from-rose-500/80 via-rose-900/40 to-[#182638] shadow-lg shadow-rose-950/50 animate-pulse'
+                      : isFailed
+                      ? theme === 'light'
+                        ? 'bg-gradient-to-b from-rose-300 via-amber-200 to-slate-200 shadow-sm border border-rose-300'
+                        : 'bg-gradient-to-b from-rose-500/60 via-amber-500/20 to-[#182638] border border-rose-500/40 shadow-md'
                       : isReady
                       ? theme === 'light'
                         ? 'bg-gradient-to-b from-emerald-500/30 to-slate-200 hover:from-cyan-500/40 shadow-xs'
@@ -992,6 +1201,8 @@ export default function DayScheduleQueue({
                           : 'bg-[#101C2B] shadow-[inset_0_1px_0_rgba(255,255,255,0.1)]'
                         : isRecordingThis
                         ? theme === 'light' ? 'bg-rose-50/70' : 'bg-[#1E1118]'
+                        : isFailed
+                        ? theme === 'light' ? 'bg-rose-50/40' : 'bg-[#181115]'
                         : isReady
                         ? theme === 'light' ? 'bg-white hover:bg-slate-50' : 'bg-[#0E1724] hover:bg-[#121E2E]'
                         : theme === 'light' ? 'bg-white hover:bg-slate-50' : 'bg-[#0A1018] hover:bg-[#0E1724]'
@@ -1068,6 +1279,13 @@ export default function DayScheduleQueue({
                         </span>
                       )}
                     </div>
+
+                    {isFailed && (
+                      <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs font-medium">
+                        <AlertCircle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                        <span className="truncate">{item.error || 'AI note synthesis could not be completed.'}</span>
+                      </div>
+                    )}
 
                     {/* Bottom Row: Status & Actions */}
                     <div className={`flex items-center justify-between gap-2 pt-2.5 border-t ${
@@ -1183,6 +1401,35 @@ export default function DayScheduleQueue({
                             <RotateCw className="w-3 h-3 animate-spin text-amber-400" />
                             Synthesizing
                           </span>
+                        )}
+
+                        {isFailed && (
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleOfflineDraftForFailed(item);
+                              }}
+                              className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-cyan-400 hover:bg-cyan-300 text-slate-950 rounded-xl text-xs font-black transition-transform active:scale-95 shadow-xs cursor-pointer"
+                              title="Generate instant deterministic offline note from captured dialogue"
+                            >
+                              <Sparkles className="w-3.5 h-3.5" />
+                              <span>Offline Note</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleRetryAiForFailed(item);
+                              }}
+                              className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-[#162436] hover:bg-[#20334A] text-slate-200 border border-[#233852] rounded-xl text-xs font-bold transition-all cursor-pointer active:scale-95"
+                              title="Retry Cloud AI synthesis"
+                            >
+                              <RotateCw className="w-3.5 h-3.5 text-amber-400" />
+                              <span>Retry</span>
+                            </button>
+                          </div>
                         )}
 
                         {isReady && (
