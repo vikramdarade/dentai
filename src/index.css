@@ -202,6 +202,20 @@ html.light .bg-\[\#121E2E\] {
   background-color: #F8FAFC !important;
 }
 
+html.light .bg-\[\#101C2B\] {
+  background-color: #FFFFFF !important;
+  box-shadow: 0 4px 16px -2px rgba(6, 182, 212, 0.16) !important;
+}
+
+html.light .bg-\[\#0C131D\],
+html.light .bg-\[\#0F1926\],
+html.light .bg-\[\#090F17\],
+html.light .bg-\[\#14202E\],
+html.light .bg-\[\#14202D\],
+html.light .bg-\[\#0E1620\] {
+  background-color: #F1F5F9 !important;
+}
+
 html.light .bg-\[\#162436\],
 html.light .bg-\[\#18283D\],
 html.light .bg-\[\#152338\],
@@ -213,8 +227,17 @@ html.light .border-\[\#182638\],
 html.light .border-\[\#1E3048\],
 html.light .border-\[\#1E3048\]\/60,
 html.light .border-\[\#1E2E40\],
+html.light .border-\[\#1E2E42\],
+html.light .border-\[\#233852\],
+html.light .border-\[\#20334A\],
 html.light .border-\[\#162436\] {
   border-color: #E2E8F0 !important;
+}
+
+html.light .from-\[\#1E3048\],
+html.light .to-\[\#121E2E\] {
+  --tw-gradient-from: #E2E8F0 !important;
+  --tw-gradient-to: #F8FAFC !important;
 }
 
 /* Light Mode Typography Contrast */

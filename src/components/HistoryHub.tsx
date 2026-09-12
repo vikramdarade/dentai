@@ -11,6 +11,9 @@ import { DayScheduleItem } from '../lib/dayScheduleStorage';
 import { isPmsPreviewEnabled } from '../utils/previewMode';
 import { ClinicMembership } from '../lib/clinics';
 import CockpitLayout from './CockpitLayout';
+import FdiChartingModal from './FdiChartingModal';
+import VisualCaseImagingModal from './VisualCaseImagingModal';
+import PracticeSettingsModal from './PracticeSettingsModal';
 import { SurgeryIslandProvider, SurgeryIslandHUD } from '../context/SurgeryIslandContext';
 import { useTheme } from '../context/ThemeContext';
 
@@ -56,6 +59,9 @@ function HistoryHubInner({
   });
   const [searchQuery, setSearchQuery] = useState('');
   const { theme, toggleTheme } = useTheme();
+  const [showChartingModal, setShowChartingModal] = useState(false);
+  const [showImagingModal, setShowImagingModal] = useState(false);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
 
   // Group consultations by date
   const todayStr = getTodayStr();
@@ -151,6 +157,9 @@ function HistoryHubInner({
             if (tab === 'roster') setHubTab('schedule');
             else if (tab === 'pipeline') setHubTab('pipeline');
             else if (tab === 'patients') setHubTab('records');
+            else if (tab === 'charting') setShowChartingModal(true);
+            else if (tab === 'imaging') setShowImagingModal(true);
+            else if (tab === 'settings') setShowSettingsModal(true);
           }}
         >
           <div className="w-full max-w-6xl mx-auto space-y-5 text-slate-100 font-sans pb-16">
@@ -370,6 +379,27 @@ function HistoryHubInner({
                 onChanged={onClinicChanged}
               />
             )}
+
+            {/* FDI Dental Charting Modal */}
+            <FdiChartingModal
+              isOpen={showChartingModal}
+              onClose={() => setShowChartingModal(false)}
+            />
+
+            {/* Visual Case Presentation & Patient Imaging Library Modal */}
+            <VisualCaseImagingModal
+              isOpen={showImagingModal}
+              onClose={() => setShowImagingModal(false)}
+            />
+
+            {/* Surgery Cockpit & Practice Settings Modal */}
+            <PracticeSettingsModal
+              isOpen={showSettingsModal}
+              onClose={() => setShowSettingsModal(false)}
+              dentistName={dentistName}
+              activeClinic={activeClinic}
+              onManageClinic={() => setManageOpen(true)}
+            />
           </div>
         </CockpitLayout>
       )}

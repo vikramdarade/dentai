@@ -49,6 +49,9 @@ import TopSurgeryBar from './TopSurgeryBar';
 import ErrorBoundary from './ErrorBoundary';
 import CockpitLayout from './CockpitLayout';
 import CockpitInspectionDrawer from './CockpitInspectionDrawer';
+import FdiChartingModal from './FdiChartingModal';
+import VisualCaseImagingModal from './VisualCaseImagingModal';
+import PracticeSettingsModal from './PracticeSettingsModal';
 import { ClinicMembership } from '../lib/clinics';
 import { useSurgeryIsland } from '../context/SurgeryIslandContext';
 import { useTheme } from '../context/ThemeContext';
@@ -103,6 +106,11 @@ export default function DayScheduleQueue({
   } | null>(null);
   const [lastUploadedFile, setLastUploadedFile] = useState<File | null>(null);
   const [successBanner, setSuccessBanner] = useState<string | null>(null);
+
+  // Left Panel Modal States (Charting, Imaging, Practice Settings)
+  const [showChartingModal, setShowChartingModal] = useState(false);
+  const [showImagingModal, setShowImagingModal] = useState(false);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
 
   // Cockpit Inspection Drawer State
   const [selectedInspectionId, setSelectedInspectionId] = useState<string | null>(() => {
@@ -524,6 +532,9 @@ export default function DayScheduleQueue({
       onTabChange={(tab) => {
         if (tab === 'patients') onNavigateTab?.('records');
         else if (tab === 'pipeline') onNavigateTab?.('pipeline');
+        else if (tab === 'charting') setShowChartingModal(true);
+        else if (tab === 'imaging') setShowImagingModal(true);
+        else if (tab === 'settings') setShowSettingsModal(true);
       }}
       onDrawerClose={() => setIsInspectionOpen(false)}
       rightDrawer={
@@ -960,23 +971,31 @@ export default function DayScheduleQueue({
                   }}
                   className={`p-0.5 rounded-2xl transition-all duration-200 cursor-pointer relative group ${
                     isSelected
-                      ? 'bg-gradient-to-b from-cyan-400/80 via-teal-500/40 to-[#182638] shadow-lg shadow-cyan-950/50'
+                      ? theme === 'light'
+                        ? 'bg-gradient-to-b from-cyan-500 via-teal-400 to-slate-200 shadow-lg shadow-cyan-500/20 ring-2 ring-cyan-500/60'
+                        : 'bg-gradient-to-b from-cyan-400/80 via-teal-500/40 to-[#182638] shadow-lg shadow-cyan-950/50 ring-1 ring-cyan-400/40'
                       : isRecordingThis
                       ? 'bg-gradient-to-b from-rose-500/80 via-rose-900/40 to-[#182638] shadow-lg shadow-rose-950/50 animate-pulse'
                       : isReady
-                      ? 'bg-gradient-to-b from-emerald-500/40 via-transparent to-[#182638] hover:from-cyan-500/40'
+                      ? theme === 'light'
+                        ? 'bg-gradient-to-b from-emerald-500/30 to-slate-200 hover:from-cyan-500/40 shadow-xs'
+                        : 'bg-gradient-to-b from-emerald-500/40 via-transparent to-[#182638] hover:from-cyan-500/40'
+                      : theme === 'light'
+                      ? 'bg-slate-200 hover:bg-slate-300/80 shadow-xs'
                       : 'bg-[#182638] hover:bg-[#20334A]'
                   }`}
                 >
                   <div
                     className={`rounded-[calc(1rem-2px)] p-4 flex flex-col justify-between gap-3.5 h-full transition-colors ${
                       isSelected
-                        ? 'bg-[#101C2B] shadow-[inset_0_1px_0_rgba(255,255,255,0.1)]'
+                        ? theme === 'light'
+                          ? 'bg-white shadow-md'
+                          : 'bg-[#101C2B] shadow-[inset_0_1px_0_rgba(255,255,255,0.1)]'
                         : isRecordingThis
-                        ? 'bg-[#1E1118]'
+                        ? theme === 'light' ? 'bg-rose-50/70' : 'bg-[#1E1118]'
                         : isReady
-                        ? 'bg-[#0E1724] hover:bg-[#121E2E]'
-                        : 'bg-[#0A1018] hover:bg-[#0E1724]'
+                        ? theme === 'light' ? 'bg-white hover:bg-slate-50' : 'bg-[#0E1724] hover:bg-[#121E2E]'
+                        : theme === 'light' ? 'bg-white hover:bg-slate-50' : 'bg-[#0A1018] hover:bg-[#0E1724]'
                     }`}
                   >
                     {/* Top Row: Avatar + Patient Name + Monospace Time Pill */}
@@ -985,7 +1004,11 @@ export default function DayScheduleQueue({
                         <div
                           className={`w-10 h-10 rounded-xl shrink-0 flex items-center justify-center font-black text-xs border ${
                             isSelected
-                              ? 'bg-cyan-500/20 border-cyan-400 text-cyan-300 shadow-xs'
+                              ? theme === 'light'
+                                ? 'bg-cyan-50 border-cyan-400 text-cyan-700 shadow-xs'
+                                : 'bg-cyan-500/20 border-cyan-400 text-cyan-300 shadow-xs'
+                              : theme === 'light'
+                              ? 'bg-slate-100 border-slate-200 text-slate-700'
                               : 'bg-[#162436] border-[#233852] text-slate-200'
                           }`}
                         >
@@ -993,17 +1016,27 @@ export default function DayScheduleQueue({
                         </div>
 
                         <div className="min-w-0">
-                          <h4 className="text-base font-black text-white truncate tracking-tight">
+                          <h4 className={`text-base font-black truncate tracking-tight ${
+                            theme === 'light' ? 'text-slate-900' : 'text-white'
+                          }`}>
                             {item.patientName}
                           </h4>
-                          <p className="text-xs text-cyan-300 font-medium truncate mt-0.5">
+                          <p className={`text-xs font-semibold truncate mt-0.5 ${
+                            theme === 'light'
+                              ? isSelected ? 'text-cyan-700' : 'text-cyan-600'
+                              : isSelected ? 'text-cyan-300' : 'text-cyan-400'
+                          }`}>
                             {item.procedureText}
                           </p>
                         </div>
                       </div>
 
-                      <div className="shrink-0 flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#162436] border border-[#20334A] text-slate-200 font-mono text-[11px] font-bold shadow-xs">
-                        <Clock className="w-3 h-3 text-cyan-400" />
+                      <div className={`shrink-0 flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-mono text-[11px] font-bold border shadow-xs ${
+                        theme === 'light'
+                          ? 'bg-slate-100 border-slate-200 text-slate-700'
+                          : 'bg-[#162436] border-[#20334A] text-slate-200'
+                      }`}>
+                        <Clock className={`w-3 h-3 ${theme === 'light' ? 'text-cyan-600' : 'text-cyan-400'}`} />
                         <span>{item.time || '09:00'}</span>
                       </div>
                     </div>
@@ -1016,21 +1049,31 @@ export default function DayScheduleQueue({
                           return (
                             <span
                               key={idx}
-                              className="px-2.5 py-0.5 rounded-md text-[10px] font-mono font-extrabold bg-[#162436] text-cyan-300 border border-[#233852]"
+                              className={`px-2.5 py-0.5 rounded-md text-[10px] font-mono font-extrabold border ${
+                                theme === 'light'
+                                  ? 'bg-cyan-50 text-cyan-800 border-cyan-200'
+                                  : 'bg-[#162436] text-cyan-300 border-[#233852]'
+                              }`}
                             >
                               ADA {codeStr}
                             </span>
                           );
                         })
                       ) : (
-                        <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-[#121E2E] text-slate-300 border border-[#182638]">
+                        <span className={`px-2 py-0.5 rounded-md text-[10px] font-semibold border ${
+                          theme === 'light'
+                            ? 'bg-slate-100 text-slate-700 border-slate-200'
+                            : 'bg-[#121E2E] text-slate-300 border-[#182638]'
+                        }`}>
                           {getAppointmentTypeLabel(item.appointmentType)}
                         </span>
                       )}
                     </div>
 
                     {/* Bottom Row: Status & Actions */}
-                    <div className="flex items-center justify-between gap-2 pt-2.5 border-t border-[#182638]">
+                    <div className={`flex items-center justify-between gap-2 pt-2.5 border-t ${
+                      theme === 'light' ? 'border-slate-100' : 'border-[#182638]'
+                    }`}>
                       {/* Left: Badges */}
                       <div className="flex items-center gap-1.5 flex-wrap">
                         {isReady && item.isFullyGrounded !== false && (
@@ -1062,11 +1105,15 @@ export default function DayScheduleQueue({
                           }}
                           className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-bold border transition-colors cursor-pointer ${
                             item.consentObtained
-                              ? 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30'
+                              ? theme === 'light'
+                                ? 'bg-cyan-50 text-cyan-700 border-cyan-300'
+                                : 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30'
+                              : theme === 'light'
+                              ? 'bg-slate-100 text-slate-500 border-slate-200 hover:text-slate-800'
                               : 'bg-[#121E2E] text-slate-400 border-[#182638] hover:text-slate-200'
                           }`}
                         >
-                          <Check className={`w-3 h-3 ${item.consentObtained ? 'text-cyan-400 stroke-[3]' : 'text-slate-500'}`} />
+                          <Check className={`w-3 h-3 ${item.consentObtained ? (theme === 'light' ? 'text-cyan-600 stroke-[3]' : 'text-cyan-400 stroke-[3]') : 'text-slate-400'}`} />
                           <span>{item.consentObtained ? 'Verbal Consent ✓' : 'Consent'}</span>
                         </button>
                       </div>
@@ -1625,6 +1672,28 @@ export default function DayScheduleQueue({
           </div>
         )}
       </div>
+
+      {/* FDI Dental Charting Modal */}
+      <FdiChartingModal
+        isOpen={showChartingModal}
+        onClose={() => setShowChartingModal(false)}
+        selectedItem={selectedItem}
+      />
+
+      {/* Visual Case Presentation & Patient Imaging Library Modal */}
+      <VisualCaseImagingModal
+        isOpen={showImagingModal}
+        onClose={() => setShowImagingModal(false)}
+      />
+
+      {/* Surgery Cockpit & Practice Settings Modal */}
+      <PracticeSettingsModal
+        isOpen={showSettingsModal}
+        onClose={() => setShowSettingsModal(false)}
+        dentistName={dentistName}
+        activeClinic={activeClinic}
+        onManageClinic={onManageClinic}
+      />
     </CockpitLayout>
   );
 }
