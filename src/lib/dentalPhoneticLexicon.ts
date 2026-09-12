@@ -133,6 +133,11 @@ export const DENTAL_PHONETIC_RULES: PhoneticRule[] = [
     description: 'Phonetic "tree two tree" -> 3-2-3 mm'
   },
   {
+    pattern: /\bbleeding\s*on\s*(?:probe\s*in|probing|probe)\b/gi,
+    replacement: 'bleeding on probing',
+    description: 'Phonetic "bleeding on probe in" -> bleeding on probing'
+  },
+  {
     pattern: /\b(?:composite\s*)?feeling\b/gi,
     replacement: 'filling (composite restoration)',
     description: 'Homophone "feeling" -> filling'
@@ -182,9 +187,14 @@ export const DENTAL_PHONETIC_RULES: PhoneticRule[] = [
     description: 'Phonetic "brooks ism" -> bruxism'
   },
   {
-    pattern: /\b(?:night|knight|bite)\s*(?:guard|splint)\b/gi,
+    pattern: /\b(?:michigan|acrylic|night|knight|bite)\s*(?:guard|splint|plate)\b/gi,
     replacement: 'occlusal splint (nightguard)',
-    description: 'Colloquial "night guard/bite splint" -> occlusal splint (nightguard)'
+    description: 'Colloquial "michigan/acrylic splint / night guard" -> occlusal splint (nightguard)'
+  },
+  {
+    pattern: /\b(?:nocturnal|night\s*time|night)\s*grinding\b/gi,
+    replacement: 'sleep bruxism / nocturnal grinding',
+    description: 'Colloquial "nocturnal grinding" -> sleep bruxism'
   },
   {
     pattern: /\b(?:occlusal|a\s*clue\s*zal|occlude\s*zal)\s*(?:split|sprint|spint|splint)\b/gi,

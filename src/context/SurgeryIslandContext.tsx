@@ -96,8 +96,15 @@ export function SurgeryIslandProvider({
       });
       saveTodaySchedule(cleanedRoster);
 
-      // 3. Request microphone access
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // 3. Request microphone access with operatory acoustic preset (no destructive echo cancellation)
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: true,
+          channelCount: 1
+        }
+      });
       setMediaStream(stream);
       setRecordingItem(item);
       setLiveTranscript('');
@@ -180,15 +187,18 @@ export function SurgeryIslandProvider({
     const targetItem = { ...recordingItem };
     isRecordingActiveRef.current = false;
 
-    // 1. Stop Speech Recognition
+    // 1. Stop Speech Recognition & capture final words
     if (speechRecognitionRef.current) {
       try { speechRecognitionRef.current.stop(); } catch {}
       speechRecognitionRef.current = null;
     }
 
-    // 2. Stop MediaRecorder & gather audio
+    // 2. Flush pending recorder buffer & stop MediaRecorder
     try {
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        if (typeof (mediaRecorderRef.current as any).requestData === 'function') {
+          (mediaRecorderRef.current as any).requestData();
+        }
         mediaRecorderRef.current.stop();
       }
     } catch {}
@@ -208,14 +218,17 @@ export function SurgeryIslandProvider({
     let finalTranscriptText = (liveTranscript || accumulatedTranscriptRef.current).trim();
     let transcriptItems = [
       { sender: 'Dentist', text: `Good morning ${targetItem.patientName}, let's begin your appointment for ${targetItem.procedureText}.` },
-      { sender: 'Dialogue', text: finalTranscriptText || `Consultation recorded for ${targetItem.patientName} (${targetItem.procedureText}). Full clinical examination performed.` },
+      { sender: 'Dialogue', text: finalTranscriptText || `Clinical consultation dialogue for ${targetItem.patientName}.` },
       { sender: 'Dentist', text: `All procedures completed. We will review your recovery and plan the next recall visit.` }
     ];
 
-    // High-Precision Multimodal Audio Fallback:
-    // If Web Speech API captured very few words (<12 words) and we have recorded audio chunks,
-    // send the actual audio to Gemini's multimodal audio transcription endpoint.
-    if (finalTranscriptText.split(/\s+/).filter(Boolean).length < 12 && audioChunksRef.current.length > 0) {
+    // Dual-Stream Hybrid Audio Scribe:
+    // If recorded audio chunks exist and speech recognition captured low-detail dialogue (<30 words or missing clinical terms),
+    // transcribe the uncompressed audio directly with Gemini Multimodal Audio.
+    const wordCount = finalTranscriptText.split(/\s+/).filter(Boolean).length;
+    const hasDentalTerms = /(tooth|teeth|caries|decay|filling|restoration|pulp|canal|splint|brux|grind|clench|wear|attrition|pocket|perio|bpe|extract|crown|scaling|masseter|tmj)/i.test(finalTranscriptText);
+
+    if (audioChunksRef.current.length > 0 && (wordCount < 30 || !hasDentalTerms)) {
       try {
         const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
         if (audioBlob.size > 1500) {

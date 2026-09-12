@@ -120,6 +120,8 @@ export default function LiveRecording({
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
   const animationFrameIdRef = useRef<number | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -211,8 +213,30 @@ export default function LiveRecording({
         await audioContextRef.current.resume();
       }
 
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: true,
+          channelCount: 1
+        }
+      });
       streamRef.current = stream;
+
+      // Start raw uncompressed MediaRecorder buffer for Dual-Stream Hybrid Audio Scribe
+      try {
+        audioChunksRef.current = [];
+        const recorder = new MediaRecorder(stream);
+        mediaRecorderRef.current = recorder;
+        recorder.ondataavailable = (e) => {
+          if (e.data && e.data.size > 0) {
+            audioChunksRef.current.push(e.data);
+          }
+        };
+        recorder.start(2500);
+      } catch (recErr) {
+        console.warn('MediaRecorder buffer capture fallback:', recErr);
+      }
 
       const source = audioContextRef.current.createMediaStreamSource(stream);
       const analyser = audioContextRef.current.createAnalyser();
@@ -251,6 +275,15 @@ export default function LiveRecording({
     if (animationFrameIdRef.current) {
       cancelAnimationFrame(animationFrameIdRef.current);
       animationFrameIdRef.current = null;
+    }
+
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      try {
+        if (typeof (mediaRecorderRef.current as any).requestData === 'function') {
+          (mediaRecorderRef.current as any).requestData();
+        }
+        mediaRecorderRef.current.stop();
+      } catch {}
     }
 
     if (streamRef.current) {
@@ -648,8 +681,82 @@ export default function LiveRecording({
   const handleFinishNote = async () => {
     startProcessingSession('Formatting consultation dialogue...');
 
+    // 1. Flush any pending interim speech into the working transcript
+    let currentTranscript = [...transcript];
+    if (interimTranscript && interimTranscript.trim()) {
+      currentTranscript.push({ sender: 'Dialogue', text: interimTranscript.trim() });
+    }
+
+    // 2. Flush and stop raw audio recorder
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      try {
+        if (typeof (mediaRecorderRef.current as any).requestData === 'function') {
+          (mediaRecorderRef.current as any).requestData();
+        }
+        mediaRecorderRef.current.stop();
+      } catch {}
+    }
+
+    // 3. Dual-Stream Hybrid Audio Scribe:
+    // If recorded audio chunks exist and speech recognition captured low-detail dialogue (<30 words or missing clinical terms),
+    // transcribe the uncompressed audio directly with Gemini Multimodal Audio.
+    const fullText = currentTranscript.map(t => t.text).join(' ');
+    const wordCount = fullText.split(/\s+/).filter(Boolean).length;
+    const hasDentalTerms = /(tooth|teeth|caries|decay|filling|restoration|pulp|canal|splint|brux|grind|clench|wear|attrition|pocket|perio|bpe|extract|crown|scaling|masseter|tmj)/i.test(fullText);
+
+    if (audioChunksRef.current.length > 0 && (wordCount < 30 || !hasDentalTerms)) {
+      try {
+        setProcessingState('Transcribing high-fidelity operatory audio recording...');
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        if (audioBlob.size > 1500) {
+          const reader = new FileReader();
+          const base64Promise = new Promise<string>((resolve) => {
+            reader.onloadend = () => {
+              const res = reader.result as string;
+              resolve(res ? res.split(',')[1] || '' : '');
+            };
+          });
+          reader.readAsDataURL(audioBlob);
+          const audioBase64 = await base64Promise;
+
+          if (audioBase64) {
+            const customKey = localStorage.getItem('dentai_custom_gemini_key') || '';
+            const txRes = await fetch('/api/transcribe-audio', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authToken}`
+              },
+              body: JSON.stringify({
+                audioBase64,
+                mimeType: audioBlob.type || 'audio/webm',
+                userApiKey: customKey || undefined
+              })
+            });
+
+            if (txRes.ok) {
+              const txData = await txRes.json();
+              if (Array.isArray(txData.items) && txData.items.length > 0) {
+                currentTranscript = txData.items;
+                setTranscript(txData.items);
+              } else if (txData.fullTranscript) {
+                currentTranscript = [
+                  { sender: 'Dialogue', text: txData.fullTranscript }
+                ];
+                setTranscript(currentTranscript);
+              }
+            }
+          }
+        }
+      } catch (audioFallbackErr) {
+        console.warn('[LiveRecording] Multimodal audio transcription fallback warning:', audioFallbackErr);
+      }
+    }
+
+    setProcessingState('Synthesizing structured clinical notes...');
+
     try {
-      await onFinish(transcript);
+      await onFinish(currentTranscript);
       stopProcessingTicker();
     } catch (err: any) {
       stopProcessingTicker();

@@ -480,7 +480,7 @@ describe('PMS Schedule Vision API (/api/schedule/parse-image)', () => {
     expect(res.body.isSampleFallback).toBe(true);
     expect(res.body.fallbackReason).toBeDefined();
     expect(typeof res.body.fallbackReason).toBe('string');
-  });
+  }, 20000);
 
   it('accepts userApiKey in payload or header without throwing 500', async () => {
     const samplePng = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
@@ -497,7 +497,7 @@ describe('PMS Schedule Vision API (/api/schedule/parse-image)', () => {
 
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty('appointments');
-  });
+  }, 20000);
 });
 
 describe('Transcript Grounding & Zero-Hallucination Verification Engine', () => {

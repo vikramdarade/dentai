@@ -187,6 +187,24 @@ export const SAMPLE_TRANSCRIPTS: SampleTranscript[] = [
   }
 ];
 
+// Bruxism & Occlusal Splint Therapy (Specialty / TMJ test fixture)
+export const BRUXISM_SAMPLE_TRANSCRIPT: SampleTranscript = {
+  appointmentType: 'examination',
+  title: 'Bruxism & Occlusal Splint',
+  patient: 'Marcus Vance',
+  items: [
+    { sender: 'Dentist', text: "Good morning Marcus, what has been happening with your jaw and teeth lately?" },
+    { sender: 'Patient', text: "I wake up with terrible morning jaw stiffness, headaches around my temples, and my partner says I grind my teeth constantly at night." },
+    { sender: 'Dentist', text: "Let's examine your masticatory muscles and dentition. Palpating both masseters—noting moderate tenderness and hypertrophy. Bilateral temporalis also tender. TMJ shows no clicking or crepitus, maximum opening 44 millimetres." },
+    { sender: 'Clinical Comment', text: 'Intraoral exam: generalized moderate-to-severe occlusal and incisal attrition across anterior and posterior arches. Wear facets with dentin exposure on incisal edges 13 to 23 and 33 to 43. Loss of canine guidance in lateral excursion. Buccal mucosa shows prominent linea alba bilateral.' },
+    { sender: 'Dentist', text: "You have significant wear facets where the protective enamel has worn away and dentin is exposed. My diagnosis is severe sleep bruxism with secondary generalized occlusal attrition and masticatory myofascial pain." },
+    { sender: 'Patient', text: "Can we protect my teeth from wearing down any further?" },
+    { sender: 'Dentist', text: "Yes—we will take digital 3D intraoral scans today to fabricate a custom upper hard acrylic Michigan occlusal splint. That is ADA item 965 for the occlusal splint." },
+    { sender: 'Dentist', text: "While the lab fabricates the splint, avoid hard crusty foods and chewing gum. Apply warm moist heat to your masseter muscles before bed. I'll see you in two weeks to fit and adjust your splint. Item 011 for today's comprehensive examination." }
+  ]
+};
+
 /** Returns the sample transcript that matches a given treatment type, if any. */
 export const getSampleForType = (type: AppointmentType): SampleTranscript | undefined =>
   SAMPLE_TRANSCRIPTS.find((s) => s.appointmentType === type);
+

@@ -101,23 +101,23 @@ const SECTION_KEYWORDS: Record<string, string[]> = {
   objective: ['tooth', 'gingiv', 'gum', 'pocket', 'radiograph', 'x-ray', 'percussion', 'mobility', 'examination', 'found', 'observed', 'attrition', 'wear', 'masseter', 'tmj'],
   periapicalAssessment: ['radiograph', 'x-ray', 'periapical', 'canal', 'root', 'apex', 'working length', 'image'],
   toothIsolation: ['occlusion', 'high spot', 'articulat', 'polish', 'bite', 'grind'],
-  treatmentPerformed: ['filled', 'filling', 'restored', 'restoration', 'scaled', 'scale', 'polished', 'sealed', 'sealant', 'fluoride', 'extract', 'removed', 'root canal', 'rct', 'access', 'obturated', 'temporary', 'dressing', 'cemented', 'anaesthetic', 'anesthetic', 'injection', 'rubber dam', 'cleaned', 'performed', 'completed', 'impression', 'scan', 'splint', 'nightguard', 'alginate', 'bite record'],
+  treatmentPerformed: ['filled', 'filling', 'restored', 'restoration', 'scaled', 'scale', 'polished', 'sealed', 'sealant', 'fluoride', 'extract', 'extraction', 'removed', 'root canal', 'rct', 'pulpotomy', 'extirpation', 'access', 'obturated', 'debridement', 'sectioning', 'sutures', 'temporary', 'dressing', 'cemented', 'anaesthetic', 'anesthetic', 'injection', 'rubber dam', 'cleaned', 'performed', 'completed', 'impression', 'scan', 'splint', 'nightguard', 'alginate', 'bite record'],
   plan: ['plan', 'booked', 'schedule', 'return', 'review', 'next', 'will', 'arrange', 'splint', 'nightguard', 'delivery', 'fit'],
   behaviourAssessment: ['behaviour', 'cooperat', 'anxious', 'nervous', 'scared', 'tell-show-do', 'child', 'settled', 'cried'],
   restorative: ['filling', 'restoration', 'composite', 'amalgam', 'shade', 'bond', 'matrix', 'curing'],
   provisionalNote: ['provisional', 'temporary', 'temporis', 'shade', 'lab', 'impression', 'splint'],
   postOpInstructions: ['advice', 'avoid', 'soft diet', 'ice', 'analgesic', 'pain relief', 'paracetamol', 'ibuprofen', 'brush', 'rinse', 'salt water', 'warm', 'numb', 'instruct'],
   recommendations: ['advice', 'avoid', 'soft', 'brush', 'floss', 'rinse', 'salt water', 'warm', 'paracetamol', 'ibuprofen', 'analgesic', 'diet', 'sugar', 'smok', 'stop', 'return if', 'watch', 'splint', 'nightguard', 'occlusal splint', 'michigan', 'jaw exercises', 'relax'],
-  diagnosis: ['diagnosis', 'pulpitis', 'periodontitis', 'gingivitis', 'abscess', 'caries', 'cavity', 'fracture', 'cracked tooth', 'periapical', 'infection', 'assessment', 'think', 'believe', 'likely', 'bruxism', 'sleep bruxism', 'attrition', 'occlusal wear', 'tmd', 'myofascial'],
+  diagnosis: ['diagnosis', 'pulpitis', 'periodontitis', 'gingivitis', 'abscess', 'caries', 'cavity', 'fracture', 'cracked tooth', 'periapical', 'infection', 'pericoronitis', 'impacted', 'impaction', 'necrosis', 'assessment', 'think', 'believe', 'likely', 'bruxism', 'sleep bruxism', 'attrition', 'occlusal wear', 'tmd', 'myofascial'],
   assessment: ['diagnosis', 'pulpitis', 'periodontitis', 'gingivitis', 'abscess', 'caries', 'fracture', 'assessment', 'likely', 'bruxism', 'attrition'],
   recallRequirements: ['recall', 'review', 'months', 'weeks', 'appointment', 'booked', 'return', 'follow-up', 'follow up', 'next visit'],
   emergency: ['pain', 'swelling', 'abscess', 'trauma', 'knocked', 'broken', 'urgent'],
 };
 
 // Conservative: ADA item numbers are only captured when explicitly flagged as
-// an item/code/billing reference by the clinician (e.g. "item 414"), never from
+// an item/code/billing reference by the clinician (e.g. "item 414", "ADA 965"), never from
 // a bare number that happens to be three digits (e.g. a fee or dosage mention).
-const ADA_ITEM_REF_RE = /\b(?:item|code|billing)\s*(?:number|no\.?)?\s*[:#]?\s*(\d{3})\b/gi;
+const ADA_ITEM_REF_RE = /\b(?:item|code|billing|ada)\s*(?:number|no\.?)?\s*[:#]?\s*(\d{3})\b/gi;
 
 /** True when the speaker is most plausibly the clinician (Dentist / Clinical Comment). */
 const isClinician = (sender: string): boolean =>

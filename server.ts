@@ -3118,66 +3118,97 @@ app.post('/api/transcribe-audio', authenticateToken, async (req: any, res: expre
     }
 
     const cleanBase64 = audioBase64.replace(/^data:audio\/[a-zA-Z0-9_-]+;base64,/, '').trim();
+    if (!cleanBase64) {
+      return res.status(400).json({ error: 'Audio data is empty.' });
+    }
+
     const keyCandidates = [
       userApiKey,
       req.headers['x-gemini-api-key'],
       process.env.GEMINI_API_KEY,
       process.env.GEMINI_FALLBACK_API_KEY
-    ].filter((k): k is string => Boolean(k && k !== 'MY_GEMINI_API_KEY' && typeof k === 'string' && k.trim().length > 0));
+    ].filter((k): k is string => Boolean(k && k !== 'MY_GEMINI_API_KEY' && k !== 'TEST_API_KEY' && typeof k === 'string' && k.trim().length > 0));
 
     if (keyCandidates.length === 0) {
       return res.status(503).json({ error: 'No valid Gemini API key configured for audio transcription.' });
     }
 
-    const apiKey = keyCandidates[0];
-    const ai = new GoogleGenAI({ apiKey });
-    const response = await ai.models.generateContent({
-      model: process.env.GEMINI_AUDIO_MODEL || process.env.GEMINI_MODEL || 'gemini-3.6-flash',
-      contents: [
-        {
-          inlineData: {
-            mimeType: mimeType || 'audio/webm',
-            data: cleanBase64
-          }
-        },
-        {
-          text: `You are an expert dental transcription AI for Australian clinical dentistry.
-Transcribe the spoken operatory consultation verbatim.
-Requirements:
-1. Ensure all teeth are formatted in FDI two-digit notation (11-48).
-2. Capture dental conditions accurately (e.g. bruxism, attrition, wear facets, clenching, TMJ tenderness, pulpitis, caries).
-3. Capture procedures (e.g. occlusal splint, nightguard, composite restoration, root canal, scaling).
-4. Return a JSON object with:
+    const dentalSystemPrompt = `You are an elite Australian dental operatory audio scribe.
+Transcribe the spoken consultation verbatim with absolute fidelity.
+Requirements across all clinical specialties:
+1. Preserve FDI two-digit notation (teeth 11-48, deciduous 51-85).
+2. Transcribe diagnostic observations and tests accurately: percussion (TTP), cold sensibility, electric pulp test (EPT), pocket depths (e.g. 3-2-3 mm), BPE scores, mobility, sinus tracts.
+3. Capture procedures, pathology, and ADA codes across all disciplines:
+   - Bruxism & TMD: nocturnal grinding, clenching, attrition, wear facets with dentin exposure, masseter muscle tenderness, TMJ, occlusal splint (nightguard), ADA item 965.
+   - Endodontics: pulpitis (reversible/irreversible), necrotic pulp, periapical radiolucency, pulp extirpation, rotary instrumentation, Ledermix dressing, obturation, ADA items 411-418.
+   - Restorative: composite resin, amalgam, caries excavation, tooth surfaces (MODBL), rubber dam isolation, shade selection, articulating paper bite check, ADA items 511-535.
+   - Periodontics & Hygiene: supragingival/subgingival calculus, bleeding on probing, ultrasonic scaling, quadrant debridement, ADA items 114, 222.
+   - Oral Surgery: partially impacted tooth 48, surgical elevation, sectioning, bone removal, sutures, haemostasis, ADA item 311.
+   - Prosthodontics: crown preparation, margin definition, core build-up, silicone impression, temporary crown, ADA item 611.
+4. Output strict JSON with:
 {
-  "fullTranscript": "Full continuous dialogue text...",
+  "fullTranscript": "Continuous dialogue text...",
   "items": [
     { "sender": "Dentist" | "Patient", "text": "Exact spoken line" }
   ]
-}`
-        }
-      ],
-      config: {
-        responseMimeType: 'application/json'
-      }
-    });
+}`;
 
-    const responseText = response.text;
-    if (!responseText) {
-      throw new Error('Gemini audio transcription returned empty text.');
+    let lastError: any = null;
+    let transcribedResponse: any = null;
+
+    for (const apiKey of keyCandidates) {
+      try {
+        const ai = new GoogleGenAI({ apiKey });
+        const response = await ai.models.generateContent({
+          model: process.env.GEMINI_AUDIO_MODEL || process.env.GEMINI_MODEL || 'gemini-3.6-flash',
+          contents: [
+            {
+              inlineData: {
+                mimeType: mimeType || 'audio/webm',
+                data: cleanBase64
+              }
+            },
+            {
+              text: dentalSystemPrompt
+            }
+          ],
+          config: {
+            responseMimeType: 'application/json'
+          }
+        });
+
+        if (response.text) {
+          transcribedResponse = response.text;
+          break; // Key succeeded!
+        }
+      } catch (err: any) {
+        lastError = err;
+        logger.warn('[AudioTranscription] API key attempt failed, trying fallback:', err?.message || err);
+      }
+    }
+
+    if (!transcribedResponse) {
+      if (lastError && (lastError.status === 429 || lastError.message?.includes('RESOURCE_EXHAUSTED') || lastError.message?.includes('credits'))) {
+        return res.status(429).json({
+          error: 'Gemini audio transcription quota is exhausted or rate-limited. Falling back to operatory speech stream.',
+          code: 'QUOTA_RATE_LIMIT'
+        });
+      }
+      throw lastError || new Error('All audio transcription attempts failed.');
     }
 
     let parsed: any = {};
     try {
-      parsed = JSON.parse(responseText);
+      parsed = JSON.parse(transcribedResponse);
     } catch {
-      parsed = { fullTranscript: responseText, items: [{ sender: 'Dialogue', text: responseText }] };
+      parsed = { fullTranscript: transcribedResponse, items: [{ sender: 'Dialogue', text: transcribedResponse }] };
     }
 
     return res.json({
       ok: true,
       fullTranscript: parsed.fullTranscript || '',
       items: Array.isArray(parsed.items) ? parsed.items : [
-        { sender: 'Dialogue', text: parsed.fullTranscript || responseText }
+        { sender: 'Dialogue', text: parsed.fullTranscript || transcribedResponse }
       ]
     });
   } catch (err: any) {
