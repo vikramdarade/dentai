@@ -130,10 +130,10 @@ export default function LiveRecording({
     const canvasCtx = canvas.getContext('2d');
     if (!canvasCtx) return;
 
-    canvasCtx.fillStyle = '#faf9f7';
+    canvasCtx.fillStyle = '#0A1018';
     canvasCtx.fillRect(0, 0, canvas.width, canvas.height);
-    canvasCtx.lineWidth = 2.5;
-    canvasCtx.strokeStyle = '#cbd5e1'; // light slate line
+    canvasCtx.lineWidth = 2;
+    canvasCtx.strokeStyle = '#1E3048'; // dark cockpit line
     canvasCtx.beginPath();
     canvasCtx.moveTo(0, canvas.height / 2);
     canvasCtx.lineTo(canvas.width, canvas.height / 2);
@@ -155,12 +155,14 @@ export default function LiveRecording({
       animationFrameIdRef.current = requestAnimationFrame(draw);
       analyser.getByteTimeDomainData(dataArray);
 
-      canvasCtx.fillStyle = '#faf9f7';
+      canvasCtx.fillStyle = '#0A1018';
       canvasCtx.fillRect(0, 0, canvas.width, canvas.height);
 
-      canvasCtx.lineWidth = 2.5;
-      // Blue/cyan if VocalBridge active, purple if off
-      canvasCtx.strokeStyle = vocalBridgeActive ? '#004ac6' : '#8b5cf6';
+      canvasCtx.lineWidth = 2;
+      // Electric cyan if VocalBridge active, indigo/violet if raw
+      canvasCtx.strokeStyle = vocalBridgeActive ? '#22D3EE' : '#818CF8';
+      canvasCtx.shadowBlur = 8;
+      canvasCtx.shadowColor = vocalBridgeActive ? '#22D3EE' : '#818CF8';
       canvasCtx.beginPath();
 
       const sliceWidth = canvas.width * 1.0 / bufferLength;
@@ -181,6 +183,7 @@ export default function LiveRecording({
 
       canvasCtx.lineTo(canvas.width, canvas.height / 2);
       canvasCtx.stroke();
+      canvasCtx.shadowBlur = 0;
     };
 
     draw();
@@ -716,21 +719,21 @@ export default function LiveRecording({
   };
 
   return (
-    <div id="live-recording-container" className="h-screen w-full flex flex-col bg-[#F8F7F5] overflow-hidden text-on-surface">
+    <div id="live-recording-container" className="h-screen w-full flex flex-col bg-[#070B11] overflow-hidden text-slate-100">
       {/* Top App Bar */}
-      <header className="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-4 h-16 bg-white border-b border-outline-variant">
+      <header className="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-4 md:px-8 h-16 bg-[#0A1018]/90 backdrop-blur-md border-b border-[#1E3048]">
         <div className="flex items-center gap-3">
           <button
             onClick={onBack}
-            className="p-1 rounded-full hover:bg-slate-100 transition-all cursor-pointer"
+            className="p-2 -ml-2 rounded-xl hover:bg-[#152338] text-slate-400 hover:text-white transition-colors cursor-pointer"
           >
-            <ArrowLeft className="text-primary w-6 h-6" />
+            <ArrowLeft className="w-5 h-5" />
           </button>
           <div className="flex flex-col">
-            <h1 className="font-headline-sm text-base md:text-lg font-bold text-on-surface leading-tight">
+            <h1 className="text-base md:text-lg font-bold text-white leading-tight">
               {patientName}
             </h1>
-            <span className="font-label-sm text-[10px] text-indigo-600 font-extrabold uppercase tracking-widest leading-none">
+            <span className="font-mono text-[10px] text-cyan-400 font-bold uppercase tracking-widest leading-none">
               {getAppointmentTypeLabel(appointmentType)}
             </span>
           </div>
@@ -739,15 +742,15 @@ export default function LiveRecording({
           {clinicUsage && (
             <span
               title={`This clinic has used ${clinicUsage.used} of ${clinicUsage.limit} hosted AI notes today. Offline drafting stays available at any time.`}
-              className={`hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-[10px] font-bold uppercase tracking-wider shadow-sm ${
+              className={`hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-[10px] font-mono font-bold uppercase tracking-wider shadow-sm ${
                 clinicUsage.exceeded
-                  ? 'bg-red-50 border-red-200 text-red-700'
+                  ? 'bg-rose-950/60 border-rose-500/60 text-rose-300'
                   : clinicUsage.used >= clinicUsage.limit * 0.75
-                    ? 'bg-amber-50 border-amber-200 text-amber-700'
-                    : 'bg-white border-outline-variant text-slate-500'
+                    ? 'bg-amber-950/60 border-amber-500/60 text-amber-300'
+                    : 'bg-[#0E1724] border-[#1E3048] text-slate-300'
               }`}
             >
-              <Sparkles className={`w-3.5 h-3.5 ${clinicUsage.exceeded ? 'text-red-500' : 'text-primary'}`} />
+              <Sparkles className={`w-3.5 h-3.5 ${clinicUsage.exceeded ? 'text-rose-400' : 'text-cyan-400'}`} />
               {clinicUsage.used}/{clinicUsage.limit} AI notes today
             </span>
           )}
@@ -755,22 +758,19 @@ export default function LiveRecording({
             type="button"
             onClick={() => setShowBeaconModal(true)}
             title="Pair chairside smartphone as hands-free beacon microphone"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 transition-all cursor-pointer shadow-sm hover:shadow-md"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[#1E3048] bg-[#0E1724] hover:bg-[#152338] text-cyan-300 transition-all cursor-pointer shadow-sm"
           >
-            <Smartphone className="w-3.5 h-3.5 text-indigo-600" />
-            <span className="text-[10px] font-bold uppercase tracking-wider">Phone Beacon</span>
+            <Smartphone className="w-3.5 h-3.5 text-cyan-400" />
+            <span className="text-[10px] font-mono font-bold uppercase tracking-wider">Phone Beacon</span>
           </button>
           <button
             onClick={() => setIsAmbientMode(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-outline-variant bg-white hover:bg-slate-50 text-primary transition-all cursor-pointer mr-2 shadow-sm hover:shadow-md"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-cyan-500/40 bg-cyan-950/40 hover:bg-cyan-900/50 text-cyan-300 transition-all cursor-pointer shadow-[0_0_12px_rgba(34,211,238,0.2)]"
           >
-            <Sparkles className="w-3.5 h-3.5 text-primary animate-pulse" />
-            <span className="text-[10px] font-bold uppercase tracking-wider">Go Ambient</span>
+            <Sparkles className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
+            <span className="text-[10px] font-mono font-bold uppercase tracking-wider">Go Ambient</span>
           </button>
-          <button className="p-2 rounded-full hover:bg-slate-50 transition-colors text-slate-500 hover:text-primary">
-            <UserRound className="w-5 h-5" />
-          </button>
-          <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-primary font-bold text-xs shadow-sm">
+          <div className="w-8 h-8 rounded-xl bg-cyan-950/80 border border-cyan-800 flex items-center justify-center text-cyan-300 font-mono font-bold text-xs shadow-sm">
             {getInitials(patientName)}
           </div>
         </div>
@@ -779,57 +779,57 @@ export default function LiveRecording({
       {/* Main Transcription Stream */}
       <main className="flex-grow pt-20 pb-48 px-4 overflow-y-auto w-full max-w-2xl mx-auto custom-scrollbar flex flex-col gap-4">
         {recognitionError && (
-          <div className="w-full bg-amber-50 border border-amber-200 text-amber-900 px-4 py-3.5 rounded-xl flex items-start justify-between shadow-sm animate-fade-in mb-2 font-sans">
+          <div className="w-full bg-amber-950/40 border border-amber-500/40 text-amber-200 px-4 py-3.5 rounded-xl flex items-start justify-between shadow-sm animate-fade-in mb-2 font-sans">
             <div className="flex items-start gap-2.5">
-              <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+              <AlertCircle className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
               <div className="flex flex-col">
-                <span className="font-bold text-xs uppercase tracking-wider text-amber-700">Microphone Status Alert</span>
-                <p className="text-xs text-amber-850 mt-0.5 leading-relaxed">{recognitionError}</p>
+                <span className="font-mono font-bold text-xs uppercase tracking-wider text-amber-300">Microphone Status Alert</span>
+                <p className="text-xs text-amber-200/90 mt-0.5 leading-relaxed">{recognitionError}</p>
               </div>
             </div>
-            <button onClick={() => setRecognitionError(null)} className="p-1 text-amber-400 hover:text-amber-700 rounded-full transition-colors cursor-pointer">
+            <button onClick={() => setRecognitionError(null)} className="p-1 text-amber-400 hover:text-amber-200 rounded-full transition-colors cursor-pointer">
               <X className="w-4 h-4" />
             </button>
           </div>
         )}
 
         {errorMsg && (
-          <div className="w-full bg-red-50 border border-red-200 text-red-800 px-4 py-3.5 rounded-xl shadow-sm animate-fade-in mb-2">
+          <div className="w-full bg-rose-950/40 border border-rose-500/40 text-rose-200 px-4 py-3.5 rounded-xl shadow-sm animate-fade-in mb-2">
             <div className="flex items-start justify-between">
               <div className="flex items-start gap-2.5">
-                <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                <AlertCircle className="w-5 h-5 text-rose-400 flex-shrink-0 mt-0.5" />
                 <div className="flex flex-col">
-                  <span className="font-bold text-xs uppercase tracking-wider text-red-650">
+                  <span className="font-mono font-bold text-xs uppercase tracking-wider text-rose-300">
                     {isQuotaFailure(errorMsg) ? 'AI quota reached — hosted AI unavailable' : 'Error Compiling Notes'}
                   </span>
-                  <p className="text-xs text-red-700 mt-0.5 leading-relaxed">{errorMsg}</p>
+                  <p className="text-xs text-rose-200/90 mt-0.5 leading-relaxed">{errorMsg}</p>
                   {(isQuotaFailure(errorMsg) || /offline|on-device|webgpu|model/i.test(errorMsg)) && (
-                    <p className="text-xs text-red-700 mt-2 font-semibold">No clinical record was created and your transcript is preserved. Choose how to continue below.</p>
+                    <p className="text-xs text-rose-300 mt-2 font-semibold">No clinical record was created and your transcript is preserved. Choose how to continue below.</p>
                   )}
                 </div>
               </div>
-              <button onClick={() => setErrorMsg(null)} className="p-1 text-red-400 hover:text-red-650 rounded-full transition-colors cursor-pointer">
+              <button onClick={() => setErrorMsg(null)} className="p-1 text-rose-400 hover:text-rose-200 rounded-full transition-colors cursor-pointer">
                 <X className="w-4 h-4" />
               </button>
             </div>
             <div className="flex flex-col sm:flex-row gap-2 mt-3">
               <button
                 onClick={handleFinishNote}
-                className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-white border border-red-200 text-red-700 font-bold text-[11px] uppercase tracking-wider hover:bg-red-100/60 transition-all active:scale-95 cursor-pointer"
+                className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-[#0E1724] border border-[#1E3048] text-slate-200 font-mono font-bold text-[11px] uppercase tracking-wider hover:bg-[#152338] transition-all active:scale-95 cursor-pointer"
               >
-                <RefreshCw className="w-3.5 h-3.5" /> Retry hosted AI
+                <RefreshCw className="w-3.5 h-3.5 text-cyan-400" /> Retry hosted AI
               </button>
               <button
                 onClick={handleDraftOffline}
-                className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-red-700 text-white font-bold text-[11px] uppercase tracking-wider hover:bg-red-800 transition-all active:scale-95 cursor-pointer"
+                className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-mono font-bold text-[11px] uppercase tracking-wider transition-all active:scale-95 cursor-pointer"
               >
                 <WifiOff className="w-3.5 h-3.5" /> Draft offline now
               </button>
               <button
                 onClick={handleOnDeviceModel}
-                className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-white border border-red-200 text-slate-700 font-bold text-[11px] uppercase tracking-wider hover:bg-slate-100 transition-all active:scale-95 cursor-pointer"
+                className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-[#0E1724] border border-[#1E3048] text-slate-200 font-mono font-bold text-[11px] uppercase tracking-wider hover:bg-[#152338] transition-all active:scale-95 cursor-pointer"
               >
-                <Bot className="w-3.5 h-3.5" /> On-device model
+                <Bot className="w-3.5 h-3.5 text-cyan-400" /> On-device model
               </button>
             </div>
           </div>
@@ -837,29 +837,29 @@ export default function LiveRecording({
 
         {/* Connection Started pill */}
         <div className="flex justify-center my-2">
-          <span className="font-label-md text-[11px] font-semibold text-slate-500 bg-white/80 border border-outline-variant/50 px-3 py-1.5 rounded-full shadow-sm">
-            {formatClock(sessionStart)} - Clinical Session Started
+          <span className="font-mono text-[11px] font-semibold text-slate-400 bg-[#0E1724] border border-[#1E3048] px-3.5 py-1.5 rounded-full shadow-sm">
+            {formatClock(sessionStart)} - Operatory Session Active
           </span>
         </div>
 
         {/* Conversation flow */}
         <div className="flex flex-col gap-4">
           {transcript.length === 0 && (
-            <div className="flex flex-col items-center justify-center p-8 bg-white border border-dashed border-slate-300 rounded-2xl text-center text-slate-500 my-4 shadow-sm max-w-md mx-auto w-full">
-              <Mic className="w-8 h-8 text-primary mb-3 animate-pulse" />
-              <h4 className="font-bold text-sm text-slate-700">Ready to Capture Session</h4>
+            <div className="flex flex-col items-center justify-center p-8 bg-[#0E1724]/70 border border-dashed border-[#1E3048] rounded-2xl text-center text-slate-400 my-4 shadow-sm max-w-md mx-auto w-full">
+              <Mic className="w-8 h-8 text-cyan-400 mb-3 animate-pulse" />
+              <h4 className="font-bold text-sm text-white">Ready to Capture Session</h4>
               <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
                 Click the microphone button to start recording the live dentist-patient interaction, or type comments manually.
               </p>
-              <div className="mt-4 pt-4 border-t border-slate-100 w-full flex flex-col items-center gap-2.5">
-                <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Test with a sample audio transcript:</span>
+              <div className="mt-4 pt-4 border-t border-[#1E3048] w-full flex flex-col items-center gap-2.5">
+                <span className="font-mono text-[9px] text-cyan-400 font-bold uppercase tracking-wider">Test with a sample audio transcript:</span>
                 <select
                   value={sampleType}
                   onChange={(e) => setSampleType(e.target.value as AppointmentType)}
-                  className="w-full h-9 px-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 focus:ring-1 focus:ring-primary focus:border-primary outline-none transition-all"
+                  className="w-full h-9 px-2.5 bg-[#0A1018] border border-[#1E3048] rounded-lg text-xs font-semibold text-slate-200 focus:ring-1 focus:ring-cyan-400 focus:border-cyan-400 outline-none transition-all cursor-pointer"
                 >
                   {SAMPLE_TRANSCRIPTS.map((s) => (
-                    <option key={s.appointmentType} value={s.appointmentType}>
+                    <option key={s.appointmentType} value={s.appointmentType} className="bg-[#0A1018] text-slate-200">
                       {s.title} — {s.patient}
                     </option>
                   ))}
@@ -867,14 +867,13 @@ export default function LiveRecording({
                 <button
                   type="button"
                   onClick={() => loadSampleTranscript(sampleType)}
-                  className="w-full px-4 py-2 bg-indigo-50 border border-indigo-150 hover:bg-indigo-100 text-primary font-bold text-xs rounded-lg transition-all cursor-pointer shadow-sm"
+                  className="w-full px-4 py-2 bg-cyan-950/60 border border-cyan-800 hover:bg-cyan-900/60 text-cyan-300 font-mono font-bold text-xs uppercase tracking-wider rounded-lg transition-all cursor-pointer shadow-sm"
                 >
                   Load Sample Audio Transcript
                 </button>
-                <p className="text-[9px] text-slate-400 leading-relaxed text-left w-full">
+                <p className="text-[10px] text-slate-500 leading-relaxed text-left w-full">
                   The note is generated against the template chosen at intake —{' '}
-                  {getTemplateById(templateId).name} for {getAppointmentTypeLabel(appointmentType)}.
-                  Pick the same treatment type at intake for an exact template match.
+                  <span className="text-slate-300 font-semibold">{getTemplateById(templateId).name}</span> for {getAppointmentTypeLabel(appointmentType)}.
                 </p>
               </div>
             </div>
@@ -885,16 +884,16 @@ export default function LiveRecording({
             const isLegacyDentist = item.sender === 'Dentist';
             const isLegacyPatient = item.sender === 'Patient';
 
-            let badgeBg = 'bg-slate-100 text-slate-600 border-slate-200';
+            let badgeBg = 'bg-[#121E2E] text-slate-300 border-[#1E3048]';
             let badgeLabel = 'Session Audio';
             if (isComment) {
-              badgeBg = 'bg-blue-50 text-blue-700 border-blue-150';
+              badgeBg = 'bg-cyan-950/60 text-cyan-300 border-cyan-800/60';
               badgeLabel = 'Clinical Comment';
             } else if (isLegacyDentist) {
-              badgeBg = 'bg-indigo-50 text-indigo-700 border-indigo-150';
+              badgeBg = 'bg-blue-950/60 text-blue-300 border-blue-800/60';
               badgeLabel = 'Dentist';
             } else if (isLegacyPatient) {
-              badgeBg = 'bg-amber-50 text-amber-700 border-amber-150';
+              badgeBg = 'bg-emerald-950/60 text-emerald-300 border-emerald-800/60';
               badgeLabel = 'Patient';
             }
 
@@ -906,16 +905,16 @@ export default function LiveRecording({
                 transition={{ duration: 0.25 }}
                 className="flex flex-col w-full"
               >
-                <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-sm hover:shadow-md transition-all flex flex-col gap-2">
-                  <div className="flex justify-between items-center text-[10px] font-bold uppercase tracking-wider">
-                    <span className={`px-2 py-0.5 rounded-full border ${badgeBg}`}>
+                <div className="bg-[#0E1724] border border-[#1E3048] rounded-2xl p-4 shadow-sm hover:border-[#2a4365] transition-all flex flex-col gap-2">
+                  <div className="flex justify-between items-center text-[10px] font-mono font-bold uppercase tracking-wider">
+                    <span className={`px-2 py-0.5 rounded-md border ${badgeBg}`}>
                       {badgeLabel}
                     </span>
-                    <span className="text-slate-400 font-mono">
+                    <span className="text-slate-500 font-mono">
                       {formatTime(itemTimes[idx] ?? Math.max(0, seconds - Math.max(0, transcript.length - idx) * 3))}
                     </span>
                   </div>
-                  <p className="font-transcription-text text-slate-800 leading-relaxed text-[14.5px]">
+                  <p className="font-transcription-text text-slate-100 leading-relaxed text-[14.5px]">
                     {item.text}
                   </p>
                 </div>
@@ -928,16 +927,16 @@ export default function LiveRecording({
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
-              className="bg-emerald-50/80 border-l-4 border-emerald-600 p-4 my-2 rounded-r-xl shadow-sm flex flex-col gap-1.5"
+              className="bg-emerald-950/30 border-l-4 border-emerald-400 border-t border-r border-b border-[#1E3048] p-4 my-2 rounded-r-xl shadow-sm flex flex-col gap-1.5"
             >
               <div className="flex items-center gap-2">
-                <Sparkles className="text-emerald-700 w-4 h-4" />
-                <span className="font-label-md text-emerald-800 font-bold uppercase tracking-wider text-xs">
+                <Sparkles className="text-emerald-400 w-4 h-4" />
+                <span className="font-mono text-emerald-300 font-bold uppercase tracking-wider text-xs">
                   Clinical Terms Detected
                 </span>
               </div>
-              <p className="font-body-md text-emerald-900 text-sm font-medium leading-relaxed">
-                The session transcript contains clinical terminology (e.g. tooth numbers, sensitivity, treatment terms). Confirm the generated note against the conversation before saving.
+              <p className="text-emerald-200/90 text-xs font-medium leading-relaxed">
+                The session transcript contains clinical terminology (e.g. tooth numbers, sensitivity, restorative targets). Findings will be extracted automatically into your note.
               </p>
             </motion.div>
           )}
@@ -947,45 +946,44 @@ export default function LiveRecording({
             <motion.div
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              className="flex flex-col w-full opacity-85"
+              className="flex flex-col w-full opacity-90"
             >
-              <div className="bg-white border border-dashed border-red-200 rounded-2xl p-4 shadow-inner flex flex-col gap-2">
-                <div className="flex justify-between items-center text-[10px] font-bold uppercase tracking-wider">
-                  <span className="px-2 py-0.5 rounded-full border bg-red-50 text-red-700 border-red-150 animate-pulse flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 bg-red-650 rounded-full animate-ping"></span>
-                    <span>Transcribing Voice...</span>
+              <div className="bg-[#0E1724] border border-dashed border-cyan-400/50 rounded-2xl p-4 shadow-inner flex flex-col gap-2">
+                <div className="flex justify-between items-center text-[10px] font-mono font-bold uppercase tracking-wider">
+                  <span className="px-2 py-0.5 rounded-md border bg-cyan-950/60 text-cyan-300 border-cyan-800/60 animate-pulse flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 bg-cyan-400 rounded-full animate-ping"></span>
+                    <span>Transcribing Operatory Voice...</span>
                   </span>
                 </div>
-                <p className="font-transcription-text text-slate-700 italic leading-relaxed text-[14.5px]">
+                <p className="font-transcription-text text-slate-300 italic leading-relaxed text-[14.5px]">
                   {interimTranscript}
                 </p>
               </div>
             </motion.div>
           )}
 
-          {/* Mic status indicator — fixed-height container so recognition restarts swap
-              the label without shifting the transcript layout (no more bouncing). */}
+          {/* Mic status indicator — fixed-height container */}
           {isRecording && (
             <div className="flex flex-col items-start max-w-[85%] self-start mt-2 min-h-[64px] justify-end opacity-90">
               {isListening ? (
-                <span className="text-xs font-bold text-[#e11d48] mb-1 ml-1 animate-pulse flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 bg-[#e11d48] rounded-full"></span>
-                  <span>Recording Audio (en-AU mic active)...</span>
+                <span className="text-xs font-mono font-bold text-rose-400 mb-1 ml-1 animate-pulse flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 bg-rose-500 rounded-full animate-ping"></span>
+                  <span>Capturing Operatory Audio (en-AU)...</span>
                 </span>
               ) : (
                 <>
-                  <span className="text-xs font-bold text-slate-400 mb-1 ml-1">
-                    Listening...
+                  <span className="text-xs font-mono font-bold text-slate-500 mb-1 ml-1">
+                    Mic Standby...
                   </span>
-                  <div className="bg-slate-100 p-4 rounded-xl rounded-tl-none border border-dashed border-slate-300">
+                  <div className="bg-[#0E1724] p-3 rounded-xl rounded-tl-none border border-[#1E3048]">
                     <div className="flex items-center gap-1.5 px-1 py-0.5">
-                      <div className="w-2.5 h-2.5 bg-slate-400 rounded-full animate-bounce"></div>
+                      <div className="w-2 h-2 bg-slate-600 rounded-full animate-bounce"></div>
                       <div
-                        className="w-2.5 h-2.5 bg-slate-400 rounded-full animate-bounce"
+                        className="w-2 h-2 bg-slate-600 rounded-full animate-bounce"
                         style={{ animationDelay: '0.2s' }}
                       ></div>
                       <div
-                        className="w-2.5 h-2.5 bg-slate-400 rounded-full animate-bounce"
+                        className="w-2 h-2 bg-slate-600 rounded-full animate-bounce"
                         style={{ animationDelay: '0.4s' }}
                       ></div>
                     </div>
@@ -1001,16 +999,18 @@ export default function LiveRecording({
 
       {/* Floating Speech Board (Mic + Simulation controls) */}
       {isRecording && (
-        <div id="speech-simulation-board" className="fixed bottom-36 left-0 w-full px-4 z-40">
-          <div className="max-w-2xl mx-auto bg-white border border-outline-variant rounded-2xl p-4 shadow-xl flex flex-col gap-4">
+        <div id="speech-simulation-board" className="fixed bottom-36 left-0 w-full px-4 z-40 pointer-events-none">
+          <div className="max-w-2xl mx-auto bg-[#0A1018]/95 backdrop-blur-md border border-[#1E3048] rounded-2xl p-4 shadow-2xl flex flex-col gap-4 pointer-events-auto">
             
             {/* Top row: Section title & encryption flag */}
-            <div className="flex items-center justify-between text-xs text-slate-500 font-bold uppercase tracking-wider border-b border-slate-100 pb-2">
-              <span className="flex items-center gap-1.5 text-primary">
+            <div className="flex items-center justify-between text-xs text-slate-400 font-mono font-bold uppercase tracking-wider border-b border-[#1E3048] pb-2">
+              <span className="flex items-center gap-1.5 text-cyan-400">
                 <Mic className="w-4 h-4" />
-                <span>Active Session Capture</span>
+                <span>Active Operatory Capture</span>
               </span>
-              <span className="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-250 font-semibold text-[10px]">Secure &amp; Confidential</span>
+              <span className="text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-800/60 font-semibold text-[10px]">
+                Secure &amp; Encrypted
+              </span>
             </div>
 
             {/* Split layout: Left (Microphone controls) / Right (Simulator controls) */}
@@ -1018,10 +1018,10 @@ export default function LiveRecording({
               
               {/* Left Column: Live Audio Transcription */}
               <div className="flex flex-col gap-2.5">
-                <span className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wide">Live Microphone</span>
+                <span className="font-mono text-[10px] text-slate-400 font-bold uppercase tracking-wide">Live Microphone</span>
                 
                 {recognitionError && (
-                  <div className="text-xs bg-red-50 text-red-755 p-2 rounded-lg border border-red-150 flex items-start gap-1">
+                  <div className="text-xs bg-rose-950/40 text-rose-300 p-2 rounded-lg border border-rose-500/40 flex items-start gap-1">
                     <AlertCircle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
                     <span>{recognitionError}</span>
                   </div>
@@ -1034,17 +1034,17 @@ export default function LiveRecording({
                     onClick={toggleSpeechRecognition}
                     className={`w-12 h-12 rounded-xl flex items-center justify-center border transition-all cursor-pointer shadow-sm relative ${
                       isListening
-                        ? 'bg-red-55 border-red-200 text-red-650 animate-pulse'
-                        : 'bg-slate-50 border-slate-200 text-slate-650 hover:bg-slate-100'
+                        ? 'bg-rose-950/60 border-rose-500/70 text-rose-400 shadow-[0_0_16px_rgba(244,63,94,0.3)]'
+                        : 'bg-[#0E1724] border-[#1E3048] text-slate-400 hover:text-white hover:bg-[#152338]'
                     }`}
                     title={isListening ? "Stop voice recording" : "Start voice recording"}
                   >
                     {isListening ? (
                       <>
-                        <Mic className="w-5 h-5 text-red-600 animate-pulse" />
+                        <Mic className="w-5 h-5 text-rose-400 animate-pulse" />
                         <span className="absolute -top-1 -right-1 flex h-3.5 w-3.5">
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                          <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-red-500"></span>
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-rose-500"></span>
                         </span>
                       </>
                     ) : (
@@ -1054,17 +1054,17 @@ export default function LiveRecording({
 
                   {/* Speaker Status Info */}
                   <div className="flex-grow flex flex-col gap-1">
-                    <span className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wide">Status:</span>
-                    <span className="text-xs text-slate-600 font-semibold flex items-center gap-1.5 mt-1">
+                    <span className="font-mono text-[10px] text-slate-500 font-bold uppercase tracking-wide">Audio Engine:</span>
+                    <span className="text-xs font-semibold flex items-center gap-1.5 mt-0.5">
                       {isListening ? (
                         <>
-                          <span className="w-2 h-2 bg-red-600 rounded-full animate-ping"></span>
-                          <span className="text-red-700">Capturing live conversation...</span>
+                          <span className="w-2 h-2 bg-rose-500 rounded-full animate-ping"></span>
+                          <span className="text-rose-400 font-mono text-[11px]">Streaming operatory voice...</span>
                         </>
                       ) : (
                         <>
-                          <span className="w-2 h-2 bg-slate-400 rounded-full"></span>
-                          <span>Microphone on standby</span>
+                          <span className="w-2 h-2 bg-slate-600 rounded-full"></span>
+                          <span className="text-slate-400 font-mono text-[11px]">Microphone on standby</span>
                         </>
                       )}
                     </span>
@@ -1072,26 +1072,26 @@ export default function LiveRecording({
                 </div>
 
                 {/* VocalBridge Active Noise Cancellation / Filter toggle */}
-                <div className="flex items-center justify-between mt-1 pt-1.5 border-t border-slate-100">
-                  <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider flex items-center gap-1">
-                    <Sparkles className="w-3 h-3 text-primary" />
-                    <span>VocalBridge Visualizer Filter</span>
+                <div className="flex items-center justify-between mt-1 pt-1.5 border-t border-[#1E3048]">
+                  <span className="font-mono text-[9px] text-slate-400 font-bold uppercase tracking-wider flex items-center gap-1">
+                    <Sparkles className="w-3 h-3 text-cyan-400" />
+                    <span>VocalBridge DSP Filter</span>
                   </span>
                   <button
                     type="button"
                     onClick={() => setVocalBridgeActive(prev => !prev)}
-                    className={`px-2.5 py-0.5 rounded text-[8px] font-extrabold uppercase tracking-wide transition-all border cursor-pointer ${
+                    className={`px-2.5 py-0.5 rounded text-[8px] font-mono font-bold uppercase tracking-wide transition-all border cursor-pointer ${
                       vocalBridgeActive
-                        ? 'bg-emerald-50 border-emerald-250 text-emerald-700 shadow-sm'
-                        : 'bg-slate-50 border-slate-200 text-slate-650'
+                        ? 'bg-emerald-950/60 border-emerald-700/60 text-emerald-300 shadow-sm'
+                        : 'bg-[#0E1724] border-[#1E3048] text-slate-400'
                     }`}
                   >
-                    {vocalBridgeActive ? 'ACTIVE (120Hz - 4.2kHz Operatory Filter)' : 'INACTIVE'}
+                    {vocalBridgeActive ? 'ACTIVE (120Hz-4.2kHz Bandpass)' : 'RAW PASS'}
                   </button>
                 </div>
 
                 {/* Web Audio API Waveform Visualizer Canvas */}
-                <div className="bg-slate-100 rounded-lg overflow-hidden border border-slate-200 h-10 relative flex items-center justify-center">
+                <div className="bg-[#0A1018] rounded-xl overflow-hidden border border-[#1E3048] h-10 relative flex items-center justify-center">
                   <canvas
                     ref={canvasRef}
                     width={300}
@@ -1099,60 +1099,53 @@ export default function LiveRecording({
                     className="w-full h-full block"
                   />
                   {!isListening && (
-                    <span className="absolute text-[8px] text-slate-400 font-extrabold uppercase tracking-widest pointer-events-none">
+                    <span className="absolute text-[8px] font-mono text-slate-600 font-bold uppercase tracking-widest pointer-events-none">
                       Microphone Suspended
                     </span>
                   )}
                   {isListening && (
-                    <span className={`absolute top-1 left-1 px-1.5 py-0.5 rounded text-[7px] font-extrabold tracking-wider uppercase leading-none shadow-sm ${
-                      vocalBridgeActive ? 'bg-blue-600 text-white animate-pulse' : 'bg-purple-600 text-white'
+                    <span className={`absolute top-1 left-1 px-1.5 py-0.5 rounded text-[7px] font-mono font-bold tracking-wider uppercase leading-none shadow-sm ${
+                      vocalBridgeActive ? 'bg-cyan-950 border border-cyan-700 text-cyan-300' : 'bg-indigo-950 border border-indigo-700 text-indigo-300'
                     }`}>
-                      {vocalBridgeActive ? 'Filtered Audio Preview' : 'Raw Audio Feed'}
+                      {vocalBridgeActive ? 'Filtered Operatory Feed' : 'Raw Input'}
                     </span>
                   )}
                 </div>
-                
-                {isListening && (
-                  <span className="text-[10px] text-red-650 font-bold animate-pulse flex items-center gap-1 mt-0.5">
-                    <span className="w-1.5 h-1.5 bg-red-600 rounded-full"></span>
-                    <span>Microphone is listening (en-AU)...</span>
-                  </span>
-                )}
               </div>
 
               {/* Right Column: Preset / Simulation Shortcuts */}
-              <div className="flex flex-col gap-2.5 border-t md:border-t-0 md:border-l border-slate-150 pt-3 md:pt-0 md:pl-4">
-                <span className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wide">Simulation Presets</span>
+              <div className="flex flex-col gap-2.5 border-t md:border-t-0 md:border-l border-[#1E3048] pt-3 md:pt-0 md:pl-4">
+                <span className="font-mono text-[10px] text-slate-400 font-bold uppercase tracking-wide">Simulation Presets</span>
                 
                 <div className="flex flex-col gap-2">
                   {nextPresetIndex < presetPhrases.length ? (
                     <button
                       type="button"
                       onClick={triggerNextPreset}
-                      className="w-full px-3 py-2 bg-indigo-50 border border-indigo-100 hover:bg-[#efecff] text-primary font-bold text-xs rounded-lg transition-all flex items-center justify-between gap-1.5 cursor-pointer"
+                      className="w-full px-3 py-2 bg-[#0E1724] border border-[#1E3048] hover:bg-[#152338] text-cyan-300 font-bold text-xs rounded-xl transition-all flex items-center justify-between gap-1.5 cursor-pointer"
                     >
                       <div className="flex items-center gap-1.5 truncate">
-                        <Sparkles className="w-3.5 h-3.5 flex-shrink-0" />
-                        <span className="truncate">Say: "{presetPhrases[nextPresetIndex].sender}: {presetPhrases[nextPresetIndex].text.substring(0, 25)}..."</span>
+                        <Sparkles className="w-3.5 h-3.5 text-cyan-400 flex-shrink-0" />
+                        <span className="truncate text-slate-200">Say: "{presetPhrases[nextPresetIndex].sender}: {presetPhrases[nextPresetIndex].text.substring(0, 25)}..."</span>
                       </div>
-                      <span className="bg-white border border-indigo-200 px-1.5 py-0.5 rounded text-[8px] font-extrabold uppercase text-indigo-700">Add Preset</span>
+                      <span className="bg-[#0A1018] border border-cyan-800/80 px-1.5 py-0.5 rounded text-[8px] font-mono font-bold uppercase text-cyan-400">Add</span>
                     </button>
                   ) : (
-                    <div className="text-[10px] font-semibold text-slate-400 italic py-1">Simulation presets finished — use a sample transcript below, manual text, or the live microphone.</div>
+                    <div className="text-[10px] font-mono text-slate-500 italic py-1">Simulation presets completed.</div>
                   )}
                 </div>
 
-                {/* Sample audio transcripts — always available while the session is recording */}
-                <div className="flex flex-col gap-1.5 pt-2.5 border-t border-slate-150">
-                  <span className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wide">Or Load a Sample Audio Transcript</span>
+                {/* Sample audio transcripts */}
+                <div className="flex flex-col gap-1.5 pt-2 border-t border-[#1E3048]">
+                  <span className="font-mono text-[10px] text-slate-400 font-bold uppercase tracking-wide">Load Full Sample Audio</span>
                   <div className="flex gap-1.5">
                     <select
                       value={sampleType}
                       onChange={(e) => setSampleType(e.target.value as AppointmentType)}
-                      className="flex-1 min-w-0 h-8 px-2 bg-slate-50 border border-slate-200 rounded-lg text-[11px] font-semibold text-slate-700 focus:ring-1 focus:ring-primary focus:border-primary outline-none transition-all"
+                      className="flex-1 min-w-0 h-8 px-2 bg-[#0E1724] border border-[#1E3048] rounded-lg text-[11px] font-semibold text-slate-200 focus:ring-1 focus:ring-cyan-400 focus:border-cyan-400 outline-none transition-all cursor-pointer"
                     >
                       {SAMPLE_TRANSCRIPTS.map((s) => (
-                        <option key={s.appointmentType} value={s.appointmentType}>
+                        <option key={s.appointmentType} value={s.appointmentType} className="bg-[#0A1018] text-slate-200">
                           {s.title} — {s.patient}
                         </option>
                       ))}
@@ -1160,35 +1153,30 @@ export default function LiveRecording({
                     <button
                       type="button"
                       onClick={() => loadSampleTranscript(sampleType)}
-                      className="shrink-0 px-3 h-8 bg-indigo-50 border border-indigo-150 hover:bg-indigo-100 text-primary font-bold text-[10px] uppercase tracking-wide rounded-lg transition-all active:scale-95 cursor-pointer"
+                      className="shrink-0 px-3 h-8 bg-cyan-950/60 border border-cyan-800 hover:bg-cyan-900/60 text-cyan-300 font-mono font-bold text-[10px] uppercase tracking-wide rounded-lg transition-all active:scale-95 cursor-pointer"
                     >
-                      Load Sample
+                      Load
                     </button>
                   </div>
-                  <p className="text-[9px] text-slate-400 leading-snug">
-                    Fills the session with a realistic consultation for that treatment type. The note is drafted against the
-                    template chosen at intake ({getTemplateById(templateId).name}) — pick the matching treatment type there
-                    for an exact template test.
-                  </p>
                 </div>
               </div>
             </div>
 
             {/* Manual Commentary (Full Width) */}
-            <div className="border-t border-slate-100 pt-3 mt-1 flex flex-col gap-2">
-              <span className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wide">Or Type Manual Clinical Comments</span>
+            <div className="border-t border-[#1E3048] pt-3 mt-1 flex flex-col gap-2">
+              <span className="font-mono text-[10px] text-slate-400 font-bold uppercase tracking-wide">Manual Operatory Findings</span>
               <form onSubmit={handleSendCustom} className="flex gap-2">
                 <div className="flex-grow relative">
                   <input
                     type="text"
-                    placeholder="Type a clinical comment and press Enter (e.g. Tooth 16 percussion positive)..."
+                    placeholder="Type clinical observation (e.g. Tooth 16 percussion positive, mesial decay)..."
                     value={customInput}
                     onChange={(e) => setCustomInput(e.target.value)}
-                    className="w-full h-10 bg-slate-50 border border-slate-200 rounded-xl px-4 pr-10 text-xs focus:ring-1 focus:ring-primary focus:border-primary outline-none text-on-surface"
+                    className="w-full h-10 bg-[#0E1724] border border-[#1E3048] rounded-xl px-4 pr-10 text-xs text-slate-100 placeholder:text-slate-500 focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400/30 outline-none"
                   />
                   <button
                     type="submit"
-                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-primary hover:text-[#004ac6] transition-all font-bold cursor-pointer"
+                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-cyan-400 hover:text-cyan-300 transition-all font-bold cursor-pointer"
                   >
                     <CornerDownLeft className="w-4 h-4" />
                   </button>
@@ -1200,16 +1188,16 @@ export default function LiveRecording({
       )}
 
       {/* Persistent Bottom Recording Toolbar */}
-      <footer className="fixed bottom-0 left-0 w-full h-32 bg-white/90 backdrop-blur-md border-t border-outline-variant flex flex-col items-center justify-center px-4 pb-safe z-30">
+      <footer className="fixed bottom-0 left-0 w-full h-32 bg-[#0A1018]/95 backdrop-blur-md border-t border-[#1E3048] flex flex-col items-center justify-center px-4 pb-safe z-30">
         <div className="flex items-center justify-between w-full max-w-2xl">
           {/* Recording Status indicator badge containing clock */}
-          <div className="bg-[#1a1a2e] text-white px-5 py-3 rounded-full flex items-center gap-3.5 shadow-lg">
+          <div className="bg-[#070B11] border border-[#1E3048] text-white px-5 py-2.5 rounded-2xl flex items-center gap-3.5 shadow-lg">
             <div
-              className={`w-3 h-3 bg-red-600 rounded-full ${
+              className={`w-3 h-3 bg-rose-500 rounded-full ${
                 isRecording ? 'animate-ping duration-1000' : ''
               }`}
             ></div>
-            <span className="font-mono text-lg font-extrabold tracking-widest">
+            <span className="font-mono text-lg font-bold tracking-widest text-cyan-400">
               {formatTime(seconds)}
             </span>
           </div>
@@ -1219,7 +1207,7 @@ export default function LiveRecording({
             {/* Reset button */}
             <button
               onClick={() => setShowResetConfirm(true)}
-              className="w-12 h-12 rounded-full border border-outline-variant flex items-center justify-center hover:bg-red-50 text-slate-650 hover:text-red-700 transition-colors cursor-pointer active:scale-95"
+              className="w-12 h-12 rounded-xl border border-[#1E3048] bg-[#0E1724] flex items-center justify-center hover:bg-rose-950/30 text-slate-400 hover:text-rose-400 hover:border-rose-500/40 transition-colors cursor-pointer active:scale-95"
               title="Reset Session"
             >
               <RotateCcw className="w-5 h-5" />
@@ -1228,12 +1216,12 @@ export default function LiveRecording({
             {/* Play-Pause triggers */}
             <button
               onClick={() => setIsRecording(!isRecording)}
-              className="w-12 h-12 rounded-full border border-outline-variant flex items-center justify-center hover:bg-slate-50 transition-colors cursor-pointer active:scale-95"
+              className="w-12 h-12 rounded-xl border border-[#1E3048] bg-[#0E1724] flex items-center justify-center hover:bg-[#152338] text-slate-200 hover:text-white transition-colors cursor-pointer active:scale-95"
             >
               {isRecording ? (
-                <Pause className="text-slate-800 w-5 h-5" />
+                <Pause className="w-5 h-5" />
               ) : (
-                <Play className="text-slate-800 w-5 h-5 fill-slate-800" />
+                <Play className="w-5 h-5 fill-slate-200" />
               )}
             </button>
 
@@ -1241,10 +1229,10 @@ export default function LiveRecording({
             <button
               onClick={handleFinishNote}
               disabled={transcript.length === 0}
-              className={`px-7 h-12 rounded-full font-bold text-xs uppercase tracking-widest flex items-center gap-2 shadow-lg transition-all cursor-pointer ${
+              className={`px-7 h-12 rounded-xl font-mono font-bold text-xs uppercase tracking-wider flex items-center gap-2 shadow-lg transition-all cursor-pointer ${
                 transcript.length === 0
-                  ? 'bg-slate-200 text-slate-400 border border-slate-300 cursor-not-allowed shadow-none active:scale-100'
-                  : 'bg-primary-container hover:bg-opacity-95 text-white active:scale-95'
+                  ? 'bg-[#121E2E] text-slate-600 border border-[#1E3048] cursor-not-allowed shadow-none'
+                  : 'bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-400 hover:to-emerald-400 text-slate-950 shadow-[0_0_20px_rgba(34,211,238,0.35)] active:scale-95'
               }`}
               title={transcript.length === 0 ? "Record or type dialogue first" : "Generate clinical notes"}
             >
@@ -1255,7 +1243,7 @@ export default function LiveRecording({
         </div>
 
         {/* Decorative subtle visual safe-indicator bar */}
-        <div className="w-32 h-1 bg-slate-200 rounded-full mt-3"></div>
+        <div className="w-32 h-1 bg-[#1E3048] rounded-full mt-3"></div>
       </footer>
 
       {/* Fully Immersive AI Analysis Transcribing State Interstitial */}
@@ -1265,56 +1253,56 @@ export default function LiveRecording({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-indigo-950/95 backdrop-blur-md text-white p-6"
+            className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-[#070B11]/98 backdrop-blur-xl text-white p-6"
           >
             <div className="flex flex-col items-center max-w-sm text-center">
               {/* Active Elapsed Seconds Counter Badge */}
-              <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-white/10 border border-white/15 text-indigo-200 text-xs font-mono font-bold mb-6">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+              <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-[#0E1724] border border-[#1E3048] text-cyan-300 text-xs font-mono font-bold mb-6">
+                <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span>
                 <span>Elapsed: {formatTime(processingSeconds)}</span>
               </div>
 
               {/* Spinning sparkling indicator orb */}
               <div className="relative mb-6">
-                <div className="w-20 h-20 rounded-full bg-primary-container/20 border border-primary-container flex items-center justify-center animate-spin duration-[3000s]">
-                  <Sparkles className="w-10 h-10 text-primary-fixed" />
+                <div className="w-20 h-20 rounded-full bg-cyan-500/10 border border-cyan-400 flex items-center justify-center animate-spin duration-[3000s] shadow-[0_0_30px_rgba(34,211,238,0.25)]">
+                  <Sparkles className="w-10 h-10 text-cyan-400" />
                 </div>
                 {/* Outward gradient pulse wave */}
-                <div className="absolute inset-0 rounded-full border border-indigo-400 animate-ping opacity-20"></div>
+                <div className="absolute inset-0 rounded-full border border-cyan-500/40 animate-ping opacity-20"></div>
               </div>
 
-              <h3 className="font-headline-lg text-2xl font-bold tracking-tight mb-2">
+              <h3 className="text-2xl font-bold tracking-tight mb-2 text-white">
                 Compiling Clinical Record
               </h3>
-              <p className="text-indigo-200 text-xs mb-4 leading-relaxed">
-                DentAI is synthesizing dental charting, periodontal health, and restorative requirements.
+              <p className="text-slate-400 text-xs mb-4 leading-relaxed">
+                DentAI is synthesizing tooth charts, periodontal measurements, and restorative requirements.
               </p>
 
               {/* Dynamic Status bar loading pulse bar */}
-              <div className="w-64 bg-indigo-900 h-1.5 rounded-full overflow-hidden mb-3">
-                <div className="h-full bg-[#6ffbbe] animate-pulse w-full"></div>
+              <div className="w-64 bg-[#121E2E] h-1.5 rounded-full overflow-hidden mb-3 border border-[#1E3048]">
+                <div className="h-full bg-gradient-to-r from-cyan-400 to-emerald-400 animate-pulse w-full shadow-[0_0_8px_rgba(34,211,238,0.6)]"></div>
               </div>
 
               {/* Live job status & stage description */}
               <div
                 key={processingHint || getProcessingStageDescription(processingSeconds, processingState)}
-                className="text-xs font-mono text-[#6ffbbe] tracking-wide animate-fade-in max-w-xs leading-relaxed"
+                className="text-xs font-mono text-cyan-300 tracking-wide animate-fade-in max-w-xs leading-relaxed"
               >
                 {processingHint || getProcessingStageDescription(processingSeconds, processingState)}
               </div>
 
-              {/* Proactive Zero-Wait Instant Offline Fallback (Appears if AI exceeds 8s or reports delay) */}
+              {/* Proactive Zero-Wait Instant Offline Fallback */}
               {(processingSeconds >= 8 || Boolean(processingHint)) && (
                 <motion.div
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="w-full max-w-sm mt-5 p-3.5 rounded-2xl bg-amber-500/15 border border-amber-400/30 text-amber-200 flex flex-col items-center gap-2 text-center"
+                  className="w-full max-w-sm mt-5 p-3.5 rounded-2xl bg-amber-950/40 border border-amber-500/40 text-amber-200 flex flex-col items-center gap-2 text-center"
                 >
                   <div className="flex items-center gap-2 text-xs font-bold text-amber-300">
                     <Sparkles className="w-4 h-4 text-amber-400 animate-pulse" />
                     <span>{processingHint ? 'Cloud AI High Load / Rate-Limited' : 'Cloud AI Responding Slower Than Usual'}</span>
                   </div>
-                  <p className="text-[11px] text-amber-100/80 leading-relaxed">
+                  <p className="text-[11px] text-amber-200/80 leading-relaxed">
                     Don't lose chair time waiting. Generate a complete clinical note immediately from your spoken dialogue.
                   </p>
                   <button
@@ -1323,7 +1311,7 @@ export default function LiveRecording({
                       stopProcessingTicker();
                       handleDraftOffline();
                     }}
-                    className="w-full py-2.5 px-3 rounded-xl bg-gradient-to-r from-amber-400 to-emerald-400 hover:from-amber-500 hover:to-emerald-500 text-slate-950 font-extrabold text-xs flex items-center justify-center gap-2 shadow-lg transition-all cursor-pointer active:scale-95"
+                    className="w-full py-2.5 px-3 rounded-xl bg-gradient-to-r from-amber-400 to-emerald-400 hover:from-amber-300 hover:to-emerald-300 text-slate-950 font-extrabold text-xs flex items-center justify-center gap-2 shadow-lg transition-all cursor-pointer active:scale-95"
                   >
                     <Check className="w-4 h-4 text-slate-950 stroke-[3]" />
                     <span>Generate Instant Offline Note (0s Wait)</span>
@@ -1335,7 +1323,7 @@ export default function LiveRecording({
               <button
                 type="button"
                 onClick={stopProcessingTicker}
-                className="mt-4 text-xs font-semibold text-indigo-300 hover:text-white underline cursor-pointer transition-colors"
+                className="mt-4 text-xs font-mono text-slate-400 hover:text-white underline cursor-pointer transition-colors"
               >
                 Cancel & Return to Dialogue
               </button>
@@ -1352,18 +1340,18 @@ export default function LiveRecording({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.3 }}
-            className="fixed inset-0 z-[60] bg-gradient-to-b from-[#0b0f19] to-[#120f26] text-white flex flex-col justify-between p-6 select-none"
+            className="fixed inset-0 z-[60] bg-gradient-to-b from-[#070B11] to-[#0A1018] text-white flex flex-col justify-between p-6 select-none"
           >
             <div className="w-full max-w-2xl h-full flex flex-col justify-between mx-auto">
             {/* Header */}
-            <div className="relative z-50 flex items-center justify-between h-16 border-b border-white/5">
+            <div className="relative z-50 flex items-center justify-between h-16 border-b border-[#1E3048]">
               <div className="flex flex-col">
-                <span className="text-[10px] text-indigo-400 font-extrabold uppercase tracking-widest leading-none font-bold">Smart Scribe</span>
-                <span className="text-sm font-bold text-slate-200 mt-1">{patientName}</span>
+                <span className="text-[10px] text-cyan-400 font-mono font-bold uppercase tracking-widest leading-none">Operatory Scribe</span>
+                <span className="text-sm font-bold text-white mt-1">{patientName}</span>
               </div>
               <button
                 onClick={() => setIsAmbientMode(false)}
-                className="px-3.5 h-8.5 rounded-full border border-white/10 hover:border-white/20 bg-white/5 hover:bg-white/10 font-bold text-[9px] uppercase tracking-wider transition-colors cursor-pointer"
+                className="px-3.5 h-8.5 rounded-xl border border-[#1E3048] hover:border-cyan-500/50 bg-[#0E1724] hover:bg-[#152338] font-mono font-bold text-[9px] uppercase tracking-wider text-slate-300 hover:text-white transition-colors cursor-pointer"
               >
                 Exit Ambient Mode
               </button>
@@ -1375,28 +1363,27 @@ export default function LiveRecording({
               className="flex-grow flex flex-col items-center justify-center gap-6 cursor-pointer relative z-10 group"
               title={isRecording ? "Click to Pause" : "Click to Resume"}
             >
-              {/* Pulsing Audio Orb (Aesthetic Circular Waveform) */}
+              {/* Pulsing Audio Orb */}
               <div className="relative flex items-center justify-center">
-                {/* Outer glowing layers */}
                 {isRecording && (
                   <>
                     <motion.div
                       animate={{ scale: [1, 1.3, 1] }}
                       transition={{ repeat: Infinity, duration: 3, ease: "easeInOut" }}
-                      className="absolute w-48 h-48 rounded-full bg-indigo-500/10 blur-xl"
+                      className="absolute w-48 h-48 rounded-full bg-cyan-500/10 blur-xl"
                     />
                     <motion.div
                       animate={{ scale: [1, 1.15, 1] }}
                       transition={{ repeat: Infinity, duration: 2, ease: "easeInOut", delay: 0.5 }}
-                      className="absolute w-36 h-36 rounded-full bg-indigo-400/20 blur-lg"
+                      className="absolute w-36 h-36 rounded-full bg-cyan-400/15 blur-lg"
                     />
                   </>
                 )}
                 {/* Core Orb circle */}
                 <div className={`w-28 h-28 rounded-full flex items-center justify-center transition-all duration-500 shadow-2xl border ${
                   isRecording
-                    ? 'bg-gradient-to-br from-indigo-505 to-[#004ac6] border-indigo-400/50 shadow-indigo-500/30 shadow-2xl scale-105'
-                    : 'bg-[#2a293b] border-slate-700/85 hover:border-slate-655 scale-100'
+                    ? 'bg-gradient-to-br from-cyan-600 to-blue-700 border-cyan-400/60 shadow-[0_0_30px_rgba(34,211,238,0.3)] scale-105'
+                    : 'bg-[#0E1724] border-[#1E3048] hover:border-slate-600 scale-100'
                 }`}>
                   <Mic className={`w-10 h-10 transition-colors duration-500 ${
                     isRecording ? 'text-white' : 'text-slate-500'
@@ -1409,23 +1396,23 @@ export default function LiveRecording({
                 <div className="flex items-center gap-2">
                   {isRecording ? (
                     <>
-                      <span className="w-2 h-2 bg-emerald-500 rounded-full animate-ping"></span>
+                      <span className="w-2 h-2 bg-emerald-400 rounded-full animate-ping"></span>
                       <span className="text-emerald-400 font-bold text-xs uppercase tracking-widest font-mono">Scribe Active</span>
                     </>
                   ) : (
                     <>
-                      <span className="w-2 h-2 bg-slate-500 rounded-full"></span>
+                      <span className="w-2 h-2 bg-slate-600 rounded-full"></span>
                       <span className="text-slate-400 font-bold text-xs uppercase tracking-widest font-mono">Scribe Paused</span>
                     </>
                   )}
                 </div>
-                <span className="text-[10px] text-slate-400 font-medium mt-2">Tap orb to {isRecording ? 'pause' : 'resume'}</span>
+                <span className="text-[10px] text-slate-500 font-mono mt-2">Tap orb to {isRecording ? 'pause' : 'resume'}</span>
               </div>
 
               {/* Tactile Quick Tag Cards */}
               <div className="w-full max-w-sm px-4 flex flex-col gap-2 z-30">
-                <span className="text-[9px] text-[#5c5d7a] font-extrabold uppercase tracking-widest text-center mb-0.5">
-                  Tactile Quick Tags (Vibration Feedback)
+                <span className="text-[9px] text-slate-500 font-mono font-bold uppercase tracking-widest text-center mb-0.5">
+                  Tactile Quick Tags
                 </span>
                 <div className="grid grid-cols-3 gap-2">
                   <button
@@ -1434,13 +1421,13 @@ export default function LiveRecording({
                       e.stopPropagation();
                       handleTactileTag('Note: Checked, overall state stable.');
                     }}
-                    className="flex flex-col items-center justify-center p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 hover:bg-emerald-500/20 active:scale-[0.96] duration-150 transition-all text-center cursor-pointer font-sans"
+                    className="flex flex-col items-center justify-center p-2.5 rounded-xl bg-emerald-950/30 border border-emerald-500/30 hover:bg-emerald-950/50 active:scale-[0.96] duration-150 transition-all text-center cursor-pointer"
                   >
                     <svg className="w-4.5 h-4.5 text-emerald-400 mb-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
                     </svg>
                     <span className="text-[9px] font-bold text-emerald-300">Stable</span>
-                    <span className="text-[8px] text-emerald-500/70 mt-0.5 leading-none">No Pathology</span>
+                    <span className="text-[8px] text-emerald-400/60 mt-0.5 leading-none">No Pathology</span>
                   </button>
 
                   <button
@@ -1449,13 +1436,13 @@ export default function LiveRecording({
                       e.stopPropagation();
                       handleTactileTag('Note: Flagged potential active pathology.');
                     }}
-                    className="flex flex-col items-center justify-center p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 hover:bg-amber-500/20 active:scale-[0.96] duration-150 transition-all text-center cursor-pointer font-sans"
+                    className="flex flex-col items-center justify-center p-2.5 rounded-xl bg-amber-950/30 border border-amber-500/30 hover:bg-amber-950/50 active:scale-[0.96] duration-150 transition-all text-center cursor-pointer"
                   >
                     <svg className="w-4.5 h-4.5 text-amber-400 mb-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                     </svg>
                     <span className="text-[9px] font-bold text-amber-300">Pathology</span>
-                    <span className="text-[8px] text-amber-500/70 mt-0.5 leading-none">Alert Flag</span>
+                    <span className="text-[8px] text-amber-400/60 mt-0.5 leading-none">Alert Flag</span>
                   </button>
 
                   <button
@@ -1464,31 +1451,31 @@ export default function LiveRecording({
                       e.stopPropagation();
                       handleTactileTag('Note: Bookmarked section for manual review.');
                     }}
-                    className="flex flex-col items-center justify-center p-2.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20 hover:bg-indigo-500/20 active:scale-[0.96] duration-150 transition-all text-center cursor-pointer font-sans"
+                    className="flex flex-col items-center justify-center p-2.5 rounded-xl bg-cyan-950/30 border border-cyan-500/30 hover:bg-cyan-950/50 active:scale-[0.96] duration-150 transition-all text-center cursor-pointer"
                   >
-                    <svg className="w-4.5 h-4.5 text-indigo-400 mb-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <svg className="w-4.5 h-4.5 text-cyan-400 mb-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
                     </svg>
-                    <span className="text-[9px] font-bold text-indigo-300">Bookmark</span>
-                    <span className="text-[8px] text-indigo-500/70 mt-0.5 leading-none">Manual Rev</span>
+                    <span className="text-[9px] font-bold text-cyan-300">Bookmark</span>
+                    <span className="text-[8px] text-cyan-400/60 mt-0.5 leading-none">Manual Rev</span>
                   </button>
                 </div>
               </div>
             </div>
 
             {/* Footer with Timer and Quick Controls */}
-            <div className="relative z-50 flex items-center justify-between border-t border-white/5 pt-6 pb-4">
+            <div className="relative z-50 flex items-center justify-between border-t border-[#1E3048] pt-6 pb-4">
               {/* Digital Clock */}
-              <div className="bg-[#121127] border border-white/5 px-6 py-3 rounded-full flex items-center gap-3.5 shadow-xl">
-                <div className={`w-2.5 h-2.5 bg-red-600 rounded-full ${isRecording ? 'animate-ping' : ''}`}></div>
-                <span className="font-mono text-2xl font-black tracking-widest text-indigo-100">{formatTime(seconds)}</span>
+              <div className="bg-[#070B11] border border-[#1E3048] px-6 py-2.5 rounded-2xl flex items-center gap-3.5 shadow-xl">
+                <div className={`w-2.5 h-2.5 bg-rose-500 rounded-full ${isRecording ? 'animate-ping' : ''}`}></div>
+                <span className="font-mono text-2xl font-bold tracking-widest text-cyan-400">{formatTime(seconds)}</span>
               </div>
 
               {/* Quick Controls */}
               <div className="flex items-center gap-3.5">
                 <button
                   onClick={() => setShowResetConfirm(true)}
-                  className="w-12 h-12 rounded-full border border-white/10 hover:border-white/20 bg-white/5 hover:bg-white/10 flex items-center justify-center transition-colors cursor-pointer text-slate-400 hover:text-white"
+                  className="w-12 h-12 rounded-xl border border-[#1E3048] hover:border-rose-500/50 bg-[#0E1724] hover:bg-rose-950/30 flex items-center justify-center transition-colors cursor-pointer text-slate-400 hover:text-rose-400"
                   title="Reset Recording"
                 >
                   <RotateCcw className="w-5 h-5" />
@@ -1496,10 +1483,10 @@ export default function LiveRecording({
                 <button
                   onClick={handleFinishNote}
                   disabled={transcript.length === 0}
-                  className={`px-7 h-12 rounded-full font-bold text-xs uppercase tracking-widest flex items-center gap-2 shadow-lg transition-all cursor-pointer ${
+                  className={`px-7 h-12 rounded-xl font-mono font-bold text-xs uppercase tracking-wider flex items-center gap-2 shadow-lg transition-all cursor-pointer ${
                     transcript.length === 0
-                      ? 'bg-slate-800 text-slate-600 border border-slate-700/50 cursor-not-allowed shadow-none'
-                      : 'bg-white hover:bg-opacity-95 text-slate-900 active:scale-95'
+                      ? 'bg-[#121E2E] text-slate-600 border border-[#1E3048] cursor-not-allowed shadow-none'
+                      : 'bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-400 hover:to-emerald-400 text-slate-950 active:scale-95 shadow-[0_0_20px_rgba(34,211,238,0.35)]'
                   }`}
                 >
                   <span>Finish Note</span>
@@ -1519,35 +1506,35 @@ export default function LiveRecording({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[100] flex items-center justify-center bg-indigo-950/40 backdrop-blur-sm px-4"
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-[#070B11]/80 backdrop-blur-sm px-4"
           >
             <motion.div
               initial={{ scale: 0.95, y: 10 }}
               animate={{ scale: 1, y: 0 }}
               exit={{ scale: 0.95, y: 10 }}
-              className="bg-white rounded-2xl p-6 flex flex-col items-center text-center max-w-sm w-full mx-auto shadow-2xl border border-indigo-50"
+              className="bg-[#0A1018] rounded-2xl p-6 flex flex-col items-center text-center max-w-sm w-full mx-auto shadow-2xl border border-[#1E3048]"
             >
-              <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mb-4 text-red-650">
+              <div className="w-12 h-12 bg-rose-950/50 border border-rose-500/40 rounded-xl flex items-center justify-center mb-4 text-rose-400">
                 <RotateCcw className="w-6 h-6 animate-spin duration-[1.5s]" style={{ animationIterationCount: 1 }} />
               </div>
-              <h3 className="text-lg font-bold text-slate-800 mb-1.5">
+              <h3 className="text-lg font-bold text-white mb-1.5">
                 Reset Recording Session?
               </h3>
-              <p className="text-slate-500 text-xs mb-6 leading-relaxed">
+              <p className="text-slate-400 text-xs mb-6 leading-relaxed">
                 This will permanently erase all transcribed conversation and clinical comments for this session. This action cannot be undone.
               </p>
               <div className="flex gap-3 w-full">
                 <button
                   type="button"
                   onClick={() => setShowResetConfirm(false)}
-                  className="flex-1 border border-slate-200 hover:bg-slate-50 text-slate-500 font-bold h-11 rounded-xl transition-all cursor-pointer text-xs"
+                  className="flex-1 border border-[#1E3048] bg-[#0E1724] hover:bg-[#152338] text-slate-300 font-mono font-bold h-11 rounded-xl transition-all cursor-pointer text-xs uppercase"
                 >
                   Cancel
                 </button>
                 <button
                   type="button"
                   onClick={handleResetSession}
-                  className="flex-1 bg-red-600 hover:bg-red-750 text-white font-bold h-11 rounded-xl transition-all cursor-pointer text-xs"
+                  className="flex-1 bg-rose-600 hover:bg-rose-500 text-white font-mono font-bold h-11 rounded-xl transition-all cursor-pointer text-xs uppercase shadow-[0_0_15px_rgba(244,63,94,0.3)]"
                 >
                   Reset Session
                 </button>
@@ -1557,36 +1544,36 @@ export default function LiveRecording({
         )}
       </AnimatePresence>
 
-      {/* High-Priority Universal Error & Instant Fallback Modal (Visible in both normal and Ambient mode) */}
+      {/* High-Priority Universal Error & Instant Fallback Modal */}
       <AnimatePresence>
         {errorMsg && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/75 backdrop-blur-sm px-4"
+            className="fixed inset-0 z-[200] flex items-center justify-center bg-[#070B11]/85 backdrop-blur-sm px-4"
           >
             <motion.div
               initial={{ scale: 0.95, y: 15 }}
               animate={{ scale: 1, y: 0 }}
               exit={{ scale: 0.95, y: 15 }}
-              className="bg-white rounded-2xl p-6 flex flex-col items-center text-center max-w-md w-full mx-auto shadow-2xl border border-slate-100 font-sans text-slate-900"
+              className="bg-[#0A1018] rounded-2xl p-6 flex flex-col items-center text-center max-w-md w-full mx-auto shadow-2xl border border-[#1E3048] text-slate-100"
             >
-              <div className="w-12 h-12 rounded-full bg-red-100 text-red-600 flex items-center justify-center mb-3.5 shadow-sm">
+              <div className="w-12 h-12 rounded-xl bg-rose-950/60 border border-rose-500/50 text-rose-400 flex items-center justify-center mb-3.5 shadow-sm">
                 <AlertCircle className="w-6 h-6" />
               </div>
-              <h3 className="text-base font-bold text-slate-900 mb-1">
+              <h3 className="text-base font-bold text-white mb-1">
                 Note Generation Delay / Status Alert
               </h3>
-              <p className="text-xs text-slate-600 mb-3.5 leading-relaxed">
+              <p className="text-xs text-slate-300 mb-3.5 leading-relaxed">
                 {errorMsg}
               </p>
-              <div className="w-full p-3 bg-emerald-50 border border-emerald-200 rounded-xl mb-4 text-left">
-                <div className="flex items-center gap-2 text-emerald-800 font-bold text-xs mb-1">
-                  <CheckCircle className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-                  <span>Your Transcript is 100% Preserved</span>
+              <div className="w-full p-3.5 bg-emerald-950/40 border border-emerald-500/40 rounded-xl mb-4 text-left">
+                <div className="flex items-center gap-2 text-emerald-300 font-mono font-bold text-xs mb-1">
+                  <CheckCircle className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                  <span>Transcript 100% Preserved</span>
                 </div>
-                <p className="text-[11px] text-emerald-700 leading-relaxed">
+                <p className="text-[11px] text-emerald-200/90 leading-relaxed">
                   No consultation data was lost. You can instantly generate a complete, structured clinical record offline right now.
                 </p>
               </div>
@@ -1597,7 +1584,7 @@ export default function LiveRecording({
                     setErrorMsg(null);
                     handleDraftOffline();
                   }}
-                  className="w-full h-11 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-2 shadow-md transition-all active:scale-95 cursor-pointer"
+                  className="w-full h-11 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-mono font-bold text-xs uppercase tracking-wider rounded-xl flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(52,211,153,0.3)] transition-all active:scale-95 cursor-pointer"
                 >
                   <Sparkles className="w-4 h-4" />
                   <span>Generate Note Offline Instantly (0s Wait)</span>
@@ -1609,14 +1596,14 @@ export default function LiveRecording({
                       setErrorMsg(null);
                       handleFinishNote();
                     }}
-                    className="flex-1 h-9 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-lg transition-all cursor-pointer"
+                    className="flex-1 h-9 bg-[#0E1724] border border-[#1E3048] hover:bg-[#152338] text-slate-200 font-mono font-bold text-xs rounded-lg transition-all cursor-pointer"
                   >
                     Retry Hosted AI
                   </button>
                   <button
                     type="button"
                     onClick={() => setErrorMsg(null)}
-                    className="flex-1 h-9 border border-slate-200 hover:bg-slate-50 text-slate-500 font-bold text-xs rounded-lg transition-all cursor-pointer"
+                    className="flex-1 h-9 border border-[#1E3048] hover:bg-[#152338] text-slate-400 hover:text-white font-mono font-bold text-xs rounded-lg transition-all cursor-pointer"
                   >
                     Dismiss
                   </button>

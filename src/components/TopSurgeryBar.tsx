@@ -151,84 +151,71 @@ export default function TopSurgeryBar({
       animate={{ y: 0, opacity: 1 }}
       exit={{ y: -60, opacity: 0 }}
       transition={{ type: 'spring', damping: 24, stiffness: 220 }}
-      className="fixed top-3 left-0 right-0 z-50 max-w-5xl mx-auto px-3 pointer-events-none"
+      className="fixed top-4 left-1/2 -translate-x-1/2 z-50 pointer-events-none w-auto max-w-[94vw]"
     >
-      <div className="pointer-events-auto flex items-center justify-between gap-3 px-4 py-3 bg-slate-950/95 backdrop-blur-md rounded-2xl border border-teal-500/40 shadow-2xl shadow-teal-950/40 text-white font-sans">
-        {/* Left: Active Live Badge & Patient Details */}
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="flex items-center gap-2 shrink-0">
-            <span className="relative flex h-3 w-3">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
-              <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500" />
+      {/* Outer Machined Bezel */}
+      <div className="pointer-events-auto p-0.5 rounded-2xl bg-gradient-to-r from-cyan-500/40 via-teal-500/30 to-emerald-500/40 border border-cyan-400/40 shadow-2xl shadow-black/80">
+        {/* Inner Tactical Island */}
+        <div className="flex items-center gap-3 px-4 sm:px-5 py-2.5 bg-[#0C131D]/95 backdrop-blur-md rounded-[calc(1rem-2px)] text-white font-sans shadow-[inset_0_1px_0_rgba(255,255,255,0.12)]">
+          {/* Play/Stop Circular Indicator */}
+          <button
+            onClick={onFinish}
+            className="w-8 h-8 rounded-full bg-gradient-to-tr from-cyan-400 to-teal-300 hover:from-cyan-300 hover:to-teal-200 flex items-center justify-center text-slate-950 shadow-md shadow-cyan-950/60 transition-transform active:scale-90 cursor-pointer shrink-0 relative z-50"
+            title="Finish Consult & Generate Note"
+          >
+            <Square className="w-3.5 h-3.5 fill-current" />
+          </button>
+
+          {/* Island Label & Patient Name */}
+          <div className="flex flex-col min-w-0 pr-1 relative z-50">
+            <span className="text-[10px] font-black uppercase tracking-wider text-cyan-300 flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-ping shrink-0" />
+              Active Surgery Island
             </span>
-            <span className="text-[11px] font-black uppercase tracking-wider text-red-400 hidden sm:inline">
-              Live in Surgery
+            <span className="text-xs font-black text-white truncate max-w-[130px] sm:max-w-[190px]">
+              {activeItem.patientName}
             </span>
           </div>
 
-          <div className="h-4 w-px bg-slate-800 shrink-0 hidden sm:block" />
-
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 truncate">
-              <span className="text-sm font-extrabold text-white truncate tracking-tight">
-                {activeItem.patientName}
-              </span>
-              <span className="text-xs text-teal-300 font-mono hidden md:inline">
-                ({activeItem.time})
-              </span>
-            </div>
-            <p className="text-[11px] text-slate-400 truncate hidden sm:block">
-              {activeItem.procedureText}
-            </p>
-          </div>
-        </div>
-
-        {/* Center: Live Audio Waveform & Timer */}
-        <div className="flex items-center gap-3 shrink-0">
-          {/* 24-Bar Audio Equalizer */}
-          <div className="flex items-center gap-0.5 h-7 px-2.5 bg-slate-900/90 rounded-xl border border-slate-800/80">
-            {frequencyData.map((h, i) => (
+          {/* Center: Live Cyan Waveform Equalizer (z-10) */}
+          <div className="flex items-center gap-0.5 h-7 px-3 bg-[#070B11] rounded-xl border border-[#182638] shrink-0 relative z-10">
+            {frequencyData.slice(0, 16).map((h, i) => (
               <span
                 key={i}
-                className="w-1 bg-gradient-to-t from-teal-500 to-emerald-400 rounded-full transition-all duration-75"
-                style={{ height: `${h}px` }}
+                className="w-1 bg-gradient-to-t from-cyan-400 via-teal-300 to-emerald-300 rounded-full transition-all duration-75"
+                style={{ height: `${Math.max(4, h * 0.7)}px` }}
               />
             ))}
           </div>
 
-          {/* Clock Timer */}
-          <div className="flex items-center gap-1.5 font-mono text-xs font-bold text-slate-200 bg-slate-900/90 px-2.5 py-1.5 rounded-xl border border-slate-800/80">
-            <Clock className="w-3.5 h-3.5 text-teal-400" />
-            <span>{formatTimer(seconds)}</span>
+          {/* Elapsed Timer */}
+          <div className="flex items-center gap-1.5 font-mono text-xs font-extrabold text-slate-100 bg-[#070B11] px-2.5 py-1.5 rounded-xl border border-[#182638] shrink-0 relative z-50 shadow-xs">
+            <Clock className="w-3.5 h-3.5 text-cyan-400" />
+            <span>{formatTimer(seconds)} min</span>
           </div>
-        </div>
 
-        {/* Right: Live Detected Chips & Finish Button */}
-        <div className="flex items-center gap-2 shrink-0">
-          {/* Live Detected Dental Chips Stream */}
+          {/* Live Detected Chips */}
           {detectedChips.length > 0 && (
-            <div className="hidden lg:flex items-center gap-1.5">
-              {detectedChips.map((chip, idx) => (
-                <motion.span
+            <div className="hidden xl:flex items-center gap-1.5 relative z-50">
+              {detectedChips.slice(-2).map((chip, idx) => (
+                <span
                   key={idx}
-                  initial={{ scale: 0.8, opacity: 0 }}
-                  animate={{ scale: 1, opacity: 1 }}
-                  className="px-2 py-0.5 text-[10px] font-bold rounded-md bg-teal-950/80 text-teal-300 border border-teal-500/40 shadow-xs"
+                  className="px-2.5 py-0.5 text-[10px] font-mono font-black rounded-md bg-cyan-500/15 text-cyan-300 border border-cyan-500/30"
                 >
                   {chip}
-                </motion.span>
+                </span>
               ))}
             </div>
           )}
 
-          {/* Large High-Visibility Finish Button */}
+          {/* Finish Button Pill */}
           <button
             onClick={onFinish}
-            className="flex items-center gap-2 px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl text-xs font-black transition-all transform active:scale-95 shadow-md shadow-emerald-950/30 cursor-pointer"
+            className="hidden sm:flex items-center gap-1.5 px-3.5 py-1.5 bg-gradient-to-r from-emerald-400 to-teal-400 hover:from-emerald-300 hover:to-teal-300 text-slate-950 rounded-xl text-xs font-black transition-all active:scale-95 shadow-md shadow-emerald-950/50 cursor-pointer shrink-0 relative z-50"
             title="Conclude consultation & generate note in background"
           >
-            <Square className="w-3.5 h-3.5 fill-current" />
-            <span>Finish Consult</span>
+            <Square className="w-3 h-3 fill-current" />
+            <span>Finish</span>
           </button>
 
           {/* Cancel Safeguard */}
@@ -238,7 +225,7 @@ export default function TopSurgeryBar({
                 onCancel();
               }
             }}
-            className="p-1.5 text-slate-400 hover:text-red-400 rounded-lg hover:bg-slate-900 transition-colors cursor-pointer"
+            className="p-1.5 text-slate-400 hover:text-rose-400 rounded-lg hover:bg-[#162436] transition-colors cursor-pointer shrink-0 relative z-50"
             title="Cancel recording"
           >
             <X className="w-4 h-4" />
@@ -248,3 +235,4 @@ export default function TopSurgeryBar({
     </motion.div>
   );
 }
+

@@ -134,23 +134,23 @@ export default function ClinicMembersModal({ clinic, authToken, onClose, onChang
     name.split(' ').filter(n => n.toLowerCase() !== 'dr.').map(n => n[0]).join('').toUpperCase().slice(0, 2) || '?';
 
   return (
-    <div className="fixed inset-0 z-[150] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm px-4 py-10">
+    <div className="fixed inset-0 z-[150] flex items-center justify-center bg-slate-950/80 backdrop-blur-sm px-4 py-10">
       <motion.div
         initial={{ opacity: 0, scale: 0.96, y: 12 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.96 }}
         transition={{ duration: 0.25, ease: [0.32, 0.72, 0, 1] }}
-        className="bg-white rounded-3xl w-full max-w-lg max-h-[85vh] overflow-y-auto shadow-2xl border border-slate-100 font-sans"
+        className="bg-[#0A1018] rounded-3xl w-full max-w-lg max-h-[85vh] overflow-y-auto shadow-2xl border border-[#1E3048] font-sans text-white"
       >
         {/* Header */}
-        <div className="sticky top-0 bg-white/95 backdrop-blur border-b border-slate-100 px-6 py-4 flex items-center justify-between rounded-t-3xl">
+        <div className="sticky top-0 bg-[#070B11]/95 backdrop-blur border-b border-[#1E3048] px-6 py-4 flex items-center justify-between rounded-t-3xl z-10">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-indigo-50 text-primary flex items-center justify-center border border-indigo-100">
+            <div className="w-10 h-10 rounded-xl bg-cyan-500/10 text-cyan-400 flex items-center justify-center border border-cyan-500/30">
               <Building2 className="w-5 h-5" />
             </div>
             <div className="flex flex-col">
-              <h3 className="text-base font-extrabold text-slate-800 leading-tight">{clinicName}</h3>
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+              <h3 className="text-base font-extrabold text-white leading-tight font-mono">{clinicName}</h3>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 font-mono">
                 Clinic management · Owner
               </span>
             </div>
@@ -158,7 +158,7 @@ export default function ClinicMembersModal({ clinic, authToken, onClose, onChang
           <button
             type="button"
             onClick={onClose}
-            className="p-2 rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+            className="p-2 rounded-full text-slate-400 hover:text-white hover:bg-[#1E3048] transition-colors cursor-pointer"
           >
             <X className="w-4 h-4" />
           </button>
@@ -166,25 +166,25 @@ export default function ClinicMembersModal({ clinic, authToken, onClose, onChang
 
         <div className="px-6 py-5 flex flex-col gap-6">
           {error && (
-            <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs font-semibold">
-              <AlertCircle className="w-4 h-4 shrink-0" />
+            <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-rose-950/30 border border-rose-500/40 text-rose-300 text-xs font-semibold font-mono">
+              <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
               <span>{error}</span>
             </div>
           )}
 
           {/* Invite code card */}
-          <section className="rounded-2xl border border-slate-200 bg-[#faf9f7] p-4">
+          <section className="rounded-2xl border border-[#1E3048] bg-[#0E1724] p-4">
             <div className="flex items-center justify-between gap-3">
               <div className="flex flex-col gap-0.5 min-w-0">
-                <span className="text-[9px] font-extrabold uppercase tracking-[0.15em] text-slate-400">
+                <span className="text-[9px] font-extrabold uppercase tracking-[0.15em] text-slate-400 font-mono">
                   Invite colleagues with this code
                 </span>
                 <div className="flex items-center gap-2 mt-1">
-                  <span className="font-mono font-extrabold text-xl tracking-[0.2em] text-primary">
+                  <span className="font-mono font-extrabold text-xl tracking-[0.2em] text-cyan-400">
                     {inviteCode || '·······'}
                   </span>
                   {copied && (
-                    <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-700">
+                    <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-400 font-mono">
                       <CheckCircle2 className="w-3.5 h-3.5" /> Copied
                     </span>
                   )}
@@ -195,42 +195,42 @@ export default function ClinicMembersModal({ clinic, authToken, onClose, onChang
                   type="button"
                   onClick={handleCopy}
                   disabled={!inviteCode || busyAction === 'rotate'}
-                  className="h-9 px-3 rounded-lg bg-primary text-white text-[11px] font-bold hover:bg-opacity-90 disabled:opacity-50 transition-colors cursor-pointer flex items-center gap-1.5"
+                  className="h-9 px-3 rounded-lg bg-cyan-500 text-slate-950 text-[11px] font-bold hover:bg-cyan-400 disabled:opacity-50 transition-colors cursor-pointer flex items-center gap-1.5 font-mono shadow-[0_0_15px_rgba(34,211,238,0.25)]"
                 >
-                  {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                  {copied ? <Check className="w-3.5 h-3.5 stroke-[3]" /> : <Copy className="w-3.5 h-3.5" />}
                   <span>{copied ? 'Copied' : 'Copy'}</span>
                 </button>
                 <button
                   type="button"
                   onClick={handleRotate}
                   disabled={busyAction === 'rotate'}
-                  className="h-9 px-3 rounded-lg border border-slate-200 bg-white text-slate-600 text-[11px] font-bold hover:bg-slate-50 disabled:opacity-50 transition-colors cursor-pointer flex items-center gap-1.5"
+                  className="h-9 px-3 rounded-lg border border-[#1E3048] bg-[#070B11] text-slate-300 text-[11px] font-bold hover:bg-[#182638] disabled:opacity-50 transition-colors cursor-pointer flex items-center gap-1.5 font-mono"
                   title="Generate a new code if this one was shared too widely"
                 >
                   {busyAction === 'rotate'
-                    ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    : <RefreshCw className="w-3.5 h-3.5" />}
+                    ? <Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-400" />
+                    : <RefreshCw className="w-3.5 h-3.5 text-cyan-400" />}
                   <span className="hidden sm:inline">New code</span>
                 </button>
               </div>
             </div>
-            <p className="text-[10px] text-slate-400 mt-2 leading-relaxed">
+            <p className="text-[10px] text-slate-400 mt-2 leading-relaxed font-mono">
               Share this code with associates, locums, or colleagues. New members land as
-              <span className="font-bold text-slate-500"> pending</span> and see nothing until you approve them below.
+              <span className="font-bold text-amber-400"> pending</span> and see nothing until you approve them below.
             </p>
           </section>
 
           {/* Rename clinic */}
           <section className="flex flex-col gap-2">
             <div className="flex items-center justify-between">
-              <span className="text-[9px] font-extrabold uppercase tracking-[0.15em] text-slate-400">
+              <span className="text-[9px] font-extrabold uppercase tracking-[0.15em] text-slate-400 font-mono">
                 Clinic name
               </span>
               {!renameMode && (
                 <button
                   type="button"
                   onClick={() => { setRenameMode(true); setRenameError(null); }}
-                  className="flex items-center gap-1 text-[11px] font-bold text-slate-500 hover:text-primary transition-colors cursor-pointer"
+                  className="flex items-center gap-1 text-[11px] font-bold text-slate-400 hover:text-cyan-400 transition-colors cursor-pointer font-mono"
                 >
                   <Pencil className="w-3 h-3" /> Rename
                 </button>
@@ -243,82 +243,82 @@ export default function ClinicMembersModal({ clinic, authToken, onClose, onChang
                   onChange={e => setRenameValue(e.target.value)}
                   maxLength={80}
                   autoFocus
-                  className="h-10 px-3 rounded-xl border border-slate-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none text-sm text-slate-800"
+                  className="h-10 px-3 rounded-xl border border-[#1E3048] bg-[#070B11] focus:border-cyan-500/60 outline-none text-sm text-white font-mono"
                 />
                 {renameError && (
-                  <span className="text-[11px] font-semibold text-red-600">{renameError}</span>
+                  <span className="text-[11px] font-semibold text-rose-400 font-mono">{renameError}</span>
                 )}
                 <div className="flex gap-2">
                   <button
                     type="button"
                     onClick={() => setRenameMode(false)}
-                    className="flex-1 h-9 rounded-lg border border-slate-200 text-slate-500 text-[11px] font-bold hover:bg-slate-50 transition-colors cursor-pointer"
+                    className="flex-1 h-9 rounded-lg border border-[#1E3048] text-slate-400 text-[11px] font-bold hover:bg-[#182638] transition-colors cursor-pointer font-mono"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
                     disabled={renameBusy || !renameValue.trim()}
-                    className="flex-1 h-9 rounded-lg bg-primary text-white text-[11px] font-bold hover:bg-opacity-90 disabled:opacity-50 transition-colors cursor-pointer"
+                    className="flex-1 h-9 rounded-lg bg-cyan-500 text-slate-950 text-[11px] font-bold hover:bg-cyan-400 disabled:opacity-50 transition-colors cursor-pointer font-mono"
                   >
                     {renameBusy ? 'Saving…' : 'Save name'}
                   </button>
                 </div>
               </form>
             ) : (
-              <span className="text-sm font-bold text-slate-700">{clinicName}</span>
+              <span className="text-sm font-bold text-slate-200 font-mono">{clinicName}</span>
             )}
           </section>
 
           {/* Members */}
           <section className="flex flex-col gap-3">
             <div className="flex items-center gap-2">
-              <ShieldCheck className="w-4 h-4 text-primary" />
-              <span className="text-[9px] font-extrabold uppercase tracking-[0.15em] text-slate-400">
+              <ShieldCheck className="w-4 h-4 text-cyan-400" />
+              <span className="text-[9px] font-extrabold uppercase tracking-[0.15em] text-slate-400 font-mono">
                 Members ({members.length})
               </span>
             </div>
 
             {loading ? (
-              <div className="flex items-center justify-center py-8 gap-2 text-slate-400">
-                <Loader2 className="w-4 h-4 animate-spin" />
+              <div className="flex items-center justify-center py-8 gap-2 text-slate-400 font-mono">
+                <Loader2 className="w-4 h-4 animate-spin text-cyan-400" />
                 <span className="text-xs font-bold">Loading members…</span>
               </div>
             ) : (
               <>
                 {pending.length > 0 && (
                   <div className="flex flex-col gap-2">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-amber-600">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400 font-mono">
                       Pending approval ({pending.length})
                     </span>
                     {pending.map(m => (
-                      <div key={m.dentistId} className="flex items-center gap-3 p-3 rounded-xl border border-amber-200 bg-amber-50/50">
-                        <div className="w-9 h-9 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center font-bold text-xs shrink-0">
+                      <div key={m.dentistId} className="flex items-center gap-3 p-3 rounded-xl border border-amber-500/30 bg-amber-950/20">
+                        <div className="w-9 h-9 rounded-lg bg-amber-500/20 text-amber-300 flex items-center justify-center font-bold text-xs shrink-0 font-mono">
                           {getInitials(m.name)}
                         </div>
                         <div className="flex flex-col min-w-0 flex-1">
-                          <span className="text-xs font-bold text-slate-800 truncate">{m.name}</span>
-                          <span className="text-[10px] text-slate-500">
+                          <span className="text-xs font-bold text-slate-200 truncate font-mono">{m.name}</span>
+                          <span className="text-[10px] text-slate-400 font-mono">
                             Requested to join — approves to a dentist member
                           </span>
                         </div>
-                        <div className="flex gap-1.5 shrink-0">
+                        <div className="flex gap-1.5 shrink-0 font-mono">
                           <button
                             type="button"
                             disabled={busyAction === `approve-${m.dentistId}`}
                             onClick={() => handleDecision(m.dentistId, 'approve')}
-                            className="h-8 px-2.5 rounded-lg bg-emerald-600 text-white text-[10px] font-bold hover:bg-emerald-700 disabled:opacity-50 transition-colors cursor-pointer flex items-center gap-1"
+                            className="h-8 px-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-[10px] font-bold disabled:opacity-50 transition-colors cursor-pointer flex items-center gap-1"
                           >
                             {busyAction === `approve-${m.dentistId}`
                               ? <Loader2 className="w-3 h-3 animate-spin" />
-                              : <Check className="w-3 h-3" />}
+                              : <Check className="w-3 h-3 stroke-[3]" />}
                             <span>Approve</span>
                           </button>
                           <button
                             type="button"
                             disabled={busyAction === `decline-${m.dentistId}`}
                             onClick={() => handleDecision(m.dentistId, 'decline')}
-                            className="h-8 px-2.5 rounded-lg border border-red-200 bg-white text-red-600 text-[10px] font-bold hover:bg-red-50 disabled:opacity-50 transition-colors cursor-pointer flex items-center gap-1"
+                            className="h-8 px-2.5 rounded-lg border border-rose-500/40 bg-rose-950/30 text-rose-300 text-[10px] font-bold hover:bg-rose-900/40 disabled:opacity-50 transition-colors cursor-pointer flex items-center gap-1"
                           >
                             {busyAction === `decline-${m.dentistId}`
                               ? <Loader2 className="w-3 h-3 animate-spin" />
@@ -332,31 +332,31 @@ export default function ClinicMembersModal({ clinic, authToken, onClose, onChang
                 )}
 
                 <div className="flex flex-col gap-2">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 font-mono">
                     Active ({active.length})
                   </span>
                   {active.map(m => (
-                    <div key={m.dentistId} className="flex items-center gap-3 p-3 rounded-xl border border-slate-100 bg-white">
-                      <div className={`w-9 h-9 rounded-lg flex items-center justify-center font-bold text-xs shrink-0 ${
-                        m.role === 'owner' ? 'bg-primary text-white' : 'bg-indigo-50 text-primary'
+                    <div key={m.dentistId} className="flex items-center gap-3 p-3 rounded-xl border border-[#1E3048] bg-[#0E1724]">
+                      <div className={`w-9 h-9 rounded-lg flex items-center justify-center font-bold text-xs shrink-0 font-mono ${
+                        m.role === 'owner' ? 'bg-cyan-500 text-slate-950' : 'bg-[#070B11] text-cyan-400 border border-[#1E3048]'
                       }`}>
                         {getInitials(m.name)}
                       </div>
                       <div className="flex flex-col min-w-0 flex-1">
-                        <span className="text-xs font-bold text-slate-800 truncate">{m.name}</span>
-                        <span className="text-[10px] text-slate-500">
+                        <span className="text-xs font-bold text-slate-200 truncate font-mono">{m.name}</span>
+                        <span className="text-[10px] text-slate-400 font-mono">
                           {m.role === 'owner' ? 'Clinic owner' : 'Dentist member'}
                         </span>
                       </div>
                       {m.role === 'owner' && (
-                        <span className="px-2 py-0.5 rounded-full bg-primary-light text-primary text-[9px] font-extrabold uppercase tracking-wider shrink-0">
+                        <span className="px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 text-[9px] font-extrabold uppercase tracking-wider shrink-0 font-mono">
                           Owner
                         </span>
                       )}
                     </div>
                   ))}
                   {active.length === 0 && pending.length === 0 && (
-                    <div className="text-xs text-slate-400 py-3 text-center">
+                    <div className="text-xs text-slate-400 py-3 text-center font-mono">
                       No members yet — share your invite code above.
                     </div>
                   )}

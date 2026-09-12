@@ -243,10 +243,10 @@ export default function Login({ onLoginSuccess }: LoginProps) {
   };
 
   return (
-    <div className="min-h-screen w-full flex flex-col items-center justify-center bg-[#F8F7F5] px-4 py-12 font-sans relative overflow-hidden">
+    <div className="min-h-screen w-full flex flex-col items-center justify-center bg-[#070B11] px-4 py-12 font-sans relative overflow-hidden text-slate-100">
       {/* Subtle background ambient glow */}
-      <div className="absolute top-[-20%] left-[-10%] w-[500px] h-[500px] rounded-full bg-indigo-50/50 blur-[120px] pointer-events-none" />
-      <div className="absolute bottom-[-10%] right-[-10%] w-[600px] h-[600px] rounded-full bg-emerald-50/30 blur-[130px] pointer-events-none" />
+      <div className="absolute top-[-20%] left-[-10%] w-[500px] h-[500px] rounded-full bg-cyan-500/10 blur-[130px] pointer-events-none" />
+      <div className="absolute bottom-[-10%] right-[-10%] w-[600px] h-[600px] rounded-full bg-teal-500/10 blur-[140px] pointer-events-none" />
 
       <AnimatePresence mode="wait">
         {/* VIEW 1: STRICT PRIVATE SIGN-IN (Zero profile cards shown) */}
@@ -257,18 +257,18 @@ export default function Login({ onLoginSuccess }: LoginProps) {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -20 }}
             transition={{ duration: 0.45, ease: [0.32, 0.72, 0, 1] }}
-            className="w-full max-w-md p-2 bg-[#1a1a2e]/5 rounded-[2.5rem] ring-1 ring-slate-200/40 shadow-xl"
+            className="w-full max-w-md p-1 bg-gradient-to-b from-[#1E3048] via-[#142030] to-[#0A1018] rounded-[2.5rem] border border-cyan-500/25 shadow-2xl shadow-black/80"
           >
-            <div className="bg-white rounded-[calc(2.5rem-0.5rem)] p-7 sm:p-9 shadow-inner flex flex-col items-center">
+            <div className="bg-[#0A1018] rounded-[calc(2.5rem-4px)] p-7 sm:p-9 border border-[#162436] flex flex-col items-center">
               {/* Private Pill Badge */}
-              <div className="rounded-full px-3.5 py-1.5 bg-indigo-50 border border-indigo-100 flex items-center gap-1.5 mb-5">
-                <Lock className="w-3.5 h-3.5 text-primary" />
-                <span className="text-[10px] text-primary font-extrabold tracking-[0.15em] uppercase">
+              <div className="rounded-full px-3.5 py-1.5 bg-cyan-500/15 border border-cyan-500/30 flex items-center gap-1.5 mb-5 shadow-xs">
+                <Lock className="w-3.5 h-3.5 text-cyan-400" />
+                <span className="text-[10px] text-cyan-300 font-black tracking-[0.15em] uppercase">
                   Private Practice Sign-In
                 </span>
               </div>
 
-              <h2 className="text-2xl font-extrabold text-slate-800 tracking-tight text-center">
+              <h2 className="text-2xl font-black text-white tracking-tight text-center">
                 Clinician Access
               </h2>
               <p className="text-slate-400 text-xs mt-1 text-center max-w-xs leading-relaxed">
@@ -286,13 +286,13 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                         setIdentifier('');
                         identifierInputRef.current?.focus();
                       }}
-                      className="text-[9px] text-slate-400 hover:text-slate-600 cursor-pointer"
+                      className="text-[9px] text-slate-400 hover:text-cyan-300 cursor-pointer"
                     >
                       Clear
                     </button>
                   )}
                 </label>
-                <div className="flex items-center gap-2.5 h-12 px-3.5 rounded-xl bg-[#faf9f7] border border-slate-200 focus-within:border-primary focus-within:bg-white focus-within:ring-2 focus-within:ring-primary/10 transition-all">
+                <div className="flex items-center gap-2.5 h-12 px-3.5 rounded-xl bg-[#070B11] border border-[#1E3048] focus-within:border-cyan-400 focus-within:ring-2 focus-within:ring-cyan-500/20 transition-all">
                   <User className="w-4 h-4 text-slate-400 shrink-0" />
                   <input
                     ref={identifierInputRef}
@@ -303,7 +303,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                       setIdentifier(e.target.value);
                       setLoginError(null);
                     }}
-                    className="w-full bg-transparent text-sm font-bold text-slate-800 outline-none placeholder:text-slate-350"
+                    className="w-full bg-transparent text-sm font-bold text-white outline-none placeholder:text-slate-600"
                   />
                 </div>
               </div>
@@ -325,10 +325,10 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                       key={idx}
                       className={`w-3.5 h-3.5 rounded-full border-2 transition-all duration-200 ${
                         pin.length > idx
-                          ? 'bg-primary border-primary scale-110 shadow-[0_0_8px_rgba(0,74,198,0.4)]'
+                          ? 'bg-cyan-400 border-cyan-400 scale-110 shadow-[0_0_12px_rgba(34,211,238,0.7)]'
                           : loginError
-                          ? 'border-red-400 bg-red-50'
-                          : 'border-slate-300 bg-white'
+                          ? 'border-rose-500 bg-rose-950/40'
+                          : 'border-[#24354A] bg-[#070B11]'
                       }`}
                     />
                   ))}
@@ -341,7 +341,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                       initial={{ opacity: 0, y: -5 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0 }}
-                      className="mt-2 text-xs font-semibold text-red-600 flex items-center gap-1.5 text-center"
+                      className="mt-2 text-xs font-semibold text-rose-400 flex items-center gap-1.5 text-center"
                     >
                       <AlertCircle className="w-3.5 h-3.5 shrink-0" />
                       <span>{loginError}</span>
@@ -356,7 +356,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                       key={num}
                       type="button"
                       onClick={() => handlePinPress(num)}
-                      className="w-13 h-13 rounded-2xl bg-[#faf9f7] hover:bg-indigo-50 text-slate-700 hover:text-primary font-bold text-base border border-slate-200 hover:border-indigo-200 flex items-center justify-center cursor-pointer transition-all active:scale-95 shadow-sm"
+                      className="w-13 h-13 rounded-2xl bg-[#0E1724] hover:bg-[#142030] text-slate-100 hover:text-cyan-300 font-bold text-base border border-[#1E3048] hover:border-cyan-500/40 flex items-center justify-center cursor-pointer transition-all active:scale-95 shadow-sm"
                     >
                       {num}
                     </button>
@@ -366,7 +366,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                   <button
                     type="button"
                     onClick={handleBackspace}
-                    className="w-13 h-13 rounded-2xl hover:bg-red-50 text-slate-400 hover:text-red-650 font-bold text-xs flex items-center justify-center cursor-pointer transition-all active:scale-95"
+                    className="w-13 h-13 rounded-2xl bg-[#0E1724] hover:bg-rose-950/30 text-slate-400 hover:text-rose-400 font-bold text-xs border border-[#1E3048] flex items-center justify-center cursor-pointer transition-all active:scale-95"
                     title="Backspace"
                   >
                     ⌫
@@ -376,13 +376,13 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                   <button
                     type="button"
                     onClick={() => handlePinPress('0')}
-                    className="w-13 h-13 rounded-2xl bg-[#faf9f7] hover:bg-indigo-50 text-slate-700 hover:text-primary font-bold text-base border border-slate-200 hover:border-indigo-200 flex items-center justify-center cursor-pointer transition-all active:scale-95 shadow-sm"
+                    className="w-13 h-13 rounded-2xl bg-[#0E1724] hover:bg-[#142030] text-slate-100 hover:text-cyan-300 font-bold text-base border border-[#1E3048] hover:border-cyan-500/40 flex items-center justify-center cursor-pointer transition-all active:scale-95 shadow-sm"
                   >
                     0
                   </button>
 
                   {/* Lock icon */}
-                  <div className="w-13 h-13 flex items-center justify-center text-slate-300">
+                  <div className="w-13 h-13 flex items-center justify-center text-slate-600">
                     <KeyRound className="w-4 h-4" />
                   </div>
                 </div>
@@ -392,11 +392,11 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                   type="button"
                   disabled={!identifier.trim() || pin.length !== 4 || isSubmitting}
                   onClick={() => submitLogin(pin)}
-                  className="w-full mt-6 h-12 rounded-xl bg-primary hover:bg-primary-dark text-white font-bold text-xs shadow-md shadow-primary/25 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2 cursor-pointer"
+                  className="w-full mt-6 h-12 rounded-xl bg-gradient-to-r from-cyan-400 to-teal-400 hover:from-cyan-300 hover:to-teal-300 text-slate-950 font-black text-xs shadow-lg shadow-cyan-950/50 disabled:opacity-40 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-98"
                 >
                   {isSubmitting ? (
                     <>
-                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      <div className="w-4 h-4 border-2 border-slate-950/30 border-t-slate-950 rounded-full animate-spin" />
                       <span>Verifying Credentials…</span>
                     </>
                   ) : (
@@ -406,7 +406,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
               </div>
 
               {/* Add New Clinician Row */}
-              <div className="w-full mt-6 pt-5 border-t border-slate-100 flex items-center justify-between">
+              <div className="w-full mt-6 pt-5 border-t border-[#182638] flex items-center justify-between">
                 <span className="text-[11px] text-slate-400 font-medium">New clinician joining?</span>
                 <button
                   type="button"
@@ -414,7 +414,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                     setIsRegistering(true);
                     setRegError(null);
                   }}
-                  className="text-xs font-bold text-primary hover:underline flex items-center gap-1 cursor-pointer bg-transparent border-none p-0"
+                  className="text-xs font-bold text-cyan-400 hover:text-cyan-300 hover:underline flex items-center gap-1 cursor-pointer bg-transparent border-none p-0"
                 >
                   <UserPlus className="w-3.5 h-3.5" />
                   <span>Register Profile</span>
@@ -432,29 +432,29 @@ export default function Login({ onLoginSuccess }: LoginProps) {
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.95 }}
             transition={{ duration: 0.4 }}
-            className="w-full max-w-md p-2 bg-[#1a1a2e]/5 rounded-[2.5rem] ring-1 ring-slate-200/40 shadow-xl"
+            className="w-full max-w-md p-1 bg-gradient-to-b from-[#1E3048] to-[#0A1018] rounded-[2.5rem] border border-cyan-500/25 shadow-2xl shadow-black/80"
           >
-            <div className="bg-white rounded-[calc(2.5rem-0.5rem)] p-8 md:p-10 shadow-inner flex flex-col items-center">
+            <div className="bg-[#0A1018] rounded-[calc(2.5rem-4px)] p-8 md:p-10 border border-[#162436] flex flex-col items-center">
               <button
                 type="button"
                 onClick={() => {
                   setMfaChallenge(null);
                   setPin('');
                 }}
-                className="self-start -ml-2 p-2 rounded-full hover:bg-slate-100 text-slate-500 hover:text-slate-800 transition-colors cursor-pointer flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider"
+                className="self-start -ml-2 p-2 rounded-full hover:bg-[#142030] text-slate-400 hover:text-white transition-colors cursor-pointer flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider"
               >
                 <ArrowLeft className="w-4 h-4" />
                 <span>Cancel</span>
               </button>
 
-              <div className="w-14 h-14 rounded-2xl bg-indigo-50 text-primary flex items-center justify-center mt-2 shadow-sm border border-indigo-100">
+              <div className="w-14 h-14 rounded-2xl bg-cyan-500/15 text-cyan-400 border border-cyan-500/30 flex items-center justify-center mt-2 shadow-sm">
                 <ShieldCheck className="w-7 h-7" />
               </div>
 
-              <h2 className="text-xl font-extrabold text-slate-800 tracking-tight text-center mt-4">
+              <h2 className="text-xl font-black text-white tracking-tight text-center mt-4">
                 Two-Step Verification
               </h2>
-              <p className="text-slate-500 text-xs mt-1 text-center max-w-xs leading-relaxed">
+              <p className="text-slate-400 text-xs mt-1 text-center max-w-xs leading-relaxed">
                 {mfaChallenge.message ||
                   `Enter the 6-digit authentication code for ${mfaChallenge.dentistName || 'your account'}.`}
               </p>
@@ -472,12 +472,12 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                     placeholder="123456"
                     value={mfaCode}
                     onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                    className="h-12 px-4 bg-[#faf9f7] border border-slate-200 rounded-xl text-center font-mono font-bold text-xl tracking-[0.3em] outline-none focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/10 transition-all text-slate-800"
+                    className="h-12 px-4 bg-[#070B11] border border-[#1E3048] rounded-xl text-center font-mono font-bold text-xl tracking-[0.3em] outline-none focus:border-cyan-400 focus:ring-2 focus:ring-cyan-500/20 transition-all text-white placeholder:text-slate-700"
                   />
                 </div>
 
                 {mfaError && (
-                  <div className="p-3 bg-red-50 border border-red-200 text-red-600 text-xs font-semibold rounded-xl flex items-center gap-2">
+                  <div className="p-3 bg-rose-950/40 border border-rose-800 text-rose-300 text-xs font-semibold rounded-xl flex items-center gap-2">
                     <AlertCircle className="w-4 h-4 shrink-0" />
                     <span>{mfaError}</span>
                   </div>
@@ -486,11 +486,11 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                 <button
                   type="submit"
                   disabled={mfaCode.length !== 6 || isVerifyingMfa}
-                  className="w-full h-12 rounded-xl bg-primary hover:bg-primary-dark text-white font-bold text-xs shadow-md shadow-primary/25 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2 cursor-pointer mt-2"
+                  className="w-full h-12 rounded-xl bg-gradient-to-r from-cyan-400 to-teal-400 hover:from-cyan-300 hover:to-teal-300 text-slate-950 font-black text-xs shadow-lg shadow-cyan-950/50 disabled:opacity-40 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2 cursor-pointer mt-2 active:scale-98"
                 >
                   {isVerifyingMfa ? (
                     <>
-                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      <div className="w-4 h-4 border-2 border-slate-950/30 border-t-slate-950 rounded-full animate-spin" />
                       <span>Verifying Code…</span>
                     </>
                   ) : (
@@ -510,38 +510,38 @@ export default function Login({ onLoginSuccess }: LoginProps) {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -20 }}
             transition={{ duration: 0.45, ease: [0.32, 0.72, 0, 1] }}
-            className="w-full max-w-md p-2 bg-[#1a1a2e]/5 rounded-[2.5rem] ring-1 ring-slate-200/40 shadow-xl"
+            className="w-full max-w-md p-1 bg-gradient-to-b from-[#1E3048] to-[#0A1018] rounded-[2.5rem] border border-cyan-500/25 shadow-2xl shadow-black/80"
           >
-            <div className="bg-white rounded-[calc(2.5rem-0.5rem)] p-7 sm:p-9 shadow-inner flex flex-col">
+            <div className="bg-[#0A1018] rounded-[calc(2.5rem-4px)] p-7 sm:p-9 border border-[#162436] flex flex-col">
               <button
                 type="button"
                 onClick={() => setIsRegistering(false)}
-                className="self-start -ml-2 p-2 rounded-full hover:bg-slate-100 text-slate-500 hover:text-slate-800 transition-colors cursor-pointer flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider"
+                className="self-start -ml-2 p-2 rounded-full hover:bg-[#142030] text-slate-400 hover:text-white transition-colors cursor-pointer flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider"
               >
                 <ArrowLeft className="w-4 h-4" />
                 <span>Back</span>
               </button>
 
               <div className="flex items-center gap-3 mt-4">
-                <div className="w-11 h-11 rounded-xl bg-indigo-50 border border-indigo-100 text-primary flex items-center justify-center">
+                <div className="w-11 h-11 rounded-xl bg-cyan-500/15 border border-cyan-500/30 text-cyan-400 flex items-center justify-center">
                   <UserPlus className="w-5 h-5" />
                 </div>
                 <div className="flex flex-col">
-                  <h2 className="text-xl font-extrabold text-slate-800">Add Dentist Profile</h2>
+                  <h2 className="text-xl font-black text-white">Add Dentist Profile</h2>
                   <p className="text-xs text-slate-400 mt-0.5 font-medium">Onboard a provider to the clinic pilot.</p>
                 </div>
               </div>
 
               <form onSubmit={handleRegister} className="mt-5 flex flex-col gap-3.5">
                 {regError && (
-                  <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs font-semibold rounded-xl flex items-center gap-2">
+                  <div className="p-3 bg-rose-950/40 border border-rose-800 text-rose-300 text-xs font-semibold rounded-xl flex items-center gap-2">
                     <AlertCircle className="w-4 h-4 shrink-0" />
                     <span>{regError}</span>
                   </div>
                 )}
 
                 <div className="flex flex-col gap-1">
-                  <label className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">
+                  <label className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">
                     Full Legal Name
                   </label>
                   <input
@@ -550,12 +550,12 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                     placeholder="e.g. Dr. Sarah Jenkins"
                     value={regName}
                     onChange={(e) => setRegName(e.target.value)}
-                    className="h-11 px-3.5 bg-[#faf9f7] border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:border-primary focus:bg-white text-slate-800 transition-all"
+                    className="h-11 px-3.5 bg-[#070B11] border border-[#1E3048] rounded-xl text-sm font-semibold outline-none focus:border-cyan-400 focus:ring-2 focus:ring-cyan-500/20 text-white placeholder:text-slate-600 transition-all"
                   />
                 </div>
 
                 <div className="flex flex-col gap-1">
-                  <label className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">
+                  <label className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">
                     Specialty / Role
                   </label>
                   <input
@@ -564,27 +564,27 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                     placeholder="e.g. General Dentistry, Orthodontics"
                     value={regSpecialty}
                     onChange={(e) => setRegSpecialty(e.target.value)}
-                    className="h-11 px-3.5 bg-[#faf9f7] border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:border-primary focus:bg-white text-slate-800 transition-all"
+                    className="h-11 px-3.5 bg-[#070B11] border border-[#1E3048] rounded-xl text-sm font-semibold outline-none focus:border-cyan-400 focus:ring-2 focus:ring-cyan-500/20 text-white placeholder:text-slate-600 transition-all"
                   />
                 </div>
 
                 <div className="flex flex-col gap-1">
-                  <label className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 flex items-center justify-between">
+                  <label className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 flex items-center justify-between">
                     <span>Clinic Invite Code</span>
-                    <span className="text-[9px] font-semibold text-slate-400 lowercase">optional</span>
+                    <span className="text-[9px] font-semibold text-slate-500 lowercase">optional</span>
                   </label>
                   <input
                     type="text"
                     placeholder="e.g. 6-character code"
                     value={regInviteCode}
                     onChange={(e) => setRegInviteCode(e.target.value.toUpperCase())}
-                    className="h-11 px-3.5 bg-[#faf9f7] border border-slate-200 rounded-xl text-sm font-mono font-bold uppercase tracking-widest outline-none focus:border-primary focus:bg-white text-slate-800 transition-all"
+                    className="h-11 px-3.5 bg-[#070B11] border border-[#1E3048] rounded-xl text-sm font-mono font-bold uppercase tracking-widest outline-none focus:border-cyan-400 focus:ring-2 focus:ring-cyan-500/20 text-white placeholder:text-slate-600 transition-all"
                   />
                 </div>
 
                 <div className="grid grid-cols-2 gap-3 mt-1">
                   <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">
+                    <label className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">
                       4-Digit PIN
                     </label>
                     <input
@@ -595,12 +595,12 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                       placeholder="••••"
                       value={regPin}
                       onChange={(e) => setRegPin(e.target.value.replace(/\D/g, ''))}
-                      className="h-11 px-3.5 bg-[#faf9f7] border border-slate-200 rounded-xl text-sm font-mono tracking-widest text-center outline-none focus:border-primary focus:bg-white text-slate-800 transition-all"
+                      className="h-11 px-3.5 bg-[#070B11] border border-[#1E3048] rounded-xl text-sm font-mono tracking-widest text-center outline-none focus:border-cyan-400 focus:ring-2 focus:ring-cyan-500/20 text-white placeholder:text-slate-600 transition-all"
                     />
                   </div>
 
                   <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">
+                    <label className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">
                       Confirm PIN
                     </label>
                     <input
@@ -611,14 +611,14 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                       placeholder="••••"
                       value={regConfirmPin}
                       onChange={(e) => setRegConfirmPin(e.target.value.replace(/\D/g, ''))}
-                      className="h-11 px-3.5 bg-[#faf9f7] border border-slate-200 rounded-xl text-sm font-mono tracking-widest text-center outline-none focus:border-primary focus:bg-white text-slate-800 transition-all"
+                      className="h-11 px-3.5 bg-[#070B11] border border-[#1E3048] rounded-xl text-sm font-mono tracking-widest text-center outline-none focus:border-cyan-400 focus:ring-2 focus:ring-cyan-500/20 text-white placeholder:text-slate-600 transition-all"
                     />
                   </div>
                 </div>
 
                 <button
                   type="submit"
-                  className="mt-3 h-11 rounded-xl bg-primary hover:bg-primary-dark text-white font-bold text-xs shadow-md shadow-primary/20 transition-all cursor-pointer"
+                  className="mt-3 h-11 rounded-xl bg-gradient-to-r from-cyan-400 to-teal-400 hover:from-cyan-300 hover:to-teal-300 text-slate-950 font-black text-xs shadow-lg shadow-cyan-950/50 transition-all cursor-pointer active:scale-98"
                 >
                   Create Practitioner Account
                 </button>
@@ -635,9 +635,9 @@ export default function Login({ onLoginSuccess }: LoginProps) {
           onClick={() => {
             window.location.hash = '#/landing';
           }}
-          className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/75 hover:bg-white border border-slate-200 text-slate-700 text-xs font-bold shadow-sm hover:shadow-md transition-all cursor-pointer"
+          className="flex items-center gap-2 px-4 py-2 rounded-full bg-[#0E1724] hover:bg-[#142030] border border-[#1E3048] text-slate-300 hover:text-white text-xs font-bold shadow-sm hover:shadow-md transition-all cursor-pointer"
         >
-          <Sparkles className="w-3.5 h-3.5 text-primary" />
+          <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
           <span>Product overview & features</span>
         </button>
         <button
@@ -645,9 +645,9 @@ export default function Login({ onLoginSuccess }: LoginProps) {
           onClick={() => {
             window.location.hash = '#/demo';
           }}
-          className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/75 hover:bg-white border border-slate-200 text-primary text-xs font-bold shadow-sm hover:shadow-md transition-all cursor-pointer"
+          className="flex items-center gap-2 px-4 py-2 rounded-full bg-[#0E1724] hover:bg-[#142030] border border-[#1E3048] text-cyan-300 text-xs font-bold shadow-sm hover:shadow-md transition-all cursor-pointer"
         >
-          <CirclePlay className="w-4 h-4" />
+          <CirclePlay className="w-4 h-4 text-cyan-400" />
           <span>Watch narrated demo</span>
           <span className="text-[9px] text-slate-400 font-semibold uppercase tracking-wider">3 min</span>
         </button>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Calendar,
   Clock,
@@ -14,6 +14,7 @@ import {
   FileText,
   UploadCloud,
   ChevronRight,
+  ChevronLeft,
   ShieldCheck,
   X,
   Stethoscope,
@@ -41,19 +42,38 @@ import {
 import { AppointmentType, APPOINTMENT_TYPES, getAppointmentTypeLabel } from '../lib/dentalLibrary';
 import TopSurgeryBar from './TopSurgeryBar';
 import ErrorBoundary from './ErrorBoundary';
+import CockpitLayout from './CockpitLayout';
+import CockpitInspectionDrawer from './CockpitInspectionDrawer';
+import { ClinicMembership } from '../lib/clinics';
 
 interface DayScheduleQueueProps {
   onStartRecording?: (item: DayScheduleItem) => void;
   onViewConsultation?: (consultationId: string) => void;
   dentistName: string;
   authToken: string;
+  onLogout?: () => void;
+  onNavigateTab?: (tab: 'schedule' | 'records' | 'pipeline') => void;
+  activeClinic?: ClinicMembership | null;
+  clinics?: ClinicMembership[];
+  onSelectClinic?: (clinicId: string) => void;
+  onManageClinic?: () => void;
+  onClinicChanged?: () => void;
+  onJoinClinic?: (code: string) => Promise<{ ok: boolean; message: string }>;
 }
 
 export default function DayScheduleQueue({
   onStartRecording,
   onViewConsultation,
   dentistName,
-  authToken
+  authToken,
+  onLogout,
+  onNavigateTab,
+  activeClinic,
+  clinics,
+  onSelectClinic,
+  onManageClinic,
+  onClinicChanged,
+  onJoinClinic
 }: DayScheduleQueueProps) {
   const [items, setItems] = useState<DayScheduleItem[]>(() => loadTodaySchedule());
   const [isParsing, setIsParsing] = useState(false);
@@ -63,6 +83,45 @@ export default function DayScheduleQueue({
   const [viewNoteItem, setViewNoteItem] = useState<DayScheduleItem | null>(null);
   const [consentGuardItem, setConsentGuardItem] = useState<DayScheduleItem | null>(null);
   const [sideBySideItem, setSideBySideItem] = useState<DayScheduleItem | null>(null);
+
+  // Cockpit Inspection Drawer State
+  const [selectedInspectionId, setSelectedInspectionId] = useState<string | null>(() => {
+    const initial = loadTodaySchedule();
+    const readyOne = initial.find(i => i.status === 'ready');
+    return readyOne ? readyOne.id : (initial[0]?.id || null);
+  });
+  const [isInspectionOpen, setIsInspectionOpen] = useState(true);
+
+  // Active selected item for the persistent Inspection Drawer
+  const selectedItem = useMemo(() => {
+    if (!selectedInspectionId) {
+      return items.find(i => i.status === 'ready') || items[0] || null;
+    }
+    return items.find(i => i.id === selectedInspectionId) || items[0] || null;
+  }, [items, selectedInspectionId]);
+
+  // Date Navigator Header
+  const [dateOffset, setDateOffset] = useState(0);
+  const formattedDateTitle = useMemo(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + dateOffset);
+    const day = d.toLocaleDateString('en-US', { weekday: 'long' }).toUpperCase();
+    const monthDay = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }).toUpperCase();
+    if (dateOffset === 0) {
+      return `TODAY • ${day}, ${monthDay}`;
+    }
+    return `${day}, ${monthDay}`;
+  }, [dateOffset]);
+
+  const getInitials = (name: string) => {
+    return name
+      .split(' ')
+      .filter(n => n.toLowerCase() !== 'dr.')
+      .map(n => n[0])
+      .join('')
+      .toUpperCase()
+      .slice(0, 2) || 'PT';
+  };
 
   const toggleConsent = (item: DayScheduleItem) => {
     const nextVal = !item.consentObtained;
@@ -628,416 +687,467 @@ export default function DayScheduleQueue({
   const dailyProduction = calculateDailyProduction(items);
 
   return (
-    <div className="w-full max-w-5xl mx-auto px-4 py-6 font-sans relative">
-      {/* Top Surgery Island: Floating Ergonomic HUD when recording */}
-      <AnimatePresence>
-        {recordingItem && (
-          <TopSurgeryBar
-            activeItem={recordingItem}
-            mediaStream={mediaStream}
-            onFinish={finishInPlaceRecording}
-            onCancel={cancelInPlaceRecording}
-            liveTranscript={liveTranscript}
+    <CockpitLayout
+      dentistName={dentistName}
+      onLogout={onLogout || (() => {})}
+      activeTab="roster"
+      onTabChange={(tab) => {
+        if (tab === 'patients') onNavigateTab?.('records');
+        else if (tab === 'pipeline') onNavigateTab?.('pipeline');
+      }}
+      onDrawerClose={() => setIsInspectionOpen(false)}
+      rightDrawer={
+        isInspectionOpen ? (
+          <CockpitInspectionDrawer
+            selectedItem={selectedItem}
+            onClose={() => setIsInspectionOpen(false)}
+            onExpressCopy={handleCopyNote}
+            isCopied={copiedId === selectedItem?.id}
+            onOpenSideBySide={(item) => setSideBySideItem(item)}
           />
+        ) : undefined
+      }
+    >
+      <div className="w-full max-w-6xl mx-auto space-y-5">
+        {/* Top Surgery Island: Floating Ergonomic HUD when recording */}
+        <AnimatePresence>
+          {recordingItem && (
+            <TopSurgeryBar
+              activeItem={recordingItem}
+              mediaStream={mediaStream}
+              onFinish={finishInPlaceRecording}
+              onCancel={cancelInPlaceRecording}
+              liveTranscript={liveTranscript}
+            />
+          )}
+        </AnimatePresence>
+
+        {/* Mic Access Error Alert */}
+        {micError && (
+          <div className="p-4 bg-rose-950/50 border border-rose-500/50 rounded-2xl flex items-center justify-between gap-3 text-rose-200 text-xs shadow-xl">
+            <div className="flex items-center gap-2">
+              <MicOff className="w-5 h-5 text-rose-400 shrink-0" />
+              <span className="font-semibold">{micError}</span>
+            </div>
+            <button
+              onClick={() => setMicError(null)}
+              className="text-rose-300 hover:text-white font-bold cursor-pointer underline"
+            >
+              Dismiss
+            </button>
+          </div>
         )}
-      </AnimatePresence>
 
-      {/* Mic Access Error Alert */}
-      {micError && (
-        <div className="mb-6 p-4 bg-rose-50 border border-rose-300 rounded-2xl flex items-center justify-between gap-3 text-rose-800 text-xs">
-          <div className="flex items-center gap-2">
-            <MicOff className="w-5 h-5 text-rose-600 shrink-0" />
-            <span className="font-semibold">{micError}</span>
-          </div>
-          <button
-            onClick={() => setMicError(null)}
-            className="text-rose-600 hover:text-rose-800 font-bold"
-          >
-            Dismiss
-          </button>
-        </div>
-      )}
-
-      {/* Header Bar */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-teal-50 text-teal-700 border border-teal-200">
-              <Sparkles className="w-3.5 h-3.5" />
-              Single-Screen Surgery Cockpit
-            </span>
-            {readyCount > 0 && (
-              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                <DollarSign className="w-3 h-3" />
-                Est. Production: ${dailyProduction.toLocaleString()}
-              </span>
-            )}
-          </div>
-          <h2 className="text-2xl font-bold text-slate-900 tracking-tight flex items-center gap-2.5">
-            <Calendar className="w-6 h-6 text-primary" />
-            Today's Clinical Roster
-          </h2>
-          <p className="text-xs text-slate-500 mt-1">
-            Record in-place via the Top Surgery Island. Everything happens on this screen—no page jumps, zero duplicates.
-          </p>
-        </div>
-
-        {/* Action Buttons */}
-        <div className="flex items-center gap-2 flex-wrap">
-          {readyCount > 0 && (
-            <button
-              onClick={handleExpressCopyNext}
-              className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-black transition-all active:scale-95 shadow-sm cursor-pointer"
-              title="Copy the next completed note directly for D4W"
-            >
-              <Copy className="w-4 h-4" />
-              Express Copy (D4W)
-            </button>
-          )}
-
-          <button
-            onClick={() => setShowWalkInModal(true)}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all active:scale-95 cursor-pointer"
-          >
-            <Plus className="w-4 h-4 text-slate-600" />
-            Add Walk-in
-          </button>
-
-          {items.length === 0 && (
-            <button
-              onClick={handleLoadDemoSchedule}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-xl text-xs font-bold transition-all active:scale-95 cursor-pointer"
-            >
-              <Stethoscope className="w-4 h-4 text-emerald-600" />
-              Load Sample Day
-            </button>
-          )}
-
-          {items.length > 0 && (
-            <button
-              onClick={() => {
-                if (confirm('Clear today\'s schedule queue?')) {
-                  clearTodaySchedule();
-                  setItems([]);
-                }
-              }}
-              className="p-2 text-slate-400 hover:text-red-500 rounded-xl hover:bg-red-50 transition-colors cursor-pointer"
-              title="Clear roster"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Snip & Paste Dropzone */}
-      <div
-        onClick={() => fileInputRef.current?.click()}
-        className="relative mb-6 rounded-2xl border-2 border-dashed border-primary/40 hover:border-primary bg-primary/[0.02] hover:bg-primary/[0.04] p-6 text-center transition-all cursor-pointer group"
-      >
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          className="hidden"
-          onChange={(e) => {
-            if (e.target.files?.[0]) handleImageFile(e.target.files[0]);
-          }}
-        />
-
-        <div className="flex flex-col items-center justify-center gap-2.5">
-          <div className="w-12 h-12 rounded-full bg-primary/10 text-primary flex items-center justify-center group-hover:scale-110 transition-transform">
-            {isParsing ? (
-              <RotateCw className="w-6 h-6 animate-spin text-primary" />
-            ) : (
-              <UploadCloud className="w-6 h-6 text-primary" />
-            )}
-          </div>
-
+        {/* 1. Header Bar: Date Switcher & Operatory Actions */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-5 rounded-2xl bg-[#0E1724] border border-[#182638] shadow-xl shadow-black/30">
           <div>
-            <p className="text-sm font-bold text-slate-800">
-              {isParsing ? (
-                'Analyzing D4W / Praktika Screenshot with AI...'
-              ) : (
-                <>
-                  Press <kbd className="px-1.5 py-0.5 text-xs font-bold bg-slate-100 border border-slate-300 rounded shadow-xs text-slate-700">Ctrl + V</kbd> to paste snip, or click to upload
-                </>
+            <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
+                <Sparkles className="w-3 h-3" />
+                Operatory Cockpit
+              </span>
+              {readyCount > 0 && (
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[10px] font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                  <DollarSign className="w-3 h-3" />
+                  Est. Production: ${dailyProduction.toLocaleString()}
+                </span>
               )}
-            </p>
-            <p className="text-xs text-slate-500 mt-1">
-              Supports Windows Snipping Tool (<kbd className="text-[10px] bg-slate-100 px-1 py-0.5 rounded border border-slate-200">Win+Shift+S</kbd>). Repasting midday auto-merges walk-ins with zero duplicate cards.
-            </p>
+            </div>
+
+            <div className="flex items-center gap-3">
+              {/* Date Navigator Buttons */}
+              <div className="flex items-center gap-1 bg-[#121E2E] border border-[#1E3048] rounded-xl p-1 shadow-inner">
+                <button
+                  onClick={() => setDateOffset(prev => prev - 1)}
+                  className="p-1 text-slate-400 hover:text-white rounded-lg hover:bg-[#1A2C40] transition-colors cursor-pointer"
+                  title="Previous Day"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => setDateOffset(0)}
+                  className={`px-2.5 py-0.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                    dateOffset === 0
+                      ? 'bg-cyan-500 text-slate-950 font-black shadow-xs'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  Today
+                </button>
+                <button
+                  onClick={() => setDateOffset(prev => prev + 1)}
+                  className="p-1 text-slate-400 hover:text-white rounded-lg hover:bg-[#1A2C40] transition-colors cursor-pointer"
+                  title="Next Day"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+
+              <h2 className="text-xl md:text-2xl font-black text-white tracking-tight uppercase">
+                {formattedDateTitle}
+              </h2>
+            </div>
+          </div>
+
+          {/* Action Buttons */}
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Toggle Inspection Drawer Pill */}
+            <button
+              onClick={() => setIsInspectionOpen(prev => !prev)}
+              className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all border cursor-pointer active:scale-95 ${
+                isInspectionOpen
+                  ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40 shadow-xs'
+                  : 'bg-[#121E2E] hover:bg-[#18283D] text-slate-300 border-[#1E3048]'
+              }`}
+              title="Toggle operatory inspection drawer"
+            >
+              <FileText className="w-3.5 h-3.5 text-cyan-400" />
+              <span>{isInspectionOpen ? 'Hide Inspection' : 'Inspect Patient'}</span>
+            </button>
+
+            {readyCount > 0 && (
+              <button
+                onClick={handleExpressCopyNext}
+                className="inline-flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-emerald-400 via-teal-400 to-cyan-400 hover:from-emerald-300 hover:to-cyan-300 text-slate-950 rounded-xl text-xs font-black transition-all active:scale-95 shadow-lg shadow-emerald-950/60 cursor-pointer"
+                title="Copy the next completed note directly for D4W"
+              >
+                <Copy className="w-4 h-4 stroke-[2.5]" />
+                Express Copy (D4W)
+              </button>
+            )}
+
+            <button
+              onClick={() => setShowWalkInModal(true)}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-[#121E2E] hover:bg-[#18283D] text-slate-200 border border-[#1E3048] rounded-xl text-xs font-bold transition-all active:scale-95 cursor-pointer"
+            >
+              <Plus className="w-4 h-4 text-cyan-400" />
+              Add Walk-in
+            </button>
+
+            {items.length === 0 && (
+              <button
+                onClick={handleLoadDemoSchedule}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30 rounded-xl text-xs font-bold transition-all active:scale-95 cursor-pointer"
+              >
+                <Stethoscope className="w-4 h-4 text-cyan-400" />
+                Load Sample Day
+              </button>
+            )}
+
+            {items.length > 0 && (
+              <button
+                onClick={() => {
+                  if (confirm('Clear today\'s schedule queue?')) {
+                    clearTodaySchedule();
+                    setItems([]);
+                  }
+                }}
+                className="p-2 text-slate-500 hover:text-rose-400 rounded-xl hover:bg-[#121E2E] transition-colors cursor-pointer"
+                title="Clear roster"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            )}
           </div>
         </div>
 
-        {parsingError && (
-          <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-650 flex items-center justify-center gap-2">
-            <AlertCircle className="w-4 h-4 shrink-0" />
-            <span>{parsingError}</span>
-          </div>
-        )}
-      </div>
+        {/* 2. Snip & Paste Dropzone */}
+        <div
+          onClick={() => fileInputRef.current?.click()}
+          className="relative rounded-2xl border border-dashed border-[#1E3048] hover:border-cyan-500/50 bg-[#0E1724]/70 hover:bg-[#121E2E] p-5 text-center transition-all cursor-pointer group shadow-lg shadow-black/20"
+        >
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => {
+              if (e.target.files?.[0]) handleImageFile(e.target.files[0]);
+            }}
+          />
 
-      {/* Status Metrics Bar */}
-      {totalCount > 0 && (
-        <div className="flex items-center justify-between px-4 py-3 bg-white border border-slate-200 rounded-xl mb-6 text-xs text-slate-600">
-          <div className="flex items-center gap-4 flex-wrap">
-            <span className="font-semibold text-slate-800">
-              {totalCount} Total Appointments
-            </span>
-            {readyCount > 0 && (
-              <span className="flex items-center gap-1 text-emerald-650 font-bold">
-                <Check className="w-3.5 h-3.5" />
-                {readyCount} Ready for D4W
-              </span>
-            )}
-            {processingCount > 0 && (
-              <span className="flex items-center gap-1 text-amber-600 font-bold">
-                <RotateCw className="w-3.5 h-3.5 animate-spin" />
-                {processingCount} Synthesizing Notes
-              </span>
-            )}
-            {pendingCount > 0 && (
-              <span className="text-slate-400">
-                {pendingCount} Remaining
-              </span>
-            )}
+          <div className="flex flex-col items-center justify-center gap-2">
+            <div className="w-10 h-10 rounded-xl bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 flex items-center justify-center group-hover:scale-105 transition-transform shadow-xs">
+              {isParsing ? (
+                <RotateCw className="w-5 h-5 animate-spin text-cyan-400" />
+              ) : (
+                <UploadCloud className="w-5 h-5 text-cyan-300" />
+              )}
+            </div>
+
+            <div>
+              <p className="text-xs md:text-sm font-bold text-slate-100">
+                {isParsing ? (
+                  'Analyzing D4W / Praktika Screenshot with AI...'
+                ) : (
+                  <>
+                    Press <kbd className="px-2 py-0.5 text-[11px] font-mono font-extrabold bg-[#162436] border border-[#233852] rounded text-cyan-300 shadow-xs">Ctrl + V</kbd> to paste snip, or click to upload
+                  </>
+                )}
+              </p>
+              <p className="text-[11px] text-slate-400 mt-1">
+                Supports Windows Snipping Tool (<kbd className="text-[10px] bg-[#162436] px-1.5 py-0.5 rounded border border-[#233852] text-slate-300">Win+Shift+S</kbd>). 3-way hash auto-merges midday walk-ins with zero duplicate cards.
+              </p>
+            </div>
           </div>
 
-          {readyCount > 0 && (
-            <div className="flex items-center gap-1 text-[11px] font-bold text-slate-500">
-              <ShieldCheck className="w-4 h-4 text-emerald-600" />
-              <span>5:00 PM Cake Walk: 1-click clipboard paste</span>
+          {parsingError && (
+            <div className="mt-3 p-3 bg-red-950/40 border border-red-500/40 rounded-xl text-xs text-red-200 flex items-center justify-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0 text-red-400" />
+              <span>{parsingError}</span>
             </div>
           )}
         </div>
-      )}
 
-      {/* Schedule Items List */}
-      {items.length === 0 ? (
-        <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center">
-          <Calendar className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-          <h3 className="text-base font-bold text-slate-700">No Appointments Queued for Today</h3>
-          <p className="text-xs text-slate-500 max-w-md mx-auto mt-1 mb-5">
-            Snip your appointment book from Dental4Windows or Praktika and press <strong className="text-slate-700">Ctrl+V</strong> to populate your day in 3 seconds.
-          </p>
-          <button
-            onClick={handleLoadDemoSchedule}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-white text-xs font-bold rounded-xl hover:bg-primary-container transition-colors shadow-sm"
-          >
-            <Sparkles className="w-4 h-4" />
-            Populate with Sample Day
-          </button>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {items.map((item, index) => {
-            const isRecordingThis = recordingItem?.id === item.id || item.status === 'recording';
-            const isReady = item.status === 'ready';
-            const isProcessing = item.status === 'processing';
-            const isFailed = item.status === 'failed';
+        {/* 3. Status Metrics Bar */}
+        {totalCount > 0 && (
+          <div className="flex items-center justify-between px-4 py-2.5 bg-[#0E1724] border border-[#182638] rounded-xl text-xs text-slate-300 shadow-md">
+            <div className="flex items-center gap-4 flex-wrap">
+              <span className="font-extrabold text-white">
+                {totalCount} Total Appointments
+              </span>
+              {readyCount > 0 && (
+                <span className="flex items-center gap-1 text-emerald-300 font-bold">
+                  <Check className="w-3.5 h-3.5 stroke-[3] text-emerald-400" />
+                  {readyCount} Ready for D4W
+                </span>
+              )}
+              {processingCount > 0 && (
+                <span className="flex items-center gap-1 text-amber-300 font-bold">
+                  <RotateCw className="w-3.5 h-3.5 animate-spin text-amber-400" />
+                  {processingCount} Synthesizing Notes
+                </span>
+              )}
+              {pendingCount > 0 && (
+                <span className="text-slate-400 font-medium">
+                  {pendingCount} Remaining
+                </span>
+              )}
+            </div>
 
-            return (
-              <motion.div
-                key={item.id}
-                layout
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.2, delay: index * 0.02 }}
-                className={`bg-white rounded-2xl border transition-all p-4.5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
-                  isRecordingThis
-                    ? 'border-red-400 ring-2 ring-red-100 shadow-md bg-red-50/[0.1]'
-                    : isReady
-                    ? 'border-emerald-200 hover:border-emerald-300 bg-emerald-50/[0.15]'
-                    : isProcessing
-                    ? 'border-amber-200 bg-amber-50/[0.15]'
-                    : 'border-slate-200/80 hover:border-slate-300 shadow-xs'
-                }`}
-              >
-                {/* Left: Time + Patient Info */}
-                <div className="flex items-start sm:items-center gap-3.5 min-w-0">
-                  {/* Time Badge */}
-                  <div className="flex flex-col items-center justify-center w-14 h-12 rounded-xl bg-slate-100 text-slate-700 shrink-0 font-mono text-xs font-bold">
-                    <Clock className="w-3.5 h-3.5 text-slate-400 mb-0.5" />
-                    <span>{item.time || '09:00'}</span>
-                  </div>
+            {readyCount > 0 && (
+              <div className="hidden sm:flex items-center gap-1.5 text-[11px] font-bold text-slate-300">
+                <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                <span>5:00 PM Cake Walk: 1-click clipboard paste</span>
+              </div>
+            )}
+          </div>
+        )}
 
-                  {/* Patient Name & Details */}
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <h4 className="text-base font-bold text-slate-900 truncate">
-                        {item.patientName}
-                      </h4>
-                      {/* Procedure Type Badge */}
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold ${
-                        item.appointmentType === 'emergency'
-                          ? 'bg-rose-50 text-rose-700 border border-rose-200'
-                          : item.appointmentType === 'scale_clean'
-                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                          : item.appointmentType === 'prosthodontic' || item.appointmentType === 'restorative'
-                          ? 'bg-purple-50 text-purple-700 border border-purple-200'
-                          : 'bg-blue-50 text-blue-700 border border-blue-200'
-                      }`}>
-                        {getAppointmentTypeLabel(item.appointmentType)}
-                      </span>
+        {/* 4. Schedule Items Adaptive Bento Grid */}
+        {items.length === 0 ? (
+          <div className="bg-[#0E1724] rounded-2xl border border-[#182638] p-12 text-center shadow-xl">
+            <Calendar className="w-12 h-12 text-slate-600 mx-auto mb-3" />
+            <h3 className="text-base font-extrabold text-white">No Appointments Queued for Today</h3>
+            <p className="text-xs text-slate-400 max-w-md mx-auto mt-1 mb-5">
+              Snip your appointment book from Dental4Windows or Praktika and press <strong className="text-cyan-300">Ctrl+V</strong> to populate your day in 3 seconds.
+            </p>
+            <button
+              onClick={handleLoadDemoSchedule}
+              className="inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-cyan-400 to-teal-400 hover:from-cyan-300 hover:to-teal-300 text-slate-950 text-xs font-black rounded-xl transition-all shadow-lg shadow-cyan-950/40 cursor-pointer active:scale-95"
+            >
+              <Sparkles className="w-4 h-4" />
+              Populate with Sample Day
+            </button>
+          </div>
+        ) : (
+          <div className={isInspectionOpen ? "grid grid-cols-1 xl:grid-cols-2 gap-4" : "grid grid-cols-1 md:grid-cols-2 gap-4"}>
+            {items.map((item, index) => {
+              const isSelected = selectedItem?.id === item.id;
+              const isRecordingThis = recordingItem?.id === item.id || item.status === 'recording';
+              const isReady = item.status === 'ready';
+              const isProcessing = item.status === 'processing';
+              const initials = getInitials(item.patientName);
 
-                      {/* Verbal Consent Inline Toggle */}
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleConsent(item);
-                        }}
-                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold border transition-all cursor-pointer ${
-                          item.consentObtained
-                            ? 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100 shadow-2xs'
-                            : 'bg-slate-100/80 text-slate-500 border-slate-200 hover:border-slate-300 hover:text-slate-700'
-                        }`}
-                        title={
-                          item.consentObtained
-                            ? `Verbal recording consent captured chairside (${item.consentCapturedAt ? new Date(item.consentCapturedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Logged'}). Click to toggle.`
-                            : 'Click to record patient verbal consent chairside'
-                        }
-                      >
-                        <Check className={`w-3 h-3 ${item.consentObtained ? 'text-emerald-600 stroke-[3]' : 'text-slate-400'}`} />
-                        <span>{item.consentObtained ? 'Verbal Consent ✓' : 'Consent'}</span>
-                      </button>
+              return (
+                <motion.div
+                  key={item.id}
+                  layout
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.2, delay: index * 0.02 }}
+                  onClick={() => {
+                    setSelectedInspectionId(item.id);
+                    setIsInspectionOpen(true);
+                  }}
+                  className={`p-0.5 rounded-2xl transition-all duration-200 cursor-pointer relative group ${
+                    isSelected
+                      ? 'bg-gradient-to-b from-cyan-400/80 via-teal-500/40 to-[#182638] shadow-lg shadow-cyan-950/50'
+                      : isRecordingThis
+                      ? 'bg-gradient-to-b from-rose-500/80 via-rose-900/40 to-[#182638] shadow-lg shadow-rose-950/50 animate-pulse'
+                      : isReady
+                      ? 'bg-gradient-to-b from-emerald-500/40 via-transparent to-[#182638] hover:from-cyan-500/40'
+                      : 'bg-[#182638] hover:bg-[#20334A]'
+                  }`}
+                >
+                  <div
+                    className={`rounded-[calc(1rem-2px)] p-4 flex flex-col justify-between gap-3.5 h-full transition-colors ${
+                      isSelected
+                        ? 'bg-[#101C2B] shadow-[inset_0_1px_0_rgba(255,255,255,0.1)]'
+                        : isRecordingThis
+                        ? 'bg-[#1E1118]'
+                        : isReady
+                        ? 'bg-[#0E1724] hover:bg-[#121E2E]'
+                        : 'bg-[#0A1018] hover:bg-[#0E1724]'
+                    }`}
+                  >
+                    {/* Top Row: Avatar + Patient Name + Monospace Time Pill */}
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div
+                          className={`w-10 h-10 rounded-xl shrink-0 flex items-center justify-center font-black text-xs border ${
+                            isSelected
+                              ? 'bg-cyan-500/20 border-cyan-400 text-cyan-300 shadow-xs'
+                              : 'bg-[#162436] border-[#233852] text-slate-200'
+                          }`}
+                        >
+                          {initials}
+                        </div>
+
+                        <div className="min-w-0">
+                          <h4 className="text-base font-black text-white truncate tracking-tight">
+                            {item.patientName}
+                          </h4>
+                          <p className="text-xs text-cyan-300 font-medium truncate mt-0.5">
+                            {item.procedureText}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="shrink-0 flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#162436] border border-[#20334A] text-slate-200 font-mono text-[11px] font-bold shadow-xs">
+                        <Clock className="w-3 h-3 text-cyan-400" />
+                        <span>{item.time || '09:00'}</span>
+                      </div>
                     </div>
 
-                    <p className="text-xs text-slate-500 truncate mt-0.5 max-w-lg">
-                      {item.procedureText}
-                    </p>
-                  </div>
-                </div>
-
-                {/* Right: Status & Actions */}
-                <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
-                  {/* Status Badges */}
-                  {isRecordingThis && (
-                    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-extrabold bg-red-100 text-red-700 animate-pulse">
-                      <span className="w-2 h-2 rounded-full bg-red-600 animate-ping" />
-                      Live in Surgery
-                    </span>
-                  )}
-
-                  {isProcessing && (
-                    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800">
-                      <RotateCw className="w-3.5 h-3.5 animate-spin text-amber-600" />
-                      Writing Note...
-                    </span>
-                  )}
-
-                  {isReady && (
-                    <div className="flex items-center gap-2">
-                      {/* Progressive Confidence Verification Badge */}
-                      {item.isFullyGrounded !== false ? (
-                        <span
-                          className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200"
-                          title="100% transcript-grounded: All teeth, treatments, and drugs verified from audio dialogue"
-                        >
-                          <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-                          Verified from Audio ✓
-                        </span>
+                    {/* ADA Item Codes & Procedure Chips */}
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {item.adaCodes && item.adaCodes.length > 0 ? (
+                        item.adaCodes.map((c, idx) => {
+                          const codeStr = typeof c === 'string' ? c : (c as any)?.code || '';
+                          return (
+                            <span
+                              key={idx}
+                              className="px-2.5 py-0.5 rounded-md text-[10px] font-mono font-extrabold bg-[#162436] text-cyan-300 border border-[#233852]"
+                            >
+                              ADA {codeStr}
+                            </span>
+                          );
+                        })
                       ) : (
+                        <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-[#121E2E] text-slate-300 border border-[#182638]">
+                          {getAppointmentTypeLabel(item.appointmentType)}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Bottom Row: Status & Actions */}
+                    <div className="flex items-center justify-between gap-2 pt-2.5 border-t border-[#182638]">
+                      {/* Left: Badges */}
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {isReady && item.isFullyGrounded !== false && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                            <ShieldCheck className="w-3 h-3 text-emerald-400" />
+                            Audio Verified 100%
+                          </span>
+                        )}
+
+                        {isReady && item.isFullyGrounded === false && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSideBySideItem(item);
+                            }}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 transition-colors cursor-pointer"
+                          >
+                            <AlertCircle className="w-3 h-3 text-amber-400" />
+                            Review Dialogue ({item.groundingScore ?? 0}%)
+                          </button>
+                        )}
+
                         <button
                           type="button"
-                          onClick={() => setSideBySideItem(item)}
-                          className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 transition-colors cursor-pointer"
-                          title="Click to review spoken dialogue vs note"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleConsent(item);
+                          }}
+                          className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-bold border transition-colors cursor-pointer ${
+                            item.consentObtained
+                              ? 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30'
+                              : 'bg-[#121E2E] text-slate-400 border-[#182638] hover:text-slate-200'
+                          }`}
                         >
-                          <AlertCircle className="w-3.5 h-3.5 text-amber-600" />
-                          Review Spoken Dialogue ({item.groundingScore ?? 0}%)
+                          <Check className={`w-3 h-3 ${item.consentObtained ? 'text-cyan-400 stroke-[3]' : 'text-slate-500'}`} />
+                          <span>{item.consentObtained ? 'Verbal Consent ✓' : 'Consent'}</span>
                         </button>
-                      )}
+                      </div>
 
-                      <button
-                        onClick={() => {
-                          if (item.isFullyGrounded === false) {
-                            setSideBySideItem(item);
-                          } else {
-                            handleCopyNote(item);
-                          }
-                        }}
-                        className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-xs ${
-                          copiedId === item.id
-                            ? 'bg-emerald-600 text-white'
-                            : item.isFullyGrounded === false
-                            ? 'bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300'
-                            : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300'
-                        }`}
-                        title="Copy note to clipboard for D4W / Praktika"
-                      >
-                        {copiedId === item.id ? (
-                          <>
-                            <Check className="w-3.5 h-3.5" />
-                            Copied!
-                          </>
-                        ) : (
-                          <>
-                            <Copy className="w-3.5 h-3.5 text-emerald-600" />
-                            Copy Note
-                          </>
+                      {/* Right: Quick Action Button */}
+                      <div className="flex items-center gap-1.5">
+                        {item.status === 'scheduled' && !isRecordingThis && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleRecordClick(item);
+                            }}
+                            className="inline-flex items-center gap-1 px-3 py-1.5 bg-cyan-400 hover:bg-cyan-300 text-slate-950 rounded-xl text-xs font-black transition-transform active:scale-95 shadow-sm cursor-pointer"
+                          >
+                            <Play className="w-3 h-3 fill-current" />
+                            Record
+                          </button>
                         )}
-                      </button>
 
-                      <button
-                        onClick={() => setSideBySideItem(item)}
-                        className="p-1.5 text-slate-500 hover:text-slate-800 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
-                        title="Side-by-side dialogue and note review"
-                      >
-                        <FileText className="w-4 h-4" />
-                      </button>
+                        {isRecordingThis && (
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-extrabold bg-rose-500/20 text-rose-300 border border-rose-500/40 animate-pulse">
+                            <span className="w-1.5 h-1.5 rounded-full bg-rose-400 animate-ping" />
+                            Live Surgery
+                          </span>
+                        )}
+
+                        {isProcessing && (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                            <RotateCw className="w-3 h-3 animate-spin text-amber-400" />
+                            Synthesizing
+                          </span>
+                        )}
+
+                        {isReady && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleCopyNote(item);
+                            }}
+                            className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer active:scale-95 ${
+                              copiedId === item.id
+                                ? 'bg-emerald-400 text-slate-950 font-black shadow-md'
+                                : 'bg-[#162436] hover:bg-[#20334A] text-slate-100 border border-[#233852]'
+                            }`}
+                            title="Express copy note for D4W / Praktika"
+                          >
+                            {copiedId === item.id ? <Check className="w-3.5 h-3.5 stroke-[3]" /> : <Copy className="w-3.5 h-3.5 text-cyan-400" />}
+                            <span>{copiedId === item.id ? 'Copied' : 'Copy'}</span>
+                          </button>
+                        )}
+
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteItem(item.id, e);
+                          }}
+                          className="p-1.5 text-slate-500 hover:text-rose-400 rounded-lg transition-colors cursor-pointer"
+                          title="Remove appointment"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
-                  )}
-
-                  {item.status === 'scheduled' && !isRecordingThis && (
-                    <button
-                      onClick={() => handleRecordClick(item)}
-                      className="inline-flex items-center gap-1.5 px-4 py-2 bg-primary hover:bg-primary-container text-white rounded-xl text-xs font-bold transition-all active:scale-95 shadow-xs cursor-pointer"
-                    >
-                      <Play className="w-3.5 h-3.5 fill-current" />
-                      Record
-                    </button>
-                  )}
-
-                  {item.status === 'recording' && !recordingItem && (
-                    <button
-                      onClick={() => {
-                        const updated = updateScheduleItem(item.id, { status: 'scheduled' });
-                        setItems(updated);
-                      }}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded-xl text-xs font-bold transition-all cursor-pointer"
-                      title="Reset status back to scheduled"
-                    >
-                      <RotateCw className="w-3.5 h-3.5" />
-                      Reset
-                    </button>
-                  )}
-
-                  {isFailed && (
-                    <button
-                      onClick={() => startInPlaceRecording(item)}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-xl text-xs font-bold transition-all cursor-pointer"
-                    >
-                      <RotateCw className="w-3.5 h-3.5" />
-                      Retry
-                    </button>
-                  )}
-
-                  {/* Delete / Remove Action */}
-                  <button
-                    onClick={(e) => handleDeleteItem(item.id, e)}
-                    className="p-1.5 text-slate-300 hover:text-red-500 rounded-lg hover:bg-red-50 transition-colors cursor-pointer"
-                    title="Remove appointment"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </motion.div>
-            );
-          })}
-        </div>
-      )}
+                  </div>
+                </motion.div>
+              );
+            })}
+          </div>
+        )}
 
       {/* Quick Add Walk-in Modal */}
       <AnimatePresence>
@@ -1047,16 +1157,16 @@ export default function DayScheduleQueue({
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-100"
+              className="bg-[#101923] rounded-2xl max-w-md w-full p-6 shadow-2xl border border-[#1E2E40] text-slate-100"
             >
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-                  <Plus className="w-5 h-5 text-primary" />
+                <h3 className="text-lg font-black text-white flex items-center gap-2">
+                  <Plus className="w-5 h-5 text-cyan-400" />
                   Add Unscheduled Walk-in
                 </h3>
                 <button
                   onClick={() => setShowWalkInModal(false)}
-                  className="p-1 text-slate-400 hover:text-slate-600 rounded-lg"
+                  className="p-1 text-slate-400 hover:text-white rounded-lg cursor-pointer"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -1064,7 +1174,7 @@ export default function DayScheduleQueue({
 
               <form onSubmit={handleAddWalkInSubmit} className="space-y-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                  <label className="block text-xs font-bold text-slate-300 mb-1">
                     Patient Name *
                   </label>
                   <input
@@ -1074,31 +1184,31 @@ export default function DayScheduleQueue({
                     placeholder="e.g. John Doe"
                     value={walkInName}
                     onChange={(e) => setWalkInName(e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-hidden focus:border-primary focus:ring-1 focus:ring-primary"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-[#233547] bg-[#16222F] text-white text-sm focus:outline-hidden focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 placeholder:text-slate-500"
                   />
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                    <label className="block text-xs font-bold text-slate-300 mb-1">
                       Time
                     </label>
                     <input
                       type="time"
                       value={walkInTime}
                       onChange={(e) => setWalkInTime(e.target.value)}
-                      className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm focus:outline-hidden focus:border-primary"
+                      className="w-full px-3.5 py-2 rounded-xl border border-[#233547] bg-[#16222F] text-white text-sm focus:outline-hidden focus:border-cyan-400"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                    <label className="block text-xs font-bold text-slate-300 mb-1">
                       Type
                     </label>
                     <select
                       value={walkInType}
                       onChange={(e) => setWalkInType(e.target.value as AppointmentType)}
-                      className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-hidden focus:border-primary bg-white"
+                      className="w-full px-3 py-2 rounded-xl border border-[#233547] bg-[#16222F] text-white text-sm focus:outline-hidden focus:border-cyan-400"
                     >
                       {APPOINTMENT_TYPES.map((t) => (
                         <option key={t.value} value={t.value}>
@@ -1110,7 +1220,7 @@ export default function DayScheduleQueue({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                  <label className="block text-xs font-bold text-slate-300 mb-1">
                     Chief Complaint / Procedure
                   </label>
                   <input
@@ -1118,7 +1228,7 @@ export default function DayScheduleQueue({
                     placeholder="e.g. Broken tooth #26, toothache"
                     value={walkInReason}
                     onChange={(e) => setWalkInReason(e.target.value)}
-                    className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm focus:outline-hidden focus:border-primary"
+                    className="w-full px-3.5 py-2 rounded-xl border border-[#233547] bg-[#16222F] text-white text-sm focus:outline-hidden focus:border-cyan-400 placeholder:text-slate-500"
                   />
                 </div>
 
@@ -1126,13 +1236,13 @@ export default function DayScheduleQueue({
                   <button
                     type="button"
                     onClick={() => setShowWalkInModal(false)}
-                    className="px-4 py-2 text-xs font-bold text-slate-500 hover:text-slate-700 rounded-xl"
+                    className="px-4 py-2 text-xs font-bold text-slate-400 hover:text-white rounded-xl cursor-pointer"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
-                    className="px-4 py-2 bg-primary text-white text-xs font-bold rounded-xl hover:bg-primary-container transition-colors"
+                    className="px-4 py-2 bg-cyan-400 hover:bg-cyan-300 text-slate-950 text-xs font-black rounded-xl shadow-lg shadow-cyan-950/40 transition-all cursor-pointer"
                   >
                     Add to Roster
                   </button>
@@ -1146,34 +1256,34 @@ export default function DayScheduleQueue({
       {/* Clinical Note Preview Modal */}
       <AnimatePresence>
         {viewNoteItem && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-xs p-4">
             <motion.div
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl border border-slate-100 flex flex-col max-h-[85vh]"
+              className="bg-[#101923] rounded-2xl max-w-2xl w-full p-6 shadow-2xl border border-[#1E2E40] text-slate-100 flex flex-col max-h-[85vh]"
             >
-              <div className="flex items-center justify-between pb-3 border-b border-slate-200">
+              <div className="flex items-center justify-between pb-3 border-b border-[#1E2E40]">
                 <div>
-                  <h3 className="text-base font-bold text-slate-900">
+                  <h3 className="text-base font-extrabold text-white">
                     Clinical Note: {viewNoteItem.patientName}
                   </h3>
-                  <p className="text-xs text-slate-500">{viewNoteItem.procedureText} • {viewNoteItem.time}</p>
+                  <p className="text-xs text-cyan-400">{viewNoteItem.procedureText} • {viewNoteItem.time}</p>
                 </div>
                 <button
                   onClick={() => setViewNoteItem(null)}
-                  className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
+                  className="p-1.5 text-slate-400 hover:text-white rounded-lg cursor-pointer"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
 
-              <div className="flex-1 overflow-y-auto py-4 font-mono text-xs text-slate-800 whitespace-pre-wrap leading-relaxed bg-slate-50 p-4 rounded-xl border border-slate-200 mt-3">
+              <div className="flex-1 overflow-y-auto py-4 font-mono text-xs text-slate-200 whitespace-pre-wrap leading-relaxed bg-[#0E1620] p-4 rounded-xl border border-[#1E2E40] mt-3 cockpit-scrollbar">
                 {formatNoteForPmsClipboard(viewNoteItem)}
               </div>
 
-              <div className="flex items-center justify-between pt-4 border-t border-slate-200 mt-4">
-                <span className="text-xs text-slate-500">
+              <div className="flex items-center justify-between pt-4 border-t border-[#1E2E40] mt-4">
+                <span className="text-xs text-slate-400">
                   Ready to paste into D4W / Praktika Notes tab
                 </span>
                 <button
@@ -1181,7 +1291,7 @@ export default function DayScheduleQueue({
                     handleCopyNote(viewNoteItem);
                     setViewNoteItem(null);
                   }}
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer"
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-cyan-400 hover:bg-cyan-300 text-slate-950 rounded-xl text-xs font-black transition-all shadow-lg shadow-cyan-950/40 cursor-pointer"
                 >
                   <Copy className="w-4 h-4" />
                   Copy to Clipboard
@@ -1195,42 +1305,42 @@ export default function DayScheduleQueue({
       {/* Smart Guard Verbal Consent Confirmation Popover */}
       <AnimatePresence>
         {consentGuardItem && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-xs p-4">
             <motion.div
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-100 flex flex-col"
+              className="bg-[#101923] rounded-2xl max-w-md w-full p-6 shadow-2xl border border-[#1E2E40] flex flex-col text-slate-100"
             >
               <div className="flex items-start gap-3.5">
-                <div className="p-3 bg-emerald-50 text-emerald-600 rounded-2xl shrink-0 border border-emerald-200">
+                <div className="p-3 bg-emerald-500/10 text-emerald-400 rounded-2xl shrink-0 border border-emerald-500/20">
                   <ShieldCheck className="w-6 h-6" />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <h3 className="text-base font-bold text-slate-900">
+                  <h3 className="text-base font-extrabold text-white">
                     Confirm Verbal Recording Consent
                   </h3>
-                  <p className="text-xs text-slate-500 mt-0.5">
+                  <p className="text-xs text-slate-400 mt-0.5">
                     {consentGuardItem.patientName} • {consentGuardItem.time}
                   </p>
                 </div>
                 <button
                   onClick={() => setConsentGuardItem(null)}
-                  className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
+                  className="p-1.5 text-slate-400 hover:text-white rounded-lg cursor-pointer"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
 
-              <div className="mt-4 p-3.5 bg-slate-50 rounded-xl border border-slate-200 text-xs text-slate-700 leading-relaxed">
-                <p className="font-semibold text-slate-800">
+              <div className="mt-4 p-3.5 bg-[#14202D] rounded-xl border border-[#1E2E40] text-xs text-slate-300 leading-relaxed">
+                <p className="font-semibold text-slate-200">
                   Confirm patient verbal consent for ambient operatory recording:
                 </p>
-                <p className="mt-1.5 text-slate-600 italic">
+                <p className="mt-1.5 text-cyan-300 italic">
                   "I will be using ambient voice transcription to prepare my clinical notes for your record today."
                 </p>
-                <div className="mt-3 pt-2.5 border-t border-slate-200 flex items-center gap-1.5 text-[11px] text-slate-500">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                <div className="mt-3 pt-2.5 border-t border-[#1E2E40] flex items-center gap-1.5 text-[11px] text-slate-400">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                   <span>Logged to internal compliance audit only. Kept out of PMS clipboard.</span>
                 </div>
               </div>
@@ -1239,14 +1349,14 @@ export default function DayScheduleQueue({
                 <button
                   type="button"
                   onClick={() => recordWithoutConsentTag(consentGuardItem)}
-                  className="px-3.5 py-2 text-xs font-semibold text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+                  className="px-3.5 py-2 text-xs font-semibold text-slate-400 hover:text-white hover:bg-[#16222F] rounded-xl transition-colors cursor-pointer"
                 >
                   Record Without Tag
                 </button>
                 <button
                   type="button"
                   onClick={() => confirmConsentAndRecord(consentGuardItem)}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition-all shadow-xs cursor-pointer"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-black rounded-xl transition-all shadow-md shadow-emerald-950/40 cursor-pointer"
                 >
                   <ShieldCheck className="w-4 h-4" />
                   Confirm Consent & Record
@@ -1260,36 +1370,36 @@ export default function DayScheduleQueue({
       {/* Side-by-Side Review & Confidence Verification Modal */}
       <AnimatePresence>
         {sideBySideItem && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-xs p-4">
             <motion.div
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white rounded-2xl max-w-4xl w-full p-6 shadow-2xl border border-slate-100 flex flex-col max-h-[90vh]"
+              className="bg-[#101923] rounded-2xl max-w-4xl w-full p-6 shadow-2xl border border-[#1E2E40] flex flex-col max-h-[90vh] text-slate-100"
             >
               {/* Header */}
-              <div className="flex items-center justify-between pb-3 border-b border-slate-200">
+              <div className="flex items-center justify-between pb-3 border-b border-[#1E2E40]">
                 <div className="flex items-center gap-3">
-                  <div className={`p-2.5 rounded-xl ${sideBySideItem.isFullyGrounded !== false ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-amber-50 text-amber-700 border border-amber-200'}`}>
+                  <div className={`p-2.5 rounded-xl ${sideBySideItem.isFullyGrounded !== false ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'}`}>
                     {sideBySideItem.isFullyGrounded !== false ? (
-                      <ShieldCheck className="w-5 h-5 text-emerald-600" />
+                      <ShieldCheck className="w-5 h-5 text-emerald-400" />
                     ) : (
-                      <AlertCircle className="w-5 h-5 text-amber-600" />
+                      <AlertCircle className="w-5 h-5 text-amber-400" />
                     )}
                   </div>
                   <div>
                     <div className="flex items-center gap-2">
-                      <h3 className="text-base font-bold text-slate-900">
+                      <h3 className="text-base font-extrabold text-white">
                         Clinical Verification: {sideBySideItem.patientName}
                       </h3>
-                      <span className={`px-2.5 py-0.5 rounded-md text-[11px] font-extrabold ${sideBySideItem.isFullyGrounded !== false ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
+                      <span className={`px-2.5 py-0.5 rounded-md text-[11px] font-extrabold ${sideBySideItem.isFullyGrounded !== false ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'}`}>
                         {sideBySideItem.isFullyGrounded !== false ? '100% Grounded in Audio' : `${sideBySideItem.groundingScore ?? 0}% Audio Grounded`}
                       </span>
                     </div>
-                    <p className="text-xs text-slate-500 mt-0.5">
+                    <p className="text-xs text-slate-400 mt-0.5">
                       {sideBySideItem.procedureText} • {sideBySideItem.time}
                       {sideBySideItem.consentObtained && (
-                        <span className="ml-2 inline-flex items-center text-emerald-700 font-medium">
+                        <span className="ml-2 inline-flex items-center text-emerald-400 font-medium">
                           • Verbal consent logged ✓
                         </span>
                       )}
@@ -1298,7 +1408,7 @@ export default function DayScheduleQueue({
                 </div>
                 <button
                   onClick={() => setSideBySideItem(null)}
-                  className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
+                  className="p-1.5 text-slate-400 hover:text-white rounded-lg cursor-pointer"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -1306,12 +1416,12 @@ export default function DayScheduleQueue({
 
               {/* Unverified Claims Warning if any */}
               {sideBySideItem.unverifiedClaims && sideBySideItem.unverifiedClaims.length > 0 && (
-                <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-2.5">
-                  <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                  <div className="text-xs text-amber-900 leading-relaxed">
+                <div className="mt-3 p-3 bg-amber-950/30 border border-amber-500/30 rounded-xl flex items-start gap-2.5">
+                  <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                  <div className="text-xs text-amber-300 leading-relaxed">
                     <span className="font-bold">Items not detected in verbatim speech: </span>
-                    <span className="font-semibold text-amber-800">{sideBySideItem.unverifiedClaims.join(', ')}</span>
-                    <p className="text-[11px] text-amber-700 mt-0.5">
+                    <span className="font-semibold text-amber-200">{sideBySideItem.unverifiedClaims.join(', ')}</span>
+                    <p className="text-[11px] text-amber-400/80 mt-0.5">
                       Verify whether these clinical findings or treatments were performed before copying to your practice management system.
                     </p>
                   </div>
@@ -1321,23 +1431,23 @@ export default function DayScheduleQueue({
               {/* Side-by-Side Content Grid */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3.5 flex-1 min-h-0 overflow-hidden">
                 {/* Left Column: Verbatim Spoken Dialogue */}
-                <div className="flex flex-col rounded-xl border border-slate-200 bg-slate-50/70 p-3 min-h-0">
-                  <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-200 text-xs font-bold text-slate-700">
+                <div className="flex flex-col rounded-xl border border-[#1E2E40] bg-[#14202D] p-3 min-h-0">
+                  <div className="flex items-center justify-between pb-2 mb-2 border-b border-[#1E2E40] text-xs font-bold text-slate-300">
                     <span>Spoken Operatory Dialogue</span>
-                    <span className="text-[11px] text-slate-400 font-normal">Verbatim Audio</span>
+                    <span className="text-[11px] text-cyan-400 font-mono font-normal">Verbatim Audio</span>
                   </div>
-                  <div className="flex-1 overflow-y-auto space-y-2 pr-1 text-xs">
+                  <div className="flex-1 overflow-y-auto space-y-2 pr-1 text-xs cockpit-scrollbar">
                     {sideBySideItem.transcript && sideBySideItem.transcript.length > 0 ? (
                       sideBySideItem.transcript.map((utt, i) => (
-                        <div key={i} className="p-2 rounded-lg bg-white border border-slate-200/80 shadow-2xs">
-                          <span className="font-bold text-[11px] text-primary block mb-0.5">
+                        <div key={i} className="p-2 rounded-lg bg-[#0E1620] border border-[#1E2E40]">
+                          <span className="font-bold text-[11px] text-cyan-400 block mb-0.5">
                             {utt.sender}:
                           </span>
-                          <p className="text-slate-700 leading-relaxed font-sans">{utt.text}</p>
+                          <p className="text-slate-300 leading-relaxed font-sans">{utt.text}</p>
                         </div>
                       ))
                     ) : (
-                      <div className="p-4 text-center text-slate-400 italic">
+                      <div className="p-4 text-center text-slate-500 italic">
                         Live operatory audio recorded for consultation.
                       </div>
                     )}
@@ -1345,30 +1455,30 @@ export default function DayScheduleQueue({
                 </div>
 
                 {/* Right Column: Synthesized Clinical Note */}
-                <div className="flex flex-col rounded-xl border border-slate-200 bg-slate-50/70 p-3 min-h-0">
-                  <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-200 text-xs font-bold text-slate-700">
+                <div className="flex flex-col rounded-xl border border-[#1E2E40] bg-[#14202D] p-3 min-h-0">
+                  <div className="flex items-center justify-between pb-2 mb-2 border-b border-[#1E2E40] text-xs font-bold text-slate-300">
                     <span>Synthesized Progress Note</span>
-                    <span className="text-[11px] text-slate-400 font-normal font-mono">D4W / Praktika Format</span>
+                    <span className="text-[11px] text-cyan-400 font-mono font-normal">D4W / Praktika Format</span>
                   </div>
-                  <div className="flex-1 overflow-y-auto p-3 bg-white rounded-lg border border-slate-200 font-mono text-xs text-slate-800 whitespace-pre-wrap leading-relaxed shadow-2xs">
+                  <div className="flex-1 overflow-y-auto p-3 bg-[#0E1620] rounded-lg border border-[#1E2E40] font-mono text-xs text-slate-200 whitespace-pre-wrap leading-relaxed cockpit-scrollbar">
                     {formatNoteForPmsClipboard(sideBySideItem)}
                   </div>
                 </div>
               </div>
 
               {/* Footer */}
-              <div className="flex items-center justify-between pt-4 border-t border-slate-200 mt-4">
-                <div className="text-xs text-slate-500">
+              <div className="flex items-center justify-between pt-4 border-t border-[#1E2E40] mt-4">
+                <div className="text-xs text-slate-400">
                   {sideBySideItem.consentObtained ? (
-                    <span className="text-emerald-700 font-semibold">✓ Verbal Consent Recorded for Internal Audit</span>
+                    <span className="text-emerald-400 font-semibold">✓ Verbal Consent Recorded for Internal Audit</span>
                   ) : (
-                    <span className="text-slate-400">Verbal consent tag not active</span>
+                    <span className="text-slate-500">Verbal consent tag not active</span>
                   )}
                 </div>
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => setSideBySideItem(null)}
-                    className="px-4 py-2 text-xs font-bold text-slate-600 hover:text-slate-800 rounded-xl cursor-pointer"
+                    className="px-4 py-2 text-xs font-bold text-slate-400 hover:text-white rounded-xl cursor-pointer"
                   >
                     Close
                   </button>
@@ -1377,7 +1487,7 @@ export default function DayScheduleQueue({
                       handleCopyNote(sideBySideItem);
                       setSideBySideItem(null);
                     }}
-                    className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer"
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-cyan-400 hover:bg-cyan-300 text-slate-950 rounded-xl text-xs font-black transition-all shadow-lg shadow-cyan-950/40 cursor-pointer"
                   >
                     <Copy className="w-4 h-4" />
                     Approve & Copy to PMS
@@ -1388,6 +1498,7 @@ export default function DayScheduleQueue({
           </div>
         )}
       </AnimatePresence>
-    </div>
+      </div>
+    </CockpitLayout>
   );
 }

@@ -55,14 +55,14 @@ interface ClinicalSummaryProps {
 }
 
 const ACCENTS = [
-  { card: 'bg-amber-500/5 hover:bg-amber-500/10 border-amber-200/40', label: 'text-amber-600', chip: 'bg-amber-100 text-amber-800' },
-  { card: 'bg-indigo-500/5 hover:bg-indigo-500/10 border-indigo-200/40', label: 'text-indigo-600', chip: 'bg-indigo-100 text-indigo-800' },
-  { card: 'bg-slate-500/5 hover:bg-slate-500/10 border-slate-200/40', label: 'text-slate-500', chip: 'bg-slate-100 text-slate-700' },
-  { card: 'bg-emerald-500/5 hover:bg-emerald-500/10 border-emerald-200/40', label: 'text-emerald-600', chip: 'bg-emerald-100 text-emerald-800' },
-  { card: 'bg-sky-500/5 hover:bg-sky-500/10 border-sky-200/40', label: 'text-sky-600', chip: 'bg-sky-100 text-sky-800' },
-  { card: 'bg-violet-500/5 hover:bg-violet-500/10 border-violet-200/40', label: 'text-violet-600', chip: 'bg-violet-100 text-violet-800' },
-  { card: 'bg-pink-500/5 hover:bg-pink-500/10 border-pink-200/40', label: 'text-pink-600', chip: 'bg-pink-100 text-pink-800' },
-  { card: 'bg-teal-500/5 hover:bg-teal-500/10 border-teal-200/40', label: 'text-teal-600', chip: 'bg-teal-100 text-teal-800' }
+  { card: 'bg-[#0E1724] hover:bg-[#121E2E] border-[#1E3048]', label: 'text-cyan-400', chip: 'bg-cyan-950/80 border border-cyan-800 text-cyan-300' },
+  { card: 'bg-[#0E1724] hover:bg-[#121E2E] border-[#1E3048]', label: 'text-emerald-400', chip: 'bg-emerald-950/80 border border-emerald-800 text-emerald-300' },
+  { card: 'bg-[#0E1724] hover:bg-[#121E2E] border-[#1E3048]', label: 'text-blue-400', chip: 'bg-blue-950/80 border border-blue-800 text-blue-300' },
+  { card: 'bg-[#0E1724] hover:bg-[#121E2E] border-[#1E3048]', label: 'text-indigo-400', chip: 'bg-indigo-950/80 border border-indigo-800 text-indigo-300' },
+  { card: 'bg-[#0E1724] hover:bg-[#121E2E] border-[#1E3048]', label: 'text-teal-400', chip: 'bg-teal-950/80 border border-teal-800 text-teal-300' },
+  { card: 'bg-[#0E1724] hover:bg-[#121E2E] border-[#1E3048]', label: 'text-amber-400', chip: 'bg-amber-950/80 border border-amber-800 text-amber-300' },
+  { card: 'bg-[#0E1724] hover:bg-[#121E2E] border-[#1E3048]', label: 'text-violet-400', chip: 'bg-violet-950/80 border border-violet-800 text-violet-300' },
+  { card: 'bg-[#0E1724] hover:bg-[#121E2E] border-[#1E3048]', label: 'text-sky-400', chip: 'bg-sky-950/80 border border-sky-800 text-sky-300' }
 ];
 
 const LEGACY_FIELD_COMPOSE: Record<string, Record<string, string[]>> = {
@@ -440,14 +440,14 @@ export default function ClinicalSummary({
     return (
       <div
         key={section.key}
-        className={`p-1 rounded-2xl transition-all duration-300 shadow-sm border focus-within:ring-1 ${accent.card}`}
+        className={`p-1 rounded-2xl transition-all duration-300 shadow-sm border focus-within:ring-1 focus-within:ring-cyan-400/40 ${accent.card}`}
       >
-        <div className="bg-white border rounded-[calc(1rem-0.25rem)] p-4">
-          <div className="flex items-center gap-2 mb-1">
+        <div className="bg-[#0A1018] border border-[#1E3048]/60 rounded-[calc(1rem-0.25rem)] p-4">
+          <div className="flex items-center gap-2 mb-1.5">
             <span className={`w-5 h-5 rounded-md font-mono font-bold text-[10px] flex items-center justify-center ${accent.chip}`}>
               {idx + 1}
             </span>
-            <label className={`font-bold text-[10px] uppercase tracking-wider ${accent.label}`}>
+            <label className={`font-mono font-bold text-[11px] uppercase tracking-wider ${accent.label}`}>
               {section.label}
             </label>
           </div>
@@ -456,14 +456,14 @@ export default function ClinicalSummary({
               <select
                 value={current}
                 onChange={(e) => updateEdit(section.key, e.target.value)}
-                className={`bg-slate-50/50 border text-xs font-bold rounded-lg px-3 py-2 outline-none focus:ring-1 text-slate-700 ${accent.card.split(' ')[2] || 'border-slate-200'}`}
+                className="bg-[#0E1724] border border-[#1E3048] text-xs font-mono font-bold rounded-xl px-3 py-2 outline-none focus:border-cyan-400 text-slate-200 cursor-pointer"
               >
-                <option value="">Select recall interval…</option>
+                <option value="" className="bg-[#0A1018] text-slate-500">Select recall interval…</option>
                 {RECALL_OPTIONS.map((option) => (
-                  <option key={option} value={option}>{option}</option>
+                  <option key={option} value={option} className="bg-[#0A1018] text-slate-200">{option}</option>
                 ))}
               </select>
-              <span className="text-secondary text-xs text-slate-400">
+              <span className="font-mono text-xs text-slate-500">
                 Recommended recall / next appointment based on today's visit.
               </span>
             </div>
@@ -473,7 +473,7 @@ export default function ClinicalSummary({
               value={current}
               onChange={(e) => updateEdit(section.key, e.target.value)}
               placeholder={section.placeholder}
-              className="w-full border-none p-0 focus:ring-0 text-slate-700 text-sm resize-none bg-transparent outline-none"
+              className="w-full border-none p-0 focus:ring-0 text-slate-200 placeholder:text-slate-600 text-sm resize-none bg-transparent outline-none leading-relaxed font-sans"
             />
           )}
         </div>
@@ -483,74 +483,76 @@ export default function ClinicalSummary({
 
   return (
     <>
-      <div id="clinical-summary-container" className="min-h-screen bg-[#F8F7F5] pb-24 text-on-surface no-print">
+      <div id="clinical-summary-container" className="min-h-screen bg-[#070B11] pb-24 text-slate-100 no-print">
         {/* Top App Bar */}
-        <header className="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-4 h-16 bg-white border-b border-outline-variant shadow-sm">
+        <header className="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-4 md:px-8 h-16 bg-[#0A1018]/90 backdrop-blur-md border-b border-[#1E3048]">
           <div className="flex items-center gap-3">
-            <button onClick={onBack} className="p-2 -ml-2 rounded-full hover:bg-slate-50 transition-colors cursor-pointer">
-              <Menu className="text-primary h-6 w-6" />
+            <button onClick={onBack} className="p-2 -ml-2 rounded-xl hover:bg-[#152338] text-slate-400 hover:text-white transition-colors cursor-pointer">
+              <Menu className="h-5 w-5" />
             </button>
             <div className="flex items-center gap-2">
-              <h1 className="font-headline-md text-headline-md font-bold text-primary">DentAI</h1>
-              <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-blue-50 text-[#004ac6] border border-blue-200">
-                Clinical & Growth OS
+              <h1 className="text-lg font-bold tracking-tight text-white flex items-center gap-1.5">
+                Dent<span className="text-cyan-400">AI</span>
+              </h1>
+              <span className="text-[10px] font-mono font-bold uppercase px-2 py-0.5 rounded bg-cyan-950/60 border border-cyan-800/60 text-cyan-300">
+                Clinical &amp; Growth OS
               </span>
             </div>
           </div>
           <div className="flex items-center gap-4">
             <div className="hidden md:flex flex-col items-end">
-              <span className="font-semibold text-sm text-slate-800">{dentistName || 'Dentist'}</span>
-              <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest leading-none mt-0.5">
+              <span className="font-semibold text-sm text-slate-200">{dentistName || 'Dentist'}</span>
+              <span className="font-mono text-[10px] text-cyan-400 font-bold uppercase tracking-widest leading-none mt-0.5">
                 {getAppointmentTypeLabel(consultation.appointmentType)}
               </span>
             </div>
-            <button className="p-1 rounded-full text-slate-400 hover:text-primary transition-all">
-              <User className="w-6 h-6" />
+            <button className="p-1 rounded-xl text-slate-400 hover:text-white transition-all">
+              <User className="w-5 h-5 text-cyan-400" />
             </button>
           </div>
         </header>
 
         <main className="pt-20 px-4 max-w-[1520px] mx-auto">
           {/* Patient banner */}
-          <div className="bg-white border border-outline-variant rounded-2xl p-5 mb-6 shadow-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="bg-[#0A1018] border border-[#1E3048] rounded-2xl p-5 mb-6 shadow-xl flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div className="flex items-center gap-3.5">
-              <div className="w-12 h-12 rounded-xl bg-blue-50 text-[#004ac6] flex items-center justify-center font-bold text-lg border border-blue-100 shadow-inner">
+              <div className="w-12 h-12 rounded-xl bg-cyan-950/80 text-cyan-300 flex items-center justify-center font-mono font-bold text-lg border border-cyan-800 shadow-inner">
                 {consultation.firstName[0] || ''}{consultation.lastName[0] || ''}
               </div>
               <div className="flex flex-col">
                 <div className="flex items-center flex-wrap gap-2">
-                  <h2 className="text-lg font-bold text-slate-800 leading-tight">
+                  <h2 className="text-lg font-bold text-white leading-tight">
                     {consultation.firstName} {consultation.lastName}
                   </h2>
-                  <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-indigo-50 text-indigo-700 border border-indigo-200`}>
+                  <span className="px-2.5 py-0.5 rounded-md text-[10px] font-mono font-bold uppercase tracking-wider bg-[#0E1724] text-cyan-400 border border-[#1E3048]">
                     {getAppointmentTypeLabel(consultation.appointmentType)}
                   </span>
                   {needsReview ? (
-                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-amber-50 text-amber-700 border border-amber-200 flex items-center gap-1">
-                      <ShieldAlert className="w-3 h-3" /> Draft — verify
+                    <span className="px-2.5 py-0.5 rounded-md text-[10px] font-mono font-bold uppercase tracking-wider bg-amber-950/60 text-amber-300 border border-amber-800/60 flex items-center gap-1">
+                      <ShieldAlert className="w-3 h-3 text-amber-400" /> Draft — verify
                     </span>
                   ) : (
-                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center gap-1">
-                      <CheckCircle className="w-3 h-3" /> AHPRA Verified
+                    <span className="px-2.5 py-0.5 rounded-md text-[10px] font-mono font-bold uppercase tracking-wider bg-emerald-950/60 text-emerald-300 border border-emerald-800/60 flex items-center gap-1">
+                      <CheckCircle className="w-3 h-3 text-emerald-400" /> AHPRA Verified
                     </span>
                   )}
                   {specialistReferral.required && (
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-purple-50 text-purple-700 border border-purple-200 flex items-center gap-1">
-                      <Send className="w-2.5 h-2.5" /> Referral Indicated
-                    </span>
+                     <span className="px-2 py-0.5 rounded-md text-[10px] font-mono font-bold uppercase tracking-wider bg-purple-950/60 text-purple-300 border border-purple-800/60 flex items-center gap-1">
+                       <Send className="w-2.5 h-2.5 text-purple-400" /> Referral Indicated
+                     </span>
                   )}
                 </div>
-                <p className="text-xs text-slate-500 font-medium mt-0.5">
-                  DOB: <span className="font-semibold text-slate-700">{consultation.dob}</span> &bull; Status:{' '}
-                  <span className={`font-semibold ${consultation.status === 'Completed' ? 'text-emerald-700' : 'text-indigo-700'}`}>{consultation.status}</span>
+                <p className="text-xs text-slate-400 font-medium mt-1">
+                  DOB: <span className="font-mono font-semibold text-slate-200">{consultation.dob}</span> &bull; Status:{' '}
+                  <span className={`font-semibold ${consultation.status === 'Completed' ? 'text-emerald-400' : 'text-cyan-400'}`}>{consultation.status}</span>
                   {originEngine !== 'gemini' && (
-                    <> &bull; <span className="text-amber-600 font-semibold">Generated via {originEngine === 'on-device' ? 'on-device model' : 'offline draft'}</span></>
+                    <> &bull; <span className="text-amber-400 font-mono font-semibold">Generated via {originEngine === 'on-device' ? 'on-device model' : 'offline draft'}</span></>
                   )}
                 </p>
               </div>
             </div>
-            <div className="flex sm:flex-col items-start sm:items-end text-xs text-slate-400 gap-x-4 gap-y-0.5 flex-wrap border-t sm:border-t-0 pt-3 sm:pt-0 border-slate-100">
-              <div>Consultation: <span className="font-semibold text-slate-600">{consultation.date} · {consultation.time}</span></div>
+            <div className="flex sm:flex-col items-start sm:items-end text-xs font-mono text-slate-500 gap-x-4 gap-y-0.5 flex-wrap border-t sm:border-t-0 pt-3 sm:pt-0 border-[#1E3048]">
+              <div>Consultation: <span className="font-semibold text-slate-300">{consultation.date} · {consultation.time}</span></div>
             </div>
           </div>
 
@@ -559,16 +561,18 @@ export default function ClinicalSummary({
             <section className="xl:col-span-5 flex flex-col gap-4">
               <div className="flex items-center justify-between py-2 flex-wrap gap-2">
                 <div className="flex items-center gap-2">
-                  <h2 className="font-headline-sm text-lg font-bold text-slate-800">Clinical Record</h2>
-                  <span className="px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 font-semibold text-[11px]">
+                  <h2 className="text-lg font-bold text-white tracking-tight">Clinical Record</h2>
+                  <span className="px-2.5 py-0.5 rounded-md bg-cyan-950/60 text-cyan-300 border border-cyan-800/60 font-mono font-semibold text-[11px]">
                     {activeTemplate.name}
                   </span>
                 </div>
                 <button
                   onClick={handleCopyPmsNote}
                   title="Copy the note formatted for Dental4Windows, Core Practice, or Exact"
-                  className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl font-bold text-xs transition-all active:scale-95 shadow-sm cursor-pointer ${
-                    pmsCopied ? 'bg-emerald-600 text-white' : 'bg-[#004ac6] text-white hover:bg-blue-700'
+                  className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl font-mono font-bold text-xs transition-all active:scale-95 shadow-sm cursor-pointer ${
+                    pmsCopied
+                      ? 'bg-emerald-500 text-slate-950 shadow-[0_0_12px_rgba(52,211,153,0.3)]'
+                      : 'bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 shadow-[0_0_15px_rgba(34,211,238,0.25)]'
                   }`}
                 >
                   {pmsCopied ? <Check className="w-3.5 h-3.5 stroke-[3]" /> : <Copy className="w-3.5 h-3.5" />}
@@ -578,31 +582,31 @@ export default function ClinicalSummary({
 
               {/* ADA billing codes */}
               {adaCodes.length > 0 && (
-                <div className="p-4 bg-slate-900 text-white rounded-2xl shadow-md border border-slate-800 flex flex-col gap-2.5">
+                <div className="p-4 bg-[#0A1018] text-white rounded-2xl shadow-xl border border-[#1E3048] flex flex-col gap-2.5">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <Tag className="w-4 h-4 text-emerald-400" />
-                      <span className="text-xs font-bold uppercase tracking-wider text-slate-200">ADA Billing Codes</span>
+                      <Tag className="w-4 h-4 text-cyan-400" />
+                      <span className="font-mono text-xs font-bold uppercase tracking-wider text-slate-200">ADA Billing Codes</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
                         onClick={handleCopyAdaCodesOnly}
                         title="Copy item numbers for PMS ledger / invoice entry"
-                        className="flex items-center gap-1 text-[10px] text-emerald-400 hover:text-emerald-300 font-bold bg-slate-800 hover:bg-slate-700/80 px-2.5 py-1 rounded-lg border border-slate-700 transition-all cursor-pointer"
+                        className="flex items-center gap-1 text-[10px] text-cyan-300 hover:text-white font-mono font-bold bg-[#0E1724] hover:bg-[#152338] px-2.5 py-1 rounded-lg border border-[#1E3048] transition-all cursor-pointer"
                       >
-                        {adaCopied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                        {adaCopied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3 text-cyan-400" />}
                         <span>{adaCopied ? 'Codes Copied!' : 'Copy Billing Codes'}</span>
                       </button>
-                      <span className="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full font-mono font-semibold">
+                      <span className="text-[10px] bg-[#0E1724] text-slate-400 px-2 py-0.5 rounded-full font-mono font-semibold border border-[#1E3048]">
                         {adaCodes.length} {adaCodes.length === 1 ? 'Item' : 'Items'}
                       </span>
                     </div>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {adaCodes.map((item, idx) => (
-                      <div key={idx} className="bg-slate-800/90 border border-slate-700 text-white px-3 py-1 rounded-xl flex items-center gap-2 text-xs">
-                        <span className="font-mono font-extrabold text-emerald-400 bg-emerald-950/60 px-1.5 py-0.5 rounded border border-emerald-800/60">
+                      <div key={idx} className="bg-[#0E1724] border border-[#1E3048] text-white px-3 py-1 rounded-xl flex items-center gap-2 text-xs">
+                        <span className="font-mono font-extrabold text-cyan-400 bg-cyan-950/60 px-1.5 py-0.5 rounded border border-cyan-800/60">
                           {item.code}
                         </span>
                         <span className="text-slate-200">{item.description}</span>
@@ -618,14 +622,16 @@ export default function ClinicalSummary({
               )}
 
               {/* Template switcher */}
-              <div className="flex items-center gap-1.5 p-1 bg-slate-100/80 rounded-xl w-fit border border-slate-200/60 overflow-x-auto max-w-full">
+              <div className="flex items-center gap-1.5 p-1 bg-[#0A1018] rounded-xl w-fit border border-[#1E3048] overflow-x-auto max-w-full">
                 {templates.map((t) => (
                   <button
                     key={t.id}
                     type="button"
                     onClick={() => switchTemplate(t.id)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-                      activeTemplateId === t.id ? 'bg-white text-primary shadow-sm' : 'text-slate-500 hover:text-slate-800'
+                    className={`px-3 py-1.5 rounded-lg text-xs font-mono font-bold transition-all cursor-pointer whitespace-nowrap ${
+                      activeTemplateId === t.id
+                        ? 'bg-cyan-500/20 border border-cyan-400/60 text-cyan-300 shadow-[0_0_10px_rgba(34,211,238,0.2)]'
+                        : 'text-slate-400 hover:text-slate-200'
                     }`}
                   >
                     {t.name.replace(/\s*\(.*\)$/, '')}
@@ -640,83 +646,85 @@ export default function ClinicalSummary({
             {/* BLOCK B: Clinical & Patient Deliverables Suite (Right Column - 7 Cols) */}
             <section className="xl:col-span-7 flex flex-col gap-4">
               {/* Deliverables Suite Header & Tab Navigator */}
-              <div className="bg-white border border-outline-variant/80 rounded-2xl p-3 shadow-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <div className="p-2 rounded-xl bg-blue-50 text-[#004ac6]">
-                    <Sparkles className="w-5 h-5" />
+              <div className="bg-[#0A1018] border border-[#1E3048] rounded-2xl p-3 shadow-md flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 rounded-xl bg-cyan-950/80 border border-cyan-800/60 text-cyan-400">
+                    <Sparkles className="w-4 h-4" />
                   </div>
                   <div>
-                    <h2 className="text-sm font-bold text-slate-800">Chairside Deliverables Suite</h2>
-                    <p className="text-[11px] text-slate-400">Zero-edit clinical outputs generated from audio</p>
+                    <h2 className="text-sm font-bold text-white tracking-tight">Chairside Deliverables Suite</h2>
+                    <p className="text-[11px] font-mono text-slate-400">Zero-edit clinical outputs generated from audio</p>
                   </div>
                 </div>
 
                 {/* 3 Core Output Tabs */}
-                <div className="flex items-center p-1 bg-slate-100/90 rounded-xl border border-slate-200/70 overflow-x-auto">
+                <div className="flex items-center p-1 bg-[#0E1724] rounded-xl border border-[#1E3048] overflow-x-auto">
                   <button
                     type="button"
                     onClick={() => setActiveHubTab('patient-care')}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono font-bold transition-all cursor-pointer whitespace-nowrap ${
                       activeHubTab === 'patient-care'
-                        ? 'bg-white text-primary shadow-sm'
-                        : 'text-slate-500 hover:text-slate-800'
+                        ? 'bg-[#121E2E] border border-cyan-500/40 text-cyan-300 shadow-sm'
+                        : 'text-slate-400 hover:text-slate-200'
                     }`}
                   >
-                    <ClipboardList className="w-3.5 h-3.5 text-blue-600" />
-                    <span>Patient Care & Consent</span>
+                    <ClipboardList className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>Patient Care &amp; Consent</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => setActiveHubTab('specialist-referral')}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono font-bold transition-all cursor-pointer whitespace-nowrap ${
                       activeHubTab === 'specialist-referral'
-                        ? 'bg-white text-primary shadow-sm'
-                        : 'text-slate-500 hover:text-slate-800'
+                        ? 'bg-[#121E2E] border border-purple-500/40 text-purple-300 shadow-sm'
+                        : 'text-slate-400 hover:text-slate-200'
                     }`}
                   >
-                    <Stethoscope className="w-3.5 h-3.5 text-purple-600" />
+                    <Stethoscope className="w-3.5 h-3.5 text-purple-400" />
                     <span>Specialist Referral</span>
                     {specialistReferral.required && (
-                      <span className="w-2 h-2 rounded-full bg-purple-500 animate-pulse"></span>
+                      <span className="w-2 h-2 rounded-full bg-purple-400 animate-pulse"></span>
                     )}
                   </button>
 
                   <button
                     type="button"
                     onClick={() => setActiveHubTab('treatment-quote')}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono font-bold transition-all cursor-pointer whitespace-nowrap ${
                       activeHubTab === 'treatment-quote'
-                        ? 'bg-white text-primary shadow-sm'
-                        : 'text-slate-500 hover:text-slate-800'
+                        ? 'bg-[#121E2E] border border-emerald-500/40 text-emerald-300 shadow-sm'
+                        : 'text-slate-400 hover:text-slate-200'
                     }`}
                   >
-                    <DollarSign className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>Case Pack & Quote</span>
+                    <DollarSign className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Case Pack &amp; Quote</span>
                   </button>
                 </div>
               </div>
 
               {/* TAB 1: Patient Care Summary & Informed Consent */}
               {activeHubTab === 'patient-care' && (
-                <div className="bg-white border border-indigo-100/70 rounded-2xl p-6 flex flex-col gap-5 shadow-sm">
+                <div className="bg-[#0E1724] border border-[#1E3048] rounded-2xl p-6 flex flex-col gap-5 shadow-2xl">
                   <div className="flex items-center justify-between flex-wrap gap-2">
                     <div>
-                      <h3 className="font-bold text-slate-800 text-base flex items-center gap-2">
-                        <span>Patient Care Summary & Informed Consent</span>
-                        <span className="text-[10px] font-bold uppercase tracking-wider bg-blue-50 text-[#004ac6] border border-blue-200 px-2 py-0.5 rounded-full">
+                      <h3 className="font-bold text-white text-base flex items-center gap-2 font-mono">
+                        <span>Patient Care Summary &amp; Informed Consent</span>
+                        <span className="text-[10px] font-bold uppercase tracking-wider bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 px-2 py-0.5 rounded-full font-mono">
                           en-AU
                         </span>
                       </h3>
-                      <p className="text-xs text-slate-500 mt-0.5">
+                      <p className="text-xs text-slate-400 mt-0.5 font-mono">
                         Plain-English visit review with AHPRA Section 133 informed consent breakdown.
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
                       <button
                         onClick={handleCopySummary}
-                        className={`flex items-center gap-2 border px-4 h-9 rounded-full font-bold text-xs transition-all active:scale-95 cursor-pointer ${
-                          copied ? 'bg-emerald-600 border-transparent text-white' : 'bg-white border-outline-variant hover:shadow-md text-primary'
+                        className={`flex items-center gap-2 border px-4 h-9 rounded-full font-bold text-xs transition-all active:scale-95 cursor-pointer font-mono ${
+                          copied
+                            ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'
+                            : 'bg-[#0A1018] border-[#1E3048] hover:border-cyan-500/50 text-slate-200'
                         }`}
                       >
                         {copied ? <Check className="w-3.5 h-3.5 stroke-[3]" /> : <Copy className="w-3.5 h-3.5" />}
@@ -724,7 +732,7 @@ export default function ClinicalSummary({
                       </button>
                       <button
                         onClick={() => window.print()}
-                        className="flex items-center gap-2 border border-outline-variant bg-white hover:shadow-md text-primary px-4 h-9 rounded-full font-bold text-xs transition-all active:scale-95 cursor-pointer"
+                        className="flex items-center gap-2 border border-[#1E3048] bg-[#0A1018] hover:border-cyan-500/50 text-slate-200 px-4 h-9 rounded-full font-bold text-xs transition-all active:scale-95 cursor-pointer font-mono"
                       >
                         <FileText className="w-3.5 h-3.5" />
                         <span>Export PDF</span>
@@ -733,8 +741,8 @@ export default function ClinicalSummary({
                   </div>
 
                   {/* Visit Summary Box */}
-                  <div className="bg-slate-50 rounded-xl p-4 border border-slate-200/80">
-                    <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1">
+                  <div className="bg-[#0A1018] rounded-xl p-4 border border-[#1E3048]">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1 font-mono">
                       Clinical Visit Explanation
                     </label>
                     <textarea
@@ -744,52 +752,52 @@ export default function ClinicalSummary({
                         setPatientLetter(e.target.value);
                         setPatientConsent((prev) => ({ ...prev, plainSummary: e.target.value }));
                       }}
-                      className="w-full border-none p-0 focus:ring-0 text-slate-700 text-sm leading-relaxed resize-none bg-transparent outline-none"
+                      className="w-full border-none p-0 focus:ring-0 text-slate-200 text-sm leading-relaxed resize-none bg-transparent outline-none"
                       placeholder="Plain-English explanation of today's visit and recommendations..."
                     />
                   </div>
 
                   {/* Informed Consent Guardrails */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="p-4 rounded-xl bg-amber-500/5 border border-amber-200/50">
+                    <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30">
                       <div className="flex items-center gap-1.5 mb-1.5">
-                        <AlertCircle className="w-3.5 h-3.5 text-amber-600" />
-                        <span className="text-[11px] font-bold uppercase tracking-wider text-amber-700">Risks of No Treatment</span>
+                        <AlertCircle className="w-3.5 h-3.5 text-amber-400" />
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-amber-300 font-mono">Risks of No Treatment</span>
                       </div>
                       <textarea
                         rows={3}
                         value={patientConsent.risksOfNoTreatment}
                         onChange={(e) => setPatientConsent((prev) => ({ ...prev, risksOfNoTreatment: e.target.value }))}
-                        className="w-full text-xs text-slate-700 bg-transparent border-none p-0 outline-none resize-none leading-relaxed"
+                        className="w-full text-xs text-amber-200 bg-transparent border-none p-0 outline-none resize-none leading-relaxed"
                       />
                     </div>
 
-                    <div className="p-4 rounded-xl bg-emerald-500/5 border border-emerald-200/50">
+                    <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30">
                       <div className="flex items-center gap-1.5 mb-1.5">
-                        <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-                        <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-700">Post-Op Care Instructions</span>
+                        <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-300 font-mono">Post-Op Care Instructions</span>
                       </div>
                       <textarea
                         rows={3}
                         value={patientConsent.postOpCareInstructions}
                         onChange={(e) => setPatientConsent((prev) => ({ ...prev, postOpCareInstructions: e.target.value }))}
-                        className="w-full text-xs text-slate-700 bg-transparent border-none p-0 outline-none resize-none leading-relaxed"
+                        className="w-full text-xs text-emerald-200 bg-transparent border-none p-0 outline-none resize-none leading-relaxed"
                       />
                     </div>
                   </div>
 
                   {/* Red-Flag Warning Box */}
-                  <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 flex items-start gap-2.5">
-                    <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0 mt-0.5" />
+                  <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/30 flex items-start gap-2.5">
+                    <AlertCircle className="w-4 h-4 text-rose-400 flex-shrink-0 mt-0.5" />
                     <div className="flex-grow">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-rose-800 block mb-0.5">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-rose-300 block mb-0.5 font-mono">
                         Red-Flag Warning Signs (Call Practice Immediately)
                       </span>
                       <textarea
                         rows={2}
                         value={patientConsent.redFlagsWarning}
                         onChange={(e) => setPatientConsent((prev) => ({ ...prev, redFlagsWarning: e.target.value }))}
-                        className="w-full text-xs text-rose-900 bg-transparent border-none p-0 outline-none resize-none leading-relaxed"
+                        className="w-full text-xs text-rose-200 bg-transparent border-none p-0 outline-none resize-none leading-relaxed"
                       />
                     </div>
                   </div>
@@ -798,16 +806,16 @@ export default function ClinicalSummary({
 
               {/* TAB 2: Specialist Referral Letter */}
               {activeHubTab === 'specialist-referral' && (
-                <div className="bg-white border border-purple-100 rounded-2xl p-6 flex flex-col gap-5 shadow-sm">
+                <div className="bg-[#0E1724] border border-[#1E3048] rounded-2xl p-6 flex flex-col gap-5 shadow-2xl">
                   <div className="flex items-center justify-between flex-wrap gap-2">
                     <div>
                       <div className="flex items-center gap-2">
-                        <h3 className="font-bold text-slate-800 text-base">Specialist Referral Letter</h3>
-                        <span className="text-[10px] font-bold uppercase tracking-wider bg-purple-50 text-purple-700 border border-purple-200 px-2 py-0.5 rounded-full">
+                        <h3 className="font-bold text-white text-base font-mono">Specialist Referral Letter</h3>
+                        <span className="text-[10px] font-bold uppercase tracking-wider bg-purple-500/10 text-purple-400 border border-purple-500/30 px-2 py-0.5 rounded-full font-mono">
                           {specialistReferral.specialty}
                         </span>
                       </div>
-                      <p className="text-xs text-slate-500 mt-0.5">
+                      <p className="text-xs text-slate-400 mt-0.5 font-mono">
                         Formal peer-to-peer referral letter ready for specialist dispatch.
                       </p>
                     </div>
@@ -815,8 +823,10 @@ export default function ClinicalSummary({
                     <div className="flex items-center gap-2">
                       <button
                         onClick={handleCopyReferral}
-                        className={`flex items-center gap-2 border px-4 h-9 rounded-full font-bold text-xs transition-all active:scale-95 cursor-pointer ${
-                          referralCopied ? 'bg-emerald-600 border-transparent text-white' : 'bg-white border-outline-variant hover:shadow-md text-primary'
+                        className={`flex items-center gap-2 border px-4 h-9 rounded-full font-bold text-xs transition-all active:scale-95 cursor-pointer font-mono ${
+                          referralCopied
+                            ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'
+                            : 'bg-[#0A1018] border-[#1E3048] hover:border-cyan-500/50 text-slate-200'
                         }`}
                       >
                         {referralCopied ? <Check className="w-3.5 h-3.5 stroke-[3]" /> : <Copy className="w-3.5 h-3.5" />}
@@ -824,7 +834,7 @@ export default function ClinicalSummary({
                       </button>
                       <button
                         onClick={() => window.print()}
-                        className="flex items-center gap-2 border border-outline-variant bg-white hover:shadow-md text-primary px-4 h-9 rounded-full font-bold text-xs transition-all active:scale-95 cursor-pointer"
+                        className="flex items-center gap-2 border border-[#1E3048] bg-[#0A1018] hover:border-cyan-500/50 text-slate-200 px-4 h-9 rounded-full font-bold text-xs transition-all active:scale-95 cursor-pointer font-mono"
                       >
                         <Printer className="w-3.5 h-3.5" />
                         <span>Print Referral</span>
@@ -833,19 +843,19 @@ export default function ClinicalSummary({
                   </div>
 
                   {/* Referral Metadata Controls */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-[#0A1018] p-3.5 rounded-xl border border-[#1E3048]">
                     <div>
-                      <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1 font-mono">
                         Specialty
                       </label>
                       <select
                         value={specialistReferral.specialty}
                         onChange={(e) => setSpecialistReferral((prev) => ({ ...prev, specialty: e.target.value as any }))}
-                        className="w-full bg-white border border-slate-200 text-xs font-semibold rounded-lg px-2.5 py-1.5 text-slate-700"
+                        className="w-full bg-[#070B11] border border-[#1E3048] text-xs font-semibold rounded-lg px-2.5 py-1.5 text-slate-200 focus:border-cyan-500/60 outline-none"
                       >
                         <option value="Endodontics">Endodontics</option>
                         <option value="Periodontics">Periodontics</option>
-                        <option value="Oral & Maxillofacial Surgery">Oral & Maxillofacial Surgery</option>
+                        <option value="Oral &amp; Maxillofacial Surgery">Oral &amp; Maxillofacial Surgery</option>
                         <option value="Orthodontics">Orthodontics</option>
                         <option value="Prosthodontics">Prosthodontics</option>
                         <option value="Paediatric Dentistry">Paediatric Dentistry</option>
@@ -854,13 +864,13 @@ export default function ClinicalSummary({
                     </div>
 
                     <div>
-                      <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1 font-mono">
                         Urgency Level
                       </label>
                       <select
                         value={specialistReferral.urgency}
                         onChange={(e) => setSpecialistReferral((prev) => ({ ...prev, urgency: e.target.value as any }))}
-                        className="w-full bg-white border border-slate-200 text-xs font-semibold rounded-lg px-2.5 py-1.5 text-slate-700"
+                        className="w-full bg-[#070B11] border border-[#1E3048] text-xs font-semibold rounded-lg px-2.5 py-1.5 text-slate-200 focus:border-cyan-500/60 outline-none"
                       >
                         <option value="Routine">Routine (Within 4-6 weeks)</option>
                         <option value="Urgent">Urgent (Within 1-2 weeks)</option>
@@ -869,7 +879,7 @@ export default function ClinicalSummary({
                     </div>
 
                     <div>
-                      <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1 font-mono">
                         Teeth (FDI)
                       </label>
                       <input
@@ -882,18 +892,18 @@ export default function ClinicalSummary({
                           }))
                         }
                         placeholder="e.g. 16, 46"
-                        className="w-full bg-white border border-slate-200 text-xs font-semibold rounded-lg px-2.5 py-1.5 text-slate-700"
+                        className="w-full bg-[#070B11] border border-[#1E3048] text-xs font-semibold rounded-lg px-2.5 py-1.5 text-slate-200 focus:border-cyan-500/60 outline-none font-mono"
                       />
                     </div>
                   </div>
 
                   {/* Formal Letterhead Preview */}
-                  <div className="p-5 rounded-xl border border-purple-200 bg-purple-50/20 font-mono text-xs text-slate-800 leading-relaxed shadow-inner">
+                  <div className="p-5 rounded-xl border border-purple-500/30 bg-[#070B11] font-mono text-xs text-slate-200 leading-relaxed shadow-inner">
                     <textarea
                       rows={12}
                       value={specialistReferral.letterText}
                       onChange={(e) => setSpecialistReferral((prev) => ({ ...prev, letterText: e.target.value }))}
-                      className="w-full bg-transparent border-none p-0 outline-none resize-none font-sans text-xs text-slate-800 leading-relaxed"
+                      className="w-full bg-transparent border-none p-0 outline-none resize-none font-mono text-xs text-slate-200 leading-relaxed"
                     />
                   </div>
                 </div>
@@ -901,17 +911,17 @@ export default function ClinicalSummary({
 
               {/* TAB 3: Visual Case Pack & Treatment Quote ("CoTreat Pack" Equivalent) */}
               {activeHubTab === 'treatment-quote' && (
-                <div className="bg-white border border-emerald-100 rounded-2xl p-6 flex flex-col gap-6 shadow-sm">
+                <div className="bg-[#0E1724] border border-[#1E3048] rounded-2xl p-6 flex flex-col gap-6 shadow-2xl">
                   {/* Header & Visual Category Selector */}
                   <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                     <div>
                       <div className="flex items-center gap-2">
-                        <h3 className="font-bold text-slate-800 text-base">Visual Case Pack & Quote</h3>
-                        <span className="text-[10px] font-extrabold uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-full">
+                        <h3 className="font-bold text-white text-base font-mono">Visual Case Pack &amp; Quote</h3>
+                        <span className="text-[10px] font-extrabold uppercase tracking-wider bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-full font-mono">
                           Patient Acceptance Deck
                         </span>
                       </div>
-                      <p className="text-xs text-slate-500 mt-0.5">
+                      <p className="text-xs text-slate-400 mt-0.5 font-mono">
                         High-impact anatomical visualizer and itemized health fund gap breakdown.
                       </p>
                     </div>
@@ -919,8 +929,10 @@ export default function ClinicalSummary({
                     <div className="flex items-center gap-2">
                       <button
                         onClick={handleCopyQuote}
-                        className={`flex items-center gap-2 border px-4 h-9 rounded-full font-bold text-xs transition-all active:scale-95 cursor-pointer ${
-                          quoteCopied ? 'bg-emerald-600 border-transparent text-white' : 'bg-white border-outline-variant hover:shadow-md text-primary'
+                        className={`flex items-center gap-2 border px-4 h-9 rounded-full font-bold text-xs transition-all active:scale-95 cursor-pointer font-mono ${
+                          quoteCopied
+                            ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'
+                            : 'bg-[#0A1018] border-[#1E3048] hover:border-cyan-500/50 text-slate-200'
                         }`}
                       >
                         {quoteCopied ? <Check className="w-3.5 h-3.5 stroke-[3]" /> : <Copy className="w-3.5 h-3.5" />}
@@ -928,7 +940,7 @@ export default function ClinicalSummary({
                       </button>
                       <button
                         onClick={() => window.print()}
-                        className="flex items-center gap-2 border border-outline-variant bg-white hover:shadow-md text-primary px-4 h-9 rounded-full font-bold text-xs transition-all active:scale-95 cursor-pointer"
+                        className="flex items-center gap-2 border border-[#1E3048] bg-[#0A1018] hover:border-cyan-500/50 text-slate-200 px-4 h-9 rounded-full font-bold text-xs transition-all active:scale-95 cursor-pointer font-mono"
                       >
                         <Printer className="w-3.5 h-3.5" />
                         <span>Print Case Pack</span>
@@ -937,7 +949,7 @@ export default function ClinicalSummary({
                   </div>
 
                   {/* Procedure Visual Mode Selector */}
-                  <div className="flex items-center gap-1.5 p-1 bg-slate-100/90 rounded-xl w-full overflow-x-auto border border-slate-200/80 shadow-inner">
+                  <div className="flex items-center gap-1.5 p-1 bg-[#0A1018] rounded-xl w-full overflow-x-auto border border-[#1E3048] shadow-inner">
                     {[
                       { id: 'crown', label: 'Ceramic Crown' },
                       { id: 'implant', label: 'Dental Implant' },
@@ -951,10 +963,10 @@ export default function ClinicalSummary({
                         key={cat.id}
                         type="button"
                         onClick={() => setSelectedVisualCategory(cat.id as VisualCaseCategory)}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap active:scale-[0.98] ${
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap active:scale-[0.98] font-mono ${
                           selectedVisualCategory === cat.id
-                            ? 'bg-[#004ac6] text-white shadow-sm ring-1 ring-blue-700/20'
-                            : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+                            ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm'
+                            : 'text-slate-400 hover:text-slate-200 hover:bg-[#1E3048]/50'
                         }`}
                       >
                         {cat.label}
@@ -963,13 +975,13 @@ export default function ClinicalSummary({
                   </div>
 
                   {/* Visual 3-Stage Case Cards (The Visualizer that wows patients) */}
-                  <div className="bg-gradient-to-b from-blue-50/40 via-indigo-50/20 to-white border border-blue-100/80 rounded-2xl p-5 flex flex-col gap-4 shadow-sm">
+                  <div className="bg-gradient-to-b from-[#0A1018] via-[#0E1724] to-[#0A1018] border border-[#1E3048] rounded-2xl p-5 flex flex-col gap-4 shadow-sm">
                     <div className="flex items-center justify-between">
                       <div>
-                        <h4 className="font-bold text-sm text-slate-800">{activeVisualPresentation.treatmentName}</h4>
-                        <p className="text-xs text-slate-500">{activeVisualPresentation.tagline}</p>
+                        <h4 className="font-bold text-sm text-white font-mono">{activeVisualPresentation.treatmentName}</h4>
+                        <p className="text-xs text-slate-400 font-mono">{activeVisualPresentation.tagline}</p>
                       </div>
-                      <span className="text-[10px] font-mono font-bold bg-white text-blue-700 border border-blue-200/80 px-2.5 py-1 rounded-full shadow-xs">
+                      <span className="text-[10px] font-mono font-bold bg-[#070B11] text-cyan-400 border border-cyan-500/30 px-2.5 py-1 rounded-full">
                         ADA {activeVisualPresentation.typicalAdaCodes.join(', ')}
                       </span>
                     </div>
@@ -979,28 +991,28 @@ export default function ClinicalSummary({
                       {activeVisualPresentation.stages.map((stage) => {
                         const stageBadgeStyle =
                           stage.step === 1
-                            ? 'bg-blue-50 text-blue-700 border-blue-200/80'
+                            ? 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30'
                             : stage.step === 2
-                            ? 'bg-indigo-50 text-indigo-700 border-indigo-200/80'
-                            : 'bg-emerald-50 text-emerald-700 border-emerald-200/80';
+                            ? 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30'
+                            : 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30';
 
                         return (
                           <div
                             key={stage.step}
-                            className="group relative bg-white rounded-2xl border border-slate-200/80 p-4 flex flex-col shadow-xs hover:shadow-md hover:border-blue-200 transition-all duration-200"
+                            className="group relative bg-[#070B11] rounded-2xl border border-[#1E3048] p-4 flex flex-col hover:border-cyan-500/40 transition-all duration-200 shadow-inner"
                           >
                             <div className="flex items-center justify-between mb-2.5">
-                              <span className={`text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full border ${stageBadgeStyle}`}>
+                              <span className={`text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full border font-mono ${stageBadgeStyle}`}>
                                 Stage {stage.step}: {stage.badge}
                               </span>
                             </div>
                             {/* SVG Visual Graphic */}
                             <div
-                              className="w-full h-32 mb-3 rounded-xl overflow-hidden flex items-center justify-center bg-slate-50/80 border border-slate-100 group-hover:scale-[1.02] transition-transform duration-300"
+                              className="w-full h-32 mb-3 rounded-xl overflow-hidden flex items-center justify-center bg-[#0A1018] border border-[#1E3048] group-hover:scale-[1.02] transition-transform duration-300"
                               dangerouslySetInnerHTML={{ __html: stage.illustrationSvg }}
                             />
-                            <h5 className="font-bold text-xs text-slate-800">{stage.title}</h5>
-                            <p className="text-[11px] text-slate-500 leading-relaxed mt-1 flex-grow">
+                            <h5 className="font-bold text-xs text-white font-mono">{stage.title}</h5>
+                            <p className="text-[11px] text-slate-400 leading-relaxed mt-1 flex-grow font-mono">
                               {stage.description}
                             </p>
                           </div>
@@ -1009,37 +1021,37 @@ export default function ClinicalSummary({
                     </div>
 
                     {/* Value Proposition & Anatomy Highlights */}
-                    <div className="p-3.5 bg-white/90 rounded-xl border border-blue-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-                      <div className="text-slate-600">
-                        <strong className="text-slate-800">Patient Outcome:</strong> {activeVisualPresentation.patientValueProposition}
+                    <div className="p-3.5 bg-[#070B11] rounded-xl border border-[#1E3048] flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                      <div className="text-slate-300 font-mono">
+                        <strong className="text-white font-mono">Patient Outcome:</strong> {activeVisualPresentation.patientValueProposition}
                       </div>
                     </div>
                   </div>
 
                   {/* Health Fund Presentation Mode & Risk Disclaimer */}
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-[#0A1018] border border-[#1E3048] rounded-xl">
                     <div className="flex items-center gap-2.5">
-                      <ShieldCheck className="w-5 h-5 text-emerald-600 flex-shrink-0" />
+                      <ShieldCheck className="w-5 h-5 text-emerald-400 flex-shrink-0" />
                       <div>
-                        <span className="text-xs font-bold text-slate-800">Health Fund Rebate Mode</span>
-                        <p className="text-[11px] text-slate-500">
+                        <span className="text-xs font-bold text-white font-mono">Health Fund Rebate Mode</span>
+                        <p className="text-[11px] text-slate-400 font-mono">
                           {rebateMode === 'practice_fees_only'
                             ? 'Displaying practice fees only. Advises patient to verify rebates with their insurer.'
                             : 'Displaying estimated rebates. Subject to patient annual policy limits.'}
                         </p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-1 p-1 bg-slate-100/90 rounded-xl border border-slate-200/80 shadow-inner self-start sm:self-auto">
+                    <div className="flex items-center gap-1 p-1 bg-[#070B11] rounded-xl border border-[#1E3048] shadow-inner self-start sm:self-auto">
                       <button
                         type="button"
                         onClick={() => {
                           setRebateMode('practice_fees_only');
                           recalculateQuote(treatmentQuote.items, 'practice_fees_only');
                         }}
-                        className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer active:scale-[0.98] ${
+                        className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer active:scale-[0.98] font-mono ${
                           rebateMode === 'practice_fees_only'
-                            ? 'bg-white text-slate-900 shadow-sm ring-1 ring-slate-200/70'
-                            : 'text-slate-500 hover:text-slate-800'
+                            ? 'bg-[#1E3048] text-white border border-slate-600'
+                            : 'text-slate-400 hover:text-slate-200'
                         }`}
                       >
                         Practice Fees Only (Safe)
@@ -1050,10 +1062,10 @@ export default function ClinicalSummary({
                           setRebateMode('show_rebate_estimate');
                           recalculateQuote(treatmentQuote.items, 'show_rebate_estimate');
                         }}
-                        className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer active:scale-[0.98] ${
+                        className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer active:scale-[0.98] font-mono ${
                           rebateMode === 'show_rebate_estimate'
-                            ? 'bg-emerald-600 text-white shadow-sm'
-                            : 'text-slate-500 hover:text-slate-800'
+                            ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-sm'
+                            : 'text-slate-400 hover:text-slate-200'
                         }`}
                       >
                         Show Est. Rebate
@@ -1062,34 +1074,34 @@ export default function ClinicalSummary({
                   </div>
 
                   {/* Patient Advisory Notice for Insurance Limits */}
-                  <div className="flex items-start gap-2.5 p-3.5 rounded-2xl bg-amber-50/80 border border-amber-200 text-amber-900 text-xs shadow-sm">
-                    <Info className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                  <div className="flex items-start gap-2.5 p-3.5 rounded-2xl bg-amber-950/20 border border-amber-500/30 text-amber-300 text-xs shadow-sm font-mono">
+                    <Info className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
                     <div className="leading-relaxed">
-                      <strong className="font-semibold text-amber-950">Private Health Insurance Notice:</strong> Rebate amounts depend on your private health fund table of cover, waiting periods, and any annual limits you have already used this year (especially on Major Dental). Please quote the ADA item numbers below directly to your health fund to verify your exact rebate and out-of-pocket gap prior to treatment.
+                      <strong className="font-semibold text-amber-200">Private Health Insurance Notice:</strong> Rebate amounts depend on your private health fund table of cover, waiting periods, and any annual limits you have already used this year (especially on Major Dental). Please quote the ADA item numbers below directly to your health fund to verify your exact rebate and out-of-pocket gap prior to treatment.
                     </div>
                   </div>
 
                   {/* Financial Overview Metrics Cards */}
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
-                    <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm text-center">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Total Treatment Fee</span>
-                      <span className="font-mono text-2xl font-black text-slate-900 mt-1 block">${treatmentQuote.totalFee}</span>
+                    <div className="bg-[#0A1018] p-4 rounded-2xl border border-[#1E3048] shadow-sm text-center">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block font-mono">Total Treatment Fee</span>
+                      <span className="font-mono text-2xl font-black text-white mt-1 block">${treatmentQuote.totalFee}</span>
                     </div>
-                    <div className="bg-emerald-50/70 p-4 rounded-2xl border border-emerald-200/80 shadow-sm text-center">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 block">
+                    <div className="bg-emerald-950/20 p-4 rounded-2xl border border-emerald-500/30 shadow-sm text-center">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 block font-mono">
                         {rebateMode === 'practice_fees_only' ? 'Health Fund Rebate' : 'Est. Health Fund Rebate'}
                       </span>
-                      <span className="font-mono text-base font-extrabold text-emerald-700 mt-1.5 block">
+                      <span className="font-mono text-base font-extrabold text-emerald-300 mt-1.5 block">
                         {rebateMode === 'practice_fees_only'
                           ? 'Claim Directly with Fund'
                           : `-$${treatmentQuote.estimatedRebate}`}
                       </span>
                     </div>
-                    <div className="bg-blue-50/70 p-4 rounded-2xl border border-blue-200/80 shadow-sm text-center">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-[#004ac6] block">
+                    <div className="bg-cyan-950/20 p-4 rounded-2xl border border-cyan-500/30 shadow-sm text-center">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-cyan-400 block font-mono">
                         {rebateMode === 'practice_fees_only' ? 'Out-of-Pocket Gap' : 'Est. Patient Gap'}
                       </span>
-                      <span className="font-mono text-2xl font-black text-[#004ac6] mt-1 block">
+                      <span className="font-mono text-2xl font-black text-cyan-300 mt-1 block">
                         {rebateMode === 'practice_fees_only'
                           ? `$${treatmentQuote.totalFee} (Less Rebate)`
                           : `$${treatmentQuote.netGap}`}
@@ -1098,15 +1110,15 @@ export default function ClinicalSummary({
                   </div>
 
                   {/* Editable Itemized ADA Fee Schedule Table */}
-                  <div className="border border-slate-200 rounded-xl overflow-hidden shadow-sm bg-white">
-                    <div className="p-3 bg-slate-100/80 border-b border-slate-200 flex items-center justify-between">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-600">
+                  <div className="border border-[#1E3048] rounded-xl overflow-hidden shadow-sm bg-[#0A1018]">
+                    <div className="p-3 bg-[#070B11] border-b border-[#1E3048] flex items-center justify-between">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-300 font-mono">
                         Itemized Procedure Quote (Clinician Editable)
                       </span>
                       <button
                         type="button"
                         onClick={handleAddQuoteItem}
-                        className="flex items-center gap-1 text-[11px] font-bold text-primary hover:text-blue-700 bg-white hover:bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-lg transition-all cursor-pointer shadow-sm"
+                        className="flex items-center gap-1 text-[11px] font-bold text-cyan-400 hover:text-cyan-300 bg-[#0E1724] hover:bg-[#1E3048] border border-[#1E3048] px-2.5 py-1 rounded-lg transition-all cursor-pointer shadow-sm font-mono"
                       >
                         <Plus className="w-3.5 h-3.5" />
                         <span>Add Procedure Item</span>
@@ -1114,9 +1126,9 @@ export default function ClinicalSummary({
                     </div>
 
                     <div className="overflow-x-auto">
-                      <table className="w-full text-left text-xs border-collapse">
+                      <table className="w-full text-left text-xs border-collapse font-mono">
                         <thead>
-                          <tr className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200 text-[10px] uppercase tracking-wider">
+                          <tr className="bg-[#070B11] text-slate-400 font-bold border-b border-[#1E3048] text-[10px] uppercase tracking-wider">
                             <th className="p-2.5 w-24">ADA Code</th>
                             <th className="p-2.5">Procedure Description</th>
                             <th className="p-2.5 w-20 text-center">Tooth</th>
@@ -1128,16 +1140,16 @@ export default function ClinicalSummary({
                             <th className="p-2.5 w-12 text-center"></th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-slate-100">
+                        <tbody className="divide-y divide-[#1E3048]">
                           {treatmentQuote.items.map((item, idx) => (
-                            <tr key={idx} className="hover:bg-slate-50/80 transition-colors">
+                            <tr key={idx} className="hover:bg-[#0E1724]/60 transition-colors">
                               <td className="p-2.5 font-mono">
                                 <input
                                   type="text"
                                   value={item.adaCode}
                                   onChange={(e) => handleUpdateQuoteItem(idx, { adaCode: e.target.value })}
                                   placeholder="ADA"
-                                  className="w-20 px-2 py-1 bg-white border border-slate-200 rounded font-mono font-bold text-xs text-slate-800 focus:ring-1 focus:ring-primary outline-none"
+                                  className="w-20 px-2 py-1 bg-[#070B11] border border-[#1E3048] rounded font-mono font-bold text-xs text-cyan-300 focus:border-cyan-500/60 outline-none"
                                 />
                               </td>
                               <td className="p-2.5">
@@ -1146,7 +1158,7 @@ export default function ClinicalSummary({
                                   value={item.description}
                                   onChange={(e) => handleUpdateQuoteItem(idx, { description: e.target.value })}
                                   placeholder="Procedure description..."
-                                  className="w-full px-2 py-1 bg-white border border-slate-200 rounded text-xs text-slate-800 font-medium focus:ring-1 focus:ring-primary outline-none"
+                                  className="w-full px-2 py-1 bg-[#070B11] border border-[#1E3048] rounded text-xs text-slate-200 font-medium focus:border-cyan-500/60 outline-none"
                                 />
                               </td>
                               <td className="p-2.5 text-center">
@@ -1155,7 +1167,7 @@ export default function ClinicalSummary({
                                   value={item.tooth || ''}
                                   onChange={(e) => handleUpdateQuoteItem(idx, { tooth: e.target.value })}
                                   placeholder="—"
-                                  className="w-14 px-1.5 py-1 bg-white border border-slate-200 rounded text-xs text-center font-bold text-amber-700 focus:ring-1 focus:ring-primary outline-none"
+                                  className="w-14 px-1.5 py-1 bg-[#070B11] border border-[#1E3048] rounded text-xs text-center font-bold text-amber-400 focus:border-cyan-500/60 outline-none font-mono"
                                 />
                               </td>
                               <td className="p-2.5 text-right">
@@ -1165,12 +1177,12 @@ export default function ClinicalSummary({
                                   step="5"
                                   value={item.fee}
                                   onChange={(e) => handleUpdateQuoteItem(idx, { fee: Math.max(0, Number(e.target.value) || 0) })}
-                                  className="w-24 px-2 py-1 bg-white border border-slate-200 rounded text-xs font-semibold text-slate-800 text-right focus:ring-1 focus:ring-primary outline-none"
+                                  className="w-24 px-2 py-1 bg-[#070B11] border border-[#1E3048] rounded text-xs font-semibold text-slate-200 text-right focus:border-cyan-500/60 outline-none font-mono"
                                 />
                               </td>
                               <td className="p-2.5 text-right">
                                 {rebateMode === 'practice_fees_only' ? (
-                                  <span className="text-[11px] text-slate-500 font-medium italic">
+                                  <span className="text-[11px] text-slate-400 font-medium italic font-mono">
                                     Check with fund
                                   </span>
                                 ) : (
@@ -1180,11 +1192,11 @@ export default function ClinicalSummary({
                                     step="5"
                                     value={item.healthFundEstimatedRebate}
                                     onChange={(e) => handleUpdateQuoteItem(idx, { healthFundEstimatedRebate: Math.max(0, Number(e.target.value) || 0) })}
-                                    className="w-24 px-2 py-1 bg-white border border-slate-200 rounded text-xs font-semibold text-emerald-700 text-right focus:ring-1 focus:ring-primary outline-none"
+                                    className="w-24 px-2 py-1 bg-[#070B11] border border-[#1E3048] rounded text-xs font-semibold text-emerald-400 text-right focus:border-cyan-500/60 outline-none font-mono"
                                   />
                                 )}
                               </td>
-                              <td className="p-2.5 text-right font-bold text-[#004ac6]">
+                              <td className="p-2.5 text-right font-bold text-cyan-300 font-mono">
                                 {rebateMode === 'practice_fees_only'
                                   ? `$${item.fee}`
                                   : `$${item.gapEstimate}`}
@@ -1194,7 +1206,7 @@ export default function ClinicalSummary({
                                   type="button"
                                   onClick={() => handleDeleteQuoteItem(idx)}
                                   title="Remove procedure line"
-                                  className="p-1 text-slate-400 hover:text-red-600 rounded transition-colors cursor-pointer"
+                                  className="p-1 text-slate-400 hover:text-rose-400 rounded transition-colors cursor-pointer"
                                 >
                                   <Trash2 className="w-3.5 h-3.5" />
                                 </button>
@@ -1208,12 +1220,12 @@ export default function ClinicalSummary({
 
                   {/* Phased Care Roadmap Timeline */}
                   {treatmentQuote.phasedMilestones && treatmentQuote.phasedMilestones.length > 0 && (
-                    <div className="p-5 bg-slate-50/80 rounded-2xl border border-slate-200/90 flex flex-col gap-3.5 shadow-sm">
+                    <div className="p-5 bg-[#0A1018] rounded-2xl border border-[#1E3048] flex flex-col gap-3.5 shadow-sm">
                       <div className="flex items-center justify-between">
-                        <span className="text-[10px] font-extrabold uppercase tracking-widest text-slate-500">
+                        <span className="text-[10px] font-extrabold uppercase tracking-widest text-slate-400 font-mono">
                           Phased Care Roadmap (Bite-Sized Chapters)
                         </span>
-                        <span className="text-[11px] font-semibold text-primary font-mono">
+                        <span className="text-[11px] font-semibold text-cyan-400 font-mono">
                           {treatmentQuote.phasedMilestones.length} Strategic Care Phases
                         </span>
                       </div>
@@ -1221,19 +1233,19 @@ export default function ClinicalSummary({
                         {treatmentQuote.phasedMilestones.map((milestone) => (
                           <div
                             key={milestone.phaseNumber}
-                            className="flex items-start gap-3.5 bg-white p-4 rounded-xl border border-slate-200/80 shadow-sm hover:border-primary/20 transition-all"
+                            className="flex items-start gap-3.5 bg-[#070B11] p-4 rounded-xl border border-[#1E3048] shadow-sm hover:border-cyan-500/30 transition-all"
                           >
-                            <div className="w-7 h-7 rounded-full bg-primary/10 text-primary font-mono font-bold text-xs flex items-center justify-center flex-shrink-0 mt-0.5 ring-1 ring-primary/20">
+                            <div className="w-7 h-7 rounded-full bg-cyan-500/10 text-cyan-300 font-mono font-bold text-xs flex items-center justify-center flex-shrink-0 mt-0.5 ring-1 ring-cyan-500/30">
                               {milestone.phaseNumber}
                             </div>
                             <div className="flex-grow">
                               <div className="flex items-center justify-between">
-                                <span className="font-extrabold text-xs text-slate-900">{milestone.phaseTitle}</span>
-                                <span className="font-mono font-bold text-xs text-slate-800 bg-slate-100/90 px-2 py-0.5 rounded-md border border-slate-200/60">
+                                <span className="font-extrabold text-xs text-white font-mono">{milestone.phaseTitle}</span>
+                                <span className="font-mono font-bold text-xs text-emerald-300 bg-[#0E1724] px-2 py-0.5 rounded-md border border-[#1E3048]">
                                   ${milestone.totalPhaseFee}
                                 </span>
                               </div>
-                              <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                              <p className="text-[11px] text-slate-400 mt-1 leading-relaxed font-mono">
                                 {milestone.items.join(' • ')}
                               </p>
                             </div>
@@ -1250,10 +1262,10 @@ export default function ClinicalSummary({
                 <button
                   onClick={handleSaveToRecord}
                   type="button"
-                  className="w-full bg-[#004ac6] hover:bg-opacity-95 text-white h-14 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all cursor-pointer text-sm"
+                  className="w-full bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 h-14 rounded-xl font-black flex items-center justify-center gap-2 shadow-[0_0_25px_rgba(52,211,153,0.35)] active:scale-95 transition-all cursor-pointer text-sm font-mono uppercase tracking-wider"
                 >
-                  <Save className="w-5 h-5 fill-white" />
-                  <span>Save All Clinical & Patient Records</span>
+                  <Save className="w-5 h-5 fill-slate-950" />
+                  <span>Save All Clinical &amp; Patient Records</span>
                 </button>
               </div>
             </section>
@@ -1261,14 +1273,14 @@ export default function ClinicalSummary({
         </main>
 
         {/* Mobile nav */}
-        <nav className="fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-4 h-20 pb-safe bg-white border-t border-outline-variant md:hidden shadow-lg">
-          <button onClick={onBack} className="flex flex-col items-center justify-center text-slate-400 hover:text-primary transition-all p-2 rounded-xl">
+        <nav className="fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-4 h-20 pb-safe bg-[#070B11]/90 backdrop-blur-md border-t border-[#1E3048] md:hidden shadow-lg">
+          <button onClick={onBack} className="flex flex-col items-center justify-center text-slate-400 hover:text-cyan-400 transition-all p-2 rounded-xl">
             <Menu className="w-6 h-6" />
-            <span className="font-label-sm text-[11px] mt-1 font-semibold">History</span>
+            <span className="font-label-sm text-[11px] mt-1 font-semibold font-mono">History</span>
           </button>
-          <button onClick={handleSaveToRecord} className="flex flex-col items-center justify-center text-primary font-bold transition-all p-2 rounded-xl">
+          <button onClick={handleSaveToRecord} className="flex flex-col items-center justify-center text-emerald-400 font-bold transition-all p-2 rounded-xl">
             <Save className="w-6 h-6" />
-            <span className="font-label-sm text-[11px] mt-1">{needsReview ? 'Save review' : 'Save'}</span>
+            <span className="font-label-sm text-[11px] mt-1 font-mono">{needsReview ? 'Save review' : 'Save'}</span>
           </button>
         </nav>
 
@@ -1279,25 +1291,25 @@ export default function ClinicalSummary({
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 z-[100] flex items-center justify-center bg-indigo-950/40 backdrop-blur-sm px-4"
+              className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/80 backdrop-blur-sm px-4"
             >
               <motion.div
                 initial={{ scale: 0.9, y: 15 }}
                 animate={{ scale: 1, y: 0 }}
                 exit={{ scale: 0.9, y: 15 }}
-                className="bg-white rounded-2xl p-8 flex flex-col items-center text-center max-w-sm w-full mx-auto shadow-2xl border border-indigo-50"
+                className="bg-[#0A1018] rounded-2xl p-8 flex flex-col items-center text-center max-w-sm w-full mx-auto shadow-2xl border border-[#1E3048]"
               >
-                <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mb-5 animate-bounce">
-                  <Check className="text-emerald-600 w-8 h-8 stroke-[3]" />
+                <div className="w-16 h-16 bg-emerald-500/20 border border-emerald-500/30 rounded-full flex items-center justify-center mb-5 animate-bounce">
+                  <Check className="text-emerald-400 w-8 h-8 stroke-[3]" />
                 </div>
-                <h3 className="font-headline-lg text-xl font-bold text-slate-800 mb-1.5 leading-tight">Saved Successfully</h3>
-                <p className="text-slate-500 text-sm mb-6 leading-relaxed">
+                <h3 className="font-mono text-xl font-bold text-white mb-1.5 leading-tight">Saved Successfully</h3>
+                <p className="text-slate-400 text-sm mb-6 leading-relaxed font-mono">
                   Clinical record, patient consent document, specialist referral, and treatment quote saved to patient record.
                 </p>
                 <button
                   type="button"
                   onClick={onBack}
-                  className="w-full bg-[#2563eb] hover:bg-opacity-95 text-white font-bold h-12 rounded-xl transition-all shadow-md cursor-pointer"
+                  className="w-full bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold h-12 rounded-xl transition-all shadow-[0_0_20px_rgba(34,211,238,0.3)] cursor-pointer font-mono"
                 >
                   Return to History Hub
                 </button>

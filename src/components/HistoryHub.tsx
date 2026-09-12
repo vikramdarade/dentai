@@ -10,6 +10,7 @@ import ErrorBoundary from './ErrorBoundary';
 import { DayScheduleItem } from '../lib/dayScheduleStorage';
 import { isPmsPreviewEnabled } from '../utils/previewMode';
 import { ClinicMembership } from '../lib/clinics';
+import CockpitLayout from './CockpitLayout';
 
 interface HistoryHubProps {
   consultations: Consultation[];
@@ -47,59 +48,46 @@ export default function HistoryHub({
   memberNames
 }: HistoryHubProps) {
   const [manageOpen, setManageOpen] = useState(false);
-  const previewEnabled = isPmsPreviewEnabled();
+  const [previewEnabled] = useState(() => isPmsPreviewEnabled());
   const [hubTab, setHubTab] = useState<'schedule' | 'records' | 'pipeline'>(() => {
     return previewEnabled ? 'schedule' : 'records';
   });
-  const getInitials = (name: string) => {
-    return name
-      .split(' ')
-      .filter(n => n.toLowerCase() !== 'dr.')
-      .map(n => n[0])
-      .join('')
-      .toUpperCase()
-      .slice(0, 2);
-  };
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Filtering based on search query
-  const filtered = consultations.filter((c) => {
-    const term = searchQuery.toLowerCase();
-    const fullName = `${c.firstName} ${c.lastName}`.toLowerCase();
-    const type = c.appointmentType.toLowerCase();
-    const notesHeading = c.findings.chiefComplaint.toLowerCase();
-    return fullName.includes(term) || type.includes(term) || notesHeading.includes(term);
-  });
-
-  // Group by date dynamically
+  // Group consultations by date
   const todayStr = getTodayStr();
   const yesterdayStr = getYesterdayStr();
-  const uniqueDates = Array.from(new Set(filtered.map(c => c.date)));
 
-  // Utility to map type to label (8 core procedure types)
+  const filtered = consultations.filter((c) => {
+    const query = searchQuery.toLowerCase();
+    const fullName = `${c.firstName} ${c.lastName}`.toLowerCase();
+    const chiefComplaint = (c.findings?.chiefComplaint || '').toLowerCase();
+    const aptType = c.appointmentType.toLowerCase();
+    return fullName.includes(query) || chiefComplaint.includes(query) || aptType.includes(query);
+  });
+
+  const uniqueDates = Array.from(new Set(filtered.map((c) => c.date)));
+
   const getProcedureLabel = (type: string) => {
     switch (type) {
-      case 'examination':
-        return 'Comprehensive Examination';
-      case 'scale_clean':
-        return 'Scale & Clean (Hygiene)';
       case 'emergency':
-        return 'Emergency / Pain Relief';
-      case 'restorative':
-        return 'Restorative (Filling)';
-      case 'endodontic':
-        return 'Endodontic (Root Canal)';
-      case 'surgical':
-        return 'Surgical (Extraction)';
-      case 'prosthodontic':
-        return 'Prosthodontic (Crown & Bridge)';
-      case 'paediatric':
-        return 'Paediatric (Child)';
+        return 'Limited Exam / Emergency';
+      case 'comprehensive':
+        return 'Comprehensive Oral Evaluation';
+      case 'periodic':
+        return 'Periodic Oral Exam';
+      case 'crown_prep':
+        return 'Crown Prep & Impression';
+      case 'root_canal':
+        return 'Endodontic Therapy';
+      case 'extraction':
+        return 'Surgical Extraction';
+      case 'scale_clean':
+        return 'Scale & Clean / Prophylaxis';
       default:
-        return 'Clinical Dental Consultation';
+        return 'Dental Consultation';
     }
   };
-
 
   // Avatar backgrounds based on initials to make it visually distinctive
   const getAvatarBg = (initials: string) => {
@@ -115,63 +103,93 @@ export default function HistoryHub({
     }
   };
 
-  return (
-    <div id="history-hub-container" className="flex flex-col min-h-screen bg-[#F8F7F5] pb-24 text-on-background">
-      {/* Top App Bar */}
-      <header className="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-4 h-16 bg-surface border-b border-outline-variant">
-        <div className="flex items-center gap-3 min-w-0">
-          <Menu className="text-primary h-6 w-6 cursor-pointer shrink-0" />
-          <h1 className="hidden sm:block font-headline-md text-headline-md font-bold text-primary">DentAI</h1>
-          <ClinicSwitcher
-            clinics={clinics}
-            activeClinic={activeClinic}
-            onSelectClinic={onSelectClinic}
-            onJoinClinic={onJoinClinic}
-            onManageClinic={() => setManageOpen(true)}
-            onClinicChanged={onClinicChanged}
+  if (previewEnabled && hubTab === 'schedule') {
+    return (
+      <ErrorBoundary fallbackTitle="Day Schedule Roster Self-Recovered">
+        <DayScheduleQueue
+          onStartRecording={(item) => {
+            if (onStartScheduledConsultation) {
+              onStartScheduledConsultation(item);
+            }
+          }}
+          onViewConsultation={(consultId) => {
+            const match = consultations.find(c => c.id === consultId);
+            if (match) onSelectConsultation(match);
+          }}
+          dentistName={dentistName}
+          authToken={authToken}
+          onLogout={onLogout}
+          onNavigateTab={(tab) => setHubTab(tab)}
+          clinics={clinics}
+          activeClinic={activeClinic}
+          onSelectClinic={onSelectClinic}
+          onManageClinic={() => setManageOpen(true)}
+          onClinicChanged={onClinicChanged}
+          onJoinClinic={onJoinClinic}
+        />
+        {manageOpen && activeClinic && (
+          <ClinicMembersModal
+            clinic={activeClinic}
+            authToken={authToken}
+            onClose={() => setManageOpen(false)}
+            onChanged={onClinicChanged}
           />
-        </div>
-        <div className="flex items-center gap-4">
-          <button
-            onClick={onStartNewConsultation}
-            className="hidden md:flex items-center gap-2 px-4 py-2 bg-primary-container text-white rounded-lg font-label-md transition-all hover:bg-opacity-90 active:scale-95"
-          >
-            <Plus className="w-5 h-5" />
-            <span>New Consultation</span>
-          </button>
+        )}
+      </ErrorBoundary>
+    );
+  }
+
+  return (
+    <CockpitLayout
+      dentistName={dentistName}
+      onLogout={onLogout}
+      activeTab={hubTab === 'pipeline' ? 'pipeline' : 'patients'}
+      onTabChange={(tab) => {
+        if (tab === 'roster') setHubTab('schedule');
+        else if (tab === 'pipeline') setHubTab('pipeline');
+        else if (tab === 'patients') setHubTab('records');
+      }}
+    >
+      <div className="w-full max-w-6xl mx-auto space-y-5 text-slate-100 font-sans pb-16">
+        {/* Top Control Toolbar in Dark Cockpit Styling */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-2xl bg-[#0A1018] border border-[#182638] shadow-lg shadow-black/40">
           <div className="flex items-center gap-3">
-            <div className="flex flex-col items-end">
-              <span className="text-xs font-bold text-slate-800">{dentistName}</span>
-              <button
-                onClick={onLogout}
-                className="text-[9px] text-red-650 hover:underline font-extrabold uppercase tracking-wider cursor-pointer bg-transparent border-none p-0"
-              >
-                Logout
-              </button>
-            </div>
-            <div className="w-8 h-8 rounded-full bg-secondary-container flex items-center justify-center text-primary font-bold text-xs shadow-sm">
-              {getInitials(dentistName)}
-            </div>
+            <ClinicSwitcher
+              clinics={clinics}
+              activeClinic={activeClinic}
+              onSelectClinic={onSelectClinic}
+              onJoinClinic={onJoinClinic}
+              onManageClinic={() => setManageOpen(true)}
+              onClinicChanged={onClinicChanged}
+            />
+            {activeClinic?.role === 'owner' && (
+              <span className="text-[10px] font-bold px-2.5 py-1 rounded-lg bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
+                Owner Mode Active
+              </span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2.5">
+            <button
+              onClick={onStartNewConsultation}
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-gradient-to-r from-cyan-400 to-teal-400 hover:from-cyan-300 hover:to-teal-300 text-slate-950 font-black rounded-xl text-xs shadow-md shadow-cyan-950/50 cursor-pointer active:scale-95 transition-all"
+            >
+              <Plus className="w-4 h-4" />
+              <span>New Consultation</span>
+            </button>
           </div>
         </div>
-      </header>
 
-      {/* Main Container */}
-      <main className="flex-grow pt-20 px-4 md:px-8 max-w-4xl mx-auto w-full">
-        {/* Navigation Tabs */}
-        <div className="flex items-center gap-2 border-b border-slate-200/80 pt-4 mb-6 flex-wrap">
+        {/* Unified Hub Navigation Switcher Tabs */}
+        <div className="flex items-center gap-2 border-b border-[#182638] pb-3 flex-wrap">
           {previewEnabled && (
             <button
               onClick={() => setHubTab('schedule')}
-              className={`pb-3 px-3 text-xs font-bold transition-all border-b-2 flex items-center gap-2 cursor-pointer ${
-                hubTab === 'schedule'
-                  ? 'border-primary text-primary'
-                  : 'border-transparent text-slate-400 hover:text-slate-600'
-              }`}
+              className="px-3.5 py-2 rounded-xl text-xs font-bold transition-all border flex items-center gap-2 cursor-pointer border-[#1E3048] bg-[#0A1018] text-slate-400 hover:text-white hover:bg-[#121E2E]"
             >
-              <Calendar className="w-4 h-4 text-primary" />
+              <Calendar className="w-4 h-4 text-cyan-400" />
               <span>Today's Schedule</span>
-              <span className="px-2 py-0.5 rounded-full bg-teal-50 text-teal-700 text-[10px] font-black border border-teal-200">
+              <span className="px-2 py-0.5 rounded-md bg-cyan-500/15 text-cyan-300 text-[10px] font-black border border-cyan-500/30">
                 PMS Queue
               </span>
             </button>
@@ -179,48 +197,33 @@ export default function HistoryHub({
 
           <button
             onClick={() => setHubTab('records')}
-            className={`pb-3 px-3 text-xs font-bold transition-all border-b-2 flex items-center gap-2 cursor-pointer ${
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all border flex items-center gap-2 cursor-pointer ${
               hubTab === 'records'
-                ? 'border-primary text-primary'
-                : 'border-transparent text-slate-400 hover:text-slate-600'
+                ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40 shadow-xs'
+                : 'border-[#1E3048] bg-[#0A1018] text-slate-400 hover:text-white hover:bg-[#121E2E]'
             }`}
           >
             <FileText className="w-4 h-4" />
             <span>Patient Records ({filtered.length})</span>
           </button>
+
           <button
             onClick={() => setHubTab('pipeline')}
-            className={`pb-3 px-3 text-xs font-bold transition-all border-b-2 flex items-center gap-2 cursor-pointer ${
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all border flex items-center gap-2 cursor-pointer ${
               hubTab === 'pipeline'
-                ? 'border-primary text-primary'
-                : 'border-transparent text-slate-400 hover:text-slate-600'
+                ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40 shadow-xs'
+                : 'border-[#1E3048] bg-[#0A1018] text-slate-400 hover:text-white hover:bg-[#121E2E]'
             }`}
           >
-            <Sparkles className="w-4 h-4 text-amber-500" />
+            <Sparkles className="w-4 h-4 text-amber-400" />
             <span>Treatment Pipeline & ROI</span>
-            <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-black border border-emerald-200">
+            <span className="px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-300 text-[10px] font-black border border-emerald-500/30">
               Revenue Engine
             </span>
           </button>
         </div>
 
-        {hubTab === 'schedule' && previewEnabled ? (
-          <ErrorBoundary fallbackTitle="Day Schedule Roster Self-Recovered">
-            <DayScheduleQueue
-              onStartRecording={(item) => {
-                if (onStartScheduledConsultation) {
-                  onStartScheduledConsultation(item);
-                }
-              }}
-              onViewConsultation={(consultId) => {
-                const match = consultations.find(c => c.id === consultId);
-                if (match) onSelectConsultation(match);
-              }}
-              dentistName={dentistName}
-              authToken={authToken}
-            />
-          </ErrorBoundary>
-        ) : hubTab === 'pipeline' ? (
+        {hubTab === 'pipeline' ? (
           <TreatmentPipeline
             authToken={authToken}
             activeClinic={activeClinic}
@@ -229,52 +232,31 @@ export default function HistoryHub({
             consultations={consultations}
           />
         ) : (
-          <>
-            {/* Hero Section */}
-            <section className="py-2 space-y-4">
-              <div className="flex flex-col gap-1">
-                <h2 className="font-headline-lg text-headline-lg font-bold text-on-surface">History Hub</h2>
-                <p className="text-secondary font-body-md text-slate-500">
-                  Manage and review clinical patient records. Select any past visit to review charts or start a new recording session.
+          <div className="space-y-6">
+            {/* Header / Search Row */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-black text-white tracking-tight">Patient Records Hub</h2>
+                <p className="text-slate-400 text-xs mt-0.5">
+                  Search and review archived clinical charts, generated SOAP notes, and treatment quotes.
                 </p>
               </div>
 
-              {activeClinic?.role === 'owner' && (
-                <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-primary-light/60 border border-indigo-100 text-primary text-xs font-semibold">
-                  <Building2 className="w-4 h-4 shrink-0" />
-                  <span>
-                    Owner view — showing notes recorded by every dentist in{' '}
-                    <span className="font-extrabold">{activeClinic.clinicName}</span>.
-                  </span>
-                </div>
-              )}
-
               {/* Search Bar Component */}
-              <div className="relative group">
-                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5 pointer-events-none group-focus-within:text-primary transition-colors" />
+              <div className="relative w-full sm:w-80 group">
+                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4 pointer-events-none group-focus-within:text-cyan-400 transition-colors" />
                 <input
                   type="text"
-                  placeholder="Search patient name, procedure, or complaints..."
+                  placeholder="Search patient name, tooth, or note..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full h-12 pl-12 pr-4 bg-white border border-outline-variant rounded-xl focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all font-body-md shadow-sm text-on-surface"
+                  className="w-full h-10 pl-10 pr-4 bg-[#0A1018] border border-[#182638] rounded-xl focus:border-cyan-400 focus:ring-2 focus:ring-cyan-500/20 outline-none transition-all text-xs font-semibold text-white placeholder:text-slate-600"
                 />
               </div>
-
-              {/* Mobile New Consultation bar */}
-              <div id="mobile-new-consult" className="md:hidden pt-2">
-                <button
-                  onClick={onStartNewConsultation}
-                  className="flex items-center justify-center gap-2 w-full h-12 bg-primary border hover:bg-opacity-90 text-white rounded-xl font-medium shadow-sm transition-all"
-                >
-                  <Plus className="w-5 h-5" />
-                  <span>New Consultation</span>
-                </button>
-              </div>
-            </section>
+            </div>
 
             {/* List of Consultations */}
-            <section className="space-y-6 pt-2">
+            <section className="space-y-6">
               {uniqueDates.map((date, idx) => {
                 const dateConsultations = filtered.filter(c => c.date === date);
                 const isToday = date === todayStr;
@@ -287,52 +269,50 @@ export default function HistoryHub({
 
                 return (
                   <div key={date} className="space-y-3">
-                    <div className={`flex items-center gap-2 px-1 ${idx > 0 ? 'pt-2' : ''}`}>
-                      <div className="h-px flex-1 bg-outline-variant"></div>
-                      <span className="font-label-sm text-slate-400 uppercase tracking-widest text-[11px] font-bold">
+                    <div className="flex items-center gap-3">
+                      <div className="h-px flex-1 bg-[#182638]"></div>
+                      <span className="font-mono text-slate-400 uppercase tracking-widest text-[10px] font-bold">
                         {headerLabel}
                       </span>
-                      <div className="h-px flex-1 bg-outline-variant"></div>
+                      <div className="h-px flex-1 bg-[#182638]"></div>
                     </div>
 
-                    <div className="space-y-3">
+                    <div className="space-y-2.5">
                       {dateConsultations.map((c) => {
-                        const initials = `${c.firstName[0]}${c.lastName[0]}`;
+                        const initials = `${c.firstName[0]}${c.lastName[0]}`.toUpperCase();
                         return (
                           <motion.div
                             key={c.id}
                             onClick={() => onSelectConsultation(c)}
-                            whileHover={{ y: -2 }}
-                            whileTap={{ scale: 0.99 }}
-                            className="bg-white border border-outline-variant hover:border-primary rounded-2xl p-4 transition-all cursor-pointer shadow-sm hover:shadow-md flex flex-col md:flex-row md:items-center justify-between gap-4"
+                            whileHover={{ scale: 1.005 }}
+                            whileTap={{ scale: 0.995 }}
+                            className="bg-[#0A1018] hover:bg-[#0E1724] border border-[#182638] hover:border-cyan-500/40 rounded-2xl p-4 transition-all cursor-pointer shadow-md flex flex-col md:flex-row md:items-center justify-between gap-4"
                           >
-                            <div className="flex items-center gap-4">
-                              <div className={`w-12 h-12 rounded-xl flex items-center justify-center font-bold text-base shadow-sm ${getAvatarBg(initials)}`}>
+                            <div className="flex items-center gap-3.5">
+                              <div className="w-11 h-11 rounded-xl flex items-center justify-center font-extrabold text-sm bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 shrink-0">
                                 {initials}
                               </div>
-                              <div className="flex flex-col">
-                                <span className="font-title-md font-bold text-on-surface text-base">
+                              <div className="flex flex-col min-w-0">
+                                <span className="font-bold text-white text-sm truncate">
                                   {c.firstName} {c.lastName}
                                 </span>
-                                <span className="text-slate-500 font-body-sm text-xs">
+                                <span className="text-slate-400 font-mono text-xs truncate">
                                   {getProcedureLabel(c.appointmentType)}
                                 </span>
                               </div>
                             </div>
 
-                            <div className="flex items-center justify-between md:justify-end gap-3 pt-2 md:pt-0 border-t md:border-t-0 border-outline-variant">
-                              <div className="flex items-center gap-2">
-                                <span className="text-slate-400 font-label-sm text-xs">
-                                  {c.time}
-                                </span>
-                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                  c.status === 'Completed'
-                                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                                    : 'bg-amber-50 text-amber-700 border border-amber-200'
-                                }`}>
-                                  {c.status}
-                                </span>
-                              </div>
+                            <div className="flex items-center justify-between md:justify-end gap-3 pt-2 md:pt-0 border-t md:border-t-0 border-[#182638]">
+                              <span className="text-cyan-400 font-mono text-xs font-bold">
+                                {c.time}
+                              </span>
+                              <span className={`px-2.5 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider ${
+                                c.status === 'Completed'
+                                  ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
+                                  : 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
+                              }`}>
+                                {c.status}
+                              </span>
                             </div>
                           </motion.div>
                         );
@@ -344,33 +324,33 @@ export default function HistoryHub({
 
               {/* Empty State */}
               {filtered.length === 0 && (
-                <div className="text-center py-12 bg-white rounded-2xl border border-dashed border-outline-variant p-8 flex flex-col items-center gap-3">
-                  <FileText className="text-slate-300 w-16 h-16" />
-                  <div className="text-lg font-bold text-slate-800">No Patient Records Found</div>
-                  <p className="text-slate-500 max-w-sm">No clinical notes or consultations match your search. Make sure the spelling is correct or check the appointment filters.</p>
+                <div className="text-center py-12 bg-[#0A1018] rounded-2xl border border-dashed border-[#182638] p-8 flex flex-col items-center gap-3">
+                  <FileText className="text-slate-600 w-12 h-12" />
+                  <div className="text-base font-bold text-white">No Patient Records Found</div>
+                  <p className="text-slate-400 text-xs max-w-sm">No clinical notes match your search query. Verify the spelling or start a new consultation.</p>
                   <button
                     onClick={onStartNewConsultation}
-                    className="mt-2 inline-flex items-center gap-2 px-6 py-2 bg-primary text-white rounded-lg font-medium shadow transition-all hover:bg-opacity-95"
+                    className="mt-2 inline-flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-cyan-400 to-teal-400 text-slate-950 font-black text-xs rounded-xl shadow-md transition-all hover:opacity-95 cursor-pointer"
                   >
                     <Plus className="w-4 h-4" />
-                    <span>Add First Consultation</span>
+                    <span>Start Consultation</span>
                   </button>
                 </div>
               )}
             </section>
-          </>
+          </div>
         )}
-      </main>
 
-      {/* Owner clinic management (invite code, members, approvals) */}
-      {manageOpen && activeClinic?.role === 'owner' && (
-        <ClinicMembersModal
-          clinic={activeClinic}
-          authToken={authToken}
-          onClose={() => setManageOpen(false)}
-          onChanged={onClinicChanged}
-        />
-      )}
-    </div>
+        {/* Owner clinic management modal */}
+        {manageOpen && activeClinic && (
+          <ClinicMembersModal
+            clinic={activeClinic}
+            authToken={authToken}
+            onClose={() => setManageOpen(false)}
+            onChanged={onClinicChanged}
+          />
+        )}
+      </div>
+    </CockpitLayout>
   );
 }
