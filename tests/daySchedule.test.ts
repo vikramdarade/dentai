@@ -1,9 +1,11 @@
-import { describe, it, expect, beforeEach, beforeAll } from 'vitest';
+import { describe, it, expect, beforeEach, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';
+import fs from 'fs';
+import path from 'path';
 
 process.env.NODE_ENV = 'test';
 process.env.DATABASE_URL = '';
-const { app } = await import('../server.ts');
+const { app, invalidateDbCache } = await import('../server.ts');
 
 import {
   DayScheduleItem,
@@ -22,6 +24,38 @@ import {
 } from '../src/lib/dayScheduleStorage';
 import { verifyTranscriptGrounding, extractToothNumbers } from '../src/lib/transcriptGrounding';
 import { isPmsPreviewEnabled } from '../src/utils/previewMode';
+
+const dataDir = path.resolve(__dirname, '..', 'data');
+const usersPath = path.join(dataDir, 'users.json');
+const clinicsPath = path.join(dataDir, 'clinics.json');
+const auditPath = path.join(dataDir, 'audit.json');
+const noteJobsPath = path.join(dataDir, 'note_jobs.json');
+
+let usersBackup: string | null = null;
+let clinicsBackup: string | null = null;
+let auditBackup: string | null = null;
+let noteJobsBackup: string | null = null;
+
+beforeAll(() => {
+  if (fs.existsSync(usersPath)) usersBackup = fs.readFileSync(usersPath, 'utf-8');
+  if (fs.existsSync(clinicsPath)) clinicsBackup = fs.readFileSync(clinicsPath, 'utf-8');
+  if (fs.existsSync(auditPath)) auditBackup = fs.readFileSync(auditPath, 'utf-8');
+  if (fs.existsSync(noteJobsPath)) noteJobsBackup = fs.readFileSync(noteJobsPath, 'utf-8');
+});
+
+afterAll(() => {
+  if (usersBackup !== null) fs.writeFileSync(usersPath, usersBackup);
+  if (clinicsBackup !== null) fs.writeFileSync(clinicsPath, clinicsBackup);
+  if (auditBackup !== null) fs.writeFileSync(auditPath, auditBackup);
+  if (noteJobsBackup !== null) {
+    fs.writeFileSync(noteJobsPath, noteJobsBackup);
+  } else if (fs.existsSync(noteJobsPath)) {
+    try { fs.unlinkSync(noteJobsPath); } catch {}
+  }
+  if (typeof invalidateDbCache === 'function') {
+    invalidateDbCache();
+  }
+});
 
 describe('Day Schedule Queue Storage & Helpers', () => {
   const testDate = '2026-09-11';
