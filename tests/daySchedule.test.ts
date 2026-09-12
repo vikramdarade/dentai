@@ -464,6 +464,40 @@ describe('PMS Schedule Vision API (/api/schedule/parse-image)', () => {
     expect(first).toHaveProperty('appointmentType');
     expect(first).toHaveProperty('templateId');
   });
+
+  it('marks isSampleFallback: true and provides fallbackReason when server AI key quota is depleted', async () => {
+    const samplePng = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+
+    const res = await request(app)
+      .post('/api/schedule/parse-image')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({
+        imageBase64: samplePng,
+        mimeType: 'image/png'
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.isSampleFallback).toBe(true);
+    expect(res.body.fallbackReason).toBeDefined();
+    expect(typeof res.body.fallbackReason).toBe('string');
+  });
+
+  it('accepts userApiKey in payload or header without throwing 500', async () => {
+    const samplePng = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+
+    const res = await request(app)
+      .post('/api/schedule/parse-image')
+      .set('Authorization', `Bearer ${authToken}`)
+      .set('x-gemini-api-key', 'dummy_key_for_test')
+      .send({
+        imageBase64: samplePng,
+        mimeType: 'image/png',
+        userApiKey: 'dummy_key_for_test'
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('appointments');
+  });
 });
 
 describe('Transcript Grounding & Zero-Hallucination Verification Engine', () => {

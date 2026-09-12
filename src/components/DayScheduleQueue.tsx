@@ -23,7 +23,10 @@ import {
   MicOff,
   CheckCircle2,
   Sun,
-  Moon
+  Moon,
+  Key,
+  AlertTriangle,
+  ExternalLink
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { verifyTranscriptGrounding } from '../lib/transcriptGrounding';
@@ -87,6 +90,19 @@ export default function DayScheduleQueue({
   const [viewNoteItem, setViewNoteItem] = useState<DayScheduleItem | null>(null);
   const [consentGuardItem, setConsentGuardItem] = useState<DayScheduleItem | null>(null);
   const [sideBySideItem, setSideBySideItem] = useState<DayScheduleItem | null>(null);
+
+  // Custom Gemini Key & Vision Extraction States
+  const [customApiKey, setCustomApiKey] = useState<string>(() => {
+    return localStorage.getItem('dentai_custom_gemini_key') || '';
+  });
+  const [showApiKeyModal, setShowApiKeyModal] = useState(false);
+  const [tempApiKeyInput, setTempApiKeyInput] = useState('');
+  const [fallbackNotice, setFallbackNotice] = useState<{
+    reason: string;
+    demoAppointments: DayScheduleItem[];
+  } | null>(null);
+  const [lastUploadedFile, setLastUploadedFile] = useState<File | null>(null);
+  const [successBanner, setSuccessBanner] = useState<string | null>(null);
 
   // Cockpit Inspection Drawer State
   const [selectedInspectionId, setSelectedInspectionId] = useState<string | null>(() => {
@@ -242,63 +258,127 @@ export default function DayScheduleQueue({
     return () => window.removeEventListener('paste', handlePaste);
   }, []);
 
-  const handleImageFile = async (file: File) => {
-    setIsParsing(true);
-    setParsingError(null);
-
-    try {
+  const optimizeScreenshotForVision = async (file: File): Promise<{ base64: string; mimeType: string }> => {
+    return new Promise((resolve) => {
       const reader = new FileReader();
-      reader.onload = async () => {
-        const base64 = reader.result as string;
-        try {
-          const res = await fetch('/api/schedule/parse-image', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${authToken}`
-            },
-            body: JSON.stringify({
-              imageBase64: base64,
-              mimeType: file.type,
-              providerName: dentistName
-            })
-          });
-
-          if (!res.ok) {
-            const err = await res.json().catch(() => ({}));
-            throw new Error(err.error || 'Failed to parse appointment screenshot.');
+      reader.onload = (e) => {
+        const rawResult = (e.target?.result as string) || '';
+        const img = new Image();
+        img.onload = () => {
+          try {
+            const maxDimension = 1600;
+            let width = img.width;
+            let height = img.height;
+            if (width > maxDimension || height > maxDimension) {
+              if (width > height) {
+                height = Math.round((height * maxDimension) / width);
+                width = maxDimension;
+              } else {
+                width = Math.round((width * maxDimension) / height);
+                height = maxDimension;
+              }
+            }
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+              ctx.drawImage(img, 0, 0, width, height);
+              const jpegData = canvas.toDataURL('image/jpeg', 0.88);
+              resolve({ base64: jpegData, mimeType: 'image/jpeg' });
+              return;
+            }
+          } catch {
+            // fallback to original base64
           }
-
-          const data = await res.json();
-          const newAppointments: DayScheduleItem[] = (data.appointments || []).map((app: any) => ({
-            id: `sched_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-            time: app.time || '09:00',
-            patientName: app.patientName || 'Unknown Patient',
-            procedureText: app.procedureText || 'General Consultation',
-            appointmentType: app.appointmentType || 'examination',
-            templateId: app.templateId || 'standard',
-            status: 'scheduled',
-            source: 'snip'
-          }));
-
-          if (newAppointments.length === 0) {
-            throw new Error('No patient appointments could be detected in this screenshot.');
-          }
-
-          // 3-Way Smart Hash Merge: eliminates duplicates & preserves existing progress
-          const currentRoster = loadTodaySchedule();
-          const merged = mergeScheduleItems(currentRoster, newAppointments, getTodayDateStr());
-          setItems(merged);
-          saveTodaySchedule(merged);
-        } catch (err: any) {
-          setParsingError(err.message || 'Error processing image.');
-        } finally {
-          setIsParsing(false);
-        }
+          resolve({ base64: rawResult, mimeType: file.type || 'image/png' });
+        };
+        img.onerror = () => {
+          resolve({ base64: rawResult, mimeType: file.type || 'image/png' });
+        };
+        img.src = rawResult;
+      };
+      reader.onerror = () => {
+        resolve({ base64: '', mimeType: file.type || 'image/png' });
       };
       reader.readAsDataURL(file);
+    });
+  };
+
+  const handleImageFile = async (file: File, overrideKey?: string) => {
+    setIsParsing(true);
+    setParsingError(null);
+    setFallbackNotice(null);
+    setLastUploadedFile(file);
+
+    try {
+      const activeKey = overrideKey !== undefined ? overrideKey : customApiKey;
+      const { base64, mimeType } = await optimizeScreenshotForVision(file);
+
+      if (!base64) {
+        throw new Error('Could not read image file.');
+      }
+
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${authToken}`
+      };
+      if (activeKey) {
+        headers['x-gemini-api-key'] = activeKey;
+      }
+
+      const res = await fetch('/api/schedule/parse-image', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          imageBase64: base64,
+          mimeType,
+          providerName: dentistName,
+          userApiKey: activeKey || undefined
+        })
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to parse appointment screenshot.');
+      }
+
+      const data = await res.json();
+      const rawAppointments = Array.isArray(data.appointments) ? data.appointments : [];
+      const newAppointments: DayScheduleItem[] = rawAppointments.map((app: any) => ({
+        id: `sched_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        time: app.time || '09:00',
+        patientName: app.patientName || 'Unknown Patient',
+        procedureText: app.procedureText || 'General Consultation',
+        appointmentType: app.appointmentType || 'examination',
+        templateId: app.templateId || 'standard',
+        status: 'scheduled',
+        source: 'snip'
+      }));
+
+      // If the backend had to fallback to sample appointments because AI was unavailable/quota depleted:
+      if (data.isSampleFallback) {
+        setFallbackNotice({
+          reason: data.fallbackReason || data.notice || 'AI Vision service is temporarily unavailable or out of quota.',
+          demoAppointments: newAppointments
+        });
+        return;
+      }
+
+      if (newAppointments.length === 0) {
+        throw new Error('No patient appointments could be detected in this screenshot. Please verify the image contains readable schedule rows.');
+      }
+
+      // 3-Way Smart Hash Merge: eliminates duplicates & preserves existing progress
+      const currentRoster = loadTodaySchedule();
+      const merged = mergeScheduleItems(currentRoster, newAppointments, getTodayDateStr());
+      setItems(merged);
+      saveTodaySchedule(merged);
+      setSuccessBanner(`Successfully imported ${newAppointments.length} appointments from your schedule!`);
+      setTimeout(() => setSuccessBanner(null), 5000);
     } catch (err: any) {
-      setParsingError(err.message || 'Failed to read image.');
+      setParsingError(err.message || 'Error processing image.');
+    } finally {
       setIsParsing(false);
     }
   };
@@ -629,6 +709,24 @@ export default function DayScheduleQueue({
               )}
             </button>
 
+            {/* AI Key Config Button */}
+            <button
+              onClick={() => {
+                setTempApiKeyInput(customApiKey);
+                setShowApiKeyModal(true);
+              }}
+              className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all border cursor-pointer active:scale-95 ${
+                customApiKey
+                  ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30 shadow-xs'
+                  : 'bg-[#121E2E] hover:bg-[#18283D] text-slate-300 border-[#1E3048]'
+              }`}
+              title={customApiKey ? 'Custom Gemini API Key Active (Click to change)' : 'Configure Gemini Vision API Key (Click to set)'}
+            >
+              <Key className={`w-3.5 h-3.5 ${customApiKey ? 'text-emerald-400' : 'text-amber-400'}`} />
+              <span className="hidden sm:inline">{customApiKey ? 'AI Key: Active' : 'AI Key'}</span>
+              {customApiKey && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />}
+            </button>
+
             <button
               onClick={() => setShowWalkInModal(true)}
               className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-[#121E2E] hover:bg-[#18283D] text-slate-200 border border-[#1E3048] rounded-xl text-xs font-bold transition-all active:scale-95 cursor-pointer"
@@ -663,6 +761,83 @@ export default function DayScheduleQueue({
             )}
           </div>
         </div>
+
+        {/* Success Banner if parsed */}
+        {successBanner && (
+          <div className="p-3.5 bg-emerald-500/15 border border-emerald-500/30 rounded-2xl flex items-center justify-between text-xs text-emerald-200 shadow-md">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span className="font-semibold">{successBanner}</span>
+            </div>
+            <button
+              onClick={() => setSuccessBanner(null)}
+              className="p-1 text-emerald-400/80 hover:text-emerald-200 cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+
+        {/* AI Vision Quota / Fallback Notice Card */}
+        {fallbackNotice && (
+          <div className="p-4 bg-gradient-to-r from-amber-500/10 via-amber-600/10 to-orange-500/10 border border-amber-500/30 rounded-2xl text-left shadow-lg backdrop-blur-md">
+            <div className="flex items-start gap-3">
+              <div className="w-8 h-8 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center shrink-0 mt-0.5">
+                <AlertTriangle className="w-4 h-4 text-amber-400" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs sm:text-sm font-black text-amber-200 uppercase tracking-wider">
+                    Screenshot Could Not Be Read by AI
+                  </h4>
+                  <button
+                    onClick={() => setFallbackNotice(null)}
+                    className="p-1 text-slate-400 hover:text-white rounded-lg transition-colors cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+                <p className="text-xs text-amber-300/90 mt-1 leading-relaxed">
+                  {fallbackNotice.reason}
+                </p>
+                <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
+                  DentAI does not silently replace your uploaded schedule with sample patients. You can enter a free Google Gemini key in 30 seconds to parse your screenshot for real, or load the sample day below.
+                </p>
+                <div className="flex items-center gap-2.5 mt-3.5 flex-wrap">
+                  <button
+                    onClick={() => {
+                      setTempApiKeyInput(customApiKey);
+                      setShowApiKeyModal(true);
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs rounded-xl transition-all shadow-md active:scale-95 cursor-pointer"
+                  >
+                    <Key className="w-3.5 h-3.5" />
+                    Enter Free Gemini Key & Re-parse
+                  </button>
+                  <button
+                    onClick={() => {
+                      const currentRoster = loadTodaySchedule();
+                      const merged = mergeScheduleItems(currentRoster, fallbackNotice.demoAppointments, getTodayDateStr());
+                      setItems(merged);
+                      saveTodaySchedule(merged);
+                      setFallbackNotice(null);
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-[#121E2E] hover:bg-[#18283D] text-slate-200 border border-[#1E3048] font-bold text-xs rounded-xl transition-all active:scale-95 cursor-pointer"
+                  >
+                    <Stethoscope className="w-3.5 h-3.5 text-cyan-400" />
+                    Load Sample Schedule Anyway
+                  </button>
+                  <button
+                    onClick={() => setFallbackNotice(null)}
+                    className="px-3 py-1.5 text-slate-400 hover:text-slate-200 text-xs font-semibold cursor-pointer"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* 2. Snip & Paste Dropzone */}
         <div
@@ -1350,6 +1525,105 @@ export default function DayScheduleQueue({
           </div>
         )}
       </AnimatePresence>
+        {/* Google Gemini API Key Configuration Modal */}
+        {showApiKeyModal && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-50 p-4">
+            <div className="bg-[#0E1622] border border-[#1E2E42] rounded-3xl p-6 max-w-lg w-full shadow-2xl relative text-left">
+              <button
+                onClick={() => setShowApiKeyModal(false)}
+                className="absolute top-5 right-5 p-1.5 text-slate-400 hover:text-white rounded-lg transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 rounded-2xl bg-cyan-500/20 border border-cyan-500/40 flex items-center justify-center text-cyan-300">
+                  <Key className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-white">Google Gemini API Key</h3>
+                  <p className="text-xs text-slate-400">For direct PMS schedule OCR & ambient scribing</p>
+                </div>
+              </div>
+
+              <div className="p-3.5 bg-[#14202E] border border-[#1E3048] rounded-2xl mb-4 text-xs text-slate-300 space-y-2">
+                <div className="flex items-center justify-between font-bold text-white">
+                  <span>How to get a free API key:</span>
+                  <a
+                    href="https://aistudio.google.com/app/apikey"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 text-cyan-400 hover:text-cyan-300 underline font-medium"
+                  >
+                    Google AI Studio <ExternalLink className="w-3 h-3" />
+                  </a>
+                </div>
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  1. Visit Google AI Studio and click "Create API key".<br/>
+                  2. Free tier grants 15 requests per minute with zero billing or credit card required.<br/>
+                  3. Key is stored strictly in your browser (<code className="text-cyan-300">localStorage</code>) and used for your practice sessions.
+                </p>
+              </div>
+
+              <label className="block text-xs font-bold text-slate-300 mb-1.5">
+                Gemini API Key
+              </label>
+              <input
+                type="password"
+                value={tempApiKeyInput}
+                onChange={(e) => setTempApiKeyInput(e.target.value)}
+                placeholder="AIzaSy... or AQ.Ab8RN..."
+                className="w-full px-4 py-2.5 bg-[#090F17] border border-[#1E2E42] focus:border-cyan-400 rounded-xl text-xs text-white placeholder-slate-600 focus:outline-hidden font-mono mb-4"
+              />
+
+              <div className="flex items-center justify-between gap-3 pt-3 border-t border-[#182638]">
+                {customApiKey ? (
+                  <button
+                    onClick={() => {
+                      localStorage.removeItem('dentai_custom_gemini_key');
+                      setCustomApiKey('');
+                      setTempApiKeyInput('');
+                      setShowApiKeyModal(false);
+                    }}
+                    className="text-xs text-rose-400 hover:text-rose-300 font-bold cursor-pointer"
+                  >
+                    Remove Custom Key
+                  </button>
+                ) : (
+                  <span className="text-[11px] text-slate-500">No custom key configured</span>
+                )}
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setShowApiKeyModal(false)}
+                    className="px-4 py-2 text-xs font-bold text-slate-400 hover:text-white rounded-xl cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => {
+                      const cleaned = tempApiKeyInput.trim();
+                      if (cleaned) {
+                        localStorage.setItem('dentai_custom_gemini_key', cleaned);
+                        setCustomApiKey(cleaned);
+                      } else {
+                        localStorage.removeItem('dentai_custom_gemini_key');
+                        setCustomApiKey('');
+                      }
+                      setShowApiKeyModal(false);
+                      if (lastUploadedFile && cleaned) {
+                        handleImageFile(lastUploadedFile, cleaned);
+                      }
+                    }}
+                    className="px-5 py-2 bg-gradient-to-r from-cyan-400 to-teal-400 hover:from-cyan-300 hover:to-teal-300 text-slate-950 font-black text-xs rounded-xl shadow-lg shadow-cyan-950/40 cursor-pointer active:scale-95 transition-all"
+                  >
+                    {lastUploadedFile ? 'Save Key & Re-parse Snip' : 'Save Key'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </CockpitLayout>
   );

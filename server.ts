@@ -109,7 +109,10 @@ app.use(
   })
 );
 
+// Specific route-level body limit for PMS schedule screenshot snips (up to 10mb)
+app.use('/api/schedule/parse-image', express.json({ limit: '10mb' }));
 app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
 // Request Logging & Latency Telemetry Middleware
 app.use((req, res, next) => {
@@ -2951,7 +2954,8 @@ MANDATORY RULES:
 
 app.post('/api/schedule/parse-image', authenticateToken, async (req: any, res) => {
   try {
-    const { imageBase64, mimeType, providerName } = req.body || {};
+    const { imageBase64, mimeType, providerName, userApiKey } = req.body || {};
+    const headerKey = req.headers['x-gemini-api-key'] as string | undefined;
 
     if (!imageBase64 || typeof imageBase64 !== 'string') {
       return res.status(400).json({ error: 'imageBase64 is required.' });
@@ -2965,8 +2969,6 @@ app.post('/api/schedule/parse-image', authenticateToken, async (req: any, res) =
       base64Clean = parts[1];
     }
 
-    const apiKey = process.env.GEMINI_API_KEY;
-
     // Fallback appointments for offline/preview resilience
     const fallbackAppointments = [
       { time: '09:00', patientName: 'Sarah Jenkins', procedureText: 'Comprehensive Exam & Bitewings', appointmentType: 'examination', templateId: 'standard' },
@@ -2977,76 +2979,117 @@ app.post('/api/schedule/parse-image', authenticateToken, async (req: any, res) =
       { time: '14:15', patientName: 'Chloe Bennett', procedureText: 'Periodic Check & Fluoride', appointmentType: 'examination', templateId: 'standard' }
     ];
 
-    if (!apiKey || apiKey === 'MY_GEMINI_API_KEY') {
-      logger.warn('[PMS Vision] No GEMINI_API_KEY configured; returning realistic fallback Australian dental schedule.');
+    // Priority order for API keys:
+    // 1. Client user-supplied key (from req.body.userApiKey or x-gemini-api-key header)
+    // 2. Server primary key (process.env.GEMINI_API_KEY)
+    // 3. Server fallback key (process.env.GEMINI_FALLBACK_API_KEY)
+    const keyCandidates = [
+      userApiKey || headerKey,
+      process.env.GEMINI_API_KEY,
+      process.env.GEMINI_FALLBACK_API_KEY
+    ].filter((k): k is string => Boolean(k && k !== 'MY_GEMINI_API_KEY' && typeof k === 'string' && k.trim().length > 0));
+
+    if (keyCandidates.length === 0) {
+      logger.warn('[PMS Vision] No valid Gemini API key provided or configured on server.');
       return res.json({
         provider: providerName || 'Dr. Dentist',
         date: new Date().toISOString().slice(0, 10),
         appointments: fallbackAppointments,
+        isSampleFallback: true,
+        fallbackReason: 'No Gemini API key configured. Enter a free Gemini API key to parse live screenshots.',
         notice: 'Demo schedule extracted (configure GEMINI_API_KEY for live OCR).'
       });
     }
 
-    try {
-      const ai = new GoogleGenAI({ apiKey });
-      const prompt = providerName 
-        ? `${SCHEDULE_PARSE_PROMPT}\nNote: Focus on the column for provider: ${providerName}.`
-        : SCHEDULE_PARSE_PROMPT;
+    const modelCandidates = [
+      process.env.GEMINI_VISION_MODEL || process.env.GEMINI_MODEL || 'gemini-3.6-flash',
+      'gemini-flash-latest',
+      'gemini-3.5-flash'
+    ];
 
-      const contents = [
-        {
-          inlineData: {
-            mimeType: resolvedMime,
-            data: base64Clean
-          }
-        },
-        {
-          text: prompt
+    const prompt = providerName 
+      ? `${SCHEDULE_PARSE_PROMPT}\nNote: Focus on the column for provider: ${providerName}.`
+      : SCHEDULE_PARSE_PROMPT;
+
+    const contents = [
+      {
+        inlineData: {
+          mimeType: resolvedMime,
+          data: base64Clean
         }
-      ];
-
-      const response = await withTimeout(
-        ai.models.generateContent({
-          model: process.env.GEMINI_VISION_MODEL || process.env.GEMINI_MODEL || 'gemini-3.6-flash',
-          contents: contents as any,
-          config: {
-            responseMimeType: 'application/json'
-          }
-        }),
-        30000,
-        'Schedule OCR timed out after 30 seconds.'
-      );
-
-      const responseText = response.text;
-      if (!responseText) {
-        throw new Error('Gemini vision returned empty response.');
+      },
+      {
+        text: prompt
       }
+    ];
 
-      const parsed = JSON.parse(responseText);
-      const rawList = Array.isArray(parsed?.appointments) ? parsed.appointments : [];
+    let lastError: any = null;
+    let successfulResult: any = null;
 
-      const cleanAppointments = rawList.map((app: any) => ({
-        time: String(app.time || '09:00').trim(),
-        patientName: String(app.patientName || 'Unknown Patient').trim(),
-        procedureText: String(app.procedureText || 'Dental Consultation').trim(),
-        appointmentType: isValidAppointmentType(app.appointmentType) ? app.appointmentType : 'examination',
-        templateId: ['standard', 'concise', 'soap'].includes(app.templateId) ? app.templateId : 'standard'
-      }));
+    for (const key of keyCandidates) {
+      for (const modelName of modelCandidates) {
+        try {
+          const ai = new GoogleGenAI({ apiKey: key });
+          const response = await withTimeout(
+            ai.models.generateContent({
+              model: modelName,
+              contents: contents as any,
+              config: {
+                responseMimeType: 'application/json'
+              }
+            }),
+            30000,
+            'Schedule OCR timed out after 30 seconds.'
+          );
 
-      return res.json({
-        provider: parsed.provider || providerName || '',
-        date: parsed.date || new Date().toISOString().slice(0, 10),
-        appointments: cleanAppointments.length > 0 ? cleanAppointments : fallbackAppointments
-      });
-    } catch (aiErr: any) {
-      logger.error('[PMS Vision] Gemini schedule extraction failed, falling back:', aiErr.message);
-      return res.json({
-        provider: providerName || 'Dr. Dentist',
-        date: new Date().toISOString().slice(0, 10),
-        appointments: fallbackAppointments,
-        notice: 'Schedule fallback used due to AI parsing latency/error.'
-      });
+          const responseText = response.text;
+          if (!responseText) throw new Error('Empty AI response.');
+          const parsed = JSON.parse(responseText);
+          const rawList = Array.isArray(parsed?.appointments) ? parsed.appointments : [];
+          if (rawList.length > 0) {
+            successfulResult = {
+              provider: parsed.provider || providerName || '',
+              date: parsed.date || new Date().toISOString().slice(0, 10),
+              appointments: rawList.map((app: any) => ({
+                time: String(app.time || '09:00').trim(),
+                patientName: String(app.patientName || 'Unknown Patient').trim(),
+                procedureText: String(app.procedureText || 'Dental Consultation').trim(),
+                appointmentType: isValidAppointmentType(app.appointmentType) ? app.appointmentType : 'examination',
+                templateId: ['standard', 'concise', 'soap'].includes(app.templateId) ? app.templateId : 'standard'
+              })),
+              isSampleFallback: false
+            };
+            break;
+          }
+        } catch (err: any) {
+          lastError = err;
+          logger.warn(`[PMS Vision] Model ${modelName} failed with key candidate:`, err.message || err);
+        }
+      }
+      if (successfulResult) break;
     }
+
+    if (successfulResult) {
+      return res.json(successfulResult);
+    }
+
+    // AI vision failed across all keys/models
+    const errorMsg = lastError?.message || 'Failed to extract appointments from image.';
+    logger.error('[PMS Vision] All Gemini schedule extraction attempts failed:', errorMsg);
+    const friendlyReason = errorMsg.includes('credits are depleted') || errorMsg.includes('RESOURCE_EXHAUSTED')
+      ? 'Gemini API credits depleted (429). Enter your free Google AI Studio key to parse screenshots.'
+      : (errorMsg.includes('404')
+        ? 'Selected AI vision model unavailable. Enter a valid Gemini API key.'
+        : errorMsg);
+
+    return res.json({
+      provider: providerName || 'Dr. Dentist',
+      date: new Date().toISOString().slice(0, 10),
+      appointments: fallbackAppointments,
+      isSampleFallback: true,
+      fallbackReason: friendlyReason,
+      notice: 'Schedule fallback used due to AI parsing latency/error.'
+    });
   } catch (err: any) {
     logger.error('Failed to parse schedule image:', err);
     res.status(500).json({ error: 'Failed to parse appointment schedule image.' });
