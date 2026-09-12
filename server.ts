@@ -109,9 +109,11 @@ app.use(
   })
 );
 
-// Specific route-level body limit for PMS schedule screenshot snips (up to 10mb) and audio uploads (up to 15mb)
+// Specific route-level body limit for PMS schedule screenshot snips (up to 10mb) and audio uploads (up to 50mb)
 app.use('/api/schedule/parse-image', express.json({ limit: '10mb' }));
-app.use('/api/transcribe-audio', express.json({ limit: '15mb' }));
+app.use('/api/transcribe-audio', express.json({ limit: '50mb' }));
+app.use('/api/notes/jobs', express.json({ limit: '10mb' }));
+app.use('/api/consultations', express.json({ limit: '10mb' }));
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
@@ -2545,6 +2547,14 @@ MANDATORY CLINICAL RULES:
     - treatmentPerformed: Detail any splint impression/digital intraoral scan, jaw relation record, or acute therapy performed today.
     - recommendations: Hard acrylic occlusal splint / Michigan splint (ADA 965), sleep hygiene/stress reduction, soft diet protocol during acute muscle flare-up, avoid chewing gum/ice, review splint fit at delivery visit.
     - adaCodes: Include ADA item "965 - Occlusal splint - per arch (nightguard)" whenever a splint/nightguard is planned, scanned, or recommended.
+13. TEMPOROMANDIBULAR DISORDERS (TMD / TMJ) & OROFACIAL PAIN (CRITICAL):
+    Whenever jaw clicking, popping, pain on chewing or opening, ear/preauricular/temple soreness, restricted mouth opening, or chewing-triggered jaw pain (e.g. eating crusty bread or bagels) is spoken or referenced:
+    - chiefComplaint: Capture the exact history, onset, triggering events (e.g. initial sharp pain and loud pop while eating crusty bread 3 months ago), character of pain, and previous palliative measures (e.g. warm compresses/heat packs).
+    - toothFindings / findingsGingival / objective: Document TMJ examination including bilateral joint palpation (lateral poles and retrodiscal tissue tenderness), joint sounds (clicking, popping, crepitus, opening vs reciprocal click), maximum incisal opening (MIO in mm), and masticatory muscle palpation (masseter, temporalis, lateral/medial pterygoids).
+    - diagnosis: MUST explicitly state the diagnostic entity: "Temporomandibular Disorder (TMD) - Anterior disc displacement with reduction / capsulitis / masticatory myofascial pain dysfunction (MPD)".
+    - treatmentPerformed: Document any clinical testing, range of motion measurements, diagnostic palpations, or acute interventions performed today.
+    - recommendations: Detail the conservative management protocol: soft food diet (no bagels, crusty bread, tough meats, or chewing gum), bilateral mastication, moist warm heat compresses to the masseter/TMJ area 15 minutes twice daily, jaw rest within pain-free range, trial of NSAIDs (e.g. ibuprofen 400mg with food), fabrication of a stabilization occlusal splint (ADA 965), and clinical review in 2-4 weeks.
+    - adaCodes: Include "011 - Comprehensive examination" (or 013 if emergency) and "965 - Occlusal splint - per arch" if splint therapy is planned or recommended.
 `;
 
 
@@ -3139,7 +3149,7 @@ Requirements across all clinical specialties:
 1. Preserve FDI two-digit notation (teeth 11-48, deciduous 51-85).
 2. Transcribe diagnostic observations and tests accurately: percussion (TTP), cold sensibility, electric pulp test (EPT), pocket depths (e.g. 3-2-3 mm), BPE scores, mobility, sinus tracts.
 3. Capture procedures, pathology, and ADA codes across all disciplines:
-   - Bruxism & TMD: nocturnal grinding, clenching, attrition, wear facets with dentin exposure, masseter muscle tenderness, TMJ, occlusal splint (nightguard), ADA item 965.
+   - Bruxism, TMD & Orofacial Pain: temporomandibular joint (TMJ), jaw clicking, popping sound, crepitus, ear/temple/preauricular soreness, hard crusty bread trigger, masseter/temporalis/pterygoid muscle tenderness to palpation, range of motion (mm opening), anterior disc displacement with reduction, capsulitis, myofascial pain dysfunction, conservative management, soft food diet, moist warm heat compresses, bilateral chewing, jaw relaxation exercises, stabilization occlusal splint (nightguard), ADA item 965.
    - Endodontics: pulpitis (reversible/irreversible), necrotic pulp, periapical radiolucency, pulp extirpation, rotary instrumentation, Ledermix dressing, obturation, ADA items 411-418.
    - Restorative: composite resin, amalgam, caries excavation, tooth surfaces (MODBL), rubber dam isolation, shade selection, articulating paper bite check, ADA items 511-535.
    - Periodontics & Hygiene: supragingival/subgingival calculus, bleeding on probing, ultrasonic scaling, quadrant debridement, ADA items 114, 222.

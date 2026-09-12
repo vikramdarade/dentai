@@ -5,7 +5,7 @@ process.env.NODE_ENV = 'test';
 process.env.DATABASE_URL = '';
 const { app, generateToken } = await import('../server.ts');
 import { normalizeSpokenDentalText } from '../src/lib/dentalPhoneticLexicon';
-import { generateOfflineDraft } from '../src/lib/draftEngine';
+import { generateOfflineDraft, evaluateAudioFallbackNeed } from '../src/lib/draftEngine';
 import { getTemplateById } from '../src/lib/dentalLibrary';
 import { TranscriptItem } from '../src/types';
 
@@ -111,9 +111,99 @@ describe('TDD: Dual-Stream Universal Dental Transcription & Note Pipeline', () =
       expect(draft.canonical.treatmentPerformed.toLowerCase()).toContain('extraction');
       expect(draft.canonical.treatmentPerformed.toLowerCase()).toContain('sutures');
     });
+
+    it('synthesizes comprehensive TMD findings across all sections (Subjective, Exam, Diagnosis, Treatment & Advice)', () => {
+      const template = getTemplateById('standard');
+      const tmdTranscript: TranscriptItem[] = [
+        {
+          sender: 'Patient',
+          text: 'Patient presents with persistent facial pain and TMJ discomfort near the ear and eye region on one side, accompanied by a popping sound. Onset was 3 months ago while eating hard crusty bread, presenting as an initial sharp pain with a loud pop followed by constant, aggravated soreness. Patient reports mild temporary relief using warm compresses and heat packs.'
+        },
+        {
+          sender: 'Dentist',
+          text: 'Examination of TMJ: palpation of right lateral pole tender, joint clicking on opening at 28 mm, maximum opening restricted to 36 mm with deviation to the right. Palpation of masseter and temporalis reveals moderate hypertonicity and tenderness.'
+        },
+        {
+          sender: 'Dentist',
+          text: 'Diagnosis: Temporomandibular disorder with anterior disc displacement with reduction and secondary masseter myofascial pain.'
+        },
+        {
+          sender: 'Dentist',
+          text: 'Treatment plan discussed: institute conservative jaw rest protocol. Patient instructed on soft food diet—strictly avoiding crusty bread, tough meats, and chewing gum. Apply moist warm heat compresses to the joint and temple 15 minutes twice daily. Prescribing trial of ibuprofen 400 mg with food. Recommending a hard acrylic stabilization occlusal splint under ADA item 965.'
+        }
+      ];
+
+      const draft = generateOfflineDraft(template, tmdTranscript, 'Comprehensive');
+      
+      // 1. Subjective History & Complaint
+      expect(draft.canonical.chiefComplaint.toLowerCase()).toMatch(/tmj|facial pain|popping|crusty bread/);
+      
+      // 2. Objective Examination & Findings
+      const findingsText = (draft.canonical.toothFindings + ' ' + draft.canonical.findingsGingival).toLowerCase();
+      expect(findingsText).toMatch(/palpation|click|masseter|temporalis|mm/);
+      
+      // 3. Assessment & Diagnosis
+      expect(draft.canonical.diagnosis.toLowerCase()).toMatch(/temporomandibular|tmd|disc displacement|myofascial/);
+      
+      // 4. Treatment & Home Care Advice
+      const planText = (draft.canonical.treatmentPerformed + ' ' + draft.canonical.recommendations).toLowerCase();
+      expect(planText).toMatch(/soft diet|warm compress|heat|splint|ibuprofen/);
+      
+      // 5. ADA Item Code
+      const codes = draft.adaCodes.map(c => c.code);
+      expect(codes).toContain('965');
+    });
   });
 
-  describe('3. /api/transcribe-audio Endpoint Resilience & Key Failover', () => {
+  describe('3. Audio Fallback Evaluation for Long & Dropped Sessions', () => {
+    it('triggers fallback when a long 18-minute session only has 56 words (3.1 wpm speech loss)', () => {
+      const evaluation = evaluateAudioFallbackNeed({
+        hasAudioChunks: true,
+        wordCount: 56,
+        durationSeconds: 1080, // 18 minutes
+        transcriptText: 'Patient presents with persistent facial pain and TMJ discomfort near the ear and eye region on one side, accompanied by a popping sound. Onset was 3 months ago while eating hard crusty bread, presenting as an initial sharp pain with a loud pop followed by constant, aggravated soreness. Patient reports mild temporary relief using warm compresses/heat..'
+      });
+
+      expect(evaluation.shouldFallback).toBe(true);
+      expect(evaluation.reason.toLowerCase()).toContain('low speech density');
+    });
+
+    it('triggers fallback when an extended session is missing clinical examination or treatment milestones', () => {
+      const evaluation = evaluateAudioFallbackNeed({
+        hasAudioChunks: true,
+        wordCount: 150,
+        durationSeconds: 300, // 5 minutes
+        transcriptText: 'Patient arrived today talking about weekend plans and mild toothache on upper right. We discussed previous dental history in another clinic.'
+      });
+
+      expect(evaluation.shouldFallback).toBe(true);
+      expect(evaluation.reason.toLowerCase()).toContain('missing clinical examination or treatment milestones');
+    });
+
+    it('does not trigger fallback when speech recognition was dense and complete', () => {
+      const evaluation = evaluateAudioFallbackNeed({
+        hasAudioChunks: true,
+        wordCount: 450,
+        durationSeconds: 240, // 4 minutes
+        transcriptText: 'Patient presents with toothache. Examination shows tooth 16 TTP positive, fracture on distal margin. Diagnosis irreversible pulpitis. Extirpation performed under local anaesthetic, placed Ledermix, booked review item 414.'
+      });
+
+      expect(evaluation.shouldFallback).toBe(false);
+    });
+
+    it('returns shouldFallback: false if no audio chunks exist', () => {
+      const evaluation = evaluateAudioFallbackNeed({
+        hasAudioChunks: false,
+        wordCount: 10,
+        durationSeconds: 60,
+        transcriptText: 'Short'
+      });
+
+      expect(evaluation.shouldFallback).toBe(false);
+    });
+  });
+
+  describe('4. /api/transcribe-audio Endpoint Resilience & Key Failover', () => {
     it('returns 400 when audioBase64 is missing or empty', async () => {
       const res = await request(app)
         .post('/api/transcribe-audio')
@@ -144,3 +234,4 @@ describe('TDD: Dual-Stream Universal Dental Transcription & Note Pipeline', () =
     });
   });
 });
+

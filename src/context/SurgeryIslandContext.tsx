@@ -10,6 +10,7 @@ import {
 } from '../lib/dayScheduleStorage';
 import { verifyTranscriptGrounding } from '../lib/transcriptGrounding';
 import { normalizeSpokenDentalText } from '../lib/dentalPhoneticLexicon';
+import { evaluateAudioFallbackNeed } from '../lib/draftEngine';
 import TopSurgeryBar from '../components/TopSurgeryBar';
 import { AnimatePresence } from 'motion/react';
 
@@ -50,6 +51,7 @@ export function SurgeryIslandProvider({
   const speechRecognitionRef = useRef<any>(null);
   const isRecordingActiveRef = useRef(false);
   const accumulatedTranscriptRef = useRef('');
+  const recordingStartTimeRef = useRef<number>(Date.now());
 
   const clearMicError = useCallback(() => {
     setMicError(null);
@@ -110,67 +112,84 @@ export function SurgeryIslandProvider({
       setLiveTranscript('');
       accumulatedTranscriptRef.current = '';
       isRecordingActiveRef.current = true;
+      recordingStartTimeRef.current = Date.now();
 
       // 4. Mark target row as recording in storage
       const updated = updateScheduleItem(item.id, { status: 'recording' });
       onScheduleUpdated?.(updated);
 
-      // 5. Start MediaRecorder
+      // 5. Start MediaRecorder with voice-optimized Opus compression (32kbps)
       audioChunksRef.current = [];
-      const recorder = new MediaRecorder(stream);
+      let recorder: MediaRecorder;
+      try {
+        recorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus', audioBitsPerSecond: 32000 });
+      } catch {
+        try {
+          recorder = new MediaRecorder(stream, { audioBitsPerSecond: 32000 });
+        } catch {
+          recorder = new MediaRecorder(stream);
+        }
+      }
       mediaRecorderRef.current = recorder;
       recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) {
+        if (e.data && e.data.size > 0) {
           audioChunksRef.current.push(e.data);
         }
       };
       recorder.start(2500);
 
-      // 6. Speech Recognition with continuous auto-restart & phonetic normalization
-      const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-      if (SpeechRec) {
+      // 6. Resilient Speech Recognition with continuous auto-restart & text accumulation
+      const initSpeechRec = () => {
+        if (!isRecordingActiveRef.current) return;
+        const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+        if (!SpeechRec) return;
         try {
           const sr = new SpeechRec();
           sr.continuous = true;
           sr.interimResults = true;
           sr.lang = 'en-AU';
 
-          let finalizedText = '';
-
           sr.onresult = (event: any) => {
             let interimText = '';
             for (let i = event.resultIndex; i < event.results.length; ++i) {
               const res = event.results[i];
               if (res.isFinal) {
-                finalizedText = (finalizedText + ' ' + res[0].transcript.trim()).trim();
-                accumulatedTranscriptRef.current = finalizedText;
+                const clean = res[0].transcript.trim();
+                if (clean) {
+                  accumulatedTranscriptRef.current = (accumulatedTranscriptRef.current + ' ' + clean).trim();
+                }
               } else {
                 interimText += ' ' + res[0].transcript;
               }
             }
-            const combined = (finalizedText + ' ' + interimText).trim();
+            const combined = (accumulatedTranscriptRef.current + ' ' + interimText).trim();
             const normalized = normalizeSpokenDentalText(combined);
             setLiveTranscript(normalized);
-            accumulatedTranscriptRef.current = normalized;
           };
 
           sr.onend = () => {
             if (isRecordingActiveRef.current) {
-              try {
-                sr.start();
-              } catch {
-                // ignore transient restart errors
-              }
+              setTimeout(() => {
+                initSpeechRec();
+              }, 150);
             }
           };
 
-          sr.onerror = () => {};
+          sr.onerror = (e: any) => {
+            // 'no-speech' or silence during examination is non-fatal
+            console.warn('[SurgeryIsland] SpeechRec notice:', e?.error);
+          };
+
           sr.start();
           speechRecognitionRef.current = sr;
-        } catch {
-          // ignore
+        } catch (err) {
+          if (isRecordingActiveRef.current) {
+            setTimeout(() => initSpeechRec(), 350);
+          }
         }
-      }
+      };
+
+      initSpeechRec();
     } catch (err: any) {
       console.warn('[SurgeryIsland] Microphone access error:', err);
       setMicError(err.message || 'Microphone access denied. Check operatory mic permissions.');
@@ -223,12 +242,18 @@ export function SurgeryIslandProvider({
     ];
 
     // Dual-Stream Hybrid Audio Scribe:
-    // If recorded audio chunks exist and speech recognition captured low-detail dialogue (<30 words or missing clinical terms),
-    // transcribe the uncompressed audio directly with Gemini Multimodal Audio.
+    // Evaluate if speech recognition missed portions or clinical milestones of the consultation
     const wordCount = finalTranscriptText.split(/\s+/).filter(Boolean).length;
-    const hasDentalTerms = /(tooth|teeth|caries|decay|filling|restoration|pulp|canal|splint|brux|grind|clench|wear|attrition|pocket|perio|bpe|extract|crown|scaling|masseter|tmj)/i.test(finalTranscriptText);
+    const durationSeconds = Math.max(1, Math.round((Date.now() - recordingStartTimeRef.current) / 1000));
+    const evalResult = evaluateAudioFallbackNeed({
+      hasAudioChunks: audioChunksRef.current.length > 0,
+      wordCount,
+      durationSeconds,
+      transcriptText: finalTranscriptText
+    });
 
-    if (audioChunksRef.current.length > 0 && (wordCount < 30 || !hasDentalTerms)) {
+    if (evalResult.shouldFallback) {
+      console.info(`[SurgeryIsland] Multimodal audio transcription triggered: ${evalResult.reason}`);
       try {
         const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
         if (audioBlob.size > 1500) {

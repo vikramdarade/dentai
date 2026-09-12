@@ -5,7 +5,7 @@ import { TranscriptItem, GeneratedNotePayload } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { AppointmentType, getTemplateById, getAppointmentTypeLabel } from '../lib/dentalLibrary';
 import { SAMPLE_TRANSCRIPTS, getSampleForType } from '../lib/sampleTranscripts';
-import { generateOfflineDraft } from '../lib/draftEngine';
+import { generateOfflineDraft, evaluateAudioFallbackNeed } from '../lib/draftEngine';
 import { generateWithOnDeviceModel, type OnDeviceResult } from '../lib/onDeviceModel';
 import { normalizedToPayload } from '../lib/normalizeNoteOutput';
 import { normalizeSpokenDentalText } from '../lib/dentalPhoneticLexicon';
@@ -223,10 +223,19 @@ export default function LiveRecording({
       });
       streamRef.current = stream;
 
-      // Start raw uncompressed MediaRecorder buffer for Dual-Stream Hybrid Audio Scribe
+      // Start voice-optimized Opus MediaRecorder buffer for Dual-Stream Hybrid Audio Scribe
       try {
         audioChunksRef.current = [];
-        const recorder = new MediaRecorder(stream);
+        let recorder: MediaRecorder;
+        try {
+          recorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus', audioBitsPerSecond: 32000 });
+        } catch {
+          try {
+            recorder = new MediaRecorder(stream, { audioBitsPerSecond: 32000 });
+          } catch {
+            recorder = new MediaRecorder(stream);
+          }
+        }
         mediaRecorderRef.current = recorder;
         recorder.ondataavailable = (e) => {
           if (e.data && e.data.size > 0) {
@@ -337,22 +346,23 @@ export default function LiveRecording({
       };
 
       rec.onerror = (event: any) => {
-        console.error('Speech recognition error:', event.error);
         if (event.error === 'not-allowed') {
+          console.error('Speech recognition error:', event.error);
           setRecognitionError('Microphone permission blocked. Please check browser settings.');
+          setIsListening(false);
+          stopAudioPipeline();
+        } else if (event.error === 'no-speech') {
+          // Pause in conversation or video is normal; do not stop audio pipeline!
+          return;
         } else {
-          setRecognitionError(`Speech recognition error: ${event.error}`);
+          console.warn('Speech recognition notice:', event.error);
         }
-        setIsListening(false);
-        stopAudioPipeline();
       };
 
       rec.onend = () => {
-        setIsListening(false);
-        stopAudioPipeline();
         // The Web Speech API ends recognition sessions on its own (silence or length
         // limits). Auto-restart while the session is still recording, unless the user
-        // explicitly stopped the microphone or the mic keeps dying immediately.
+        // explicitly stopped the microphone. DO NOT kill the audio pipeline or mic tracks!
         if (isRecordingRef.current && !micStoppedByUserRef.current) {
           const sessionMs = Date.now() - lastSessionStartRef.current;
           if (sessionMs < RESTART_MIN_SESSION_MS) {
@@ -366,12 +376,17 @@ export default function LiveRecording({
           } else {
             setTimeout(() => {
               try {
-                rec.start();
+                if (isRecordingRef.current && !micStoppedByUserRef.current) {
+                  rec.start();
+                }
               } catch (e) {
-                console.warn('Failed to auto-restart speech recognition:', e);
+                console.warn('Speech recognition auto-restart retry notice:', e);
               }
             }, 250);
           }
+        } else {
+          setIsListening(false);
+          stopAudioPipeline();
         }
       };
 
@@ -698,14 +713,20 @@ export default function LiveRecording({
     }
 
     // 3. Dual-Stream Hybrid Audio Scribe:
-    // If recorded audio chunks exist and speech recognition captured low-detail dialogue (<30 words or missing clinical terms),
-    // transcribe the uncompressed audio directly with Gemini Multimodal Audio.
+    // Evaluate if speech recognition missed portions or clinical milestones of the consultation
     const fullText = currentTranscript.map(t => t.text).join(' ');
     const wordCount = fullText.split(/\s+/).filter(Boolean).length;
-    const hasDentalTerms = /(tooth|teeth|caries|decay|filling|restoration|pulp|canal|splint|brux|grind|clench|wear|attrition|pocket|perio|bpe|extract|crown|scaling|masseter|tmj)/i.test(fullText);
+    const durationSeconds = Math.max(1, secondsRef.current || seconds);
+    const evalResult = evaluateAudioFallbackNeed({
+      hasAudioChunks: audioChunksRef.current.length > 0,
+      wordCount,
+      durationSeconds,
+      transcriptText: fullText
+    });
 
-    if (audioChunksRef.current.length > 0 && (wordCount < 30 || !hasDentalTerms)) {
+    if (evalResult.shouldFallback) {
       try {
+        console.info(`[LiveRecording] Multimodal audio transcription triggered: ${evalResult.reason}`);
         setProcessingState('Transcribing high-fidelity operatory audio recording...');
         const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
         if (audioBlob.size > 1500) {

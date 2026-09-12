@@ -93,23 +93,23 @@ function cleanSentenceForNote(sentence: string): string {
 
 /** Keyword buckets per section — the only place the engine encodes dental knowledge. */
 const SECTION_KEYWORDS: Record<string, string[]> = {
-  chiefComplaint: ['pain', 'ache', 'hurt', 'sensitive', 'sensitivity', 'discomfort', 'sore', 'bleeding', 'swelling', 'broken', 'chipped', 'cracked', 'complaint', 'since', 'started', 'grind', 'grinding', 'clench', 'clenching', 'brux', 'bruxism', 'jaw stiffness', 'jaw pain', 'tightness', 'headache', 'wear'],
-  subjective: ['pain', 'ache', 'hurt', 'sensitive', 'discomfort', 'sore', 'since', 'started', 'noticed', 'feeling', 'grind', 'clench', 'brux', 'morning stiffness', 'headache'],
-  history: ['history', 'medication', 'allergic', 'allergy', 'smok', 'diabet', 'asthma', 'blood pressure', 'brushing', 'flossing', 'hygiene', 'last visit', 'previously', 'had', 'stress', 'sleep'],
-  toothFindings: ['tooth', 'caries', 'cavity', 'decay', 'filling', 'restoration', 'fracture', 'crack', 'mobility', 'percussion', 'periapical', 'radiograph', 'x-ray', 'bitewing', 'occlusal', 'enamel', 'dentin', 'attrition', 'wear facet', 'wear facets', 'abfraction', 'incisal wear', 'canine guidance', 'chipped'],
-  findingsGingival: ['gingiv', 'gum', 'pocket', 'bleeding on probing', 'bpe', 'calculus', 'plaque', 'tartar', 'recession', 'periodontal', 'inflammation', 'stain', 'masseter', 'temporalis', 'tmj', 'clicking', 'linea alba', 'scalloped'],
-  objective: ['tooth', 'gingiv', 'gum', 'pocket', 'radiograph', 'x-ray', 'percussion', 'mobility', 'examination', 'found', 'observed', 'attrition', 'wear', 'masseter', 'tmj'],
+  chiefComplaint: ['pain', 'ache', 'hurt', 'sensitive', 'sensitivity', 'discomfort', 'sore', 'bleeding', 'swelling', 'broken', 'chipped', 'cracked', 'complaint', 'since', 'started', 'grind', 'grinding', 'clench', 'clenching', 'brux', 'bruxism', 'jaw stiffness', 'jaw pain', 'tightness', 'headache', 'wear', 'tmj', 'tmd', 'popping', 'clicking', 'pop', 'click', 'ear', 'temple', 'eating', 'crusty', 'hard bread'],
+  subjective: ['pain', 'ache', 'hurt', 'sensitive', 'discomfort', 'sore', 'since', 'started', 'noticed', 'feeling', 'grind', 'clench', 'brux', 'morning stiffness', 'headache', 'tmj', 'tmd', 'popping', 'clicking', 'pop', 'click', 'ear', 'temple', 'crusty'],
+  history: ['history', 'medication', 'allergic', 'allergy', 'smok', 'diabet', 'asthma', 'blood pressure', 'brushing', 'flossing', 'hygiene', 'last visit', 'previously', 'had', 'stress', 'sleep', 'onset', 'months ago', 'started when', 'eating'],
+  toothFindings: ['tooth', 'caries', 'cavity', 'decay', 'filling', 'restoration', 'fracture', 'crack', 'mobility', 'percussion', 'periapical', 'radiograph', 'x-ray', 'bitewing', 'occlusal', 'enamel', 'dentin', 'attrition', 'wear facet', 'wear facets', 'abfraction', 'incisal wear', 'canine guidance', 'chipped', 'tmj', 'joint', 'palpation', 'masseter', 'temporalis', 'pterygoid', 'click', 'clicking', 'pop', 'popping', 'crepitus', 'opening', 'deviation', 'deflection', 'range of motion', 'mm opening'],
+  findingsGingival: ['gingiv', 'gum', 'pocket', 'bleeding on probing', 'bpe', 'calculus', 'plaque', 'tartar', 'recession', 'periodontal', 'inflammation', 'stain', 'masseter', 'temporalis', 'pterygoid', 'tmj', 'clicking', 'popping', 'crepitus', 'linea alba', 'scalloped', 'tender to palpation'],
+  objective: ['tooth', 'gingiv', 'gum', 'pocket', 'radiograph', 'x-ray', 'percussion', 'mobility', 'examination', 'found', 'observed', 'attrition', 'wear', 'masseter', 'temporalis', 'pterygoid', 'tmj', 'joint', 'palpation', 'click', 'pop', 'crepitus', 'opening', 'mm'],
   periapicalAssessment: ['radiograph', 'x-ray', 'periapical', 'canal', 'root', 'apex', 'working length', 'image'],
   toothIsolation: ['occlusion', 'high spot', 'articulat', 'polish', 'bite', 'grind'],
-  treatmentPerformed: ['filled', 'filling', 'restored', 'restoration', 'scaled', 'scale', 'polished', 'sealed', 'sealant', 'fluoride', 'extract', 'extraction', 'removed', 'root canal', 'rct', 'pulpotomy', 'extirpation', 'access', 'obturated', 'debridement', 'sectioning', 'sutures', 'temporary', 'dressing', 'cemented', 'anaesthetic', 'anesthetic', 'injection', 'rubber dam', 'cleaned', 'performed', 'completed', 'impression', 'scan', 'splint', 'nightguard', 'alginate', 'bite record'],
-  plan: ['plan', 'booked', 'schedule', 'return', 'review', 'next', 'will', 'arrange', 'splint', 'nightguard', 'delivery', 'fit'],
+  treatmentPerformed: ['filled', 'filling', 'restored', 'restoration', 'scaled', 'scale', 'polished', 'sealed', 'sealant', 'fluoride', 'extract', 'extraction', 'removed', 'root canal', 'rct', 'pulpotomy', 'extirpation', 'access', 'obturated', 'debridement', 'sectioning', 'sutures', 'temporary', 'dressing', 'cemented', 'anaesthetic', 'anesthetic', 'injection', 'rubber dam', 'cleaned', 'performed', 'completed', 'impression', 'scan', 'splint', 'nightguard', 'alginate', 'bite record', 'heat compress', 'jaw exercises', 'deprogrammer'],
+  plan: ['plan', 'booked', 'schedule', 'return', 'review', 'next', 'will', 'arrange', 'splint', 'nightguard', 'delivery', 'fit', 'physiotherapy', 'mri', 'soft diet'],
   behaviourAssessment: ['behaviour', 'cooperat', 'anxious', 'nervous', 'scared', 'tell-show-do', 'child', 'settled', 'cried'],
   restorative: ['filling', 'restoration', 'composite', 'amalgam', 'shade', 'bond', 'matrix', 'curing'],
   provisionalNote: ['provisional', 'temporary', 'temporis', 'shade', 'lab', 'impression', 'splint'],
-  postOpInstructions: ['advice', 'avoid', 'soft diet', 'ice', 'analgesic', 'pain relief', 'paracetamol', 'ibuprofen', 'brush', 'rinse', 'salt water', 'warm', 'numb', 'instruct'],
-  recommendations: ['advice', 'avoid', 'soft', 'brush', 'floss', 'rinse', 'salt water', 'warm', 'paracetamol', 'ibuprofen', 'analgesic', 'diet', 'sugar', 'smok', 'stop', 'return if', 'watch', 'splint', 'nightguard', 'occlusal splint', 'michigan', 'jaw exercises', 'relax'],
-  diagnosis: ['diagnosis', 'pulpitis', 'periodontitis', 'gingivitis', 'abscess', 'caries', 'cavity', 'fracture', 'cracked tooth', 'periapical', 'infection', 'pericoronitis', 'impacted', 'impaction', 'necrosis', 'assessment', 'think', 'believe', 'likely', 'bruxism', 'sleep bruxism', 'attrition', 'occlusal wear', 'tmd', 'myofascial'],
-  assessment: ['diagnosis', 'pulpitis', 'periodontitis', 'gingivitis', 'abscess', 'caries', 'fracture', 'assessment', 'likely', 'bruxism', 'attrition'],
+  postOpInstructions: ['advice', 'avoid', 'soft diet', 'ice', 'analgesic', 'pain relief', 'paracetamol', 'ibuprofen', 'brush', 'rinse', 'salt water', 'warm', 'numb', 'instruct', 'warm compress', 'heat', 'jaw rest', 'avoid hard foods', 'avoid crusty bread', 'avoid chewing gum', 'exercises'],
+  recommendations: ['advice', 'avoid', 'soft', 'brush', 'floss', 'rinse', 'salt water', 'warm', 'paracetamol', 'ibuprofen', 'analgesic', 'diet', 'sugar', 'smok', 'stop', 'return if', 'watch', 'splint', 'nightguard', 'occlusal splint', 'michigan', 'jaw exercises', 'relax', 'warm compress', 'heat packs', 'soft diet', 'soft food', 'jaw rest', 'avoid hard foods', 'bilateral chewing'],
+  diagnosis: ['diagnosis', 'pulpitis', 'periodontitis', 'gingivitis', 'abscess', 'caries', 'cavity', 'fracture', 'cracked tooth', 'periapical', 'infection', 'pericoronitis', 'impacted', 'impaction', 'necrosis', 'assessment', 'think', 'believe', 'likely', 'bruxism', 'sleep bruxism', 'attrition', 'occlusal wear', 'tmd', 'tmj', 'temporomandibular', 'disc displacement', 'anterior disc displacement', 'capsulitis', 'myofascial', 'internal derangement', 'arthralgia'],
+  assessment: ['diagnosis', 'pulpitis', 'periodontitis', 'gingivitis', 'abscess', 'caries', 'fracture', 'assessment', 'likely', 'bruxism', 'attrition', 'tmd', 'tmj', 'disc displacement', 'myofascial', 'capsulitis'],
   recallRequirements: ['recall', 'review', 'months', 'weeks', 'appointment', 'booked', 'return', 'follow-up', 'follow up', 'next visit'],
   emergency: ['pain', 'swelling', 'abscess', 'trauma', 'knocked', 'broken', 'urgent'],
 };
@@ -231,4 +231,60 @@ function fillSection(section: TemplateSection, combined: string, patientSpeech: 
   return cleanSectionText(text);
 }
 
+export interface AudioFallbackEvaluation {
+  shouldFallback: boolean;
+  reason: string;
+}
 
+/**
+ * Robustly evaluates whether an active recording session requires multimodal audio
+ * transcription fallback because browser SpeechRecognition dropped out, captured
+ * only early subjective history, or missed essential clinical milestones.
+ */
+export function evaluateAudioFallbackNeed(params: {
+  hasAudioChunks: boolean;
+  wordCount: number;
+  durationSeconds: number;
+  transcriptText: string;
+}): AudioFallbackEvaluation {
+  if (!params.hasAudioChunks) {
+    return { shouldFallback: false, reason: 'No audio chunks captured' };
+  }
+
+  // If very short speech (< 35 words), always fallback
+  if (params.wordCount < 35) {
+    return { shouldFallback: true, reason: 'Sparse transcript word count (<35 words)' };
+  }
+
+  // Duration density check: standard conversation produces 100-150 words/minute.
+  // If the consultation was over 60 seconds and speech rate is under 30 words/minute,
+  // speech recognition dropped out for the majority of the consultation!
+  if (params.durationSeconds > 60) {
+    const minutes = params.durationSeconds / 60;
+    const wordsPerMinute = params.wordCount / minutes;
+    if (wordsPerMinute < 30) {
+      return {
+        shouldFallback: true,
+        reason: `Low speech density: ${wordsPerMinute.toFixed(1)} wpm across ${minutes.toFixed(1)} min session (speech recognition dropped)`
+      };
+    }
+  }
+
+  // Clinical milestone completeness check:
+  // A genuine dental consult includes:
+  // 1. Complaint / History
+  // 2. Examination / Findings (palpation, tooth, probe, wear, tender, mm, sound, click, radiograph, etc.)
+  // 3. Diagnosis or Treatment (splint, fill, extract, pulp, medication, diet, exercise, review, advice)
+  const hasExamOrFinding = /(palpat|tender|pain|open|mm|click|pop|crepit|sound|probe|pocket|wear|facet|attrit|caries|decay|fracture|x-ray|radiograph|ttp|vital)/i.test(params.transcriptText);
+  const hasDiagnosisOrPlan = /(diagnos|tmd|tmj|brux|splint|nightguard|diet|soft food|heat|medicat|ibuprofen|rest|exercis|extirp|canal|restor|remov|extract|suture|crown|prep)/i.test(params.transcriptText);
+
+  // If long consultation (> 120s) has complaint but is missing exam/findings or plan, speech recognition missed the doctor's assessment!
+  if (params.durationSeconds > 120 && (!hasExamOrFinding || !hasDiagnosisOrPlan)) {
+    return {
+      shouldFallback: true,
+      reason: 'Missing clinical examination or treatment milestones in extended consultation'
+    };
+  }
+
+  return { shouldFallback: false, reason: 'Transcript is dense and clinically complete' };
+}
