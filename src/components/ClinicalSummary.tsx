@@ -20,8 +20,11 @@ import {
   ShieldCheck,
   Plus,
   Trash2,
-  Info
+  Info,
+  Sun,
+  Moon
 } from 'lucide-react';
+import { useTheme } from '../context/ThemeContext';
 import {
   Consultation,
   AdaCodeItem,
@@ -116,6 +119,8 @@ export default function ClinicalSummary({
   onBack,
   dentistName
 }: ClinicalSummaryProps) {
+  const { theme, toggleTheme } = useTheme();
+  const [activeTab, setActiveTab] = useState<'clinical' | 'deliverables'>('clinical');
   const templates = getSavedTemplates();
   const initialTemplate = getTemplate(consultation.templateId);
   const [activeTemplateId, setActiveTemplateId] = useState<string>(
@@ -506,6 +511,18 @@ export default function ClinicalSummary({
                 {getAppointmentTypeLabel(consultation.appointmentType)}
               </span>
             </div>
+            <button
+              onClick={toggleTheme}
+              className="p-2 rounded-xl text-slate-400 hover:text-amber-300 bg-[#0E1724] border border-[#1E3048] transition-colors cursor-pointer flex items-center justify-center"
+              title={theme === 'dark' ? 'Switch to Clinical Light Mode' : 'Switch to Dark Cockpit Mode'}
+              aria-label="Toggle theme"
+            >
+              {theme === 'dark' ? (
+                <Sun className="w-4 h-4 text-amber-400" />
+              ) : (
+                <Moon className="w-4 h-4 text-cyan-600" />
+              )}
+            </button>
             <button className="p-1 rounded-xl text-slate-400 hover:text-white transition-all">
               <User className="w-5 h-5 text-cyan-400" />
             </button>

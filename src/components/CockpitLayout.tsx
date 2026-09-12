@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Calendar,
   Users,
@@ -11,9 +11,12 @@ import {
   Sparkles,
   ChevronRight,
   Stethoscope,
-  X
+  X,
+  Sun,
+  Moon
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { useTheme } from '../context/ThemeContext';
 
 interface CockpitLayoutProps {
   dentistName: string;
@@ -35,6 +38,11 @@ export default function CockpitLayout({
   onDrawerClose
 }: CockpitLayoutProps) {
   const [activeNav, setActiveNav] = useState(activeTab);
+  const { theme, toggleTheme } = useTheme();
+
+  useEffect(() => {
+    setActiveNav(activeTab);
+  }, [activeTab]);
 
   const handleNavClick = (id: string) => {
     setActiveNav(id);
@@ -152,8 +160,21 @@ export default function CockpitLayout({
           </nav>
         </div>
 
-        {/* Bottom User Avatar & Logout */}
-        <div className="flex flex-col items-center gap-3 w-full px-2 pt-4 border-t border-[#182638]">
+        {/* Theme Toggle & Bottom User Avatar & Logout */}
+        <div className="flex flex-col items-center gap-2.5 w-full px-2 pt-3 border-t border-[#182638]">
+          <button
+            onClick={toggleTheme}
+            className="p-2 rounded-xl text-slate-400 hover:text-amber-300 hover:bg-[#162232] dark:hover:bg-[#162232] transition-colors cursor-pointer flex items-center justify-center group"
+            title={theme === 'dark' ? 'Switch to Clinical Light Mode' : 'Switch to Dark Cockpit Mode'}
+            aria-label="Toggle theme"
+          >
+            {theme === 'dark' ? (
+              <Sun className="w-4 h-4 text-amber-400 group-hover:rotate-45 transition-transform" />
+            ) : (
+              <Moon className="w-4 h-4 text-cyan-600 group-hover:-rotate-12 transition-transform" />
+            )}
+          </button>
+
           <div
             className="w-10 h-10 rounded-full bg-gradient-to-tr from-cyan-600 via-teal-500 to-emerald-400 p-0.5 flex items-center justify-center shadow-md cursor-pointer hover:scale-105 transition-transform"
             title={dentistName}

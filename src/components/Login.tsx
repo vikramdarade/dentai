@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { User, Lock, ArrowLeft, AlertCircle, Sparkles, UserPlus, CirclePlay, ShieldCheck, KeyRound, Check } from 'lucide-react';
+import { User, Lock, ArrowLeft, AlertCircle, Sparkles, UserPlus, CirclePlay, ShieldCheck, KeyRound, Check, Sun, Moon } from 'lucide-react';
+import { useTheme } from '../context/ThemeContext';
 
 interface DentistProfile {
   id: string;
@@ -14,6 +15,7 @@ interface LoginProps {
 }
 
 export default function Login({ onLoginSuccess }: LoginProps) {
+  const { theme, toggleTheme } = useTheme();
   // Private Credentials
   const [identifier, setIdentifier] = useState(() => {
     try {
@@ -247,6 +249,22 @@ export default function Login({ onLoginSuccess }: LoginProps) {
       {/* Subtle background ambient glow */}
       <div className="absolute top-[-20%] left-[-10%] w-[500px] h-[500px] rounded-full bg-cyan-500/10 blur-[130px] pointer-events-none" />
       <div className="absolute bottom-[-10%] right-[-10%] w-[600px] h-[600px] rounded-full bg-teal-500/10 blur-[140px] pointer-events-none" />
+
+      {/* Floating Theme Toggle */}
+      <div className="absolute top-4 right-4 z-50">
+        <button
+          onClick={toggleTheme}
+          className="p-2.5 rounded-xl text-slate-400 hover:text-amber-300 bg-[#0A1018] border border-[#182638] shadow-md transition-colors cursor-pointer flex items-center justify-center"
+          title={theme === 'dark' ? 'Switch to Clinical Light Mode' : 'Switch to Dark Cockpit Mode'}
+          aria-label="Toggle theme"
+        >
+          {theme === 'dark' ? (
+            <Sun className="w-4 h-4 text-amber-400" />
+          ) : (
+            <Moon className="w-4 h-4 text-cyan-600" />
+          )}
+        </button>
+      </div>
 
       <AnimatePresence mode="wait">
         {/* VIEW 1: STRICT PRIVATE SIGN-IN (Zero profile cards shown) */}

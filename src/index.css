@@ -166,7 +166,141 @@ html, body {
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
+
+/* Clinical Light Mode Overrides for Operatory Bright Environments */
+html.light, html.light body {
+  background-color: #F8FAFC;
+  color: #0F172A;
+}
+
+html.light {
+  color-scheme: light;
+}
+
+html.light #dentai-viewport,
+html.light .bg-\[\#070B11\] {
+  background-color: #F8FAFC !important;
+}
+
+html.light .bg-\[\#0A1018\] {
+  background-color: #FFFFFF !important;
+}
+
+html.light .bg-\[\#0A1018\]\/90,
+html.light .bg-\[\#0A1018\]\/95 {
+  background-color: rgba(255, 255, 255, 0.95) !important;
+}
+
+html.light .bg-\[\#0E1724\],
+html.light .bg-\[\#0E1724\]\/70 {
+  background-color: #F1F5F9 !important;
+}
+
+html.light .bg-\[\#121E2E\] {
+  background-color: #F8FAFC !important;
+}
+
+html.light .bg-\[\#162436\],
+html.light .bg-\[\#18283D\],
+html.light .bg-\[\#152338\],
+html.light .bg-\[\#162232\] {
+  background-color: #E2E8F0 !important;
+}
+
+html.light .border-\[\#182638\],
+html.light .border-\[\#1E3048\],
+html.light .border-\[\#1E3048\]\/60,
+html.light .border-\[\#1E2E40\],
+html.light .border-\[\#162436\] {
+  border-color: #E2E8F0 !important;
+}
+
+/* Light Mode Typography Contrast */
+html.light .text-slate-100,
+html.light .text-slate-200 {
+  color: #0F172A !important;
+}
+
+html.light .text-slate-300 {
+  color: #1E293B !important;
+}
+
+html.light .text-slate-400 {
+  color: #475569 !important;
+}
+
+html.light .text-slate-500 {
+  color: #64748B !important;
+}
+
+html.light h1.text-white,
+html.light h2.text-white,
+html.light h3.text-white,
+html.light h4.text-white,
+html.light span.text-white,
+html.light p.text-white,
+html.light div.text-white {
+  color: #0F172A !important;
+}
+
+/* Retain high-contrast dark text on action buttons with bright gradients */
+html.light .text-slate-950,
+html.light button.bg-gradient-to-r,
+html.light button.bg-gradient-to-r * {
+  color: #020617;
+}
+
+/* Retain white text on solid colored alert or status badges */
+html.light .bg-rose-500,
+html.light .bg-rose-600,
+html.light .bg-emerald-500,
+html.light .bg-emerald-600,
+html.light .bg-cyan-500,
+html.light .bg-cyan-600 {
+  color: #FFFFFF !important;
+}
+
+/* Light mode inputs & dropdowns */
+html.light input,
+html.light textarea,
+html.light select {
+  background-color: #FFFFFF !important;
+  color: #0F172A !important;
+  border-color: #CBD5E1 !important;
+}
+
+html.light input::placeholder,
+html.light textarea::placeholder {
+  color: #94A3B8 !important;
+}
+
+/* Light mode scrollbar */
+html.light ::-webkit-scrollbar-thumb {
+  background: #CBD5E1;
+}
+
+html.light ::-webkit-scrollbar-thumb:hover {
+  background: #94A3B8;
+}
+
+html.light .cockpit-scrollbar {
+  scrollbar-color: #CBD5E1 transparent;
+}
+html.light .cockpit-scrollbar::-webkit-scrollbar-thumb {
+  background: #CBD5E1;
+}
+
+/* Light mode shadow enhancements */
+html.light .shadow-2xl {
+  box-shadow: 0 20px 25px -5px rgba(15, 23, 42, 0.08), 0 8px 10px -6px rgba(15, 23, 42, 0.04) !important;
+}
+
+html.light .shadow-xl {
+  box-shadow: 0 10px 15px -3px rgba(15, 23, 42, 0.08), 0 4px 6px -4px rgba(15, 23, 42, 0.04) !important;
+}
+
 
 /* Tabular figures for dental charting and numeric measurements */
 .tabular-nums {

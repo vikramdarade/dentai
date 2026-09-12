@@ -18,6 +18,7 @@ interface TopSurgeryBarProps {
   onFinish: () => void;
   onCancel: () => void;
   liveTranscript?: string;
+  onClickPatient?: () => void;
 }
 
 export default function TopSurgeryBar({
@@ -25,7 +26,8 @@ export default function TopSurgeryBar({
   mediaStream,
   onFinish,
   onCancel,
-  liveTranscript = ''
+  liveTranscript = '',
+  onClickPatient
 }: TopSurgeryBarProps) {
   const [seconds, setSeconds] = useState(0);
   const [frequencyData, setFrequencyData] = useState<number[]>(new Array(24).fill(12));
@@ -151,12 +153,12 @@ export default function TopSurgeryBar({
       animate={{ y: 0, opacity: 1 }}
       exit={{ y: -60, opacity: 0 }}
       transition={{ type: 'spring', damping: 24, stiffness: 220 }}
-      className="fixed top-4 left-1/2 -translate-x-1/2 z-50 pointer-events-none w-auto max-w-[94vw]"
+      className="fixed top-3 sm:top-4 left-1/2 -translate-x-1/2 z-[100] pointer-events-none w-auto max-w-[96vw]"
     >
       {/* Outer Machined Bezel */}
-      <div className="pointer-events-auto p-0.5 rounded-2xl bg-gradient-to-r from-cyan-500/40 via-teal-500/30 to-emerald-500/40 border border-cyan-400/40 shadow-2xl shadow-black/80">
+      <div className="pointer-events-auto p-0.5 rounded-2xl bg-gradient-to-r from-cyan-500/50 via-teal-500/40 to-emerald-500/50 border border-cyan-400/50 shadow-2xl shadow-cyan-950/40">
         {/* Inner Tactical Island */}
-        <div className="flex items-center gap-3 px-4 sm:px-5 py-2.5 bg-[#0C131D]/95 backdrop-blur-md rounded-[calc(1rem-2px)] text-white font-sans shadow-[inset_0_1px_0_rgba(255,255,255,0.12)]">
+        <div className="flex items-center gap-2.5 sm:gap-3 px-3.5 sm:px-5 py-2 sm:py-2.5 bg-[#0C131D]/95 dark:bg-[#0C131D]/95 rounded-[calc(1rem-2px)] text-white font-sans shadow-[inset_0_1px_0_rgba(255,255,255,0.12)]">
           {/* Play/Stop Circular Indicator */}
           <button
             onClick={onFinish}
@@ -167,7 +169,11 @@ export default function TopSurgeryBar({
           </button>
 
           {/* Island Label & Patient Name */}
-          <div className="flex flex-col min-w-0 pr-1 relative z-50">
+          <div
+            onClick={onClickPatient}
+            className={`flex flex-col min-w-0 pr-1 relative z-50 ${onClickPatient ? 'cursor-pointer hover:opacity-85' : ''}`}
+            title={onClickPatient ? 'Click to view appointment in schedule' : undefined}
+          >
             <span className="text-[10px] font-black uppercase tracking-wider text-cyan-300 flex items-center gap-1.5">
               <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-ping shrink-0" />
               Active Surgery Island

@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { X, User, ArrowLeft, ArrowRight, Mic, Info, Hammer, Check } from 'lucide-react';
+import { X, User, ArrowLeft, ArrowRight, Mic, Info, Hammer, Check, Sun, Moon } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { maskDobInput, isValidDob, parseDobToIso } from '../utils/date';
 import { getSavedTemplates, getActiveTemplateId, setActiveTemplateId, NoteTemplate } from '../utils/templates';
 import { APPOINTMENT_TYPES, AppointmentType, CORE_FORMAT_TEMPLATES, getTemplateById, getAppointmentTypeLabel } from '../lib/dentalLibrary';
+import { useTheme } from '../context/ThemeContext';
 
 interface PatientIntakeProps {
   onCancel: () => void;
@@ -17,6 +18,7 @@ interface PatientIntakeProps {
 }
 
 export default function PatientIntake({ onCancel, onSubmit }: PatientIntakeProps) {
+  const { theme, toggleTheme } = useTheme();
   const [currentStep, setCurrentStep] = useState(1);
   const totalSteps = 3;
 
@@ -99,6 +101,18 @@ export default function PatientIntake({ onCancel, onSubmit }: PatientIntakeProps
               {currentStep} / {totalSteps}
             </span>
           </div>
+          <button
+            onClick={toggleTheme}
+            className="p-2 rounded-xl text-slate-400 hover:text-amber-300 bg-[#0E1724] border border-[#1E3048] transition-colors cursor-pointer flex items-center justify-center"
+            title={theme === 'dark' ? 'Switch to Clinical Light Mode' : 'Switch to Dark Cockpit Mode'}
+            aria-label="Toggle theme"
+          >
+            {theme === 'dark' ? (
+              <Sun className="w-4 h-4 text-amber-400" />
+            ) : (
+              <Moon className="w-4 h-4 text-cyan-600" />
+            )}
+          </button>
           <div className="w-8 h-8 rounded-xl bg-[#0E1724] border border-[#1E3048] flex items-center justify-center text-slate-400">
             <User className="w-4 h-4 text-cyan-400" />
           </div>

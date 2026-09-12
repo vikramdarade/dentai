@@ -21,7 +21,9 @@ import {
   DollarSign,
   TrendingUp,
   MicOff,
-  CheckCircle2
+  CheckCircle2,
+  Sun,
+  Moon
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { verifyTranscriptGrounding } from '../lib/transcriptGrounding';
@@ -45,6 +47,8 @@ import ErrorBoundary from './ErrorBoundary';
 import CockpitLayout from './CockpitLayout';
 import CockpitInspectionDrawer from './CockpitInspectionDrawer';
 import { ClinicMembership } from '../lib/clinics';
+import { useSurgeryIsland } from '../context/SurgeryIslandContext';
+import { useTheme } from '../context/ThemeContext';
 
 interface DayScheduleQueueProps {
   onStartRecording?: (item: DayScheduleItem) => void;
@@ -163,14 +167,30 @@ export default function DayScheduleQueue({
     startInPlaceRecording(item);
   };
 
-  // In-Place Single Screen Surgery Cockpit state
-  const [recordingItem, setRecordingItem] = useState<DayScheduleItem | null>(null);
-  const [mediaStream, setMediaStream] = useState<MediaStream | null>(null);
-  const [liveTranscript, setLiveTranscript] = useState('');
-  const [micError, setMicError] = useState<string | null>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
-  const speechRecognitionRef = useRef<any>(null);
+  // Persistent Surgery Island context
+  const {
+    recordingItem,
+    mediaStream,
+    liveTranscript,
+    micError,
+    clearMicError,
+    startInPlaceRecording,
+    finishInPlaceRecording,
+    cancelInPlaceRecording,
+    reconnectInPlaceRecording
+  } = useSurgeryIsland();
+  const { theme, toggleTheme } = useTheme();
+
+  // Keep schedule queue in sync with storage updates
+  useEffect(() => {
+    const refresh = () => setItems(loadTodaySchedule());
+    window.addEventListener('storage', refresh);
+    const interval = setInterval(refresh, 2000);
+    return () => {
+      window.removeEventListener('storage', refresh);
+      clearInterval(interval);
+    };
+  }, []);
 
   // Quick Walk-in form state
   const [walkInName, setWalkInName] = useState('');
@@ -362,277 +382,7 @@ export default function DayScheduleQueue({
     saveTodaySchedule(merged);
   };
 
-  /* ---------------------------------------------------------------------------
-   * In-Place Surgery Cockpit Lifecycle (Zero Navigation)
-   * ------------------------------------------------------------------------- */
-
-  const startInPlaceRecording = async (item: DayScheduleItem) => {
-    setMicError(null);
-    try {
-      // 1. Clean up any previous recording resources
-      if (speechRecognitionRef.current) {
-        try { speechRecognitionRef.current.stop(); } catch {}
-        speechRecognitionRef.current = null;
-      }
-      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-        try { mediaRecorderRef.current.stop(); } catch {}
-      }
-      if (mediaStream) {
-        try { mediaStream.getTracks().forEach(t => t.stop()); } catch {}
-        setMediaStream(null);
-      }
-
-      // 2. Clean up any orphaned 'recording' status on other items
-      const currentRoster = loadTodaySchedule();
-      const cleanedRoster = currentRoster.map(i => {
-        if (i.id !== item.id && i.status === 'recording') {
-          return { ...i, status: 'scheduled' as const };
-        }
-        return i;
-      });
-      saveTodaySchedule(cleanedRoster);
-
-      // 3. Request microphone access
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      setMediaStream(stream);
-      setRecordingItem(item);
-      setLiveTranscript('');
-
-      // 4. Mark target row as recording
-      const updated = updateScheduleItem(item.id, { status: 'recording' });
-      setItems(updated);
-
-      // 5. Start MediaRecorder
-      audioChunksRef.current = [];
-      const recorder = new MediaRecorder(stream);
-      mediaRecorderRef.current = recorder;
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) {
-          audioChunksRef.current.push(e.data);
-        }
-      };
-      recorder.start(2500);
-
-      // 6. Speech Recognition for live ADA tag chips (progressive enhancement)
-      const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-      if (SpeechRec) {
-        try {
-          const sr = new SpeechRec();
-          sr.continuous = true;
-          sr.interimResults = true;
-          sr.lang = 'en-AU';
-          sr.onresult = (event: any) => {
-            let fullText = '';
-            for (let i = 0; i < event.results.length; i++) {
-              fullText += event.results[i][0].transcript + ' ';
-            }
-            setLiveTranscript(fullText);
-          };
-          sr.onerror = () => {};
-          sr.start();
-          speechRecognitionRef.current = sr;
-        } catch {
-          // ignore
-        }
-      }
-    } catch (err: any) {
-      setMicError(err.message || 'Microphone access denied. Check operatory mic permissions.');
-    }
-  };
-
-  const finishInPlaceRecording = async () => {
-    if (!recordingItem) return;
-    const targetItem = { ...recordingItem };
-
-    // 1. Stop Speech Recognition
-    if (speechRecognitionRef.current) {
-      try { speechRecognitionRef.current.stop(); } catch {}
-      speechRecognitionRef.current = null;
-    }
-
-    // 2. Stop MediaRecorder & gather audio
-    try {
-      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-        mediaRecorderRef.current.stop();
-      }
-    } catch {}
-
-    // 3. Stop Stream tracks
-    if (mediaStream) {
-      try {
-        mediaStream.getTracks().forEach(track => track.stop());
-      } catch {}
-      setMediaStream(null);
-    }
-
-    // Collapse TopSurgeryBar immediately
-    setRecordingItem(null);
-
-    // Build transcript payload
-    const finalTranscriptText = liveTranscript.trim() || `Consultation recorded for ${targetItem.patientName} (${targetItem.procedureText}). Full clinical examination performed.`;
-    const transcriptItems = [
-      { sender: 'Dentist', text: `Good morning ${targetItem.patientName}, let's begin your appointment for ${targetItem.procedureText}.` },
-      { sender: 'Dialogue', text: finalTranscriptText },
-      { sender: 'Dentist', text: `All procedures completed. We will review your recovery and plan the next recall visit.` }
-    ];
-
-    // Update row to processing with safe UUID and cached transcript
-    const assignedConsultationId = generateSafeUuid();
-    let updated = updateScheduleItem(targetItem.id, {
-      status: 'processing',
-      consultationId: assignedConsultationId,
-      transcript: transcriptItems
-    });
-    setItems(updated);
-
-    const nameParts = targetItem.patientName.trim().split(/\s+/);
-    const firstName = nameParts[0] || 'Patient';
-    const lastName = nameParts.slice(1).join(' ') || '';
-
-    try {
-      const submitRes = await fetch('/api/notes/jobs', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${authToken}`
-        },
-        body: JSON.stringify({
-          intakeData: {
-            firstName,
-            lastName,
-            dob: '1990-01-01',
-            appointmentType: targetItem.appointmentType,
-            templateId: targetItem.templateId || 'standard'
-          },
-          transcript: transcriptItems,
-          consultationId: assignedConsultationId,
-          consentObtained: targetItem.consentObtained ?? false,
-          consentCapturedAt: targetItem.consentCapturedAt,
-          consentPractitionerId: targetItem.consentPractitionerId
-        })
-      });
-
-      if (!submitRes.ok) {
-        throw new Error('Failed to start note synthesis job.');
-      }
-
-      const { jobId } = await submitRes.json();
-      updateScheduleItem(targetItem.id, { jobId });
-
-      // Detached background worker polls for result
-      (async () => {
-        try {
-          const deadline = Date.now() + 85_000;
-          let jobResult: any = null;
-
-          while (Date.now() < deadline) {
-            await new Promise(r => setTimeout(r, 2000));
-            const pollRes = await fetch(`/api/notes/jobs/${jobId}`, {
-              headers: { 'Authorization': `Bearer ${authToken}` }
-            });
-            if (!pollRes.ok) break;
-            const jobState = await pollRes.json();
-            if (jobState.status === 'done') {
-              jobResult = jobState.result;
-              break;
-            }
-            if (jobState.status === 'failed') break;
-          }
-
-          if (jobResult) {
-            // Normalize ADA codes safely into clean strings for storage
-            const rawAdaCodes = Array.isArray(jobResult.adaCodes) ? jobResult.adaCodes : [];
-            const sanitizedAdaCodeStrings: string[] = rawAdaCodes.map((c: any) => {
-              if (typeof c === 'string') return c;
-              if (typeof c === 'object' && c?.code) return String(c.code);
-              return '';
-            }).filter(Boolean);
-
-            const formatted = formatNoteForPmsClipboard({
-              id: targetItem.id,
-              time: targetItem.time,
-              patientName: targetItem.patientName,
-              procedureText: targetItem.procedureText,
-              appointmentType: targetItem.appointmentType,
-              templateId: targetItem.templateId,
-              status: 'ready'
-            }, {
-              firstName,
-              lastName,
-              date: getTodayDateStr(),
-              appointmentType: targetItem.appointmentType,
-              findings: {
-                chiefComplaint: jobResult.chiefComplaint || targetItem.procedureText,
-                clinicalFindings: jobResult.clinicalFindings || jobResult.toothFindings || 'Clinical examination complete.',
-                treatmentRendered: jobResult.treatmentRendered || jobResult.treatmentPerformed || targetItem.procedureText,
-                localAnaesthetic: jobResult.localAnaesthetic || '',
-                prescriptions: jobResult.prescriptions || '',
-                postOpAdvice: jobResult.postOpAdvice || 'Maintain regular oral hygiene.',
-                nextVisit: jobResult.nextVisit || '6 Months Recall'
-              },
-              adaCodes: rawAdaCodes
-            });
-
-            // Calculate deterministic grounding report against verbatim operatory audio
-            let grounding = jobResult.groundingReport;
-            if (!grounding) {
-              grounding = verifyTranscriptGrounding(formatted, transcriptItems, rawAdaCodes);
-            }
-
-            const fresh = updateScheduleItem(targetItem.id, {
-              status: 'ready',
-              clinicalNote: formatted,
-              transcript: transcriptItems,
-              adaCodes: sanitizedAdaCodeStrings,
-              completedAt: new Date().toISOString(),
-              groundingScore: grounding?.groundingScore ?? 100,
-              isFullyGrounded: grounding?.isFullyGrounded ?? true,
-              unverifiedClaims: grounding?.unverifiedClaims ?? []
-            });
-            setItems(fresh);
-          } else {
-            const fresh = updateScheduleItem(targetItem.id, {
-              status: 'failed',
-              error: 'Synthesis timed out in background.'
-            });
-            setItems(fresh);
-          }
-        } catch (err: any) {
-          const fresh = updateScheduleItem(targetItem.id, {
-            status: 'failed',
-            error: err.message || 'Background synthesis error.'
-          });
-          setItems(fresh);
-        }
-      })();
-    } catch (err: any) {
-      const fresh = updateScheduleItem(targetItem.id, {
-        status: 'failed',
-        error: err.message
-      });
-      setItems(fresh);
-    }
-  };
-
-  const cancelInPlaceRecording = () => {
-    if (speechRecognitionRef.current) {
-      try { speechRecognitionRef.current.stop(); } catch {}
-      speechRecognitionRef.current = null;
-    }
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop();
-    }
-    if (mediaStream) {
-      mediaStream.getTracks().forEach(track => track.stop());
-      setMediaStream(null);
-    }
-    if (recordingItem) {
-      const fresh = updateScheduleItem(recordingItem.id, { status: 'scheduled' });
-      setItems(fresh);
-    }
-    setRecordingItem(null);
-    setLiveTranscript('');
-  };
+  // Surgery Cockpit recording lifecycle is now centrally managed by SurgeryIslandContext
 
   const handleCopyNote = async (item: DayScheduleItem) => {
     const text = formatNoteForPmsClipboard(item);
@@ -709,18 +459,67 @@ export default function DayScheduleQueue({
       }
     >
       <div className="w-full max-w-6xl mx-auto space-y-5">
-        {/* Top Surgery Island: Floating Ergonomic HUD when recording */}
-        <AnimatePresence>
-          {recordingItem && (
-            <TopSurgeryBar
-              activeItem={recordingItem}
-              mediaStream={mediaStream}
-              onFinish={finishInPlaceRecording}
-              onCancel={cancelInPlaceRecording}
-              liveTranscript={liveTranscript}
-            />
-          )}
-        </AnimatePresence>
+        {/* Active Surgery Recovery Banner */}
+        {(() => {
+          const activeRecording = recordingItem || items.find(i => i.status === 'recording');
+          if (!activeRecording) return null;
+          const isConnected = !!recordingItem && recordingItem.id === activeRecording.id;
+
+          return (
+            <div className="p-4 rounded-2xl bg-gradient-to-r from-cyan-950/70 via-[#0E1B2A] to-teal-950/70 border border-cyan-500/40 shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-cyan-200">
+              <div className="flex items-center gap-3">
+                <span className="relative flex h-3.5 w-3.5 shrink-0">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-rose-500"></span>
+                </span>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs font-black text-white uppercase tracking-wider">
+                      {isConnected ? 'Surgery Recording in Progress' : 'Surgery Recording Session Interrupted'}
+                    </span>
+                    <span className="px-2 py-0.5 text-[10px] font-bold rounded-md bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                      {activeRecording.patientName}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    {isConnected
+                      ? 'The Active Surgery Island is currently recording at the top of your screen. Browse past records or pipeline freely.'
+                      : 'Active recording session detected. Click Reconnect Island to resume microphone stream, or finish note now.'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                {!isConnected && (
+                  <button
+                    onClick={() => reconnectInPlaceRecording(activeRecording)}
+                    className="px-3.5 py-1.5 bg-gradient-to-r from-cyan-400 to-teal-300 hover:from-cyan-300 hover:to-teal-200 text-slate-950 text-xs font-black rounded-xl shadow-md cursor-pointer transition-all active:scale-95 flex items-center gap-1.5"
+                  >
+                    <Play className="w-3.5 h-3.5 fill-current" />
+                    Reconnect Island
+                  </button>
+                )}
+                <button
+                  onClick={finishInPlaceRecording}
+                  className="px-3.5 py-1.5 bg-gradient-to-r from-emerald-400 to-teal-400 hover:from-emerald-300 hover:to-teal-300 text-slate-950 text-xs font-black rounded-xl shadow-md cursor-pointer transition-all active:scale-95 flex items-center gap-1.5"
+                >
+                  <Check className="w-3.5 h-3.5 stroke-[3]" />
+                  Finish Note
+                </button>
+                <button
+                  onClick={() => {
+                    if (confirm(`Discard active recording for ${activeRecording.patientName}?`)) {
+                      cancelInPlaceRecording();
+                    }
+                  }}
+                  className="px-2.5 py-1.5 text-slate-400 hover:text-rose-400 hover:bg-[#162436] rounded-xl text-xs transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Mic Access Error Alert */}
         {micError && (
@@ -730,7 +529,7 @@ export default function DayScheduleQueue({
               <span className="font-semibold">{micError}</span>
             </div>
             <button
-              onClick={() => setMicError(null)}
+              onClick={clearMicError}
               className="text-rose-300 hover:text-white font-bold cursor-pointer underline"
             >
               Dismiss
@@ -815,6 +614,20 @@ export default function DayScheduleQueue({
                 Express Copy (D4W)
               </button>
             )}
+
+            {/* Theme Toggle Button */}
+            <button
+              onClick={toggleTheme}
+              className="p-2 rounded-xl text-slate-400 hover:text-amber-300 bg-[#121E2E] border border-[#1E3048] transition-colors cursor-pointer flex items-center justify-center"
+              title={theme === 'dark' ? 'Switch to Clinical Light Mode' : 'Switch to Dark Cockpit Mode'}
+              aria-label="Toggle theme"
+            >
+              {theme === 'dark' ? (
+                <Sun className="w-4 h-4 text-amber-400" />
+              ) : (
+                <Moon className="w-4 h-4 text-cyan-600" />
+              )}
+            </button>
 
             <button
               onClick={() => setShowWalkInModal(true)}
@@ -1098,11 +911,50 @@ export default function DayScheduleQueue({
                           </button>
                         )}
 
-                        {isRecordingThis && (
-                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-extrabold bg-rose-500/20 text-rose-300 border border-rose-500/40 animate-pulse">
-                            <span className="w-1.5 h-1.5 rounded-full bg-rose-400 animate-ping" />
-                            Live Surgery
-                          </span>
+                        {isRecordingThis && recordingItem?.id === item.id && (
+                          <div className="flex items-center gap-1.5">
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-extrabold bg-rose-500/20 text-rose-300 border border-rose-500/40 animate-pulse">
+                              <span className="w-1.5 h-1.5 rounded-full bg-rose-400 animate-ping" />
+                              Island Active
+                            </span>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                finishInPlaceRecording();
+                              }}
+                              className="px-2.5 py-1 bg-emerald-400 hover:bg-emerald-300 text-slate-950 rounded-xl text-xs font-black shadow-xs cursor-pointer active:scale-95"
+                              title="Finish consult & generate note"
+                            >
+                              Finish
+                            </button>
+                          </div>
+                        )}
+
+                        {isRecordingThis && recordingItem?.id !== item.id && (
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                reconnectInPlaceRecording(item);
+                              }}
+                              className="inline-flex items-center gap-1 px-3 py-1.5 bg-gradient-to-r from-cyan-400 to-teal-300 hover:from-cyan-300 hover:to-teal-200 text-slate-950 rounded-xl text-xs font-black shadow-md shadow-cyan-950/40 active:scale-95 cursor-pointer"
+                              title="Reconnect live surgery island"
+                            >
+                              <Play className="w-3 h-3 fill-current" />
+                              Reconnect Island
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                updateScheduleItem(item.id, { status: 'scheduled' });
+                                setItems(loadTodaySchedule());
+                              }}
+                              className="p-1 text-slate-400 hover:text-rose-400 rounded-lg hover:bg-[#162436] transition-colors cursor-pointer text-xs"
+                              title="Reset status"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         )}
 
                         {isProcessing && (
