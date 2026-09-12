@@ -112,3 +112,12 @@ Response format:
   "averageLatencyMs": 1940
 }
 ```
+
+---
+
+## Strategy & Playbooks
+
+- [GTM Strategy & Execution Roadmap](file:///c:/Users/swati/Downloads/dentai/GTM_STRATEGY.md) — Comprehensive unit economics, pilot model, budget allocation, timelines, and ecosystem partners.
+- [Outreach & Practice Growth Playbook](file:///c:/Users/swati/Downloads/dentai/OUTREACH_CAMPAIGN.md) — Clinician-to-clinician messaging, study club scripts, and practice owner ROI pitches.
+- [Production Rollout & Rollback Playbook](file:///c:/Users/swati/Downloads/dentai/ROLLOUT_PLAYBOOK.md) — Vercel canary deployment, traffic splitting, and telemetry thresholds.
+
