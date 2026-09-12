@@ -52,6 +52,7 @@ export function SurgeryIslandProvider({
   const isRecordingActiveRef = useRef(false);
   const accumulatedTranscriptRef = useRef('');
   const recordingStartTimeRef = useRef<number>(Date.now());
+  const wakeLockRef = useRef<any>(null);
 
   const clearMicError = useCallback(() => {
     setMicError(null);
@@ -137,6 +138,15 @@ export function SurgeryIslandProvider({
         }
       };
       recorder.start(2500);
+
+      // Acquire Screen WakeLock to prevent operatory tablet/laptop sleep during in-place recording
+      if ('wakeLock' in navigator && (navigator as any).wakeLock?.request) {
+        try {
+          wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
+        } catch (wlErr) {
+          console.warn('[SurgeryIsland] WakeLock notice:', wlErr);
+        }
+      }
 
       // 6. Resilient Speech Recognition with continuous auto-restart & text accumulation
       const initSpeechRec = () => {
@@ -228,6 +238,14 @@ export function SurgeryIslandProvider({
         mediaStream.getTracks().forEach(track => track.stop());
       } catch {}
       setMediaStream(null);
+    }
+
+    // 4. Release Screen WakeLock
+    if (wakeLockRef.current) {
+      try {
+        wakeLockRef.current.release();
+      } catch {}
+      wakeLockRef.current = null;
     }
 
     // Collapse TopSurgeryBar

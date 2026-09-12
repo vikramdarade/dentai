@@ -18,50 +18,63 @@ export const DENTAL_PHONETIC_RULES: PhoneticRule[] = [
     replacement: 'tooth 33',
     description: 'Irish/Indian/diverse accent "dirty tree" -> tooth 33'
   },
+  // Dynamic Spoken Tooth normalizer: handles "tooth two five" -> "tooth 25", "tooth 3 7" -> "tooth 37", "tooth four six" -> "tooth 46"
+  // Permitted FDI quadrants: Permanent (1-4, teeth 1-8) and Primary/Deciduous (5-8, teeth 1-5)
   {
-    pattern: /\b(?:tooth\s*)?one\s*six\b/gi,
-    replacement: 'tooth 16',
-    description: 'Spoken "one six" -> tooth 16'
+    pattern: /\b(?:tooth|teeth)\s+(one|two|three|four|five|six|seven|eight|1|2|3|4|5|6|7|8)\s+(one|two|three|four|five|six|seven|eight|nine|1|2|3|4|5|6|7|8|9)\b/gi,
+    replacement: (_match: string, q: string, t: string) => {
+      const DIGIT_MAP: Record<string, string> = {
+        '1': '1', 'one': '1',
+        '2': '2', 'two': '2',
+        '3': '3', 'three': '3',
+        '4': '4', 'four': '4',
+        '5': '5', 'five': '5',
+        '6': '6', 'six': '6',
+        '7': '7', 'seven': '7',
+        '8': '8', 'eight': '8',
+        '9': '9', 'nine': '9'
+      };
+      const qd = DIGIT_MAP[q.toLowerCase()];
+      const td = DIGIT_MAP[t.toLowerCase()];
+      if (qd && td) {
+        return `tooth ${qd}${td}`;
+      }
+      return _match;
+    },
+    description: 'Dynamic spoken FDI tooth ("tooth two five" -> tooth 25)'
   },
+  // Bare spoken FDI pairs in dental context without the word "tooth" (e.g. "on one six", "cavity on two four")
   {
-    pattern: /\b(?:tooth\s*)?one\s*one\b/gi,
-    replacement: 'tooth 11',
-    description: 'Spoken "one one" -> tooth 11'
+    pattern: /\b(on|in|at|check|inspect|probe|filling|crown|prep|restore)\s+(one|two|three|four)\s+(one|two|three|four|five|six|seven|eight)\b/gi,
+    replacement: (_match: string, prep: string, q: string, t: string) => {
+      const DIGIT_MAP: Record<string, string> = {
+        'one': '1', 'two': '2', 'three': '3', 'four': '4',
+        'five': '5', 'six': '6', 'seven': '7', 'eight': '8'
+      };
+      const qd = DIGIT_MAP[q.toLowerCase()];
+      const td = DIGIT_MAP[t.toLowerCase()];
+      if (qd && td) {
+        return `${prep} tooth ${qd}${td}`;
+      }
+      return _match;
+    },
+    description: 'Prepositional spoken FDI ("on one six" -> on tooth 16)'
   },
+  // Spoken 3-digit ADA item numbers: "item one one four" -> "item 114", "item zero one two" -> "item 012", "item nine six five" -> "item 965"
   {
-    pattern: /\b(?:tooth\s*)?two\s*one\b/gi,
-    replacement: 'tooth 21',
-    description: 'Spoken "two one" -> tooth 21'
-  },
-  {
-    pattern: /\b(?:tooth\s*)?two\s*four\b/gi,
-    replacement: 'tooth 24',
-    description: 'Spoken "two four" -> tooth 24'
-  },
-  {
-    pattern: /\b(?:tooth\s*)?two\s*six\b/gi,
-    replacement: 'tooth 26',
-    description: 'Spoken "two six" -> tooth 26'
-  },
-  {
-    pattern: /\b(?:tooth\s*)?three\s*six\b/gi,
-    replacement: 'tooth 36',
-    description: 'Spoken "three six" -> tooth 36'
-  },
-  {
-    pattern: /\b(?:tooth\s*)?four\s*six\b/gi,
-    replacement: 'tooth 46',
-    description: 'Spoken "four six" -> tooth 46'
-  },
-  {
-    pattern: /\b(?:tooth\s*)?four\s*seven\b/gi,
-    replacement: 'tooth 47',
-    description: 'Spoken "four seven" -> tooth 47'
-  },
-  {
-    pattern: /\b(?:tooth\s*)?four\s*eight\b/gi,
-    replacement: 'tooth 48',
-    description: 'Spoken "four eight" -> tooth 48'
+    pattern: /\b(item|code|ada)\s+(zero|oh|one|two|three|four|five|six|seven|eight|nine)\s+(zero|oh|one|two|three|four|five|six|seven|eight|nine)\s+(zero|oh|one|two|three|four|five|six|seven|eight|nine)\b/gi,
+    replacement: (_match: string, lead: string, d1: string, d2: string, d3: string) => {
+      const DIGIT_MAP: Record<string, string> = {
+        'zero': '0', 'oh': '0',
+        'one': '1', 'two': '2', 'three': '3', 'four': '4',
+        'five': '5', 'six': '6', 'seven': '7', 'eight': '8', 'nine': '9'
+      };
+      const num1 = DIGIT_MAP[d1.toLowerCase()] ?? '0';
+      const num2 = DIGIT_MAP[d2.toLowerCase()] ?? '0';
+      const num3 = DIGIT_MAP[d3.toLowerCase()] ?? '0';
+      return `${lead.toUpperCase()} ${num1}${num2}${num3}`;
+    },
+    description: 'Spoken ADA item code ("item one one four" -> ADA 114)'
   },
   {
     pattern: /\bupper\s*right\s*(?:first\s*)?molar\b/gi,

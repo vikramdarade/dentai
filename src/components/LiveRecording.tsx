@@ -124,6 +124,7 @@ export default function LiveRecording({
   const audioChunksRef = useRef<Blob[]>([]);
   const animationFrameIdRef = useRef<number | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const wakeLockRef = useRef<any>(null);
 
   // Draw flat line on visualizer canvas
   const drawFlatLine = () => {
@@ -247,6 +248,15 @@ export default function LiveRecording({
         console.warn('MediaRecorder buffer capture fallback:', recErr);
       }
 
+      // Request Screen WakeLock to prevent operatory tablet/laptop sleep during long consultations
+      if ('wakeLock' in navigator && (navigator as any).wakeLock?.request) {
+        try {
+          wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
+        } catch (wlErr) {
+          console.warn('[LiveRecording] WakeLock notice:', wlErr);
+        }
+      }
+
       const source = audioContextRef.current.createMediaStreamSource(stream);
       const analyser = audioContextRef.current.createAnalyser();
       analyser.fftSize = 256;
@@ -304,6 +314,13 @@ export default function LiveRecording({
       try {
         audioContextRef.current.suspend();
       } catch (e) {}
+    }
+
+    if (wakeLockRef.current) {
+      try {
+        wakeLockRef.current.release();
+      } catch {}
+      wakeLockRef.current = null;
     }
 
     drawFlatLine();
@@ -370,20 +387,22 @@ export default function LiveRecording({
           } else {
             unstableRestartsRef.current = 0;
           }
-          if (unstableRestartsRef.current >= MAX_UNSTABLE_RESTARTS) {
-            unstableRestartsRef.current = 0;
-            setRecognitionError('Microphone keeps disconnecting. Check your connection and tap the microphone button to retry.');
-          } else {
-            setTimeout(() => {
-              try {
-                if (isRecordingRef.current && !micStoppedByUserRef.current) {
-                  rec.start();
-                }
-              } catch (e) {
-                console.warn('Speech recognition auto-restart retry notice:', e);
-              }
-            }, 250);
+          
+          // Exponential backoff if recognition repeatedly disconnects, but keep audio buffer recording intact
+          const backoffDelay = Math.min(2000, 250 * Math.pow(1.5, Math.min(6, unstableRestartsRef.current)));
+          if (unstableRestartsRef.current >= 10) {
+            console.warn('[LiveRecording] Web Speech API frequent resets; relying on background audio buffer.');
           }
+
+          setTimeout(() => {
+            try {
+              if (isRecordingRef.current && !micStoppedByUserRef.current) {
+                rec.start();
+              }
+            } catch (e) {
+              console.warn('Speech recognition auto-restart retry notice:', e);
+            }
+          }, backoffDelay);
         } else {
           setIsListening(false);
           stopAudioPipeline();
@@ -511,13 +530,22 @@ export default function LiveRecording({
 
   const transcriptEndRef = useRef<HTMLDivElement>(null);
 
-  // Time counting effect
+  // Wall-clock time counting effect resilient against background tab throttling
+  const recordingStartTimeRef = useRef<number | null>(null);
   useEffect(() => {
     let interval: NodeJS.Timeout | null = null;
     if (isRecording) {
+      if (!recordingStartTimeRef.current) {
+        recordingStartTimeRef.current = Date.now() - seconds * 1000;
+      }
       interval = setInterval(() => {
-        setSeconds((prev) => prev + 1);
+        if (recordingStartTimeRef.current) {
+          const elapsed = Math.max(0, Math.floor((Date.now() - recordingStartTimeRef.current) / 1000));
+          setSeconds(elapsed);
+        }
       }, 1000);
+    } else {
+      recordingStartTimeRef.current = null;
     }
     return () => {
       if (interval) clearInterval(interval);
@@ -621,6 +649,7 @@ export default function LiveRecording({
     setTranscript([]);
     setItemTimes([]);
     setSeconds(0);
+    recordingStartTimeRef.current = Date.now();
     setIsRecording(true);
     setShowResetConfirm(false);
     setNextPresetIndex(0);
