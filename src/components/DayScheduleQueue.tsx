@@ -549,15 +549,17 @@ export default function DayScheduleQueue({
         ) : undefined
       }
     >
-      <div className="w-full max-w-6xl mx-auto space-y-5">
-        {/* Active Surgery Recovery Banner */}
+      <div className={`w-full max-w-6xl mx-auto space-y-5 ${recordingItem ? 'pt-4 sm:pt-6' : ''}`}>
+        {/* Active Surgery Recovery Banner - strictly displayed when session is interrupted/needs reconnect */}
         {(() => {
           const activeRecording = recordingItem || items.find(i => i.status === 'recording');
           if (!activeRecording) return null;
           const isConnected = !!recordingItem && recordingItem.id === activeRecording.id;
+          // When the floating TopSurgeryBar is actively recording and connected, suppress the duplicate banner
+          if (isConnected) return null;
 
           return (
-            <div className="p-4 rounded-2xl bg-gradient-to-r from-cyan-950/70 via-[#0E1B2A] to-teal-950/70 border border-cyan-500/40 shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-cyan-200">
+            <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-950/70 via-[#1A1810] to-rose-950/70 border border-amber-500/50 shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-amber-200">
               <div className="flex items-center gap-3">
                 <span className="relative flex h-3.5 w-3.5 shrink-0">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
@@ -1204,16 +1206,18 @@ export default function DayScheduleQueue({
                           </button>
                         )}
 
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDeleteItem(item.id, e);
-                          }}
-                          className="p-1.5 text-slate-500 hover:text-rose-400 rounded-lg transition-colors cursor-pointer"
-                          title="Remove appointment"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        {!isRecordingThis && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteItem(item.id, e);
+                            }}
+                            className="p-1.5 text-slate-500 hover:text-rose-400 rounded-lg transition-colors cursor-pointer ml-1"
+                            title="Remove appointment"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>

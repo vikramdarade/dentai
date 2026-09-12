@@ -158,7 +158,10 @@ export default function TopSurgeryBar({
       {/* Outer Machined Bezel */}
       <div className="pointer-events-auto p-0.5 rounded-2xl bg-gradient-to-r from-cyan-500/50 via-teal-500/40 to-emerald-500/50 border border-cyan-400/50 shadow-2xl shadow-cyan-950/40">
         {/* Inner Tactical Island */}
-        <div className="flex items-center gap-2.5 sm:gap-3 px-3.5 sm:px-5 py-2 sm:py-2.5 bg-[#0C131D]/95 dark:bg-[#0C131D]/95 rounded-[calc(1rem-2px)] text-white font-sans shadow-[inset_0_1px_0_rgba(255,255,255,0.12)]">
+        <div
+          data-tactical-dark="true"
+          className="flex items-center gap-2.5 sm:gap-3 px-3.5 sm:px-5 py-2 sm:py-2.5 bg-[#0C131D]/95 dark:bg-[#0C131D]/95 rounded-[calc(1rem-2px)] text-white font-sans shadow-[inset_0_1px_0_rgba(255,255,255,0.12)]"
+        >
           {/* Play/Stop Circular Indicator */}
           <button
             onClick={onFinish}
@@ -174,11 +177,11 @@ export default function TopSurgeryBar({
             className={`flex flex-col min-w-0 pr-1 relative z-50 ${onClickPatient ? 'cursor-pointer hover:opacity-85' : ''}`}
             title={onClickPatient ? 'Click to view appointment in schedule' : undefined}
           >
-            <span className="text-[10px] font-black uppercase tracking-wider text-cyan-300 flex items-center gap-1.5">
+            <span className="text-[10px] font-black uppercase tracking-wider !text-cyan-300 flex items-center gap-1.5">
               <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-ping shrink-0" />
               Active Surgery Island
             </span>
-            <span className="text-xs font-black text-white truncate max-w-[130px] sm:max-w-[190px]">
+            <span className="text-xs font-black !text-white truncate max-w-[130px] sm:max-w-[190px]">
               {activeItem.patientName}
             </span>
           </div>
