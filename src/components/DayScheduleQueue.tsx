@@ -31,6 +31,8 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { verifyTranscriptGrounding } from '../lib/transcriptGrounding';
 import {
+  cleanPatientDisplayName,
+  normalizeStartTime,
   DayScheduleItem,
   loadTodaySchedule,
   saveTodaySchedule,
@@ -238,6 +240,9 @@ export default function DayScheduleQueue({
   const [walkInType, setWalkInType] = useState<AppointmentType>('emergency');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isDraggingOver, setIsDraggingOver] = useState(false);
+  const [previewThumb, setPreviewThumb] = useState<string | null>(null);
+  const [snipDimensions, setSnipDimensions] = useState<{ width: number; height: number } | null>(null);
 
   // Global paste handler (Win+Shift+S -> Ctrl+V anywhere on schedule)
   useEffect(() => {
@@ -262,7 +267,7 @@ export default function DayScheduleQueue({
     return () => window.removeEventListener('paste', handlePaste);
   }, []);
 
-  const optimizeScreenshotForVision = async (file: File): Promise<{ base64: string; mimeType: string }> => {
+  const optimizeScreenshotForVision = async (file: File): Promise<{ base64: string; mimeType: string; width: number; height: number; previewUrl: string }> => {
     return new Promise((resolve) => {
       const reader = new FileReader();
       reader.onload = (e) => {
@@ -270,6 +275,8 @@ export default function DayScheduleQueue({
         const img = new Image();
         img.onload = () => {
           try {
+            const originalWidth = img.width;
+            const originalHeight = img.height;
             const maxDimension = 1600;
             let width = img.width;
             let height = img.height;
@@ -289,21 +296,21 @@ export default function DayScheduleQueue({
             if (ctx) {
               ctx.drawImage(img, 0, 0, width, height);
               const jpegData = canvas.toDataURL('image/jpeg', 0.88);
-              resolve({ base64: jpegData, mimeType: 'image/jpeg' });
+              resolve({ base64: jpegData, mimeType: 'image/jpeg', width: originalWidth, height: originalHeight, previewUrl: jpegData });
               return;
             }
           } catch {
             // fallback to original base64
           }
-          resolve({ base64: rawResult, mimeType: file.type || 'image/png' });
+          resolve({ base64: rawResult, mimeType: file.type || 'image/png', width: img.width || 800, height: img.height || 600, previewUrl: rawResult });
         };
         img.onerror = () => {
-          resolve({ base64: rawResult, mimeType: file.type || 'image/png' });
+          resolve({ base64: rawResult, mimeType: file.type || 'image/png', width: 0, height: 0, previewUrl: rawResult });
         };
         img.src = rawResult;
       };
       reader.onerror = () => {
-        resolve({ base64: '', mimeType: file.type || 'image/png' });
+        resolve({ base64: '', mimeType: file.type || 'image/png', width: 0, height: 0, previewUrl: '' });
       };
       reader.readAsDataURL(file);
     });
@@ -317,7 +324,12 @@ export default function DayScheduleQueue({
 
     try {
       const activeKey = overrideKey !== undefined ? overrideKey : customApiKey;
-      const { base64, mimeType } = await optimizeScreenshotForVision(file);
+      const { base64, mimeType, width, height, previewUrl } = await optimizeScreenshotForVision(file);
+
+      if (previewUrl) {
+        setPreviewThumb(previewUrl);
+        setSnipDimensions({ width, height });
+      }
 
       if (!base64) {
         throw new Error('Could not read image file.');
@@ -348,12 +360,17 @@ export default function DayScheduleQueue({
       }
 
       const data = await res.json();
+
+      if (data.unreadable) {
+        throw new Error(data.unreadableReason || 'No readable appointment schedule was detected. Please ensure the screenshot captures the time column and patient rows.');
+      }
+
       const rawAppointments = Array.isArray(data.appointments) ? data.appointments : [];
       const newAppointments: DayScheduleItem[] = rawAppointments.map((app: any) => ({
         id: `sched_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-        time: app.time || '09:00',
-        patientName: app.patientName || 'Unknown Patient',
-        procedureText: app.procedureText || 'General Consultation',
+        time: normalizeStartTime(app.time || '09:00'),
+        patientName: cleanPatientDisplayName(app.patientName || 'Unknown Patient'),
+        procedureText: String(app.procedureText || 'General Consultation').trim(),
         appointmentType: app.appointmentType || 'examination',
         templateId: app.templateId || 'standard',
         status: 'scheduled',
@@ -1056,7 +1073,35 @@ export default function DayScheduleQueue({
         {/* 2. Snip & Paste Dropzone */}
         <div
           onClick={() => fileInputRef.current?.click()}
-          className="relative rounded-2xl border border-dashed border-[#1E3048] hover:border-cyan-500/50 bg-[#0E1724]/70 hover:bg-[#121E2E] p-5 text-center transition-all cursor-pointer group shadow-lg shadow-black/20"
+          onDragEnter={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setIsDraggingOver(true);
+          }}
+          onDragOver={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setIsDraggingOver(true);
+          }}
+          onDragLeave={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setIsDraggingOver(false);
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setIsDraggingOver(false);
+            const file = e.dataTransfer.files?.[0];
+            if (file && (file.type.startsWith('image/') || /\.(png|jpe?g|webp|bmp)$/i.test(file.name))) {
+              handleImageFile(file);
+            }
+          }}
+          className={`relative rounded-2xl border-2 border-dashed p-5 text-center transition-all cursor-pointer group shadow-lg shadow-black/20 ${
+            isDraggingOver
+              ? 'border-cyan-400 bg-cyan-950/40 ring-4 ring-cyan-500/20 scale-[1.01]'
+              : 'border-[#1E3048] hover:border-cyan-500/50 bg-[#0E1724]/70 hover:bg-[#121E2E]'
+          }`}
         >
           <input
             ref={fileInputRef}
@@ -1068,30 +1113,58 @@ export default function DayScheduleQueue({
             }}
           />
 
-          <div className="flex flex-col items-center justify-center gap-2">
-            <div className="w-10 h-10 rounded-xl bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 flex items-center justify-center group-hover:scale-105 transition-transform shadow-xs">
-              {isParsing ? (
-                <RotateCw className="w-5 h-5 animate-spin text-cyan-400" />
-              ) : (
-                <UploadCloud className="w-5 h-5 text-cyan-300" />
-              )}
+          {isParsing && previewThumb ? (
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-4 py-1">
+              <div className="relative w-28 h-20 rounded-xl overflow-hidden border border-cyan-500/40 shadow-lg shrink-0 bg-slate-950">
+                <img src={previewThumb} alt="Schedule snip preview" className="w-full h-full object-cover object-top opacity-85" />
+                <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent to-transparent flex items-end p-1.5">
+                  <span className="text-[9px] font-mono font-bold text-cyan-300">
+                    {snipDimensions?.width ? `${snipDimensions.width}x${snipDimensions.height}` : 'Snip'}
+                  </span>
+                </div>
+              </div>
+              <div className="text-left">
+                <div className="flex items-center gap-2">
+                  <RotateCw className="w-4 h-4 animate-spin text-cyan-400 shrink-0" />
+                  <p className="text-xs md:text-sm font-bold text-white">
+                    Analyzing Schedule Screenshot with AI...
+                  </p>
+                </div>
+                <p className="text-[11px] text-cyan-300/80 mt-1">
+                  Extracting appointments with zero hallucination & PMS clutter cleaning.
+                </p>
+              </div>
             </div>
-
-            <div>
-              <p className="text-xs md:text-sm font-bold text-slate-100">
+          ) : (
+            <div className="flex flex-col items-center justify-center gap-2">
+              <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-transform shadow-xs ${
+                isDraggingOver
+                  ? 'bg-cyan-500 text-slate-950 scale-110'
+                  : 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 group-hover:scale-105'
+              }`}>
                 {isParsing ? (
-                  'Analyzing D4W / Praktika Screenshot with AI...'
+                  <RotateCw className="w-5 h-5 animate-spin text-cyan-400" />
                 ) : (
-                  <>
-                    Press <kbd className="px-2 py-0.5 text-[11px] font-mono font-extrabold bg-[#162436] border border-[#233852] rounded text-cyan-300 shadow-xs">Ctrl + V</kbd> to paste snip, or click to upload
-                  </>
+                  <UploadCloud className="w-5 h-5" />
                 )}
-              </p>
-              <p className="text-[11px] text-slate-400 mt-1">
-                Supports Windows Snipping Tool (<kbd className="text-[10px] bg-[#162436] px-1.5 py-0.5 rounded border border-[#233852] text-slate-300">Win+Shift+S</kbd>). 3-way hash auto-merges midday walk-ins with zero duplicate cards.
-              </p>
+              </div>
+
+              <div>
+                <p className="text-xs md:text-sm font-bold text-slate-100">
+                  {isDraggingOver ? (
+                    'Drop PMS screenshot to import schedule'
+                  ) : (
+                    <>
+                      Press <kbd className="px-2 py-0.5 text-[11px] font-mono font-extrabold bg-[#162436] border border-[#233852] rounded text-cyan-300 shadow-xs">Ctrl + V</kbd> to paste snip, drag & drop, or click to upload
+                    </>
+                  )}
+                </p>
+                <p className="text-[11px] text-slate-400 mt-1">
+                  Supports Windows Snipping Tool (<kbd className="text-[10px] bg-[#162436] px-1.5 py-0.5 rounded border border-[#233852] text-slate-300">Win+Shift+S</kbd>), D4W, Praktika & Exact. 3-way hash auto-merges midday walk-ins with zero duplicates.
+                </p>
+              </div>
             </div>
-          </div>
+          )}
 
           {parsingError && (
             <div className="mt-3 p-3 bg-red-950/40 border border-red-500/40 rounded-xl text-xs text-red-200 flex items-center justify-center gap-2">

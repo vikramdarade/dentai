@@ -51,6 +51,10 @@ import type {
   TreatmentStatus,
   PracticeRoiSummary
 } from './src/types';
+import {
+  cleanPatientDisplayName,
+  normalizeStartTime
+} from './src/lib/dayScheduleStorage';
 import { logger } from './logger';
 import fs from 'fs';
 import crypto from 'crypto';
@@ -2937,15 +2941,36 @@ app.post('/api/generate-notes', authenticateToken, async (req: express.Request, 
  * and returns a ready-to-record day roster.
  * =========================================================================== */
 
-const SCHEDULE_PARSE_PROMPT = `You are an elite dental practice management assistant specialized in Australian dental software (Dental4Windows / D4W, Praktika, Exact, Dental Master).
+const SCHEDULE_PARSE_PROMPT = `You are an elite dental practice management assistant specialized in Australian and international dental software (Dental4Windows / D4W, Praktika, Exact, Dental Master, Oasis, Centaur).
 Analyze this daily appointment book schedule screenshot.
 Extract all scheduled patient appointments in chronological order.
 
-MANDATORY RULES:
-1. Extract patient full names. Normalize names from "Last, First" or "LAST FIRST" to natural "First Last" format (e.g. "SMITH, SARAH" -> "Sarah Smith", "O'Connor, Liam" -> "Liam O'Connor").
-2. Extract the appointment start time in 24-hour "HH:MM" format (e.g. "08:30", "09:15", "14:00").
-3. Extract the procedure description/notes (e.g. "Check & Clean", "Comp Exam", "Prep #16 Crown", "Toothache / Emergency", "Filling #24").
-4. Map the procedure description to the most appropriate DentAI appointmentType value from this exact set:
+CRITICAL GROUNDING RULES (ZERO HALLUCINATIONS):
+1. Only extract appointments that are clearly visible and legible in the screenshot. NEVER invent, hallucinate, extrapolate, or guess patient appointments, names, or times.
+2. If the image is not a dental appointment schedule (e.g. it is an intraoral radiograph, patient photo, clinical chart, error dialog, or completely blank/unreadable), return:
+{
+  "provider": "",
+  "date": "",
+  "appointments": [],
+  "unreadable": true,
+  "reason": "No readable dental appointment book schedule found in this image."
+}
+3. STRIP NON-PATIENT ADMINISTRATIVE CLUTTER:
+   - Practice management software often appends phone numbers (e.g. "0412 345 678"), duration markers (e.g. "[30m]", "(45 min)", "[1hr]"), patient IDs/chart numbers (e.g. "#10294", "ID: 4821"), fees/billing balances, or status flags ("CONFIRMED", "ARRIVED", "IN CHAIR", "DNA") to patient names or procedures.
+   - Clean "patientName" to ONLY contain the patient's natural full name in Title Case (e.g. "SMITH, Sarah (0412 345 678) [30m]" -> "Sarah Smith", "O'Connor, Liam" -> "Liam O'Connor").
+   - Strip prefixes like "Mr", "Mrs", "Ms", "Miss", "Dr", "Master".
+   - If a name is truncated with trailing dots (e.g. "THOMPSON, ELIZAB..."), strip the dots and return the clean name (e.g. "Elizabeth Thompson" or "Elizab Thompson").
+4. TIME EXTRACTION & NORMALIZATION:
+   - Extract the appointment start time in 24-hour "HH:MM" format (e.g. "08:30", "09:15", "14:00").
+   - Recognize dot times ("9.15" -> "09:15", "14.30" -> "14:30") and AM/PM notations ("9:15 AM" -> "09:15", "2:30 PM" -> "14:30").
+5. MULTI-COLUMN & MULTI-PRACTITIONER SCHEDULES:
+   - If multiple provider/operatory columns exist:
+     - If a specific provider is requested in the prompt, focus on that practitioner's column (matching by full name, surname, or chair).
+     - If no specific provider is requested or if only one column exists, extract the primary active column.
+6. DOUBLE-BOOKED & CONCURRENT APPOINTMENTS:
+   - If two appointments start at the same time (e.g. emergency slot or hygienist parallel column), extract BOTH appointments as separate entries.
+7. MAP APPOINTMENT TYPES:
+   Map the procedure description to the most appropriate DentAI appointmentType value from this exact set:
    - "examination" (Check-up, comprehensive exam, periodic exam, consult)
    - "scale_clean" (Hygiene, scale and clean, prophy, periodontal debridement)
    - "emergency" (Toothache, trauma, broken tooth, emergency pain relief, swelling)
@@ -2954,12 +2979,12 @@ MANDATORY RULES:
    - "surgical" (Extraction, surgical removal, suture removal)
    - "prosthodontic" (Crown, bridge, veneer, denture, impression, insert)
    - "paediatric" (Child exam, fissure sealants, CDBS)
-5. Assign a default templateId:
+8. TEMPLATES:
    - "concise" for scale_clean or simple examinations
    - "soap" for emergency / pain visits
    - "standard" for all other procedures
-6. Ignore empty slots, lunch breaks, staff meetings, lab collection notes, or blank rows.
-7. Return ONLY a single JSON object matching:
+9. Ignore empty slots, lunch breaks, staff meetings, lab collection notes, or blank rows.
+10. Return ONLY a single JSON object matching:
 {
   "provider": "Dr. Name if visible, or empty string",
   "date": "YYYY-MM-DD or today's date",
@@ -2971,7 +2996,8 @@ MANDATORY RULES:
       "appointmentType": "examination" | "scale_clean" | "emergency" | "restorative" | "endodontic" | "surgical" | "prosthodontic" | "paediatric",
       "templateId": "standard" | "concise" | "soap"
     }
-  ]
+  ],
+  "unreadable": false
 }
 `;
 
@@ -3068,14 +3094,27 @@ app.post('/api/schedule/parse-image', authenticateToken, async (req: any, res) =
           const responseText = response.text;
           if (!responseText) throw new Error('Empty AI response.');
           const parsed = JSON.parse(responseText);
+
+          if (parsed.unreadable || (Array.isArray(parsed.appointments) && parsed.appointments.length === 0)) {
+            successfulResult = {
+              provider: parsed.provider || providerName || '',
+              date: parsed.date || new Date().toISOString().slice(0, 10),
+              appointments: [],
+              unreadable: Boolean(parsed.unreadable),
+              unreadableReason: parsed.reason || 'No readable appointment rows detected in this screenshot.',
+              isSampleFallback: false
+            };
+            break;
+          }
+
           const rawList = Array.isArray(parsed?.appointments) ? parsed.appointments : [];
           if (rawList.length > 0) {
             successfulResult = {
               provider: parsed.provider || providerName || '',
               date: parsed.date || new Date().toISOString().slice(0, 10),
               appointments: rawList.map((app: any) => ({
-                time: String(app.time || '09:00').trim(),
-                patientName: String(app.patientName || 'Unknown Patient').trim(),
+                time: normalizeStartTime(String(app.time || '09:00').trim()),
+                patientName: cleanPatientDisplayName(String(app.patientName || 'Unknown Patient').trim()),
                 procedureText: String(app.procedureText || 'Dental Consultation').trim(),
                 appointmentType: isValidAppointmentType(app.appointmentType) ? app.appointmentType : 'examination',
                 templateId: ['standard', 'concise', 'soap'].includes(app.templateId) ? app.templateId : 'standard'

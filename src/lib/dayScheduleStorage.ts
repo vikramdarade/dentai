@@ -147,10 +147,12 @@ export function addScheduleItem(
   const current = loadTodaySchedule(dateStr);
   const newItem: DayScheduleItem = {
     ...item,
+    patientName: cleanPatientDisplayName(item.patientName),
+    time: normalizeStartTime(item.time),
     id: `sched_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
     status: 'scheduled'
   };
-  const updated = [...current, newItem].sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+  const updated = [...current, newItem].sort((a, b) => normalizeStartTime(a.time).localeCompare(normalizeStartTime(b.time)));
   saveTodaySchedule(updated, dateStr);
   return newItem;
 }
@@ -171,34 +173,157 @@ export function clearTodaySchedule(dateStr = getTodayDateStr()): void {
 }
 
 /**
- * Normalizes appointment time into a canonical 24h "HH:MM" start time.
- * e.g. "09:15 - 10:00" -> "09:15", "9:15 AM" -> "09:15", "14:00" -> "14:00"
+ * Cleans messy PMS patient strings into natural "First Last" display names.
+ * Strips phone numbers, duration tags [30m], patient IDs, fees, honorifics, and trailing dots.
+ * Converts "LAST, First" or "LAST FIRST" into Title Case "First Last".
+ */
+export function cleanPatientDisplayName(rawName: string): string {
+  if (!rawName || typeof rawName !== 'string') return 'Unknown Patient';
+
+  let s = rawName.trim();
+
+  // Strip Australian/international phone numbers (e.g. 0412 345 678, (0412) 345-678, +61 412 345 678, 02 9876 5432)
+  s = s.replace(/(?:\+?61|0)[2-478](?:[\s.-]?\d{4}){2}/g, '');
+  s = s.replace(/\(?04\d{2}\)?[\s.-]?\d{3}[\s.-]?\d{3}/g, '');
+  s = s.replace(/\b\d{8,10}\b/g, '');
+
+  // Strip bracketed durations/tags: [30m], (45 min), [1hr], [CDBS], [recall], (recall), (#12345)
+  s = s.replace(/\[[^\]]*\]/g, ' ');
+  s = s.replace(/\([^\)]*\)/g, ' ');
+
+  // Strip patient IDs or appointment codes: #1234, ID: 12345, Pt: 12345
+  s = s.replace(/\b(?:id|pt|ref|chart)[\s:#-]*\d+\b/gi, ' ');
+  s = s.replace(/#\d+\b/g, ' ');
+
+  // Strip administrative prefixes like "Walk-in:", "Emergency:", "New Pt:"
+  s = s.replace(/\b(?:walk-in|emergency|new pt|recall|dna)[\s:-]+/gi, ' ');
+
+  // Strip honorifics: Mr, Mrs, Ms, Miss, Dr, Doctor, Master, Prof
+  s = s.replace(/\b(?:mr|mrs|ms|miss|dr|doctor|master|prof)\.?\s+/gi, ' ');
+
+  // Strip trailing truncation ellipsis / dots
+  s = s.replace(/\.{2,}/g, '').trim();
+
+  // Handle "LAST, First Middle" or "LAST, FIRST"
+  if (s.includes(',')) {
+    const parts = s.split(',');
+    const surname = parts[0]?.trim() || '';
+    let given = parts.slice(1).join(' ').trim();
+    // If given name contains procedure separators (e.g. "DAVID - Prep #16 Crown"), extract only the name
+    if (/\s+[-/:]\s+/.test(given)) {
+      given = given.split(/\s+[-/:]\s+/)[0].trim();
+    }
+    if (given && surname) {
+      s = `${given} ${surname}`;
+    } else if (surname) {
+      s = surname;
+    }
+  } else if (/\s+[-/:]\s+/.test(s)) {
+    // If name without comma has trailing procedure separator (e.g. "David Miller - Crown Prep")
+    s = s.split(/\s+[-/:]\s+/)[0].trim();
+  }
+
+  // Remove unwanted punctuation except hyphens and apostrophes (for names like O'Connor, Smith-Jones)
+  s = s.replace(/[^\p{L}\p{N}'\s-]/gu, ' ').trim();
+
+  // Normalize multiple spaces
+  s = s.replace(/\s+/g, ' ').trim();
+
+  if (!s) return 'Unknown Patient';
+
+  // Title Case formatting: e.g. "SARAH CONNOR" -> "Sarah Connor", "liam o'connor" -> "Liam O'Connor"
+  const words = s.split(' ').map(w => {
+    if (!w) return '';
+    // Preserve apostrophe capitalization like O'Connor
+    if (w.includes("'") && w.length > 2) {
+      return w.split("'").map(part => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase()).join("'");
+    }
+    // Hyphenated names like Smith-Jones
+    if (w.includes('-') && w.length > 2) {
+      return w.split('-').map(part => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase()).join('-');
+    }
+    return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+  });
+
+  return words.join(' ');
+}
+
+/**
+ * Normalizes any clinical appointment time string into canonical 24-hour "HH:MM" start time.
+ * Supports:
+ * - "09:15", "9:15", "09.15", "9.15", "14.30"
+ * - "9:15 AM", "9.15am", "2:30 pm", "2.30pm", "9am", "2pm"
+ * - 4-digit military: "0900", "1430"
+ * - Ranges: "09:15 - 10:00", "9.00 - 9.45" (extracts start time)
  */
 export function normalizeStartTime(timeStr: string): string {
   if (!timeStr || typeof timeStr !== 'string') return '09:00';
-  const match = timeStr.match(/(\d{1,2}):(\d{2})/);
-  if (match) {
-    let hour = parseInt(match[1], 10);
-    const minute = match[2];
-    if (/pm/i.test(timeStr) && hour < 12) hour += 12;
-    if (/am/i.test(timeStr) && hour === 12) hour = 0;
-    return `${String(hour).padStart(2, '0')}:${minute}`;
+
+  let clean = timeStr.trim();
+
+  // If a range is provided (e.g. "09:15 - 10:00" or "9.15-10.00"), take the first part
+  if (clean.includes('-')) {
+    clean = clean.split('-')[0].trim();
   }
-  return timeStr.slice(0, 5).trim();
+
+  const isPm = /pm/i.test(clean);
+  const isAm = /am/i.test(clean);
+
+  // Pattern 1: HH:MM or HH.MM (e.g. 09:15, 9.15, 14.30)
+  const colonOrDotMatch = clean.match(/(\d{1,2})[:.](\d{2})/);
+  if (colonOrDotMatch) {
+    let hour = parseInt(colonOrDotMatch[1], 10);
+    const minute = parseInt(colonOrDotMatch[2], 10);
+    if (isPm && hour < 12) hour += 12;
+    if (isAm && hour === 12) hour = 0;
+    hour = Math.min(23, Math.max(0, hour));
+    const clampedMinute = Math.min(59, Math.max(0, minute));
+    return `${String(hour).padStart(2, '0')}:${String(clampedMinute).padStart(2, '0')}`;
+  }
+
+  // Pattern 2: Single hour with am/pm (e.g. "9am", "9 am", "2pm", "11 PM")
+  const hourAmPmMatch = clean.match(/(\d{1,2})\s*(am|pm)/i);
+  if (hourAmPmMatch) {
+    let hour = parseInt(hourAmPmMatch[1], 10);
+    const period = hourAmPmMatch[2].toLowerCase();
+    if (period === 'pm' && hour < 12) hour += 12;
+    if (period === 'am' && hour === 12) hour = 0;
+    hour = Math.min(23, Math.max(0, hour));
+    return `${String(hour).padStart(2, '0')}:00`;
+  }
+
+  // Pattern 3: 4-digit military time (e.g. "0900", "1430")
+  const militaryMatch = clean.match(/^(\d{2})(\d{2})$/);
+  if (militaryMatch) {
+    let hour = parseInt(militaryMatch[1], 10);
+    let minute = parseInt(militaryMatch[2], 10);
+    hour = Math.min(23, Math.max(0, hour));
+    minute = Math.min(59, Math.max(0, minute));
+    return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+  }
+
+  // Pattern 4: Unpadded single hour digits (e.g. "9")
+  const singleHourMatch = clean.match(/^(\d{1,2})$/);
+  if (singleHourMatch) {
+    let hour = parseInt(singleHourMatch[1], 10);
+    if (hour >= 1 && hour <= 7) hour += 12; // Realistic daytime clinical assumption: 1-7 is afternoon 13-19
+    hour = Math.min(23, Math.max(0, hour));
+    return `${String(hour).padStart(2, '0')}:00`;
+  }
+
+  return '09:00';
 }
 
 /**
  * Normalizes patient name for fuzzy matching across differing PMS crops.
- * e.g. "Smith, John" -> "johnsmith", "SMITH, JONATH..." -> "jonathsmith", "David O'Connor" -> "davidoconnor"
+ * Strips all honorifics, numbers, durations, and punctuation so that
+ * "SMITH, John (0412 345 678) [30m]", "Mr. John Smith", and "John Smith"
+ * all resolve to the exact same canonical slug: "johnsmith".
  */
 export function normalizePatientName(name: string): string {
-  if (!name) return 'unknown';
-  let clean = name.toLowerCase().replace(/\.{2,}/g, '').trim();
-  if (clean.includes(',')) {
-    const parts = clean.split(',');
-    clean = `${parts[1] || ''} ${parts[0] || ''}`;
-  }
-  return clean.replace(/[^a-z0-9]/g, '').trim() || 'unknown';
+  if (!name || typeof name !== 'string') return 'unknown';
+  const cleaned = cleanPatientDisplayName(name);
+  return cleaned.toLowerCase().replace(/[^a-z0-9]/g, '').trim() || 'unknown';
 }
 
 /**
@@ -230,7 +355,13 @@ export function mergeScheduleItems(
   }
 
   // Process incoming items
-  for (const incomingItem of incoming) {
+  for (const rawIncoming of incoming) {
+    const incomingItem: DayScheduleItem = {
+      ...rawIncoming,
+      patientName: cleanPatientDisplayName(rawIncoming.patientName),
+      time: normalizeStartTime(rawIncoming.time)
+    };
+
     const fp = generateSlotFingerprint(dateStr, incomingItem.time, incomingItem.patientName);
     if (processedFingerprints.has(fp)) {
       // Prevent internal duplicates inside the same crop
@@ -247,6 +378,7 @@ export function mergeScheduleItems(
         // RULE 2: For scheduled appointments, merge updated procedure descriptions
         mergedResult.push({
           ...existingMatch,
+          patientName: existingMatch.patientName || incomingItem.patientName,
           procedureText: incomingItem.procedureText || existingMatch.procedureText,
           appointmentType: incomingItem.appointmentType || existingMatch.appointmentType,
           templateId: incomingItem.templateId || existingMatch.templateId

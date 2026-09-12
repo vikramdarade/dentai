@@ -16,6 +16,7 @@ import {
   clearTodaySchedule,
   formatNoteForPmsClipboard,
   getTodayDateStr,
+  cleanPatientDisplayName,
   normalizeStartTime,
   normalizePatientName,
   generateSlotFingerprint,
@@ -180,18 +181,75 @@ describe('Day Schedule Queue Storage & Helpers', () => {
     expect(formatted).toContain('ADA ITEM CODES:\n532, 022');
   });
 
-  it('normalizes times and patient names across differing PMS crop formats', () => {
-    expect(normalizeStartTime('09:15 - 10:00')).toBe('09:15');
-    expect(normalizeStartTime('9:15 am')).toBe('09:15');
-    expect(normalizeStartTime('2:30 pm')).toBe('14:30');
+  it('cleans messy PMS patient strings into natural Title Case display names', () => {
+    // Australian PMS D4W phone & duration clutter
+    expect(cleanPatientDisplayName('SMITH, Sarah (0412 345 678) [30m]')).toBe('Sarah Smith');
+    expect(cleanPatientDisplayName('MILLER, DAVID (#9942) - Prep #16 Crown')).toBe('David Miller');
+    expect(cleanPatientDisplayName("O'CONNOR, Liam [CDBS]")).toBe("Liam O'Connor");
 
+    // Honorifics and title case
+    expect(cleanPatientDisplayName('Dr. John Doe')).toBe('John Doe');
+    expect(cleanPatientDisplayName('Mr. Robert Brown')).toBe('Robert Brown');
+    expect(cleanPatientDisplayName('Mrs Jane Eyre')).toBe('Jane Eyre');
+    expect(cleanPatientDisplayName('Miss Emily Blunt')).toBe('Emily Blunt');
+
+    // Hyphenated surnames
+    expect(cleanPatientDisplayName('SMITH-JONES, ANNA')).toBe('Anna Smith-Jones');
+
+    // Truncated names with trailing dots
+    expect(cleanPatientDisplayName('THOMPSON, ELIZAB...')).toBe('Elizab Thompson');
+
+    // Walk-in and emergency administrative tags
+    expect(cleanPatientDisplayName('Walk-in: Davis, Carl (#8819)')).toBe('Carl Davis');
+    expect(cleanPatientDisplayName('Emergency: White, Walter')).toBe('Walter White');
+  });
+
+  it('normalizes clinical times across all PMS formats (dot, AM/PM, military, ranges)', () => {
+    // Standard colon formats
+    expect(normalizeStartTime('09:15')).toBe('09:15');
+    expect(normalizeStartTime('9:15')).toBe('09:15');
+    expect(normalizeStartTime('14:30')).toBe('14:30');
+
+    // Dot notation (common in Australian PMS keyboards)
+    expect(normalizeStartTime('09.15')).toBe('09:15');
+    expect(normalizeStartTime('9.15')).toBe('09:15');
+    expect(normalizeStartTime('14.30')).toBe('14:30');
+
+    // 12-hour AM/PM with dot or colon
+    expect(normalizeStartTime('9:15 am')).toBe('09:15');
+    expect(normalizeStartTime('9.15am')).toBe('09:15');
+    expect(normalizeStartTime('2:30 pm')).toBe('14:30');
+    expect(normalizeStartTime('2.30pm')).toBe('14:30');
+    expect(normalizeStartTime('9am')).toBe('09:00');
+    expect(normalizeStartTime('2pm')).toBe('14:00');
+    expect(normalizeStartTime('12:00 pm')).toBe('12:00');
+
+    // 4-digit military time
+    expect(normalizeStartTime('0900')).toBe('09:00');
+    expect(normalizeStartTime('1430')).toBe('14:30');
+
+    // Time ranges (extract start time)
+    expect(normalizeStartTime('09:15 - 10:00')).toBe('09:15');
+    expect(normalizeStartTime('9.00 - 9.45')).toBe('09:00');
+    expect(normalizeStartTime('14.00-14.45')).toBe('14:00');
+  });
+
+  it('deduplicates across differing PMS crops with identical slot fingerprints', () => {
     expect(normalizePatientName('Smith, John')).toBe('johnsmith');
     expect(normalizePatientName('SMITH, JONATH...')).toBe('jonathsmith');
     expect(normalizePatientName("David O'Connor")).toBe('davidoconnor');
+    expect(normalizePatientName('SMITH, John (0412 345 678) [30m]')).toBe('johnsmith');
+    expect(normalizePatientName('Mr. John Smith')).toBe('johnsmith');
 
+    // All these formats must resolve to the exact same composite fingerprint:
     const fp1 = generateSlotFingerprint('2026-09-12', '09:15 - 10:00', 'Smith, John');
     const fp2 = generateSlotFingerprint('2026-09-12', '9:15 am', 'John Smith');
+    const fp3 = generateSlotFingerprint('2026-09-12', '9.15am', 'SMITH, John (0412 345 678) [30m]');
+    const fp4 = generateSlotFingerprint('2026-09-12', '09:15', 'Mr. John Smith');
+
     expect(fp1).toBe(fp2);
+    expect(fp2).toBe(fp3);
+    expect(fp3).toBe(fp4);
   });
 
   it('3-way merges midday PMS snips with zero duplicate cards and protects completed consults', () => {
