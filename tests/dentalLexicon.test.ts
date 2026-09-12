@@ -26,6 +26,14 @@ describe('Dental Phonetic Lexicon & Speech Normalizer', () => {
     expect(normalizeSpokenDentalText('Placed leader mix dressing')).toBe('Placed Ledermix dressing');
   });
 
+  it('corrects bruxism, occlusal wear, and nightguard terms ("brooks ism", "wear face its", "mass setter")', () => {
+    expect(normalizeSpokenDentalText('Patient shows signs of brooks ism and clenching')).toBe('Patient shows signs of bruxism and clenching');
+    expect(normalizeSpokenDentalText('Severe wear face its on anterior incisal edges')).toBe('Severe wear facets on anterior incisal edges');
+    expect(normalizeSpokenDentalText('Palpation reveals tender mass setter and t m j clicking')).toBe('Palpation reveals tender masseter muscle and TMJ clicking');
+    expect(normalizeSpokenDentalText('Prescribing an occlusal split for night time')).toBe('Prescribing an occlusal splint for night time');
+    expect(normalizeSpokenDentalText('Take digital scan for knight guard item nine six five')).toBe('Take digital scan for occlusal splint (nightguard) ADA item 965 (occlusal splint)');
+  });
+
   it('gracefully handles empty, non-string, or clean clinical inputs', () => {
     expect(normalizeSpokenDentalText('')).toBe('');
     expect(normalizeSpokenDentalText('Sound enamel on tooth 16')).toBe('Sound enamel on tooth 16');

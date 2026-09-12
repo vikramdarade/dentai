@@ -173,6 +173,73 @@ export const DENTAL_PHONETIC_RULES: PhoneticRule[] = [
     pattern: /\bgutta\s*perka\b/gi,
     replacement: 'gutta-percha',
     description: 'Phonetic "gutta perka" -> gutta-percha'
+  },
+
+  // 5. Bruxism, Occlusal Wear, TMD & Splints
+  {
+    pattern: /\b(?:brooks|brook|brux)\s*ism\b/gi,
+    replacement: 'bruxism',
+    description: 'Phonetic "brooks ism" -> bruxism'
+  },
+  {
+    pattern: /\b(?:night|knight|bite)\s*(?:guard|splint)\b/gi,
+    replacement: 'occlusal splint (nightguard)',
+    description: 'Colloquial "night guard/bite splint" -> occlusal splint (nightguard)'
+  },
+  {
+    pattern: /\b(?:occlusal|a\s*clue\s*zal|occlude\s*zal)\s*(?:split|sprint|spint|splint)\b/gi,
+    replacement: 'occlusal splint',
+    description: 'Phonetic "occlusal split/sprint" -> occlusal splint'
+  },
+  {
+    pattern: /\bwear\s*(?:facet|facets|face\s*it|face\s*its)\b/gi,
+    replacement: 'wear facets',
+    description: 'Phonetic "wear face its" -> wear facets'
+  },
+  {
+    pattern: /\b(?:mass\s*setter|mass\s*eater|mass\s*eter)\b/gi,
+    replacement: 'masseter muscle',
+    description: 'Phonetic "mass setter" -> masseter muscle'
+  },
+  {
+    pattern: /\b(?:temp\s*or\s*al\s*is|temporalis)\s*(?:muscle)?\b/gi,
+    replacement: 'temporalis muscle',
+    description: 'Phonetic "temp or al is" -> temporalis muscle'
+  },
+  {
+    pattern: /\b(?:t\s*m\s*j|t\.m\.j\.)\b/gi,
+    replacement: 'TMJ',
+    description: 'Spoken "T M J" -> TMJ'
+  },
+  {
+    pattern: /\b(?:a\s*tuition|at\s*trition)\b/gi,
+    replacement: 'attrition',
+    description: 'Phonetic "a tuition" -> attrition'
+  },
+  {
+    pattern: /\bab\s*fraction(?:s)?\b/gi,
+    replacement: 'abfraction',
+    description: 'Phonetic "ab fraction" -> abfraction'
+  },
+  {
+    pattern: /\bclinching\b/gi,
+    replacement: 'clenching',
+    description: 'Colloquial "clinching" -> clenching'
+  },
+  {
+    pattern: /\b(?:in\s*sigh\s*sul|in\s*size\s*al)\s*wear\b/gi,
+    replacement: 'incisal wear',
+    description: 'Phonetic "in sigh sul wear" -> incisal wear'
+  },
+  {
+    pattern: /\b(?:k\s*nine|k-9)\s*guidance\b/gi,
+    replacement: 'canine guidance',
+    description: 'Phonetic "k-nine guidance" -> canine guidance'
+  },
+  {
+    pattern: /\b(?:item|code)\s*(?:nine\s*six\s*five|965)\b/gi,
+    replacement: 'ADA item 965 (occlusal splint)',
+    description: 'Spoken "item nine six five" -> ADA item 965'
   }
 ];
 

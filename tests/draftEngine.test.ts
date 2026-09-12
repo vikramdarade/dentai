@@ -91,4 +91,27 @@ describe('generateOfflineDraft', () => {
     expect(draft.customSections.periapicalAssessment ?? '').toContain('radiograph');
     expect(draft.customSections.periapicalAssessment?.toLowerCase() ?? '').toContain('periapical');
   });
+
+  it('accurately captures bruxism, severe attrition, and occlusal splint recommendations', () => {
+    const template = getTemplateById('standard');
+    const bruxismTranscript: TranscriptItem[] = [
+      { sender: 'Patient', text: 'I wake up with terrible morning jaw stiffness, headaches, and my partner says I am grinding loudly at night.' },
+      { sender: 'Dentist', text: 'Examination shows generalized incisal and occlusal wear facets with dentin exposure on teeth 13 to 23, and flattened cusps on molars. Masseter muscles are tender on palpation.' },
+      { sender: 'Dentist', text: 'Diagnosis is sleep bruxism with secondary severe occlusal attrition and myofascial jaw pain.' },
+      { sender: 'Dentist', text: 'We took digital intraoral impressions today to fabricate an upper hard acrylic occlusal splint. Item 965 for the occlusal splint.' },
+      { sender: 'Dentist', text: 'Please use warm compresses on the jaw, avoid hard foods, and return in two weeks for splint insertion.' }
+    ];
+
+    const draft = generateOfflineDraft(template, bruxismTranscript, 'Comprehensive Examination');
+
+    expect(draft.canonical.chiefComplaint.toLowerCase()).toContain('grinding');
+    expect(draft.canonical.toothFindings.toLowerCase()).toContain('wear facets');
+    expect(draft.canonical.findingsGingival.toLowerCase()).toContain('masseter');
+    expect(draft.canonical.diagnosis.toLowerCase()).toContain('bruxism');
+    expect(draft.canonical.treatmentPerformed.toLowerCase()).toContain('splint');
+    expect(draft.canonical.recommendations.toLowerCase()).toContain('splint');
+    expect(draft.adaCodes).toEqual([
+      { code: '965', description: 'for the occlusal splint' }
+    ]);
+  });
 });

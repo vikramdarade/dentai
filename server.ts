@@ -109,8 +109,9 @@ app.use(
   })
 );
 
-// Specific route-level body limit for PMS schedule screenshot snips (up to 10mb)
+// Specific route-level body limit for PMS schedule screenshot snips (up to 10mb) and audio uploads (up to 15mb)
 app.use('/api/schedule/parse-image', express.json({ limit: '10mb' }));
+app.use('/api/transcribe-audio', express.json({ limit: '15mb' }));
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
@@ -2456,7 +2457,9 @@ CRITICAL REQUIREMENTS:
 5. PATIENT SUMMARY:
    - A warm, friendly, plain-English summary letter written directly to the patient (in en-AU spelling). Explain the key takeaway and what they should do next in simple, accessible language. Do NOT copy-paste clinical jargon or duplicate the clinician note fields verbatim.
 8. ADA ITEM CODE BILLING EXTRACTION:
-   - Identify any diagnostic, preventive, restorative, or surgical procedures mentioned or performed in the session and output relevant Australian Dental Association (ADA) 3-digit item codes in 'adaCodes' as a comma-separated string (e.g., "011 - Comprehensive oral examination, 022 - Intraoral periapical radiograph (Tooth 16), 414 - Pulp extirpation (Tooth 16)").`;
+   - Identify any diagnostic, preventive, restorative, or surgical procedures mentioned or performed in the session and output relevant Australian Dental Association (ADA) 3-digit item codes in 'adaCodes' as a comma-separated string (e.g., "011 - Comprehensive oral examination, 022 - Intraoral periapical radiograph (Tooth 16), 414 - Pulp extirpation (Tooth 16)").
+9. BRUXISM, OCCLUSAL WEAR & SPLINT THERAPY:
+   - If the transcript mentions teeth grinding, clenching, morning jaw stiffness, wear facets, masseter soreness, or an occlusal splint/nightguard, explicitly capture the bruxism diagnosis, generalized occlusal attrition in toothFindings, masseter/TMJ tenderness in findingsGingival, occlusal splint recommendation in recommendations, and include ADA item "965 - Occlusal splint (nightguard)" in adaCodes.`;
 
 const CLINICAL_NOTE_SCHEMA = {
   type: Type.OBJECT,
@@ -2532,6 +2535,16 @@ MANDATORY CLINICAL RULES:
 9. ADA ITEM CODES: In adaCodes, list Australian Dental Association 3-digit item numbers that were actually mentioned or clearly performed, as a comma-separated string e.g. "011 - Comprehensive oral examination, 022 - Intraoral periapical radiograph (Tooth 16), 414 - Pulp extirpation (Tooth 16)".
 10. SPECIALIST REFERRAL: If the clinician mentions referring the patient to a dental specialist (Endodontist, Periodontist, Oral & Maxillofacial Surgeon, Orthodontist, Prosthodontist, Paediatric), set specialistReferral.required to true and generate a peer-to-peer referral letter in letterText using Australian clinical formatting. If NO referral is discussed, set specialistReferral.required to false.
 11. PATIENT CONSENT & CARE: In patientConsent, provide an AHPRA-compliant layperson summary of treatment, options discussed, risks of no treatment, post-operative home care instructions, and red-flag warning signs.
+12. OCCLUSAL WEAR, BRUXISM & SPLINT THERAPY (CRITICAL):
+    Whenever teeth grinding, clenching, bruxism, attrition, wear facets, masseter hypertrophy/pain, TMJ tenderness, or an occlusal splint (nightguard) is spoken or referenced:
+    - chiefComplaint: Explicitly document the presenting nocturnal grinding, morning jaw stiffness/pain, clenching, or wear concern.
+    - toothFindings: Document generalized or localized occlusal & incisal attrition, wear facets (enamel vs dentin exposure), loss of canine guidance, abfractions, or chipped incisal edges. Format as:
+      "Generalized: Moderate-to-severe occlusal & incisal attrition across anterior & posterior arches. Wear facets with dentin exposure on incisal edges (13-23, 33-43) and occlusal tables (16, 26, 36, 46). Loss of canine rise/guidance."
+    - findingsGingival / objective: Document bilateral masseter and temporalis muscle palpation (tender/hypertrophic), TMJ evaluation (clicking, crepitus, deviation, range of motion), and mucosal checks (buccal linea alba, scalloped tongue).
+    - diagnosis: MUST explicitly state: "Sleep bruxism with secondary generalized occlusal attrition (moderate/severe)" and/or "Masticatory myofascial pain / TMD".
+    - treatmentPerformed: Detail any splint impression/digital intraoral scan, jaw relation record, or acute therapy performed today.
+    - recommendations: Hard acrylic occlusal splint / Michigan splint (ADA 965), sleep hygiene/stress reduction, soft diet protocol during acute muscle flare-up, avoid chewing gum/ice, review splint fit at delivery visit.
+    - adaCodes: Include ADA item "965 - Occlusal splint - per arch (nightguard)" whenever a splint/nightguard is planned, scanned, or recommended.
 `;
 
 
@@ -3093,6 +3106,83 @@ app.post('/api/schedule/parse-image', authenticateToken, async (req: any, res) =
   } catch (err: any) {
     logger.error('Failed to parse schedule image:', err);
     res.status(500).json({ error: 'Failed to parse appointment schedule image.' });
+  }
+});
+
+// Direct Multimodal Audio Transcription Endpoint
+app.post('/api/transcribe-audio', authenticateToken, async (req: any, res: express.Response) => {
+  try {
+    const { audioBase64, mimeType = 'audio/webm', userApiKey } = req.body || {};
+    if (!audioBase64 || typeof audioBase64 !== 'string') {
+      return res.status(400).json({ error: 'Missing audioBase64 in request body.' });
+    }
+
+    const cleanBase64 = audioBase64.replace(/^data:audio\/[a-zA-Z0-9_-]+;base64,/, '').trim();
+    const keyCandidates = [
+      userApiKey,
+      req.headers['x-gemini-api-key'],
+      process.env.GEMINI_API_KEY,
+      process.env.GEMINI_FALLBACK_API_KEY
+    ].filter((k): k is string => Boolean(k && k !== 'MY_GEMINI_API_KEY' && typeof k === 'string' && k.trim().length > 0));
+
+    if (keyCandidates.length === 0) {
+      return res.status(503).json({ error: 'No valid Gemini API key configured for audio transcription.' });
+    }
+
+    const apiKey = keyCandidates[0];
+    const ai = new GoogleGenAI({ apiKey });
+    const response = await ai.models.generateContent({
+      model: process.env.GEMINI_AUDIO_MODEL || process.env.GEMINI_MODEL || 'gemini-3.6-flash',
+      contents: [
+        {
+          inlineData: {
+            mimeType: mimeType || 'audio/webm',
+            data: cleanBase64
+          }
+        },
+        {
+          text: `You are an expert dental transcription AI for Australian clinical dentistry.
+Transcribe the spoken operatory consultation verbatim.
+Requirements:
+1. Ensure all teeth are formatted in FDI two-digit notation (11-48).
+2. Capture dental conditions accurately (e.g. bruxism, attrition, wear facets, clenching, TMJ tenderness, pulpitis, caries).
+3. Capture procedures (e.g. occlusal splint, nightguard, composite restoration, root canal, scaling).
+4. Return a JSON object with:
+{
+  "fullTranscript": "Full continuous dialogue text...",
+  "items": [
+    { "sender": "Dentist" | "Patient", "text": "Exact spoken line" }
+  ]
+}`
+        }
+      ],
+      config: {
+        responseMimeType: 'application/json'
+      }
+    });
+
+    const responseText = response.text;
+    if (!responseText) {
+      throw new Error('Gemini audio transcription returned empty text.');
+    }
+
+    let parsed: any = {};
+    try {
+      parsed = JSON.parse(responseText);
+    } catch {
+      parsed = { fullTranscript: responseText, items: [{ sender: 'Dialogue', text: responseText }] };
+    }
+
+    return res.json({
+      ok: true,
+      fullTranscript: parsed.fullTranscript || '',
+      items: Array.isArray(parsed.items) ? parsed.items : [
+        { sender: 'Dialogue', text: parsed.fullTranscript || responseText }
+      ]
+    });
+  } catch (err: any) {
+    logger.error('Failed to transcribe operatory audio:', err);
+    return res.status(500).json({ error: err.message || 'Failed to transcribe audio recording.' });
   }
 });
 

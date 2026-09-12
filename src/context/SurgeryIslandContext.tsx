@@ -9,6 +9,7 @@ import {
   generateSafeUuid
 } from '../lib/dayScheduleStorage';
 import { verifyTranscriptGrounding } from '../lib/transcriptGrounding';
+import { normalizeSpokenDentalText } from '../lib/dentalPhoneticLexicon';
 import TopSurgeryBar from '../components/TopSurgeryBar';
 import { AnimatePresence } from 'motion/react';
 
@@ -47,6 +48,8 @@ export function SurgeryIslandProvider({
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const speechRecognitionRef = useRef<any>(null);
+  const isRecordingActiveRef = useRef(false);
+  const accumulatedTranscriptRef = useRef('');
 
   const clearMicError = useCallback(() => {
     setMicError(null);
@@ -98,6 +101,8 @@ export function SurgeryIslandProvider({
       setMediaStream(stream);
       setRecordingItem(item);
       setLiveTranscript('');
+      accumulatedTranscriptRef.current = '';
+      isRecordingActiveRef.current = true;
 
       // 4. Mark target row as recording in storage
       const updated = updateScheduleItem(item.id, { status: 'recording' });
@@ -114,7 +119,7 @@ export function SurgeryIslandProvider({
       };
       recorder.start(2500);
 
-      // 6. Speech Recognition for live ADA tag chips (progressive enhancement)
+      // 6. Speech Recognition with continuous auto-restart & phonetic normalization
       const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
       if (SpeechRec) {
         try {
@@ -122,13 +127,36 @@ export function SurgeryIslandProvider({
           sr.continuous = true;
           sr.interimResults = true;
           sr.lang = 'en-AU';
+
+          let finalizedText = '';
+
           sr.onresult = (event: any) => {
-            let fullText = '';
-            for (let i = 0; i < event.results.length; i++) {
-              fullText += event.results[i][0].transcript + ' ';
+            let interimText = '';
+            for (let i = event.resultIndex; i < event.results.length; ++i) {
+              const res = event.results[i];
+              if (res.isFinal) {
+                finalizedText = (finalizedText + ' ' + res[0].transcript.trim()).trim();
+                accumulatedTranscriptRef.current = finalizedText;
+              } else {
+                interimText += ' ' + res[0].transcript;
+              }
             }
-            setLiveTranscript(fullText);
+            const combined = (finalizedText + ' ' + interimText).trim();
+            const normalized = normalizeSpokenDentalText(combined);
+            setLiveTranscript(normalized);
+            accumulatedTranscriptRef.current = normalized;
           };
+
+          sr.onend = () => {
+            if (isRecordingActiveRef.current) {
+              try {
+                sr.start();
+              } catch {
+                // ignore transient restart errors
+              }
+            }
+          };
+
           sr.onerror = () => {};
           sr.start();
           speechRecognitionRef.current = sr;
@@ -150,6 +178,7 @@ export function SurgeryIslandProvider({
   const finishInPlaceRecording = async () => {
     if (!recordingItem) return;
     const targetItem = { ...recordingItem };
+    isRecordingActiveRef.current = false;
 
     // 1. Stop Speech Recognition
     if (speechRecognitionRef.current) {
@@ -176,12 +205,62 @@ export function SurgeryIslandProvider({
     setRecordingItem(null);
 
     // Build transcript payload
-    const finalTranscriptText = liveTranscript.trim() || `Consultation recorded for ${targetItem.patientName} (${targetItem.procedureText}). Full clinical examination performed.`;
-    const transcriptItems = [
+    let finalTranscriptText = (liveTranscript || accumulatedTranscriptRef.current).trim();
+    let transcriptItems = [
       { sender: 'Dentist', text: `Good morning ${targetItem.patientName}, let's begin your appointment for ${targetItem.procedureText}.` },
-      { sender: 'Dialogue', text: finalTranscriptText },
+      { sender: 'Dialogue', text: finalTranscriptText || `Consultation recorded for ${targetItem.patientName} (${targetItem.procedureText}). Full clinical examination performed.` },
       { sender: 'Dentist', text: `All procedures completed. We will review your recovery and plan the next recall visit.` }
     ];
+
+    // High-Precision Multimodal Audio Fallback:
+    // If Web Speech API captured very few words (<12 words) and we have recorded audio chunks,
+    // send the actual audio to Gemini's multimodal audio transcription endpoint.
+    if (finalTranscriptText.split(/\s+/).filter(Boolean).length < 12 && audioChunksRef.current.length > 0) {
+      try {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        if (audioBlob.size > 1500) {
+          const reader = new FileReader();
+          const base64Promise = new Promise<string>((resolve) => {
+            reader.onloadend = () => {
+              const res = reader.result as string;
+              resolve(res ? res.split(',')[1] || '' : '');
+            };
+          });
+          reader.readAsDataURL(audioBlob);
+          const audioBase64 = await base64Promise;
+
+          if (audioBase64) {
+            const customKey = localStorage.getItem('dentai_custom_gemini_key') || '';
+            const txRes = await fetch('/api/transcribe-audio', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authToken}`
+              },
+              body: JSON.stringify({
+                audioBase64,
+                mimeType: audioBlob.type || 'audio/webm',
+                userApiKey: customKey || undefined
+              })
+            });
+            if (txRes.ok) {
+              const txData = await txRes.json();
+              if (Array.isArray(txData.items) && txData.items.length > 0) {
+                transcriptItems = txData.items;
+              } else if (txData.fullTranscript) {
+                transcriptItems = [
+                  { sender: 'Dentist', text: `Good morning ${targetItem.patientName}, let's begin your appointment for ${targetItem.procedureText}.` },
+                  { sender: 'Dialogue', text: txData.fullTranscript },
+                  { sender: 'Dentist', text: `All procedures completed. We will review your recovery and plan the next recall visit.` }
+                ];
+              }
+            }
+          }
+        }
+      } catch (audioFallbackErr) {
+        console.warn('[SurgeryIsland] Multimodal audio transcription fallback warning:', audioFallbackErr);
+      }
+    }
 
     // Update row to processing with safe UUID and cached transcript
     const assignedConsultationId = generateSafeUuid();
