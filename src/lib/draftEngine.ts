@@ -60,6 +60,11 @@ export function normalizeFdiSpoken(text: string): string {
     /\b(tooth|teeth)\s+(ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen)\b/gi,
     (m, _lead: string, w: string) => `tooth ${WORD_NUMBERS[w.toLowerCase()]}`
   );
+  // Conjoined teeth like "tooth one six and one seven" or "tooth 16 and 17"
+  out = out.replace(
+    /\b(and|to)\s+(oh|zero|one|two|three|four|five|six|seven|eight|nine)\s+(oh|zero|one|two|three|four|five|six|seven|eight|nine)\b/gi,
+    (m, lead: string, w1: string, w2: string) => `${lead} tooth ${WORD_NUMBERS[w1.toLowerCase()]}${WORD_NUMBERS[w2.toLowerCase()]}`
+  );
   // Occasional run-on accent: "tooth 26, tooth 46" already fine.
   return out;
 }

@@ -44,7 +44,10 @@ import {
   getTodayDateStr,
   mergeScheduleItems,
   calculateDailyProduction,
-  generateSafeUuid
+  generateSafeUuid,
+  generatePreOpBrief,
+  detectTreatmentOpportunity,
+  generateAftercareSnippet
 } from '../lib/dayScheduleStorage';
 import { AppointmentType, APPOINTMENT_TYPES, getAppointmentTypeLabel, getTemplateById } from '../lib/dentalLibrary';
 import { generateOfflineDraft } from '../lib/draftEngine';
@@ -93,6 +96,7 @@ export default function DayScheduleQueue({
   const [isParsing, setIsParsing] = useState(false);
   const [parsingError, setParsingError] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [copiedAftercareId, setCopiedAftercareId] = useState<string | null>(null);
   const [showWalkInModal, setShowWalkInModal] = useState(false);
   const [viewNoteItem, setViewNoteItem] = useState<DayScheduleItem | null>(null);
   const [consentGuardItem, setConsentGuardItem] = useState<DayScheduleItem | null>(null);
@@ -478,7 +482,13 @@ export default function DayScheduleQueue({
     ];
 
     // Smart merge demo items
-    const merged = mergeScheduleItems(items, demoItems, getTodayDateStr());
+    const demoItemsWithAgents = demoItems.map(item => ({
+      ...item,
+      preOpBrief: item.preOpBrief || generatePreOpBrief(item.appointmentType, item.procedureText, item.patientName),
+      treatmentOpportunity: item.treatmentOpportunity || detectTreatmentOpportunity(item, item.clinicalNote, item.adaCodes, item.transcript),
+      aftercareSummary: item.aftercareSummary || (item.status === 'ready' ? generateAftercareSnippet(item.appointmentType, item.procedureText, item.clinicalNote) : undefined)
+    }));
+    const merged = mergeScheduleItems(items, demoItemsWithAgents, getTodayDateStr());
     setItems(merged);
     saveTodaySchedule(merged);
   };
@@ -493,6 +503,17 @@ export default function DayScheduleQueue({
       setTimeout(() => setCopiedId(null), 2500);
     } catch {
       setCopiedId(item.id);
+    }
+  };
+
+  const handleCopyAftercare = async (item: DayScheduleItem) => {
+    const text = item.aftercareSummary || generateAftercareSnippet(item.appointmentType, item.procedureText, item.clinicalNote);
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedAftercareId(item.id);
+      setTimeout(() => setCopiedAftercareId(null), 2500);
+    } catch {
+      setCopiedAftercareId(item.id);
     }
   };
 
@@ -550,6 +571,8 @@ export default function DayScheduleQueue({
       });
 
       const grounding = verifyTranscriptGrounding(formatted, transcript, rawAdaCodes);
+      const opp = detectTreatmentOpportunity(item, formatted, rawAdaCodes, transcript);
+      const aftercare = generateAftercareSnippet(item.appointmentType, item.procedureText, formatted);
 
       updateScheduleItem(item.id, {
         status: 'ready',
@@ -560,6 +583,8 @@ export default function DayScheduleQueue({
         groundingScore: grounding.groundingScore,
         isFullyGrounded: grounding.isFullyGrounded,
         unverifiedClaims: grounding.unverifiedClaims,
+        treatmentOpportunity: opp,
+        aftercareSummary: aftercare,
         error: undefined
       });
       setItems(loadTodaySchedule());
@@ -680,6 +705,9 @@ export default function DayScheduleQueue({
               grounding = verifyTranscriptGrounding(formatted, item.transcript || [], rawAdaCodes);
             }
 
+            const opp = detectTreatmentOpportunity(item, formatted, rawAdaCodes, item.transcript || []);
+            const aftercare = generateAftercareSnippet(item.appointmentType, item.procedureText, formatted);
+
             updateScheduleItem(item.id, {
               status: 'ready',
               clinicalNote: formatted,
@@ -688,6 +716,8 @@ export default function DayScheduleQueue({
               groundingScore: grounding?.groundingScore ?? 100,
               isFullyGrounded: grounding?.isFullyGrounded ?? true,
               unverifiedClaims: grounding?.unverifiedClaims ?? [],
+              treatmentOpportunity: opp,
+              aftercareSummary: aftercare,
               error: undefined
             });
             setItems(loadTodaySchedule());
@@ -1353,6 +1383,37 @@ export default function DayScheduleQueue({
                       )}
                     </div>
 
+                    {/* Autonomous Pre-Op Brief (Scheduled / In Progress) */}
+                    {item.preOpBrief && !isReady && (
+                      <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium border ${
+                        theme === 'light'
+                          ? 'bg-amber-50/80 border-amber-200 text-amber-900'
+                          : 'bg-amber-500/10 border-amber-500/25 text-amber-200/90'
+                      }`}>
+                        <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                        <span className="truncate"><strong className="font-bold">Pre-Op:</strong> {item.preOpBrief}</span>
+                      </div>
+                    )}
+
+                    {/* Autonomous Treatment Recovery Opportunity (Completed) */}
+                    {isReady && item.treatmentOpportunity && (
+                      <div className={`flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-xl text-xs font-bold border ${
+                        theme === 'light'
+                          ? 'bg-emerald-50 text-emerald-950 border-emerald-300 shadow-xs'
+                          : 'bg-emerald-500/15 text-emerald-200 border-emerald-500/30 shadow-xs'
+                      }`}>
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className="text-amber-400">⭐</span>
+                          <span className="truncate">
+                            Unbooked: {item.treatmentOpportunity.description} {item.treatmentOpportunity.tooth ? `(#${item.treatmentOpportunity.tooth})` : ''}
+                          </span>
+                        </div>
+                        <span className="font-mono text-emerald-400 font-black shrink-0">
+                          Est. ${item.treatmentOpportunity.estimatedValueAud} AUD
+                        </span>
+                      </div>
+                    )}
+
                     {isFailed && (
                       <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs font-medium">
                         <AlertCircle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
@@ -1506,21 +1567,52 @@ export default function DayScheduleQueue({
                         )}
 
                         {isReady && (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleCopyNote(item);
-                            }}
-                            className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer active:scale-95 ${
-                              copiedId === item.id
-                                ? 'bg-emerald-400 text-slate-950 font-black shadow-md'
-                                : 'bg-[#162436] hover:bg-[#20334A] text-slate-100 border border-[#233852]'
-                            }`}
-                            title="Express copy note for D4W / Praktika"
-                          >
-                            {copiedId === item.id ? <Check className="w-3.5 h-3.5 stroke-[3]" /> : <Copy className="w-3.5 h-3.5 text-cyan-400" />}
-                            <span>{copiedId === item.id ? 'Copied' : 'Copy'}</span>
-                          </button>
+                          <div className="flex items-center gap-1.5">
+                            {item.aftercareSummary && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleCopyAftercare(item);
+                                }}
+                                className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer active:scale-95 ${
+                                  copiedAftercareId === item.id
+                                    ? 'bg-cyan-400 text-slate-950 font-black shadow-md'
+                                    : 'bg-[#121E2E] hover:bg-[#18283D] text-slate-300 border border-[#1E3048]'
+                                }`}
+                                title="Copy plain-English patient aftercare advice for SMS"
+                              >
+                                {copiedAftercareId === item.id ? (
+                                  <>
+                                    <Check className="w-3.5 h-3.5 text-slate-950 stroke-[3]" />
+                                    <span>SMS Copied</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Copy className="w-3.5 h-3.5 text-cyan-400" />
+                                    <span className="hidden sm:inline">Aftercare SMS</span>
+                                    <span className="sm:hidden">SMS</span>
+                                  </>
+                                )}
+                              </button>
+                            )}
+
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleCopyNote(item);
+                              }}
+                              className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer active:scale-95 ${
+                                copiedId === item.id
+                                  ? 'bg-emerald-400 text-slate-950 font-black shadow-md'
+                                  : 'bg-[#162436] hover:bg-[#20334A] text-slate-100 border border-[#233852]'
+                              }`}
+                              title="Express copy note for D4W / Praktika"
+                            >
+                              {copiedId === item.id ? <Check className="w-3.5 h-3.5 stroke-[3]" /> : <Copy className="w-3.5 h-3.5 text-cyan-400" />}
+                              <span>{copiedId === item.id ? 'Copied' : 'Copy'}</span>
+                            </button>
+                          </div>
                         )}
 
                         {!isRecordingThis && (

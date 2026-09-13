@@ -6,6 +6,8 @@
  * dialogue in the operatory transcript.
  */
 
+import { normalizeFdiSpoken } from './draftEngine';
+
 export interface GroundingEntity {
   category: 'tooth' | 'procedure' | 'surface' | 'anaesthetic' | 'diagnosis';
   term: string;
@@ -83,8 +85,9 @@ function normalizeForMatching(text: string): string {
  * Extracts 2-digit FDI tooth numbers (e.g. 16, 24, 36, 48) and tooth mentions (#16, tooth 16, upper right first molar)
  */
 export function extractToothNumbers(text: string): string[] {
+  const fdiNormalized = normalizeFdiSpoken(text);
   // First mask out dates and clock times (e.g. 14:30, 2026-09-12, 12/09/2026) so hours/minutes like 14 or 24 are not treated as FDI teeth
-  const sanitizedText = text
+  const sanitizedText = fdiNormalized
     .replace(/\b\d{1,2}:\d{2}(?::\d{2})?\b/g, ' ')
     .replace(/\b\d{4}[-/]\d{1,2}[-/]\d{1,2}\b/g, ' ')
     .replace(/\b\d{1,2}[-/]\d{1,2}[-/]\d{2,4}\b/g, ' ');

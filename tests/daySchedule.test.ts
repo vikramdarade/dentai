@@ -21,7 +21,10 @@ import {
   normalizePatientName,
   generateSlotFingerprint,
   mergeScheduleItems,
-  calculateDailyProduction
+  calculateDailyProduction,
+  generatePreOpBrief,
+  detectTreatmentOpportunity,
+  generateAftercareSnippet
 } from '../src/lib/dayScheduleStorage';
 import { verifyTranscriptGrounding, extractToothNumbers } from '../src/lib/transcriptGrounding';
 import { generateOfflineDraft } from '../src/lib/draftEngine';
@@ -823,5 +826,109 @@ describe('Async Note Jobs API with Verbal Consent Audit Logging', () => {
     expect(recoveredItem?.clinicalNote).toContain('EXAMINATION & FINDINGS:');
     expect(recoveredItem?.isFullyGrounded).toBe(true);
   });
+
+  describe('Autonomous Practice Cockpit Helpers', () => {
+    it('generates accurate 1-line pre-op briefings per appointment type', () => {
+      const restBrief = generatePreOpBrief('restorative', 'Filling tooth 16 MO');
+      expect(restBrief).toContain('cavity surfaces');
+      expect(restBrief).toContain('rubber dam');
+
+      const crownBrief = generatePreOpBrief('prosthodontic', 'Prep #26 Ceramic Crown');
+      expect(crownBrief).toContain('occlusal clearance');
+      expect(crownBrief).toContain('shade');
+
+      const surgBrief = generatePreOpBrief('surgical', 'Extract tooth 38');
+      expect(surgBrief).toContain('anticoagulants');
+      expect(surgBrief).toContain('consent');
+
+      const emergBrief = generatePreOpBrief('emergency', 'Severe pain upper left');
+      expect(emergBrief).toContain('percussion tenderness');
+      expect(emergBrief).toContain('vitality');
+    });
+
+    it('detects high-value unbooked treatment opportunities from note findings', () => {
+      // 1. Ceramic Crown opportunity
+      const crownOpp = detectTreatmentOpportunity(
+        { procedureText: 'Exam & Consult' },
+        'Tooth 16 has a severe fracture line and needs a ceramic crown prep next visit.'
+      );
+      expect(crownOpp).toBeDefined();
+      expect(crownOpp?.code).toBe('611');
+      expect(crownOpp?.description).toContain('Crown');
+      expect(crownOpp?.estimatedValueAud).toBe(1750);
+      expect(crownOpp?.tooth).toBe('16');
+
+      // 2. Dental Implant opportunity
+      const implantOpp = detectTreatmentOpportunity(
+        { procedureText: 'Surgical consult' },
+        'Discussed missing tooth 21, consented for dental implant fixture placement next month.',
+        ['688']
+      );
+      expect(implantOpp).toBeDefined();
+      expect(implantOpp?.code).toBe('688');
+      expect(implantOpp?.estimatedValueAud).toBe(4200);
+
+      // 3. Root Canal opportunity
+      const endoOpp = detectTreatmentOpportunity(
+        { procedureText: 'Emergency' },
+        'Pulp extirpation initiated on tooth 36, booked for complete root canal therapy.',
+        ['414']
+      );
+      expect(endoOpp).toBeDefined();
+      expect(endoOpp?.code).toBe('414');
+      expect(endoOpp?.estimatedValueAud).toBe(1150);
+
+      // 4. Regular cleaning (no high value opportunity)
+      const noOpp = detectTreatmentOpportunity(
+        { procedureText: 'Scale and clean' },
+        'Routine calculus debridement completed. Healthy gums.'
+      );
+      expect(noOpp).toBeUndefined();
+    });
+
+    it('generates plain-English patient aftercare advice tailored for SMS', () => {
+      const restSms = generateAftercareSnippet('restorative', 'Composite filling');
+      expect(restSms).toContain('avoid hot drinks');
+      expect(restSms).toContain('numbness');
+
+      const surgSms = generateAftercareSnippet('surgical', 'Tooth extraction');
+      expect(smsContainsWords(surgSms, ['gauze', 'smoking', '24 hours'])).toBe(true);
+
+      const hygSms = generateAftercareSnippet('scale_clean', 'Routine prophylaxis');
+      expect(hygSms).toContain('Nil by mouth for 30 minutes');
+    });
+
+    it('embeds the [FRONT DESK ACTION ITEM] block into the clipboard payload', () => {
+      const testItem: DayScheduleItem = {
+        id: 'sched_test_pms_action',
+        time: '14:00',
+        patientName: 'Rachel Green',
+        procedureText: 'Tooth #16 Examination',
+        appointmentType: 'examination',
+        templateId: 'standard',
+        status: 'ready',
+        clinicalNote: 'Patient presented for examination of tooth 16. Incipient crack detected.',
+        treatmentOpportunity: {
+          code: '611',
+          description: 'Full Ceramic / PFM Crown',
+          estimatedValueAud: 1750,
+          tooth: '16'
+        },
+        aftercareSummary: 'Please avoid chewing hard nuts or crusty bread on tooth 16 until crowned.'
+      };
+
+      const formatted = formatNoteForPmsClipboard(testItem);
+
+      expect(formatted).toContain('Patient presented for examination of tooth 16');
+      expect(formatted).toContain('[FRONT DESK ACTION ITEM]:');
+      expect(formatted).toContain('UNBOOKED TREATMENT: Full Ceramic / PFM Crown (Tooth #16) — Est. $1750 AUD');
+      expect(formatted).toContain('PATIENT AFTERCARE: Please avoid chewing hard nuts');
+    });
+  });
 });
+
+function smsContainsWords(text: string, words: string[]): boolean {
+  const norm = text.toLowerCase();
+  return words.every(w => norm.includes(w.toLowerCase()));
+}
 

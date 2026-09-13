@@ -527,6 +527,26 @@
       "dentistId": "91212da4-bfca-45d3-90c2-b8108e3249bd",
       "detail": {},
       "timestamp": "2026-08-25T17:15:46.229Z"
+    },
+    {
+      "event": "clinic_created",
+      "dentistId": "5a002da7-d8e6-4d5c-8566-000d534e2a32",
+      "detail": {
+        "clinicId": "2b0b76a4-d4c5-4b1e-8ee1-925ab37fe706"
+      },
+      "timestamp": "2026-09-12T12:55:42.263Z"
+    },
+    {
+      "event": "dentist_registered",
+      "dentistId": "5a002da7-d8e6-4d5c-8566-000d534e2a32",
+      "detail": {},
+      "timestamp": "2026-09-12T12:55:42.263Z"
+    },
+    {
+      "event": "login_success",
+      "dentistId": "5a002da7-d8e6-4d5c-8566-000d534e2a32",
+      "detail": {},
+      "timestamp": "2026-09-12T12:56:13.777Z"
     }
   ]
 }

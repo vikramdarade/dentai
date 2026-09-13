@@ -6,7 +6,9 @@ import {
   loadTodaySchedule,
   formatNoteForPmsClipboard,
   getTodayDateStr,
-  generateSafeUuid
+  generateSafeUuid,
+  detectTreatmentOpportunity,
+  generateAftercareSnippet
 } from '../lib/dayScheduleStorage';
 import { verifyTranscriptGrounding } from '../lib/transcriptGrounding';
 import { normalizeSpokenDentalText } from '../lib/dentalPhoneticLexicon';
@@ -431,6 +433,9 @@ export function SurgeryIslandProvider({
               grounding = verifyTranscriptGrounding(formatted, transcriptItems, rawAdaCodes);
             }
 
+            const opp = detectTreatmentOpportunity(targetItem, formatted, rawAdaCodes, transcriptItems);
+            const aftercare = generateAftercareSnippet(targetItem.appointmentType, targetItem.procedureText, formatted);
+
             const fresh = updateScheduleItem(targetItem.id, {
               status: 'ready',
               clinicalNote: formatted,
@@ -439,7 +444,9 @@ export function SurgeryIslandProvider({
               completedAt: new Date().toISOString(),
               groundingScore: grounding?.groundingScore ?? 100,
               isFullyGrounded: grounding?.isFullyGrounded ?? true,
-              unverifiedClaims: grounding?.unverifiedClaims ?? []
+              unverifiedClaims: grounding?.unverifiedClaims ?? [],
+              treatmentOpportunity: opp,
+              aftercareSummary: aftercare
             });
             onScheduleUpdated?.(fresh);
           } else {

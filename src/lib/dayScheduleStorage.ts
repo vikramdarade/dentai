@@ -29,6 +29,14 @@ export interface DayScheduleItem {
   groundingScore?: number;
   isFullyGrounded?: boolean;
   unverifiedClaims?: string[];
+  preOpBrief?: string;
+  treatmentOpportunity?: {
+    code: string;
+    description: string;
+    estimatedValueAud: number;
+    tooth?: string;
+  };
+  aftercareSummary?: string;
 }
 
 const STORAGE_KEY_PREFIX = 'dentai_day_schedule_';
@@ -107,7 +115,8 @@ export function loadTodaySchedule(dateStr = getTodayDateStr()): DayScheduleItem[
       }
       return {
         ...item,
-        adaCodes: sanitizedCodes
+        adaCodes: sanitizedCodes,
+        preOpBrief: item.preOpBrief || generatePreOpBrief(item.appointmentType, item.procedureText, item.patientName)
       };
     }).filter(Boolean) as DayScheduleItem[];
   } catch (err) {
@@ -150,7 +159,8 @@ export function addScheduleItem(
     patientName: cleanPatientDisplayName(item.patientName),
     time: normalizeStartTime(item.time),
     id: `sched_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-    status: 'scheduled'
+    status: 'scheduled',
+    preOpBrief: item.preOpBrief || generatePreOpBrief(item.appointmentType, item.procedureText, item.patientName)
   };
   const updated = [...current, newItem].sort((a, b) => normalizeStartTime(a.time).localeCompare(normalizeStartTime(b.time)));
   saveTodaySchedule(updated, dateStr);
@@ -391,7 +401,8 @@ export function mergeScheduleItems(
         ...incomingItem,
         id: incomingItem.id || `sched_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
         status: incomingItem.status || 'scheduled',
-        source: 'snip'
+        source: 'snip',
+        preOpBrief: incomingItem.preOpBrief || generatePreOpBrief(incomingItem.appointmentType, incomingItem.procedureText, incomingItem.patientName)
       });
     }
   }
@@ -409,7 +420,7 @@ export function mergeScheduleItems(
  * Estimated Australian Dental Association (ADA) billing values
  * for fast real-time daily production metrics.
  */
-const ADA_BENCHMARK_FEES: Record<string, number> = {
+export const ADA_BENCHMARK_FEES: Record<string, number> = {
   '011': 85,  // Comprehensive oral examination
   '012': 75,  // Periodic oral examination
   '013': 80,  // Oral examination - limited
@@ -420,13 +431,18 @@ const ADA_BENCHMARK_FEES: Record<string, number> = {
   '121': 45,  // Topical application of fluoride
   '161': 80,  // Fissure sealant
   '311': 260, // Extraction of tooth
+  '314': 380, // Sectioning of tooth / bone removal
   '414': 380, // Pulp extirpation
   '417': 420, // Root canal instrumentation
+  '418': 450, // Root canal obturation
   '531': 200, // 1-surface composite resin
   '532': 255, // 2-surface composite resin
   '533': 310, // 3-surface composite resin
   '611': 1750,// Full crown - ceramic
   '615': 1650,// Full crown - porcelain fused to metal
+  '643': 3200,// Fixed dental bridge
+  '688': 4200,// Dental implant fixture & abutment
+  '965': 980, // Occlusal splint
   'default_examination': 150,
   'default_scale_clean': 210,
   'default_restorative': 255,
@@ -435,6 +451,160 @@ const ADA_BENCHMARK_FEES: Record<string, number> = {
   'default_endodontic': 850,
   'default_surgical': 290
 };
+
+/**
+ * Generates a concise, 1-line clinical orientation cue for the dentist
+ * before the patient sits in the chair.
+ */
+export function generatePreOpBrief(
+  appointmentType: AppointmentType,
+  procedureText = '',
+  patientName = ''
+): string {
+  const normProc = (procedureText || '').toLowerCase();
+
+  if (normProc.includes('crown') || appointmentType === 'prosthodontic') {
+    return 'Check occlusal clearance, margin prep definition & shade matching. Verify local anaesthesia.';
+  }
+  if (normProc.includes('pain') || normProc.includes('pulpitis') || normProc.includes('emerg') || appointmentType === 'emergency') {
+    return 'Assess chief complaint, cold/percussion tenderness & periapical radiograph. Assess pulp vitality.';
+  }
+  if (normProc.includes('root canal') || normProc.includes('endo') || appointmentType === 'endodontic') {
+    return 'Verify working length, canal patency & rubber dam isolation. LED dressing check.';
+  }
+  if (normProc.includes('extract') || normProc.includes('surg') || appointmentType === 'surgical') {
+    return 'Review medical history, anticoagulants & bleeding risks. Confirm informed verbal consent.';
+  }
+  if (normProc.includes('clean') || normProc.includes('scale') || appointmentType === 'scale_clean') {
+    return 'BPE periodontal sextant screening, calculus index & gingival bleeding review.';
+  }
+  if (appointmentType === 'paediatric') {
+    return 'Tell-Show-Do approach, non-traumatic behaviour guidance & topical fluoride check.';
+  }
+  if (appointmentType === 'restorative' || normProc.includes('fill') || normProc.includes('resin') || normProc.includes('composite')) {
+    return 'Verify cavity surfaces (MODBL), check occlusal contacts & rubber dam isolation.';
+  }
+  return 'Comprehensive AHPRA check-up. Mucosal screen, BPE score & routine bitewings review.';
+}
+
+/**
+ * Zero-hallucination opportunity detector: only flags unbooked high-value treatment
+ * when the clinician or note explicitly contains high-value ADA codes or procedures.
+ */
+export function detectTreatmentOpportunity(
+  item: Partial<DayScheduleItem>,
+  noteText = '',
+  adaCodes?: any[],
+  transcript?: any[]
+): { code: string; description: string; estimatedValueAud: number; tooth?: string } | undefined {
+  const combinedText = `${item.procedureText || ''} ${item.clinicalNote || ''} ${noteText || ''} ${(transcript || []).map((t: any) => t.text).join(' ')}`.toLowerCase();
+
+  const codeList = (adaCodes || item.adaCodes || []).map((c: any) => {
+    if (typeof c === 'string') return c.replace(/[^0-9]/g, '');
+    if (typeof c === 'object' && c?.code) return String(c.code).replace(/[^0-9]/g, '');
+    return '';
+  }).filter(Boolean);
+
+  const toothMatch = combinedText.match(/(?:tooth|teeth|#)\s*([1-4][1-8])/i);
+  const tooth = toothMatch ? toothMatch[1] : undefined;
+
+  if (codeList.includes('688') || combinedText.includes('implant')) {
+    return {
+      code: '688',
+      description: 'Dental Implant Fixture & Abutment',
+      estimatedValueAud: 4200,
+      tooth
+    };
+  }
+
+  if (
+    codeList.includes('611') ||
+    codeList.includes('615') ||
+    combinedText.includes('crown prep') ||
+    combinedText.includes('ceramic crown') ||
+    (combinedText.includes('crown') && !combinedText.includes('temporary crown only'))
+  ) {
+    return {
+      code: '611',
+      description: 'Full Ceramic / PFM Crown',
+      estimatedValueAud: 1750,
+      tooth
+    };
+  }
+
+  if (codeList.includes('643') || combinedText.includes('bridge')) {
+    return {
+      code: '643',
+      description: 'Fixed Dental Bridge',
+      estimatedValueAud: 3200,
+      tooth
+    };
+  }
+
+  if (
+    codeList.includes('414') ||
+    codeList.includes('417') ||
+    combinedText.includes('pulp extirpation') ||
+    combinedText.includes('root canal')
+  ) {
+    return {
+      code: '414',
+      description: 'Complete Root Canal Therapy',
+      estimatedValueAud: 1150,
+      tooth
+    };
+  }
+
+  if (
+    codeList.includes('965') ||
+    combinedText.includes('occlusal splint') ||
+    combinedText.includes('nightguard') ||
+    combinedText.includes('bruxism')
+  ) {
+    return {
+      code: '965',
+      description: 'Occlusal Splint / Nightguard',
+      estimatedValueAud: 980,
+      tooth
+    };
+  }
+
+  if (codeList.includes('311') || combinedText.includes('surgical extraction')) {
+    return {
+      code: '311',
+      description: 'Surgical Tooth Extraction',
+      estimatedValueAud: 380,
+      tooth
+    };
+  }
+
+  return undefined;
+}
+
+/**
+ * Generates jargon-free patient aftercare copy ready for Australian PMS SMS gateways.
+ */
+export function generateAftercareSnippet(
+  appointmentType: AppointmentType,
+  procedureText = '',
+  noteText = ''
+): string {
+  const norm = `${procedureText} ${noteText}`.toLowerCase();
+
+  if (norm.includes('extract') || appointmentType === 'surgical') {
+    return 'Bite gently on gauze for 30 mins. Avoid hot liquids, smoking, rinsing vigorously, or heavy exertion for 24 hours. Take analgesics as directed if discomfort persists.';
+  }
+  if (norm.includes('crown') || norm.includes('temp') || norm.includes('bridge')) {
+    return 'Avoid chewing sticky or hard foods on this tooth while the temporary is in place. Brush gently around the gumline. Numbness will wear off in 2-3 hours.';
+  }
+  if (norm.includes('root canal') || norm.includes('extirpat') || appointmentType === 'endodontic' || appointmentType === 'emergency') {
+    return 'Temporary filling placed. Avoid chewing hard foods on this side until permanent restoration is completed. Mild tenderness to biting is normal for 48 hours.';
+  }
+  if (appointmentType === 'scale_clean' || norm.includes('clean') || norm.includes('fluoride')) {
+    return 'Nil by mouth for 30 minutes following fluoride treatment. Continue gentle brushing twice daily with soft-bristled brush and daily interdental flossing.';
+  }
+  return 'Please avoid hot drinks and chewing on the treated side until local anaesthetic numbness fully wears off (approx 2 hours). Contact us if your bite feels high.';
+}
 
 export function calculateDailyProduction(items: DayScheduleItem[]): number {
   let total = 0;
@@ -464,72 +634,89 @@ export function calculateDailyProduction(items: DayScheduleItem[]): number {
 
 /**
  * Format a completed consultation note specifically for Australian PMS (D4W & Praktika)
- * clinical progress notes tab.
+ * clinical progress notes tab, embedding a standardized [FRONT DESK ACTION ITEM]
+ * block for effortless front-desk handoff.
  */
 export function formatNoteForPmsClipboard(item: DayScheduleItem, consultation?: any): string {
+  let baseNote = '';
   if (item?.clinicalNote) {
-    return item.clinicalNote;
-  }
+    baseNote = item.clinicalNote;
+  } else if (consultation) {
+    const f = consultation.findings || {};
+    const lines: string[] = [
+      `=== DENTAI AMBIENT CLINICAL NOTE ===`,
+      `Patient: ${consultation.firstName || ''} ${consultation.lastName || ''}`.trim(),
+      `Date: ${consultation.date || getTodayDateStr()} | Time: ${item?.time || ''}`,
+      `Procedure: ${item?.procedureText || consultation.appointmentType || 'General Consultation'}`,
+      ``
+    ];
 
-  if (!consultation) {
-    return `Patient: ${item?.patientName || 'Patient'}\nAppointment: ${item?.procedureText || 'Consultation'}\nStatus: Completed`;
-  }
+    if (f.chiefComplaint) {
+      lines.push(`CHIEF COMPLAINT:`, f.chiefComplaint, ``);
+    }
+    if (f.clinicalFindings) {
+      lines.push(`EXAMINATION & FINDINGS:`, f.clinicalFindings, ``);
+    }
+    if (f.treatmentRendered) {
+      lines.push(`TREATMENT PERFORMED:`, f.treatmentRendered, ``);
+    }
+    if (f.localAnaesthetic) {
+      lines.push(`LOCAL ANAESTHETIC:`, f.localAnaesthetic, ``);
+    }
+    if (f.prescriptions) {
+      lines.push(`PRESCRIPTIONS / MATERIALS:`, f.prescriptions, ``);
+    }
+    if (f.postOpAdvice) {
+      lines.push(`POST-OPERATIVE INSTRUCTIONS:`, f.postOpAdvice, ``);
+    }
+    if (f.nextVisit) {
+      lines.push(`NEXT VISIT / RECALL:`, f.nextVisit, ``);
+    }
 
-  const f = consultation.findings || {};
-  const lines: string[] = [
-    `=== DENTAI AMBIENT CLINICAL NOTE ===`,
-    `Patient: ${consultation.firstName || ''} ${consultation.lastName || ''}`.trim(),
-    `Date: ${consultation.date || getTodayDateStr()} | Time: ${item?.time || ''}`,
-    `Procedure: ${item?.procedureText || consultation.appointmentType || 'General Consultation'}`,
-    ``
-  ];
+    const adaList = Array.isArray(consultation?.adaCodes) 
+      ? consultation.adaCodes 
+      : Array.isArray(item?.adaCodes) 
+      ? item.adaCodes 
+      : [];
 
-  if (f.chiefComplaint) {
-    lines.push(`CHIEF COMPLAINT:`, f.chiefComplaint, ``);
-  }
-  if (f.clinicalFindings) {
-    lines.push(`EXAMINATION & FINDINGS:`, f.clinicalFindings, ``);
-  }
-  if (f.treatmentRendered) {
-    lines.push(`TREATMENT PERFORMED:`, f.treatmentRendered, ``);
-  }
-  if (f.localAnaesthetic) {
-    lines.push(`LOCAL ANAESTHETIC:`, f.localAnaesthetic, ``);
-  }
-  if (f.prescriptions) {
-    lines.push(`PRESCRIPTIONS / MATERIALS:`, f.prescriptions, ``);
-  }
-  if (f.postOpAdvice) {
-    lines.push(`POST-OPERATIVE INSTRUCTIONS:`, f.postOpAdvice, ``);
-  }
-  if (f.nextVisit) {
-    lines.push(`NEXT VISIT / RECALL:`, f.nextVisit, ``);
-  }
+    if (adaList && adaList.length > 0) {
+      const formattedAda = adaList.map((entry: any) => {
+        if (!entry) return '';
+        if (typeof entry === 'string') return entry;
+        if (typeof entry === 'object') {
+          const code = entry.code || '';
+          const desc = entry.description ? ` (${entry.description})` : '';
+          const tooth = entry.tooth ? ` [Tooth #${entry.tooth}]` : '';
+          return `${code}${desc}${tooth}`.trim();
+        }
+        return String(entry);
+      }).filter(Boolean);
 
-  const adaList = Array.isArray(consultation?.adaCodes) 
-    ? consultation.adaCodes 
-    : Array.isArray(item?.adaCodes) 
-    ? item.adaCodes 
-    : [];
-
-  if (adaList && adaList.length > 0) {
-    const formattedAda = adaList.map((entry: any) => {
-      if (!entry) return '';
-      if (typeof entry === 'string') return entry;
-      if (typeof entry === 'object') {
-        const code = entry.code || '';
-        const desc = entry.description ? ` (${entry.description})` : '';
-        const tooth = entry.tooth ? ` [Tooth #${entry.tooth}]` : '';
-        return `${code}${desc}${tooth}`.trim();
+      if (formattedAda.length > 0) {
+        lines.push(`ADA ITEM CODES:`, formattedAda.join(', '), ``);
       }
-      return String(entry);
-    }).filter(Boolean);
+    }
+    baseNote = lines.join('\n').trim();
+  } else {
+    baseNote = `Patient: ${item?.patientName || 'Patient'}\nAppointment: ${item?.procedureText || 'Consultation'}\nStatus: Completed`;
+  }
 
-    if (formattedAda.length > 0) {
-      lines.push(`ADA ITEM CODES:`, formattedAda.join(', '), ``);
+  // Check if FRONT DESK ACTION ITEM block is already present in baseNote
+  if (!baseNote.includes('[FRONT DESK ACTION ITEM]')) {
+    const actionLines: string[] = [];
+    if (item?.treatmentOpportunity) {
+      const opp = item.treatmentOpportunity;
+      const toothStr = opp.tooth ? ` (Tooth #${opp.tooth})` : '';
+      actionLines.push(`• UNBOOKED TREATMENT: ${opp.description}${toothStr} — Est. $${opp.estimatedValueAud} AUD`);
+    }
+    if (item?.aftercareSummary) {
+      actionLines.push(`• PATIENT AFTERCARE: ${item.aftercareSummary}`);
+    }
+    if (actionLines.length > 0) {
+      return `${baseNote}\n\n--------------------------------------------------\n[FRONT DESK ACTION ITEM]:\n${actionLines.join('\n')}`;
     }
   }
 
-  return lines.join('\n').trim();
+  return baseNote;
 }
 
