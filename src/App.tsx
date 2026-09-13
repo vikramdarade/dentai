@@ -117,9 +117,16 @@ export default function App() {
       fetch('/api/auth/me', {
         headers: { 'Authorization': `Bearer ${token}` }
       })
-        .then(res => {
+        .then(async res => {
           if (res.status === 401) {
             handleLogout();
+          } else if (res.ok) {
+            const data = await res.json();
+            setCurrentUser(prev => prev ? {
+              ...prev,
+              isFounder: data.isFounder,
+              founderAccessStatus: data.founderAccessStatus
+            } : prev);
           }
         })
         .catch(err => {

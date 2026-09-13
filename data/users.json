@@ -5,7 +5,9 @@
       "name": "Vik",
       "specialty": "Dentist",
       "pinHash": "79fe5379b4e5f626b749885c3efb5c6dfd63b952276e3028c90e5463b76a07bd04b5e53f60efc557eff6558d72b3f5d803d1278e392aa56573c7d8b38f5631e3",
-      "salt": "3058c115c897a8ff2928539651323166b65ec8375f6204e851aedf62826860ee"
+      "salt": "3058c115c897a8ff2928539651323166b65ec8375f6204e851aedf62826860ee",
+      "isFounder": true,
+      "founderAccessStatus": "approved"
     },
     {
       "id": "5a002da7-d8e6-4d5c-8566-000d534e2a32",
@@ -13,7 +15,9 @@
       "specialty": "General & Implant Dentistry",
       "pinHash": "7a96d4fcd143098082eac02f684418cf33c2d8075fc1062961c9ce774808422aef2b66b52ecae906da54a6da5669292ff602ddf922449ca6ed86f87418e0a338",
       "salt": "50d557a766f03038edf170a579e0b30ef0a787649763ee06e7c5d3c29b6f8c69",
-      "mfaEnabled": false
+      "mfaEnabled": false,
+      "isFounder": true,
+      "founderAccessStatus": "approved"
     }
   ]
 }

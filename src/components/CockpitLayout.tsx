@@ -13,10 +13,14 @@ import {
   Stethoscope,
   X,
   Sun,
-  Moon
+  Moon,
+  ShieldCheck,
+  HelpCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useTheme } from '../context/ThemeContext';
+import { FounderExecutiveDashboard } from './FounderExecutiveDashboard';
+import { ClinicFeedbackModal } from './ClinicFeedbackModal';
 
 interface CockpitLayoutProps {
   dentistName: string;
@@ -26,6 +30,10 @@ interface CockpitLayoutProps {
   children: React.ReactNode;
   rightDrawer?: React.ReactNode;
   onDrawerClose?: () => void;
+  isFounder?: boolean;
+  token?: string | null;
+  clinicName?: string;
+  clinicId?: string;
 }
 
 export default function CockpitLayout({
@@ -35,10 +43,22 @@ export default function CockpitLayout({
   onTabChange,
   children,
   rightDrawer,
-  onDrawerClose
+  onDrawerClose,
+  isFounder,
+  token,
+  clinicName,
+  clinicId
 }: CockpitLayoutProps) {
   const [activeNav, setActiveNav] = useState(activeTab);
+  const [showFeedbackModal, setShowFeedbackModal] = useState(false);
   const { theme, toggleTheme } = useTheme();
+
+  // Founder authorization check
+  const userIsFounder = isFounder ?? (
+    dentistName?.toLowerCase().includes('vikram') ||
+    dentistName?.toLowerCase() === 'vik' ||
+    false
+  );
 
   useEffect(() => {
     setActiveNav(activeTab);
@@ -193,13 +213,51 @@ export default function CockpitLayout({
               <Settings className="w-5 h-5 stroke-[1.75]" />
               <span className="text-[10px] font-bold mt-1 tracking-tight">Settings</span>
             </button>
+
+            {/* SOLO FOUNDER EXECUTIVE COCKPIT (Visible ONLY to Founder) */}
+            {userIsFounder && (
+              <button
+                onClick={() => handleNavClick('executive')}
+                className={`flex flex-col items-center justify-center w-full py-2.5 rounded-xl transition-all active:scale-95 cursor-pointer relative ${
+                  activeNav === 'executive'
+                    ? theme === 'light'
+                      ? 'bg-blue-50 text-blue-800 border border-blue-300 shadow-xs'
+                      : 'bg-blue-500/20 text-blue-300 border border-blue-500/40 shadow-xs'
+                    : theme === 'light'
+                    ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
+                    : 'text-slate-400 hover:text-slate-100 hover:bg-[#121E2E]'
+                }`}
+                title="Solo Founder Executive Hub"
+              >
+                <ShieldCheck className="w-5 h-5 stroke-[1.75] text-blue-500" />
+                <span className="text-[10px] font-extrabold mt-1 tracking-tight">Executive</span>
+                {activeNav === 'executive' && (
+                  <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-5 bg-blue-500 rounded-r-full shadow-sm shadow-blue-400" />
+                )}
+              </button>
+            )}
           </nav>
         </div>
 
-        {/* Theme Toggle & Bottom User Avatar & Logout */}
+        {/* Theme Toggle, Help/Feedback & Bottom User Avatar & Logout */}
         <div className={`flex flex-col items-center gap-2.5 w-full px-2 pt-3 border-t ${
           theme === 'light' ? 'border-slate-200' : 'border-[#182638]'
         }`}>
+          {/* Clinic Support & Feedback Trigger */}
+          <button
+            onClick={() => setShowFeedbackModal(true)}
+            className={`p-2 rounded-xl transition-colors cursor-pointer flex items-center justify-center ${
+              theme === 'light'
+                ? 'text-slate-500 hover:text-blue-600 hover:bg-blue-50'
+                : 'text-slate-400 hover:text-blue-400 hover:bg-[#162232]'
+            }`}
+            title="Clinic Help & Feedback"
+            aria-label="Clinic Help and Feedback"
+          >
+            <HelpCircle className="w-4 h-4 stroke-[1.75]" />
+          </button>
+
+          {/* Theme Toggle */}
           <button
             onClick={toggleTheme}
             className={`p-2 rounded-xl transition-colors cursor-pointer flex items-center justify-center group ${
@@ -241,18 +299,27 @@ export default function CockpitLayout({
         </div>
       </aside>
 
-      {/* 2. Center Workspace (Roster Grid & Day Schedule) */}
+      {/* 2. Center Workspace (Roster Grid or Founder Executive Hub) */}
       <main className={`flex-1 flex flex-col min-w-0 overflow-hidden relative transition-colors ${
         theme === 'light' ? 'bg-slate-50' : 'bg-[#070B11]'
       }`}>
         <div className="flex-1 overflow-y-auto cockpit-scrollbar p-3.5 sm:p-5 md:p-6 lg:p-7 xl:p-8">
-          {children}
+          {activeNav === 'executive' && userIsFounder ? (
+            <FounderExecutiveDashboard
+              token={token || localStorage.getItem('dentai_token')}
+              isFounder={userIsFounder}
+              dentistName={dentistName}
+              onBackToOperatory={() => handleNavClick('roster')}
+            />
+          ) : (
+            children
+          )}
         </div>
       </main>
 
       {/* 3. Right Inspection Drawer - Dual Mode: Docked on Desktop, Slide-over on Tablet */}
       <AnimatePresence mode="wait">
-        {rightDrawer && (
+        {rightDrawer && activeNav !== 'executive' && (
           <>
             {/* Tablet/Mobile Backdrop Overlay (<lg) */}
             <motion.div
@@ -295,7 +362,16 @@ export default function CockpitLayout({
           </>
         )}
       </AnimatePresence>
+
+      {/* 4. Clinic In-App Reporting & Support Modal */}
+      <ClinicFeedbackModal
+        isOpen={showFeedbackModal}
+        onClose={() => setShowFeedbackModal(false)}
+        clinicId={clinicId}
+        clinicName={clinicName}
+        dentistName={dentistName}
+        token={token}
+      />
     </div>
   );
 }
-

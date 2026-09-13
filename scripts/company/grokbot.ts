@@ -235,6 +235,8 @@ export async function runGrokbotCycle(options: {
     saveDeliverable('8-operations-fleet-health.json', JSON.stringify(opsResult, null, 2));
   }
 
+  saveDeliverable('briefing.json', JSON.stringify(briefing, null, 2));
+
   return briefing;
 }
 

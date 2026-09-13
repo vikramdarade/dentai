@@ -90,7 +90,19 @@ import {
   dbRequeueStuckProcessingJobs,
   dbUpdateNoteJob,
   dbRecordUsage,
-  dbGetUsageCount
+  dbGetUsageCount,
+  dbGetSupportTickets,
+  dbInsertSupportTicket,
+  dbUpdateSupportTicket,
+  dbGetFeedback,
+  dbInsertFeedback,
+  dbGetCompanyBriefingByDate,
+  dbGetLatestCompanyBriefing,
+  dbSaveCompanyBriefing,
+  dbListCompanyBriefingDates,
+  dbRequestFounderAccess,
+  dbListFounderRequests,
+  dbApproveFounderRequest
 } from './src/lib/db';
 import { getTodayStr, getCurrentTimeStr } from './src/types';
 
@@ -762,13 +774,17 @@ const CONSULTATIONS_FILE = path.resolve(__dirname, 'data', 'consultations.json')
 const AUDIT_FILE = path.resolve(__dirname, 'data', 'audit.json');
 const CLINICS_FILE = path.resolve(__dirname, 'data', 'clinics.json');
 const SCHEDULES_FILE = path.resolve(__dirname, 'data', 'schedules.json');
+const TICKETS_FILE = path.resolve(__dirname, 'data', 'tickets.json');
+const FEEDBACK_FILE = path.resolve(__dirname, 'data', 'feedback.json');
 
 // In-memory caching layer for read-only environments (like Vercel serverless)
 const dbCache: Record<string, any> = {
   'dentai:users': null,
   'dentai:consultations': null,
   'dentai:clinics': null,
-  'dentai:schedules': null
+  'dentai:schedules': null,
+  'dentai:tickets': null,
+  'dentai:feedback': null
 };
 
 const isKvConfigured = !!(process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN);
@@ -876,6 +892,38 @@ async function readSchedulesDb(): Promise<{ schedules: Record<string, any> }> {
 
 async function writeSchedulesDb(data: { schedules: Record<string, any> }) {
   return writeDb('dentai:schedules', SCHEDULES_FILE, data);
+}
+
+async function readTicketsDb(): Promise<{ tickets: any[] }> {
+  if (dbEnabled) {
+    try {
+      const tickets = await dbGetSupportTickets();
+      return { tickets };
+    } catch (err) {
+      logger.error('Failed to read support tickets from Postgres:', err);
+    }
+  }
+  return readDb('dentai:tickets', TICKETS_FILE, { tickets: [] });
+}
+
+async function writeTicketsDb(data: { tickets: any[] }) {
+  return writeDb('dentai:tickets', TICKETS_FILE, data);
+}
+
+async function readFeedbackDb(): Promise<{ feedback: any[] }> {
+  if (dbEnabled) {
+    try {
+      const feedback = await dbGetFeedback();
+      return { feedback };
+    } catch (err) {
+      logger.error('Failed to read feedback from Postgres:', err);
+    }
+  }
+  return readDb('dentai:feedback', FEEDBACK_FILE, { feedback: [] });
+}
+
+async function writeFeedbackDb(data: { feedback: any[] }) {
+  return writeDb('dentai:feedback', FEEDBACK_FILE, data);
 }
 
 // Immutable audit trail for compliance (who did what, when). Event payloads must NEVER
@@ -1136,6 +1184,12 @@ async function initDb() {
     if (!fs.existsSync(SCHEDULES_FILE)) {
       fs.writeFileSync(SCHEDULES_FILE, JSON.stringify({ schedules: {} }, null, 2));
     }
+    if (!fs.existsSync(TICKETS_FILE)) {
+      fs.writeFileSync(TICKETS_FILE, JSON.stringify({ tickets: [] }, null, 2));
+    }
+    if (!fs.existsSync(FEEDBACK_FILE)) {
+      fs.writeFileSync(FEEDBACK_FILE, JSON.stringify({ feedback: [] }, null, 2));
+    }
   } catch (err: any) {
     logger.warn('[Database] Read-only filesystem detected during initialization. Relying on in-memory caching.', err.message);
   }
@@ -1177,6 +1231,28 @@ async function authenticateToken(req: express.Request, res: express.Response, ne
     logger.error('Database read error in authentication middleware:', err);
     res.status(500).json({ error: 'Internal server error during authentication.' });
   }
+}
+
+export function isFounderDentist(dentist: any): boolean {
+  if (!dentist) return false;
+  if (dentist.isFounder === true) return true;
+  const founderName = (process.env.FOUNDER_NAME || 'Dr. Vikram Darade').toLowerCase();
+  if (dentist.name && (dentist.name.toLowerCase() === founderName || dentist.name.toLowerCase() === 'vik')) {
+    return true;
+  }
+  return false;
+}
+
+// Strict Founder-Only RBAC Middleware
+export async function requireFounder(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const dentist = (req as any).dentist;
+  if (!dentist) {
+    return res.status(401).json({ error: 'Authentication required.' });
+  }
+  if (!isFounderDentist(dentist)) {
+    return res.status(403).json({ error: 'Access restricted: Founder executive clearance required.' });
+  }
+  next();
 }
 
 // Authentication & Profile Endpoints
@@ -1339,7 +1415,9 @@ app.post('/api/auth/register', async (req, res) => {
         id: newDentist.id,
         name: newDentist.name,
         specialty: newDentist.specialty,
-        mfaEnabled: newDentist.mfaEnabled
+        mfaEnabled: newDentist.mfaEnabled,
+        isFounder: isFounderDentist(newDentist),
+        founderAccessStatus: (newDentist as any).founderAccessStatus || (isFounderDentist(newDentist) ? 'approved' : 'none')
       },
       clinics: await listMembershipsFor(newDentist.id)
     });
@@ -1439,7 +1517,9 @@ app.post('/api/auth/login', async (req, res) => {
         id: dentist.id,
         name: dentist.name,
         specialty: dentist.specialty,
-        mfaEnabled: !!dentist.mfaEnabled
+        mfaEnabled: !!dentist.mfaEnabled,
+        isFounder: isFounderDentist(dentist),
+        founderAccessStatus: dentist.founderAccessStatus || (isFounderDentist(dentist) ? 'approved' : 'none')
       }
     });
   } catch (err) {
@@ -1489,7 +1569,9 @@ app.post('/api/auth/mfa/verify', async (req, res) => {
         id: dentist.id,
         name: dentist.name,
         specialty: dentist.specialty,
-        mfaEnabled: !!dentist.mfaEnabled
+        mfaEnabled: !!dentist.mfaEnabled,
+        isFounder: isFounderDentist(dentist),
+        founderAccessStatus: dentist.founderAccessStatus || (isFounderDentist(dentist) ? 'approved' : 'none')
       }
     });
   } catch (err) {
@@ -1511,6 +1593,8 @@ app.get('/api/auth/me', authenticateToken, async (req: any, res) => {
       id: req.dentist.id,
       name: req.dentist.name,
       specialty: req.dentist.specialty,
+      isFounder: isFounderDentist(req.dentist),
+      founderAccessStatus: req.dentist.founderAccessStatus || (isFounderDentist(req.dentist) ? 'approved' : 'none'),
       clinics: await listMembershipsFor(req.dentist.id)
     });
   } catch (err) {
@@ -3713,6 +3797,347 @@ app.post('/api/beacon/chair/:chairId/upload-chunk', (req, res) => {
     res.status(500).json({ error: 'Failed to upload audio chunk.' });
   }
 });
+
+/* ---------------------------------------------------------------------------
+ * Support, Feedback & Solo Founder Executive Cockpit Endpoints
+ * ------------------------------------------------------------------------- */
+
+// 1. Support Tickets
+app.post('/api/support/tickets', async (req: any, res) => {
+  try {
+    const { clinicId, category, title, description, diagnostics, priority } = req.body;
+    if (!title || !description) {
+      return res.status(400).json({ error: 'Title and description are required.' });
+    }
+    const ticketId = `TICKET-${Date.now().toString(36).toUpperCase()}`;
+    const newTicket = {
+      id: ticketId,
+      clinicId: clinicId || req.dentist?.clinics?.[0]?.clinicId || 'clinic-melbourne-cbd',
+      dentistId: req.dentist?.id,
+      dentistName: req.dentist?.name,
+      category: category || 'General',
+      title,
+      description,
+      diagnostics: diagnostics || {},
+      status: 'open',
+      priority: priority || 'P2',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    if (dbEnabled) {
+      await dbInsertSupportTicket(newTicket as any);
+    }
+    const current = await readTicketsDb();
+    current.tickets.unshift(newTicket);
+    await writeTicketsDb(current);
+
+    logAudit('support_ticket_created', req.dentist?.id || 'anonymous', { ticketId, category: newTicket.category });
+    res.status(201).json({ success: true, ticket: newTicket });
+  } catch (err: any) {
+    logger.error('Failed to create support ticket:', err);
+    res.status(500).json({ error: 'Failed to create support ticket.' });
+  }
+});
+
+app.get('/api/support/tickets', authenticateToken, async (req: any, res) => {
+  try {
+    const data = await readTicketsDb();
+    res.json(data.tickets || []);
+  } catch (err: any) {
+    logger.error('Failed to get tickets:', err);
+    res.status(500).json({ error: 'Failed to retrieve support tickets.' });
+  }
+});
+
+app.patch('/api/support/tickets/:id', authenticateToken, async (req: any, res) => {
+  try {
+    const { id } = req.params;
+    const { status, resolutionNotes, priority } = req.body;
+    if (dbEnabled) {
+      await dbUpdateSupportTicket(id, { status, resolutionNotes, priority });
+    }
+    const data = await readTicketsDb();
+    const ticket = data.tickets.find((t: any) => t.id === id);
+    if (!ticket) {
+      return res.status(404).json({ error: 'Ticket not found.' });
+    }
+    if (status) ticket.status = status;
+    if (resolutionNotes) ticket.resolutionNotes = resolutionNotes;
+    if (priority) ticket.priority = priority;
+    ticket.updatedAt = new Date().toISOString();
+    await writeTicketsDb(data);
+
+    logAudit('support_ticket_updated', req.dentist.id, { ticketId: id, status });
+    res.json({ success: true, ticket });
+  } catch (err: any) {
+    logger.error('Failed to update support ticket:', err);
+    res.status(500).json({ error: 'Failed to update support ticket.' });
+  }
+});
+
+// 2. Feedback
+app.post('/api/feedback', async (req: any, res) => {
+  try {
+    const { clinicId, rating, category, pmsType, comments } = req.body;
+    const feedbackId = `FB-${Date.now().toString(36).toUpperCase()}`;
+    const newFeedback = {
+      id: feedbackId,
+      clinicId: clinicId || req.dentist?.clinics?.[0]?.clinicId,
+      dentistId: req.dentist?.id,
+      dentistName: req.dentist?.name,
+      rating: Number(rating) || 5,
+      category: category || 'Product Feedback',
+      pmsType: pmsType || 'General',
+      comments: comments || '',
+      createdAt: new Date().toISOString()
+    };
+
+    if (dbEnabled) {
+      await dbInsertFeedback(newFeedback as any);
+    }
+    const current = await readFeedbackDb();
+    current.feedback.unshift(newFeedback);
+    await writeFeedbackDb(current);
+
+    logAudit('feedback_submitted', req.dentist?.id || 'anonymous', { feedbackId, rating: newFeedback.rating });
+    res.status(201).json({ success: true, feedback: newFeedback });
+  } catch (err: any) {
+    logger.error('Failed to submit feedback:', err);
+    res.status(500).json({ error: 'Failed to submit feedback.' });
+  }
+});
+
+app.get('/api/feedback', authenticateToken, async (req: any, res) => {
+  try {
+    const data = await readFeedbackDb();
+    res.json(data.feedback || []);
+  } catch (err: any) {
+    logger.error('Failed to get feedback:', err);
+    res.status(500).json({ error: 'Failed to retrieve feedback.' });
+  }
+});
+
+// 3. Founder Access Requests & Approvals (Founder RBAC)
+app.post('/api/auth/founder-access/request', authenticateToken, async (req: any, res) => {
+  try {
+    const { reason } = req.body;
+    let requestRecord: any;
+    if (dbEnabled) {
+      requestRecord = await dbRequestFounderAccess(req.dentist.id, req.dentist.name, reason);
+    } else {
+      requestRecord = {
+        id: crypto.randomUUID(),
+        dentistId: req.dentist.id,
+        dentistName: req.dentist.name,
+        reason,
+        status: 'pending',
+        createdAt: new Date().toISOString()
+      };
+      const usersData = await readUsersDb();
+      const d = usersData.dentists.find((dent: any) => dent.id === req.dentist.id);
+      if (d) {
+        d.founderAccessStatus = 'pending';
+        await writeUsersDb(usersData);
+      }
+    }
+    logAudit('founder_access_requested', req.dentist.id, { reason });
+    res.json({ success: true, request: requestRecord, message: 'Founder access request submitted for executive approval.' });
+  } catch (err: any) {
+    logger.error('Failed to request founder access:', err);
+    res.status(500).json({ error: 'Failed to request founder access.' });
+  }
+});
+
+app.get('/api/auth/founder-access/requests', authenticateToken, requireFounder, async (req: any, res) => {
+  try {
+    if (dbEnabled) {
+      return res.json(await dbListFounderRequests());
+    }
+    const usersData = await readUsersDb();
+    const pending = usersData.dentists
+      .filter((d: any) => d.founderAccessStatus === 'pending')
+      .map((d: any) => ({
+        id: d.id,
+        dentistId: d.id,
+        dentistName: d.name,
+        status: 'pending',
+        createdAt: new Date().toISOString()
+      }));
+    res.json(pending);
+  } catch (err: any) {
+    logger.error('Failed to list founder requests:', err);
+    res.status(500).json({ error: 'Failed to list founder access requests.' });
+  }
+});
+
+app.post('/api/auth/founder-access/review', authenticateToken, requireFounder, async (req: any, res) => {
+  try {
+    const { dentistId, requestId, approve } = req.body;
+    const targetDentistId = dentistId || requestId;
+    if (!targetDentistId) {
+      return res.status(400).json({ error: 'Dentist ID required.' });
+    }
+    if (dbEnabled) {
+      await dbApproveFounderRequest(targetDentistId, !!approve);
+    }
+    const usersData = await readUsersDb();
+    const d = usersData.dentists.find((dent: any) => dent.id === targetDentistId);
+    if (d) {
+      d.isFounder = !!approve;
+      d.founderAccessStatus = approve ? 'approved' : 'rejected';
+      await writeUsersDb(usersData);
+    }
+    logAudit('founder_access_reviewed', req.dentist.id, { targetDentistId, approved: !!approve });
+    res.json({ success: true, approved: !!approve });
+  } catch (err: any) {
+    logger.error('Failed to review founder request:', err);
+    res.status(500).json({ error: 'Failed to review founder access request.' });
+  }
+});
+
+// 4. Solo Founder Executive Cockpit Briefings (Strictly Founder-Guarded)
+app.get('/api/company/briefing/latest', authenticateToken, requireFounder, async (req: any, res) => {
+  try {
+    if (dbEnabled) {
+      const briefing = await dbGetLatestCompanyBriefing();
+      if (briefing) return res.json(briefing);
+    }
+    const reportDir = path.resolve(__dirname, 'reports', 'company');
+    const latestBriefingPath = path.join(reportDir, 'latest', 'briefing.json');
+    if (fs.existsSync(latestBriefingPath)) {
+      const data = JSON.parse(fs.readFileSync(latestBriefingPath, 'utf-8'));
+      return res.json(data);
+    }
+    const latestMdPath = path.join(reportDir, 'latest', '0-autonomous-briefing.md');
+    let mdSummary = '';
+    if (fs.existsSync(latestMdPath)) {
+      mdSummary = fs.readFileSync(latestMdPath, 'utf-8');
+    }
+    res.json({
+      company: 'DentAI Autonomous Dental Intelligence',
+      cycleId: 'CYCLE-LATEST',
+      timestamp: new Date().toISOString(),
+      overallStatus: 'SHIP_READY',
+      executiveSummary: mdSummary || 'Grokbot ready for automated executive sync.'
+    });
+  } catch (err: any) {
+    logger.error('Failed to get latest briefing:', err);
+    res.status(500).json({ error: 'Failed to get latest company briefing.' });
+  }
+});
+
+app.get('/api/company/briefings', authenticateToken, requireFounder, async (req: any, res) => {
+  try {
+    if (dbEnabled) {
+      const dates = await dbListCompanyBriefingDates();
+      if (dates.length > 0) return res.json(dates);
+    }
+    const reportDir = path.resolve(__dirname, 'reports', 'company');
+    if (!fs.existsSync(reportDir)) return res.json([]);
+    const entries = fs.readdirSync(reportDir, { withFileTypes: true });
+    const dateDirs = entries
+      .filter(e => e.isDirectory() && /^\d{4}-\d{2}-\d{2}$/.test(e.name))
+      .map(e => e.name)
+      .sort()
+      .reverse();
+    res.json(dateDirs);
+  } catch (err: any) {
+    logger.error('Failed to list briefings:', err);
+    res.status(500).json({ error: 'Failed to list historical briefings.' });
+  }
+});
+
+app.get('/api/company/briefing/:date', authenticateToken, requireFounder, async (req: any, res) => {
+  try {
+    const { date } = req.params;
+    if (dbEnabled) {
+      const briefing = await dbGetCompanyBriefingByDate(date);
+      if (briefing) return res.json(briefing);
+    }
+    const reportDir = path.resolve(__dirname, 'reports', 'company', date);
+    const briefingJson = path.join(reportDir, 'briefing.json');
+    if (fs.existsSync(briefingJson)) {
+      return res.json(JSON.parse(fs.readFileSync(briefingJson, 'utf-8')));
+    }
+    const briefingMd = path.join(reportDir, '0-autonomous-briefing.md');
+    if (fs.existsSync(briefingMd)) {
+      return res.json({
+        date,
+        summary: fs.readFileSync(briefingMd, 'utf-8')
+      });
+    }
+    res.status(404).json({ error: `Briefing for date ${date} not found.` });
+  } catch (err: any) {
+    logger.error('Failed to get briefing by date:', err);
+    res.status(500).json({ error: 'Failed to retrieve briefing for date.' });
+  }
+});
+
+app.post('/api/company/run-cycle', authenticateToken, requireFounder, async (req: any, res) => {
+  try {
+    const { runGrokbotCycle } = await import('./scripts/company/grokbot.js');
+    const briefing = await runGrokbotCycle({ silentConsole: true });
+    if (dbEnabled) {
+      await dbSaveCompanyBriefing({
+        id: briefing.cycleId,
+        date: briefing.timestamp.split('T')[0],
+        summary: briefing.executiveSummary,
+        departmentDeliverables: briefing,
+        metrics: briefing.finance?.metrics,
+        createdAt: briefing.timestamp
+      });
+    }
+    logAudit('company_cycle_executed', req.dentist.id, { cycleId: briefing.cycleId });
+    res.json({ success: true, briefing });
+  } catch (err: any) {
+    logger.error('Failed to run company cycle:', err);
+    res.status(500).json({ error: 'Failed to run company cycle: ' + (err.message || 'unknown error') });
+  }
+});
+
+// Autonomous 08:00 AM Daily Cycle Scheduler (AEST / Weekdays)
+function initCompanyAutomation() {
+  const checkIntervalMs = 60 * 1000;
+  let lastRunDate = '';
+
+  setInterval(async () => {
+    try {
+      const now = new Date();
+      const formatter = new Intl.DateTimeFormat('en-AU', {
+        timeZone: 'Australia/Melbourne',
+        hour: 'numeric',
+        minute: 'numeric',
+        hour12: false,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+      });
+      const parts = formatter.formatToParts(now);
+      const hour = Number(parts.find(p => p.type === 'hour')?.value || '0');
+      const minute = Number(parts.find(p => p.type === 'minute')?.value || '0');
+      const day = parts.find(p => p.type === 'day')?.value;
+      const month = parts.find(p => p.type === 'month')?.value;
+      const year = parts.find(p => p.type === 'year')?.value;
+      const todayDateStr = `${year}-${month}-${day}`;
+
+      const dayOfWeek = now.getDay();
+      if (hour === 8 && minute === 0 && lastRunDate !== todayDateStr && dayOfWeek >= 1 && dayOfWeek <= 5) {
+        lastRunDate = todayDateStr;
+        logger.info(`[Grokbot Scheduler] 08:00 AM Autonomous Cycle triggering for ${todayDateStr}...`);
+        const { runGrokbotCycle } = await import('./scripts/company/grokbot.js');
+        await runGrokbotCycle({ silentConsole: true });
+        logger.info(`[Grokbot Scheduler] 08:00 AM Autonomous Cycle successfully executed.`);
+      }
+    } catch (err: any) {
+      logger.error('[Grokbot Scheduler] Autonomous cycle failed:', err.message);
+    }
+  }, checkIntervalMs);
+}
+
+if (process.env.NODE_ENV !== 'test') {
+  initCompanyAutomation();
+}
 
 // Production health check endpoint for container / serverless orchestrators
 app.get('/api/health', (req, res) => {

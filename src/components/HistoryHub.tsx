@@ -151,6 +151,9 @@ function HistoryHubInner({
       ) : (
         <CockpitLayout
           dentistName={dentistName}
+          token={authToken}
+          clinicId={activeClinic?.clinicId}
+          clinicName={activeClinic?.clinicName}
           onLogout={onLogout}
           activeTab={hubTab === 'pipeline' ? 'pipeline' : 'patients'}
           onTabChange={(tab) => {

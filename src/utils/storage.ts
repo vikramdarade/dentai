@@ -18,6 +18,8 @@ export interface AuthUser {
   id: string;
   name: string;
   specialty: string;
+  isFounder?: boolean;
+  founderAccessStatus?: string;
   /** Clinic memberships returned by the backend (absent for accounts that
    *  predate the clinic backbone — App refreshes from /api/clinics/mine). */
   clinics?: ClinicMembership[];

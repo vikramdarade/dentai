@@ -832,6 +832,9 @@ export default function DayScheduleQueue({
   return (
     <CockpitLayout
       dentistName={dentistName}
+      token={authToken}
+      clinicId={activeClinic?.clinicId}
+      clinicName={activeClinic?.clinicName}
       onLogout={onLogout || (() => {})}
       activeTab="roster"
       onTabChange={(tab) => {

@@ -136,6 +136,66 @@ export async function initDbSchema(): Promise<void> {
     )
   `;
   await sql`CREATE INDEX IF NOT EXISTS idx_usage_events_scope_day ON usage_events (scope_id, day)`;
+
+  await sql`ALTER TABLE dentists ADD COLUMN IF NOT EXISTS is_founder BOOLEAN NOT NULL DEFAULT FALSE`;
+  await sql`ALTER TABLE dentists ADD COLUMN IF NOT EXISTS founder_access_status TEXT NOT NULL DEFAULT 'none'`;
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS support_tickets (
+      id               TEXT PRIMARY KEY,
+      clinic_id        TEXT,
+      dentist_id       TEXT,
+      dentist_name     TEXT,
+      category         TEXT NOT NULL,
+      title            TEXT NOT NULL,
+      description      TEXT NOT NULL,
+      diagnostics      JSONB,
+      status           TEXT NOT NULL DEFAULT 'open',
+      priority         TEXT NOT NULL DEFAULT 'P2',
+      resolution_notes TEXT,
+      created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS idx_support_tickets_status ON support_tickets (status)`;
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS clinic_feedback (
+      id           TEXT PRIMARY KEY,
+      clinic_id    TEXT,
+      dentist_id   TEXT,
+      dentist_name TEXT,
+      rating       INTEGER,
+      category     TEXT NOT NULL,
+      pms_type     TEXT,
+      comments     TEXT,
+      created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `;
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS company_briefings (
+      id                      TEXT PRIMARY KEY,
+      date                    TEXT NOT NULL UNIQUE,
+      summary                 TEXT,
+      department_deliverables JSONB NOT NULL,
+      metrics                 JSONB,
+      created_at              TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS idx_company_briefings_date ON company_briefings (date)`;
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS founder_access_requests (
+      id           TEXT PRIMARY KEY,
+      dentist_id   TEXT NOT NULL,
+      dentist_name TEXT NOT NULL,
+      reason       TEXT,
+      status       TEXT NOT NULL DEFAULT 'pending',
+      created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+      reviewed_at  TIMESTAMPTZ
+    )
+  `;
 }
 
 /**
@@ -162,8 +222,8 @@ export async function seedFromJsonFallback(): Promise<void> {
       const users = JSON.parse(fs.readFileSync(usersPath, 'utf-8'));
       for (const d of users.dentists || []) {
         await sql`
-          INSERT INTO dentists (id, name, specialty, pin_hash, salt)
-          VALUES (${d.id}, ${d.name}, ${d.specialty}, ${d.pinHash}, ${d.salt})
+          INSERT INTO dentists (id, name, specialty, pin_hash, salt, is_founder, founder_access_status)
+          VALUES (${d.id}, ${d.name}, ${d.specialty}, ${d.pinHash}, ${d.salt}, ${d.isFounder ?? false}, ${d.founderAccessStatus ?? 'none'})
           ON CONFLICT (id) DO NOTHING
         `;
         seededDentists++;
@@ -201,7 +261,7 @@ export async function seedFromJsonFallback(): Promise<void> {
 export async function dbGetDentists(): Promise<any[]> {
   if (!sql) return [];
   const rows = (await sql`
-    SELECT id, name, specialty, pin_hash, salt
+    SELECT id, name, specialty, pin_hash, salt, is_founder, founder_access_status
     FROM dentists
     ORDER BY created_at ASC
   `) as any[];
@@ -210,7 +270,9 @@ export async function dbGetDentists(): Promise<any[]> {
     name: r.name,
     specialty: r.specialty,
     pinHash: r.pin_hash,
-    salt: r.salt
+    salt: r.salt,
+    isFounder: !!r.is_founder,
+    founderAccessStatus: r.founder_access_status || 'none'
   }));
 }
 
@@ -221,11 +283,13 @@ export async function dbInsertDentist(d: {
   pinHash: string;
   salt: string;
   mfaEnabled?: boolean;
+  isFounder?: boolean;
+  founderAccessStatus?: string;
 }): Promise<void> {
   if (!sql) return;
   await sql`
-    INSERT INTO dentists (id, name, specialty, pin_hash, salt, mfa_enabled)
-    VALUES (${d.id}, ${d.name}, ${d.specialty}, ${d.pinHash}, ${d.salt}, ${d.mfaEnabled ?? false})
+    INSERT INTO dentists (id, name, specialty, pin_hash, salt, mfa_enabled, is_founder, founder_access_status)
+    VALUES (${d.id}, ${d.name}, ${d.specialty}, ${d.pinHash}, ${d.salt}, ${d.mfaEnabled ?? false}, ${d.isFounder ?? false}, ${d.founderAccessStatus ?? 'none'})
     ON CONFLICT (id) DO NOTHING
   `;
 }
@@ -239,25 +303,43 @@ export async function dbDeleteDentist(id: string): Promise<void> {
 export async function dbGetDentistById(id: string): Promise<any | null> {
   if (!sql) return null;
   const rows = (await sql`
-    SELECT id, name, specialty, pin_hash, salt, mfa_enabled
+    SELECT id, name, specialty, pin_hash, salt, mfa_enabled, is_founder, founder_access_status
     FROM dentists WHERE id = ${id}
   `) as any[];
   if (rows.length === 0) return null;
   const r = rows[0];
-  return { id: r.id, name: r.name, specialty: r.specialty, pinHash: r.pin_hash, salt: r.salt, mfaEnabled: !!r.mfa_enabled };
+  return {
+    id: r.id,
+    name: r.name,
+    specialty: r.specialty,
+    pinHash: r.pin_hash,
+    salt: r.salt,
+    mfaEnabled: !!r.mfa_enabled,
+    isFounder: !!r.is_founder,
+    founderAccessStatus: r.founder_access_status || 'none'
+  };
 }
 
 /** Case-insensitive name lookup for the registration uniqueness check. */
 export async function dbGetDentistByName(name: string): Promise<any | null> {
   if (!sql) return null;
   const rows = (await sql`
-    SELECT id, name, specialty, pin_hash, salt, mfa_enabled
+    SELECT id, name, specialty, pin_hash, salt, mfa_enabled, is_founder, founder_access_status
     FROM dentists WHERE lower(name) = lower(${name})
     LIMIT 1
   `) as any[];
   if (rows.length === 0) return null;
   const r = rows[0];
-  return { id: r.id, name: r.name, specialty: r.specialty, pinHash: r.pin_hash, salt: r.salt, mfaEnabled: !!r.mfa_enabled };
+  return {
+    id: r.id,
+    name: r.name,
+    specialty: r.specialty,
+    pinHash: r.pin_hash,
+    salt: r.salt,
+    mfaEnabled: !!r.mfa_enabled,
+    isFounder: !!r.is_founder,
+    founderAccessStatus: r.founder_access_status || 'none'
+  };
 }
 
 // --- Consultations ---------------------------------------------------------------
@@ -622,3 +704,305 @@ export async function dbAppendAudit(
     VALUES (${event}, ${dentistId}, ${JSON.stringify(detail)}::jsonb)
   `;
 }
+
+// --- Support Tickets -------------------------------------------------------------
+
+export interface DbSupportTicket {
+  id: string;
+  clinicId?: string;
+  dentistId?: string;
+  dentistName?: string;
+  category: string;
+  title: string;
+  description: string;
+  diagnostics?: any;
+  status: 'open' | 'investigating' | 'resolved';
+  priority?: 'P0' | 'P1' | 'P2' | 'P3';
+  resolutionNotes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export async function dbGetSupportTickets(clinicId?: string): Promise<DbSupportTicket[]> {
+  if (!sql) return [];
+  const rows = clinicId
+    ? (await sql`
+        SELECT id, clinic_id, dentist_id, dentist_name, category, title, description, diagnostics, status, priority, resolution_notes, created_at, updated_at
+        FROM support_tickets
+        WHERE clinic_id = ${clinicId}
+        ORDER BY created_at DESC
+      `) as any[]
+    : (await sql`
+        SELECT id, clinic_id, dentist_id, dentist_name, category, title, description, diagnostics, status, priority, resolution_notes, created_at, updated_at
+        FROM support_tickets
+        ORDER BY created_at DESC
+      `) as any[];
+  return rows.map((r: any) => ({
+    id: r.id,
+    clinicId: r.clinic_id,
+    dentistId: r.dentist_id,
+    dentistName: r.dentist_name,
+    category: r.category,
+    title: r.title,
+    description: r.description,
+    diagnostics: r.diagnostics,
+    status: r.status,
+    priority: r.priority,
+    resolutionNotes: r.resolution_notes,
+    createdAt: new Date(r.created_at).toISOString(),
+    updatedAt: new Date(r.updated_at).toISOString()
+  }));
+}
+
+export async function dbInsertSupportTicket(ticket: DbSupportTicket): Promise<void> {
+  if (!sql) return;
+  await sql`
+    INSERT INTO support_tickets (
+      id, clinic_id, dentist_id, dentist_name, category, title, description, diagnostics, status, priority, resolution_notes, created_at, updated_at
+    ) VALUES (
+      ${ticket.id},
+      ${ticket.clinicId ?? null},
+      ${ticket.dentistId ?? null},
+      ${ticket.dentistName ?? null},
+      ${ticket.category},
+      ${ticket.title},
+      ${ticket.description},
+      ${ticket.diagnostics ? JSON.stringify(ticket.diagnostics) : null}::jsonb,
+      ${ticket.status || 'open'},
+      ${ticket.priority || 'P2'},
+      ${ticket.resolutionNotes ?? null},
+      ${ticket.createdAt ? new Date(ticket.createdAt).toISOString() : new Date().toISOString()}::timestamptz,
+      ${ticket.updatedAt ? new Date(ticket.updatedAt).toISOString() : new Date().toISOString()}::timestamptz
+    )
+    ON CONFLICT (id) DO UPDATE SET
+      status = EXCLUDED.status,
+      resolution_notes = EXCLUDED.resolution_notes,
+      updated_at = now()
+  `;
+}
+
+export async function dbUpdateSupportTicket(
+  id: string,
+  patch: { status?: string; resolutionNotes?: string; priority?: string }
+): Promise<void> {
+  if (!sql) return;
+  await sql`
+    UPDATE support_tickets
+    SET status = COALESCE(${patch.status ?? null}, status),
+        resolution_notes = COALESCE(${patch.resolutionNotes ?? null}, resolution_notes),
+        priority = COALESCE(${patch.priority ?? null}, priority),
+        updated_at = now()
+    WHERE id = ${id}
+  `;
+}
+
+// --- Feedback -------------------------------------------------------------------
+
+export interface DbClinicFeedback {
+  id: string;
+  clinicId?: string;
+  dentistId?: string;
+  dentistName?: string;
+  rating?: number;
+  category: string;
+  pmsType?: string;
+  comments?: string;
+  createdAt: string;
+}
+
+export async function dbGetFeedback(clinicId?: string): Promise<DbClinicFeedback[]> {
+  if (!sql) return [];
+  const rows = clinicId
+    ? (await sql`
+        SELECT id, clinic_id, dentist_id, dentist_name, rating, category, pms_type, comments, created_at
+        FROM clinic_feedback
+        WHERE clinic_id = ${clinicId}
+        ORDER BY created_at DESC
+      `) as any[]
+    : (await sql`
+        SELECT id, clinic_id, dentist_id, dentist_name, rating, category, pms_type, comments, created_at
+        FROM clinic_feedback
+        ORDER BY created_at DESC
+      `) as any[];
+  return rows.map((r: any) => ({
+    id: r.id,
+    clinicId: r.clinic_id,
+    dentistId: r.dentist_id,
+    dentistName: r.dentist_name,
+    rating: r.rating,
+    category: r.category,
+    pmsType: r.pms_type,
+    comments: r.comments,
+    createdAt: new Date(r.created_at).toISOString()
+  }));
+}
+
+export async function dbInsertFeedback(feedback: DbClinicFeedback): Promise<void> {
+  if (!sql) return;
+  await sql`
+    INSERT INTO clinic_feedback (
+      id, clinic_id, dentist_id, dentist_name, rating, category, pms_type, comments, created_at
+    ) VALUES (
+      ${feedback.id},
+      ${feedback.clinicId ?? null},
+      ${feedback.dentistId ?? null},
+      ${feedback.dentistName ?? null},
+      ${feedback.rating ?? null},
+      ${feedback.category},
+      ${feedback.pmsType ?? null},
+      ${feedback.comments ?? null},
+      ${feedback.createdAt ? new Date(feedback.createdAt).toISOString() : new Date().toISOString()}::timestamptz
+    )
+  `;
+}
+
+// --- Company Briefings -----------------------------------------------------------
+
+export interface DbCompanyBriefing {
+  id: string;
+  date: string;
+  summary?: string;
+  departmentDeliverables: any;
+  metrics?: any;
+  createdAt: string;
+}
+
+export async function dbGetCompanyBriefingByDate(date: string): Promise<DbCompanyBriefing | null> {
+  if (!sql) return null;
+  const rows = (await sql`
+    SELECT id, date, summary, department_deliverables, metrics, created_at
+    FROM company_briefings
+    WHERE date = ${date}
+    LIMIT 1
+  `) as any[];
+  if (rows.length === 0) return null;
+  const r = rows[0];
+  return {
+    id: r.id,
+    date: r.date,
+    summary: r.summary,
+    departmentDeliverables: r.department_deliverables,
+    metrics: r.metrics,
+    createdAt: new Date(r.created_at).toISOString()
+  };
+}
+
+export async function dbGetLatestCompanyBriefing(): Promise<DbCompanyBriefing | null> {
+  if (!sql) return null;
+  const rows = (await sql`
+    SELECT id, date, summary, department_deliverables, metrics, created_at
+    FROM company_briefings
+    ORDER BY date DESC
+    LIMIT 1
+  `) as any[];
+  if (rows.length === 0) return null;
+  const r = rows[0];
+  return {
+    id: r.id,
+    date: r.date,
+    summary: r.summary,
+    departmentDeliverables: r.department_deliverables,
+    metrics: r.metrics,
+    createdAt: new Date(r.created_at).toISOString()
+  };
+}
+
+export async function dbSaveCompanyBriefing(briefing: DbCompanyBriefing): Promise<void> {
+  if (!sql) return;
+  await sql`
+    INSERT INTO company_briefings (
+      id, date, summary, department_deliverables, metrics, created_at
+    ) VALUES (
+      ${briefing.id},
+      ${briefing.date},
+      ${briefing.summary ?? null},
+      ${JSON.stringify(briefing.departmentDeliverables)}::jsonb,
+      ${briefing.metrics ? JSON.stringify(briefing.metrics) : null}::jsonb,
+      ${briefing.createdAt ? new Date(briefing.createdAt).toISOString() : new Date().toISOString()}::timestamptz
+    )
+    ON CONFLICT (date) DO UPDATE SET
+      summary = EXCLUDED.summary,
+      department_deliverables = EXCLUDED.department_deliverables,
+      metrics = EXCLUDED.metrics,
+      created_at = EXCLUDED.created_at
+  `;
+}
+
+export async function dbListCompanyBriefingDates(): Promise<string[]> {
+  if (!sql) return [];
+  const rows = (await sql`
+    SELECT date FROM company_briefings ORDER BY date DESC
+  `) as any[];
+  return rows.map((r: any) => r.date);
+}
+
+// --- Founder Access Requests -----------------------------------------------------
+
+export interface DbFounderRequest {
+  id: string;
+  dentistId: string;
+  dentistName: string;
+  reason?: string;
+  status: 'pending' | 'approved' | 'rejected';
+  createdAt: string;
+  reviewedAt?: string;
+}
+
+export async function dbRequestFounderAccess(dentistId: string, dentistName: string, reason?: string): Promise<DbFounderRequest> {
+  const req: DbFounderRequest = {
+    id: crypto.randomUUID(),
+    dentistId,
+    dentistName,
+    reason,
+    status: 'pending',
+    createdAt: new Date().toISOString()
+  };
+  if (sql) {
+    await sql`
+      INSERT INTO founder_access_requests (id, dentist_id, dentist_name, reason, status, created_at)
+      VALUES (${req.id}, ${req.dentistId}, ${req.dentistName}, ${req.reason ?? null}, ${req.status}, now())
+    `;
+    await sql`
+      UPDATE dentists SET founder_access_status = 'pending' WHERE id = ${dentistId}
+    `;
+  }
+  return req;
+}
+
+export async function dbListFounderRequests(): Promise<DbFounderRequest[]> {
+  if (!sql) return [];
+  const rows = (await sql`
+    SELECT id, dentist_id, dentist_name, reason, status, created_at, reviewed_at
+    FROM founder_access_requests
+    ORDER BY created_at DESC
+  `) as any[];
+  return rows.map((r: any) => ({
+    id: r.id,
+    dentistId: r.dentist_id,
+    dentistName: r.dentist_name,
+    reason: r.reason,
+    status: r.status,
+    createdAt: new Date(r.created_at).toISOString(),
+    reviewedAt: r.reviewed_at ? new Date(r.reviewed_at).toISOString() : undefined
+  }));
+}
+
+export async function dbApproveFounderRequest(requestId: string, approve: boolean): Promise<void> {
+  if (!sql) return;
+  const status = approve ? 'approved' : 'rejected';
+  const rows = (await sql`
+    UPDATE founder_access_requests
+    SET status = ${status}, reviewed_at = now()
+    WHERE id = ${requestId}
+    RETURNING dentist_id
+  `) as any[];
+  if (rows.length > 0 && approve) {
+    const dentistId = rows[0].dentist_id;
+    await sql`
+      UPDATE dentists
+      SET is_founder = TRUE, founder_access_status = 'approved'
+      WHERE id = ${dentistId}
+    `;
+  }
+}
+
