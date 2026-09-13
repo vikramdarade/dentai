@@ -936,15 +936,27 @@ export default function DayScheduleQueue({
         )}
 
         {/* 1. Header Bar: Date Switcher & Operatory Actions */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-5 rounded-2xl bg-[#0E1724] border border-[#182638] shadow-xl shadow-black/30">
+        <div className={`flex flex-col md:flex-row md:items-center justify-between gap-4 p-5 rounded-2xl border shadow-xl ${
+          theme === 'light'
+            ? 'bg-white border-slate-200 shadow-slate-200/80'
+            : 'bg-[#0E1724] border-[#182638] shadow-black/30'
+        }`}>
           <div>
             <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
+              <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider border ${
+                theme === 'light'
+                  ? 'bg-cyan-50 text-cyan-800 border-cyan-200'
+                  : 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30'
+              }`}>
                 <Sparkles className="w-3 h-3" />
                 Operatory Cockpit
               </span>
               {readyCount > 0 && (
-                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[10px] font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[10px] font-bold border ${
+                  theme === 'light'
+                    ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                    : 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                }`}>
                   <DollarSign className="w-3 h-3" />
                   Est. Production: ${dailyProduction.toLocaleString()}
                 </span>
@@ -953,10 +965,16 @@ export default function DayScheduleQueue({
 
             <div className="flex items-center gap-3">
               {/* Date Navigator Buttons */}
-              <div className="flex items-center gap-1 bg-[#121E2E] border border-[#1E3048] rounded-xl p-1 shadow-inner">
+              <div className={`flex items-center gap-1 border rounded-xl p-1 shadow-inner ${
+                theme === 'light' ? 'bg-slate-100 border-slate-200' : 'bg-[#121E2E] border-[#1E3048]'
+              }`}>
                 <button
                   onClick={() => setDateOffset(prev => prev - 1)}
-                  className="p-1 text-slate-400 hover:text-white rounded-lg hover:bg-[#1A2C40] transition-colors cursor-pointer"
+                  className={`p-1 rounded-lg transition-colors cursor-pointer ${
+                    theme === 'light'
+                      ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-200'
+                      : 'text-slate-400 hover:text-white hover:bg-[#1A2C40]'
+                  }`}
                   title="Previous Day"
                 >
                   <ChevronLeft className="w-4 h-4" />
@@ -966,6 +984,8 @@ export default function DayScheduleQueue({
                   className={`px-2.5 py-0.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
                     dateOffset === 0
                       ? 'bg-cyan-500 text-slate-950 font-black shadow-xs'
+                      : theme === 'light'
+                      ? 'text-slate-600 hover:text-slate-900'
                       : 'text-slate-400 hover:text-slate-200'
                   }`}
                 >
@@ -973,7 +993,11 @@ export default function DayScheduleQueue({
                 </button>
                 <button
                   onClick={() => setDateOffset(prev => prev + 1)}
-                  className="p-1 text-slate-400 hover:text-white rounded-lg hover:bg-[#1A2C40] transition-colors cursor-pointer"
+                  className={`p-1 rounded-lg transition-colors cursor-pointer ${
+                    theme === 'light'
+                      ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-200'
+                      : 'text-slate-400 hover:text-white hover:bg-[#1A2C40]'
+                  }`}
                   title="Next Day"
                 >
                   <ChevronRight className="w-4 h-4" />
@@ -981,18 +1005,28 @@ export default function DayScheduleQueue({
               </div>
 
               <div className="flex items-center gap-3 flex-wrap">
-                <h2 className="text-xl md:text-2xl font-black text-white tracking-tight uppercase">
+                <h2 className={`text-xl md:text-2xl font-black tracking-tight uppercase ${
+                  theme === 'light' ? 'text-slate-900' : 'text-white'
+                }`}>
                   {formattedDateTitle}
                 </h2>
                 {cloudSyncStatus === 'syncing' && (
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 animate-pulse">
-                    <UploadCloud className="w-3 h-3 animate-spin text-cyan-400" />
+                  <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold border animate-pulse ${
+                    theme === 'light'
+                      ? 'bg-cyan-50 text-cyan-800 border-cyan-200'
+                      : 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30'
+                  }`}>
+                    <UploadCloud className="w-3 h-3 animate-spin text-cyan-500" />
                     Cloud Syncing
                   </span>
                 )}
                 {cloudSyncStatus === 'synced' && (
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30" title="Schedule synchronized with DentAI Cloud. Available across all mobile and desktop devices.">
-                    <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                  <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${
+                    theme === 'light'
+                      ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                      : 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                  }`} title="Schedule synchronized with DentAI Cloud. Available across all mobile and desktop devices.">
+                    <CheckCircle2 className="w-3 h-3 text-emerald-500" />
                     Multi-Device Synced
                   </span>
                 )}
@@ -1007,12 +1041,16 @@ export default function DayScheduleQueue({
               onClick={() => setIsInspectionOpen(prev => !prev)}
               className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all border cursor-pointer active:scale-95 ${
                 isInspectionOpen
-                  ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40 shadow-xs'
+                  ? theme === 'light'
+                    ? 'bg-cyan-50 text-cyan-800 border-cyan-300 shadow-xs'
+                    : 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40 shadow-xs'
+                  : theme === 'light'
+                  ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
                   : 'bg-[#121E2E] hover:bg-[#18283D] text-slate-300 border-[#1E3048]'
               }`}
               title="Toggle operatory inspection drawer"
             >
-              <FileText className="w-3.5 h-3.5 text-cyan-400" />
+              <FileText className={`w-3.5 h-3.5 ${theme === 'light' ? 'text-cyan-700' : 'text-cyan-400'}`} />
               <span>{isInspectionOpen ? 'Hide Inspection' : 'Inspect Patient'}</span>
             </button>
 
@@ -1030,7 +1068,11 @@ export default function DayScheduleQueue({
             {/* Theme Toggle Button */}
             <button
               onClick={toggleTheme}
-              className="p-2 rounded-xl text-slate-400 hover:text-amber-300 bg-[#121E2E] border border-[#1E3048] transition-colors cursor-pointer flex items-center justify-center"
+              className={`p-2 rounded-xl transition-colors cursor-pointer flex items-center justify-center border ${
+                theme === 'light'
+                  ? 'text-slate-600 hover:text-amber-600 bg-slate-100 border-slate-200'
+                  : 'text-slate-400 hover:text-amber-300 bg-[#121E2E] border-[#1E3048]'
+              }`}
               title={theme === 'dark' ? 'Switch to Clinical Light Mode' : 'Switch to Dark Cockpit Mode'}
               aria-label="Toggle theme"
             >
@@ -1049,30 +1091,42 @@ export default function DayScheduleQueue({
               }}
               className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all border cursor-pointer active:scale-95 ${
                 customApiKey
-                  ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30 shadow-xs'
+                  ? theme === 'light'
+                    ? 'bg-emerald-50 text-emerald-800 border-emerald-300 shadow-xs'
+                    : 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30 shadow-xs'
+                  : theme === 'light'
+                  ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
                   : 'bg-[#121E2E] hover:bg-[#18283D] text-slate-300 border-[#1E3048]'
               }`}
               title={customApiKey ? 'Custom Gemini API Key Active (Click to change)' : 'Configure Gemini Vision API Key (Click to set)'}
             >
-              <Key className={`w-3.5 h-3.5 ${customApiKey ? 'text-emerald-400' : 'text-amber-400'}`} />
+              <Key className={`w-3.5 h-3.5 ${customApiKey ? (theme === 'light' ? 'text-emerald-600' : 'text-emerald-400') : (theme === 'light' ? 'text-amber-600' : 'text-amber-400')}`} />
               <span className="hidden sm:inline">{customApiKey ? 'AI Key: Active' : 'AI Key'}</span>
-              {customApiKey && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />}
+              {customApiKey && <span className={`w-1.5 h-1.5 rounded-full animate-pulse ${theme === 'light' ? 'bg-emerald-600' : 'bg-emerald-400'}`} />}
             </button>
 
             <button
               onClick={() => setShowWalkInModal(true)}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-[#121E2E] hover:bg-[#18283D] text-slate-200 border border-[#1E3048] rounded-xl text-xs font-bold transition-all active:scale-95 cursor-pointer"
+              className={`inline-flex items-center gap-1.5 px-3.5 py-2 border rounded-xl text-xs font-bold transition-all active:scale-95 cursor-pointer ${
+                theme === 'light'
+                  ? 'bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-200'
+                  : 'bg-[#121E2E] hover:bg-[#18283D] text-slate-200 border-[#1E3048]'
+              }`}
             >
-              <Plus className="w-4 h-4 text-cyan-400" />
+              <Plus className={`w-4 h-4 ${theme === 'light' ? 'text-cyan-700' : 'text-cyan-400'}`} />
               Add Walk-in
             </button>
 
             {items.length === 0 && (
               <button
                 onClick={handleLoadDemoSchedule}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30 rounded-xl text-xs font-bold transition-all active:scale-95 cursor-pointer"
+                className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 cursor-pointer border ${
+                  theme === 'light'
+                    ? 'bg-cyan-50 hover:bg-cyan-100 text-cyan-800 border-cyan-300'
+                    : 'bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border-cyan-500/30'
+                }`}
               >
-                <Stethoscope className="w-4 h-4 text-cyan-400" />
+                <Stethoscope className={`w-4 h-4 ${theme === 'light' ? 'text-cyan-700' : 'text-cyan-400'}`} />
                 Load Sample Day
               </button>
             )}
@@ -1081,7 +1135,11 @@ export default function DayScheduleQueue({
               <button
                 type="button"
                 onClick={() => setShowClearConfirmModal(true)}
-                className="p-2 text-slate-500 hover:text-rose-400 rounded-xl hover:bg-[#121E2E] transition-colors cursor-pointer"
+                className={`p-2 rounded-xl transition-colors cursor-pointer ${
+                  theme === 'light'
+                    ? 'text-slate-400 hover:text-rose-600 hover:bg-rose-50'
+                    : 'text-slate-500 hover:text-rose-400 hover:bg-[#121E2E]'
+                }`}
                 title="Clear roster"
               >
                 <Trash2 className="w-4 h-4" />
@@ -1194,10 +1252,14 @@ export default function DayScheduleQueue({
               handleImageFile(file);
             }
           }}
-          className={`relative rounded-2xl border-2 border-dashed p-5 text-center transition-all cursor-pointer group shadow-lg shadow-black/20 ${
+          className={`relative rounded-2xl border-2 border-dashed p-5 text-center transition-all cursor-pointer group shadow-md ${
             isDraggingOver
-              ? 'border-cyan-400 bg-cyan-950/40 ring-4 ring-cyan-500/20 scale-[1.01]'
-              : 'border-[#1E3048] hover:border-cyan-500/50 bg-[#0E1724]/70 hover:bg-[#121E2E]'
+              ? theme === 'light'
+                ? 'border-cyan-500 bg-cyan-50/80 ring-4 ring-cyan-200 scale-[1.01]'
+                : 'border-cyan-400 bg-cyan-950/40 ring-4 ring-cyan-500/20 scale-[1.01]'
+              : theme === 'light'
+              ? 'border-slate-300 hover:border-cyan-500 bg-white hover:bg-slate-50/80 shadow-slate-200/60'
+              : 'border-[#1E3048] hover:border-cyan-500/50 bg-[#0E1724]/70 hover:bg-[#121E2E] shadow-black/20'
           }`}
         >
           <input
@@ -1222,12 +1284,12 @@ export default function DayScheduleQueue({
               </div>
               <div className="text-left">
                 <div className="flex items-center gap-2">
-                  <RotateCw className="w-4 h-4 animate-spin text-cyan-400 shrink-0" />
-                  <p className="text-xs md:text-sm font-bold text-white">
+                  <RotateCw className="w-4 h-4 animate-spin text-cyan-500 shrink-0" />
+                  <p className={`text-xs md:text-sm font-bold ${theme === 'light' ? 'text-slate-900' : 'text-white'}`}>
                     Analyzing Schedule Screenshot with AI...
                   </p>
                 </div>
-                <p className="text-[11px] text-cyan-300/80 mt-1">
+                <p className={`text-[11px] mt-1 ${theme === 'light' ? 'text-cyan-700' : 'text-cyan-300/80'}`}>
                   Extracting appointments with zero hallucination & PMS clutter cleaning.
                 </p>
               </div>
@@ -1237,27 +1299,37 @@ export default function DayScheduleQueue({
               <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-transform shadow-xs ${
                 isDraggingOver
                   ? 'bg-cyan-500 text-slate-950 scale-110'
+                  : theme === 'light'
+                  ? 'bg-cyan-50 text-cyan-700 border border-cyan-200 group-hover:scale-105'
                   : 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 group-hover:scale-105'
               }`}>
                 {isParsing ? (
-                  <RotateCw className="w-5 h-5 animate-spin text-cyan-400" />
+                  <RotateCw className="w-5 h-5 animate-spin text-cyan-500" />
                 ) : (
                   <UploadCloud className="w-5 h-5" />
                 )}
               </div>
 
               <div>
-                <p className="text-xs md:text-sm font-bold text-slate-100">
+                <p className={`text-xs md:text-sm font-bold ${theme === 'light' ? 'text-slate-900' : 'text-slate-100'}`}>
                   {isDraggingOver ? (
                     'Drop PMS screenshot to import schedule'
                   ) : (
                     <>
-                      Press <kbd className="px-2 py-0.5 text-[11px] font-mono font-extrabold bg-[#162436] border border-[#233852] rounded text-cyan-300 shadow-xs">Ctrl + V</kbd> to paste snip, drag & drop, or click to upload
+                      Press <kbd className={`px-2 py-0.5 text-[11px] font-mono font-extrabold rounded shadow-xs border ${
+                        theme === 'light'
+                          ? 'bg-slate-100 border-slate-300 text-cyan-800'
+                          : 'bg-[#162436] border-[#233852] text-cyan-300'
+                      }`}>Ctrl + V</kbd> to paste snip, drag & drop, or click to upload
                     </>
                   )}
                 </p>
-                <p className="text-[11px] text-slate-400 mt-1">
-                  Supports Windows Snipping Tool (<kbd className="text-[10px] bg-[#162436] px-1.5 py-0.5 rounded border border-[#233852] text-slate-300">Win+Shift+S</kbd>), D4W, Praktika & Exact. 3-way hash auto-merges midday walk-ins with zero duplicates.
+                <p className={`text-[11px] mt-1 ${theme === 'light' ? 'text-slate-600' : 'text-slate-400'}`}>
+                  Supports Windows Snipping Tool (<kbd className={`text-[10px] px-1.5 py-0.5 rounded border ${
+                    theme === 'light'
+                      ? 'bg-slate-100 border-slate-300 text-slate-700'
+                      : 'bg-[#162436] border-[#233852] text-slate-300'
+                  }`}>Win+Shift+S</kbd>), D4W, Praktika & Exact. 3-way hash auto-merges midday walk-ins with zero duplicates.
                 </p>
               </div>
             </div>
@@ -1273,33 +1345,39 @@ export default function DayScheduleQueue({
 
         {/* 3. Status Metrics Bar */}
         {totalCount > 0 && (
-          <div className="flex items-center justify-between px-4 py-2.5 bg-[#0E1724] border border-[#182638] rounded-xl text-xs text-slate-300 shadow-md">
+          <div className={`flex items-center justify-between px-4 py-2.5 border rounded-xl text-xs shadow-md ${
+            theme === 'light'
+              ? 'bg-white border-slate-200 text-slate-700 shadow-slate-200/60'
+              : 'bg-[#0E1724] border-[#182638] text-slate-300 shadow-md'
+          }`}>
             <div className="flex items-center gap-4 flex-wrap">
-              <span className="font-extrabold text-white">
+              <span className={`font-extrabold ${theme === 'light' ? 'text-slate-950' : 'text-white'}`}>
                 {totalCount} Total Appointments
               </span>
               {readyCount > 0 && (
-                <span className="flex items-center gap-1 text-emerald-300 font-bold">
-                  <Check className="w-3.5 h-3.5 stroke-[3] text-emerald-400" />
+                <span className={`flex items-center gap-1 font-bold ${theme === 'light' ? 'text-emerald-700' : 'text-emerald-300'}`}>
+                  <Check className={`w-3.5 h-3.5 stroke-[3] ${theme === 'light' ? 'text-emerald-600' : 'text-emerald-400'}`} />
                   {readyCount} Ready for D4W
                 </span>
               )}
               {processingCount > 0 && (
-                <span className="flex items-center gap-1 text-amber-300 font-bold">
-                  <RotateCw className="w-3.5 h-3.5 animate-spin text-amber-400" />
+                <span className={`flex items-center gap-1 font-bold ${theme === 'light' ? 'text-amber-700' : 'text-amber-300'}`}>
+                  <RotateCw className="w-3.5 h-3.5 animate-spin text-amber-500" />
                   {processingCount} Synthesizing Notes
                 </span>
               )}
               {pendingCount > 0 && (
-                <span className="text-slate-400 font-medium">
+                <span className={`font-medium ${theme === 'light' ? 'text-slate-500' : 'text-slate-400'}`}>
                   {pendingCount} Remaining
                 </span>
               )}
             </div>
 
             {readyCount > 0 && (
-              <div className="hidden sm:flex items-center gap-1.5 text-[11px] font-bold text-slate-300">
-                <ShieldCheck className="w-4 h-4 text-emerald-400" />
+              <div className={`hidden sm:flex items-center gap-1.5 text-[11px] font-bold ${
+                theme === 'light' ? 'text-slate-600' : 'text-slate-300'
+              }`}>
+                <ShieldCheck className={`w-4 h-4 ${theme === 'light' ? 'text-emerald-600' : 'text-emerald-400'}`} />
                 <span>5:00 PM Cake Walk: 1-click clipboard paste</span>
               </div>
             )}
@@ -1308,11 +1386,15 @@ export default function DayScheduleQueue({
 
         {/* 4. Schedule Items Adaptive Bento Grid */}
         {items.length === 0 ? (
-          <div className="bg-[#0E1724] rounded-2xl border border-[#182638] p-12 text-center shadow-xl">
-            <Calendar className="w-12 h-12 text-slate-600 mx-auto mb-3" />
-            <h3 className="text-base font-extrabold text-white">No Appointments Queued for Today</h3>
-            <p className="text-xs text-slate-400 max-w-md mx-auto mt-1 mb-5">
-              Snip your appointment book from Dental4Windows or Praktika and press <strong className="text-cyan-300">Ctrl+V</strong> to populate your day in 3 seconds.
+          <div className={`rounded-2xl border p-12 text-center shadow-xl ${
+            theme === 'light' ? 'bg-white border-slate-200 shadow-slate-200/60' : 'bg-[#0E1724] border-[#182638]'
+          }`}>
+            <Calendar className={`w-12 h-12 mx-auto mb-3 ${theme === 'light' ? 'text-slate-400' : 'text-slate-600'}`} />
+            <h3 className={`text-base font-extrabold ${theme === 'light' ? 'text-slate-900' : 'text-white'}`}>
+              No Appointments Queued for Today
+            </h3>
+            <p className={`text-xs max-w-md mx-auto mt-1 mb-5 ${theme === 'light' ? 'text-slate-600' : 'text-slate-400'}`}>
+              Snip your appointment book from Dental4Windows or Praktika and press <strong className={theme === 'light' ? 'text-cyan-700 font-bold' : 'text-cyan-300'}>Ctrl+V</strong> to populate your day in 3 seconds.
             </p>
             <button
               onClick={handleLoadDemoSchedule}
@@ -1460,9 +1542,9 @@ export default function DayScheduleQueue({
                             : 'bg-amber-500/10 hover:bg-amber-500/20 border-amber-500/25 text-amber-200 shadow-xs'
                         }`}
                       >
-                        <Sparkles className="w-3.5 h-3.5 text-amber-500 dark:text-amber-400 shrink-0 mt-0.5" />
+                        <Sparkles className={`w-3.5 h-3.5 shrink-0 mt-0.5 ${theme === 'light' ? 'text-amber-600' : 'text-amber-400'}`} />
                         <span className="truncate group-hover:whitespace-normal group-hover:overflow-visible transition-all min-w-0 flex-1 leading-snug">
-                          <strong className="font-bold text-amber-800 dark:text-amber-300">Pre-Op:</strong> {item.preOpBrief}
+                          <strong className={`font-bold ${theme === 'light' ? 'text-amber-800' : 'text-amber-300'}`}>Pre-Op:</strong> {item.preOpBrief}
                         </span>
 
                         {/* Theme-Aware Floating Tooltip positioned BELOW the tag so it NEVER covers the patient header */}
@@ -1471,7 +1553,9 @@ export default function DayScheduleQueue({
                             ? 'bg-white text-slate-900 border-amber-300 shadow-slate-900/15'
                             : 'bg-[#0D1522] text-slate-100 border-amber-500/40 shadow-slate-950/80'
                         }`}>
-                          <div className="flex items-center gap-1.5 text-[10px] font-black uppercase text-amber-600 dark:text-amber-400 mb-1 tracking-wider">
+                          <div className={`flex items-center gap-1.5 text-[10px] font-black uppercase mb-1 tracking-wider ${
+                            theme === 'light' ? 'text-amber-700' : 'text-amber-400'
+                          }`}>
                             <Sparkles className="w-3 h-3 text-amber-500" />
                             <span>Pre-Op Clinical Instructions</span>
                           </div>
@@ -1685,10 +1769,12 @@ export default function DayScheduleQueue({
                                   e.stopPropagation();
                                   handleCopyAftercare(item);
                                 }}
-                                className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer active:scale-95 ${
+                                className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer active:scale-95 border ${
                                   copiedAftercareId === item.id
-                                    ? 'bg-cyan-400 text-slate-950 font-black shadow-md'
-                                    : 'bg-[#121E2E] hover:bg-[#18283D] text-slate-300 border border-[#1E3048]'
+                                    ? 'bg-cyan-500 text-slate-950 font-black shadow-md border-cyan-400'
+                                    : theme === 'light'
+                                    ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
+                                    : 'bg-[#121E2E] hover:bg-[#18283D] text-slate-300 border-[#1E3048]'
                                 }`}
                                 title="Copy plain-English patient aftercare advice for SMS"
                               >
@@ -1699,7 +1785,7 @@ export default function DayScheduleQueue({
                                   </>
                                 ) : (
                                   <>
-                                    <Copy className="w-3.5 h-3.5 text-cyan-400" />
+                                    <Copy className={`w-3.5 h-3.5 ${theme === 'light' ? 'text-cyan-700' : 'text-cyan-400'}`} />
                                     <span className="hidden sm:inline">Aftercare SMS</span>
                                     <span className="sm:hidden">SMS</span>
                                   </>
@@ -1712,14 +1798,20 @@ export default function DayScheduleQueue({
                                 e.stopPropagation();
                                 handleCopyNote(item);
                               }}
-                              className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer active:scale-95 ${
+                              className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer active:scale-95 border ${
                                 copiedId === item.id
-                                  ? 'bg-emerald-400 text-slate-950 font-black shadow-md'
-                                  : 'bg-[#162436] hover:bg-[#20334A] text-slate-100 border border-[#233852]'
+                                  ? 'bg-emerald-500 text-white font-black shadow-md border-emerald-400'
+                                  : theme === 'light'
+                                  ? 'bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-200'
+                                  : 'bg-[#162436] hover:bg-[#20334A] text-slate-100 border-[#233852]'
                               }`}
                               title="Express copy note for D4W / Praktika"
                             >
-                              {copiedId === item.id ? <Check className="w-3.5 h-3.5 stroke-[3]" /> : <Copy className="w-3.5 h-3.5 text-cyan-400" />}
+                              {copiedId === item.id ? (
+                                <Check className="w-3.5 h-3.5 stroke-[3] text-white" />
+                              ) : (
+                                <Copy className={`w-3.5 h-3.5 ${theme === 'light' ? 'text-cyan-700' : 'text-cyan-400'}`} />
+                              )}
                               <span>{copiedId === item.id ? 'Copied' : 'Copy'}</span>
                             </button>
                           </div>
@@ -1731,7 +1823,11 @@ export default function DayScheduleQueue({
                               e.stopPropagation();
                               handleDeleteItem(item.id, e);
                             }}
-                            className="p-1.5 text-slate-500 hover:text-rose-400 rounded-lg transition-colors cursor-pointer ml-1"
+                            className={`p-1.5 rounded-lg transition-colors cursor-pointer ml-1 ${
+                              theme === 'light'
+                                ? 'text-slate-400 hover:text-rose-600 hover:bg-rose-50'
+                                : 'text-slate-500 hover:text-rose-400 hover:bg-[#162436]'
+                            }`}
                             title="Remove appointment"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -1754,16 +1850,24 @@ export default function DayScheduleQueue({
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-[#101923] rounded-2xl max-w-md w-full p-6 shadow-2xl border border-[#1E2E40] text-slate-100"
+              className={`rounded-2xl max-w-md w-full p-6 shadow-2xl border transition-colors ${
+                theme === 'light'
+                  ? 'bg-white border-slate-200 text-slate-900 shadow-slate-900/20'
+                  : 'bg-[#101923] border-[#1E2E40] text-slate-100'
+              }`}
             >
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-black text-white flex items-center gap-2">
-                  <Plus className="w-5 h-5 text-cyan-400" />
+                <h3 className={`text-lg font-black flex items-center gap-2 ${
+                  theme === 'light' ? 'text-slate-950' : 'text-white'
+                }`}>
+                  <Plus className={`w-5 h-5 ${theme === 'light' ? 'text-cyan-700' : 'text-cyan-400'}`} />
                   Add Unscheduled Walk-in
                 </h3>
                 <button
                   onClick={() => setShowWalkInModal(false)}
-                  className="p-1 text-slate-400 hover:text-white rounded-lg cursor-pointer"
+                  className={`p-1 rounded-lg cursor-pointer ${
+                    theme === 'light' ? 'text-slate-400 hover:text-slate-800' : 'text-slate-400 hover:text-white'
+                  }`}
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -1771,7 +1875,9 @@ export default function DayScheduleQueue({
 
               <form onSubmit={handleAddWalkInSubmit} className="space-y-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-300 mb-1">
+                  <label className={`block text-xs font-bold mb-1 ${
+                    theme === 'light' ? 'text-slate-700' : 'text-slate-300'
+                  }`}>
                     Patient Name *
                   </label>
                   <input
@@ -1781,31 +1887,47 @@ export default function DayScheduleQueue({
                     placeholder="e.g. John Doe"
                     value={walkInName}
                     onChange={(e) => setWalkInName(e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-[#233547] bg-[#16222F] text-white text-sm focus:outline-hidden focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 placeholder:text-slate-500"
+                    className={`w-full px-3.5 py-2.5 rounded-xl border text-sm focus:outline-hidden focus:ring-1 transition-all ${
+                      theme === 'light'
+                        ? 'bg-slate-50 border-slate-300 text-slate-900 focus:border-cyan-600 focus:ring-cyan-600 placeholder:text-slate-400'
+                        : 'border-[#233547] bg-[#16222F] text-white focus:border-cyan-400 focus:ring-cyan-400 placeholder:text-slate-500'
+                    }`}
                   />
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs font-bold text-slate-300 mb-1">
+                    <label className={`block text-xs font-bold mb-1 ${
+                      theme === 'light' ? 'text-slate-700' : 'text-slate-300'
+                    }`}>
                       Time
                     </label>
                     <input
                       type="time"
                       value={walkInTime}
                       onChange={(e) => setWalkInTime(e.target.value)}
-                      className="w-full px-3.5 py-2 rounded-xl border border-[#233547] bg-[#16222F] text-white text-sm focus:outline-hidden focus:border-cyan-400"
+                      className={`w-full px-3.5 py-2 rounded-xl border text-sm focus:outline-hidden focus:ring-1 transition-all ${
+                        theme === 'light'
+                          ? 'bg-slate-50 border-slate-300 text-slate-900 focus:border-cyan-600'
+                          : 'border-[#233547] bg-[#16222F] text-white focus:border-cyan-400'
+                      }`}
                     />
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold text-slate-300 mb-1">
+                    <label className={`block text-xs font-bold mb-1 ${
+                      theme === 'light' ? 'text-slate-700' : 'text-slate-300'
+                    }`}>
                       Type
                     </label>
                     <select
                       value={walkInType}
                       onChange={(e) => setWalkInType(e.target.value as AppointmentType)}
-                      className="w-full px-3 py-2 rounded-xl border border-[#233547] bg-[#16222F] text-white text-sm focus:outline-hidden focus:border-cyan-400"
+                      className={`w-full px-3 py-2 rounded-xl border text-sm focus:outline-hidden focus:ring-1 transition-all ${
+                        theme === 'light'
+                          ? 'bg-slate-50 border-slate-300 text-slate-900 focus:border-cyan-600'
+                          : 'border-[#233547] bg-[#16222F] text-white focus:border-cyan-400'
+                      }`}
                     >
                       {APPOINTMENT_TYPES.map((t) => (
                         <option key={t.value} value={t.value}>
@@ -1817,7 +1939,9 @@ export default function DayScheduleQueue({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-300 mb-1">
+                  <label className={`block text-xs font-bold mb-1 ${
+                    theme === 'light' ? 'text-slate-700' : 'text-slate-300'
+                  }`}>
                     Chief Complaint / Procedure
                   </label>
                   <input
@@ -1825,7 +1949,11 @@ export default function DayScheduleQueue({
                     placeholder="e.g. Broken tooth #26, toothache"
                     value={walkInReason}
                     onChange={(e) => setWalkInReason(e.target.value)}
-                    className="w-full px-3.5 py-2 rounded-xl border border-[#233547] bg-[#16222F] text-white text-sm focus:outline-hidden focus:border-cyan-400 placeholder:text-slate-500"
+                    className={`w-full px-3.5 py-2 rounded-xl border text-sm focus:outline-hidden focus:ring-1 transition-all ${
+                      theme === 'light'
+                        ? 'bg-slate-50 border-slate-300 text-slate-900 focus:border-cyan-600 placeholder:text-slate-400'
+                        : 'border-[#233547] bg-[#16222F] text-white focus:border-cyan-400 placeholder:text-slate-500'
+                    }`}
                   />
                 </div>
 
@@ -1833,13 +1961,15 @@ export default function DayScheduleQueue({
                   <button
                     type="button"
                     onClick={() => setShowWalkInModal(false)}
-                    className="px-4 py-2 text-xs font-bold text-slate-400 hover:text-white rounded-xl cursor-pointer"
+                    className={`px-4 py-2 text-xs font-bold rounded-xl cursor-pointer ${
+                      theme === 'light' ? 'text-slate-600 hover:text-slate-900' : 'text-slate-400 hover:text-white'
+                    }`}
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
-                    className="px-4 py-2 bg-cyan-400 hover:bg-cyan-300 text-slate-950 text-xs font-black rounded-xl shadow-lg shadow-cyan-950/40 transition-all cursor-pointer"
+                    className="px-4 py-2 bg-gradient-to-r from-cyan-400 to-teal-400 hover:from-cyan-300 hover:to-teal-300 text-slate-950 text-xs font-black rounded-xl shadow-lg shadow-cyan-950/20 transition-all cursor-pointer"
                   >
                     Add to Roster
                   </button>
@@ -1858,29 +1988,45 @@ export default function DayScheduleQueue({
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-[#101923] rounded-2xl max-w-2xl w-full p-6 shadow-2xl border border-[#1E2E40] text-slate-100 flex flex-col max-h-[85vh]"
+              className={`rounded-2xl max-w-2xl w-full p-6 shadow-2xl border flex flex-col max-h-[85vh] ${
+                theme === 'light'
+                  ? 'bg-white border-slate-200 text-slate-900 shadow-slate-900/20'
+                  : 'bg-[#101923] border-[#1E2E40] text-slate-100'
+              }`}
             >
-              <div className="flex items-center justify-between pb-3 border-b border-[#1E2E40]">
+              <div className={`flex items-center justify-between pb-3 border-b ${
+                theme === 'light' ? 'border-slate-200' : 'border-[#1E2E40]'
+              }`}>
                 <div>
-                  <h3 className="text-base font-extrabold text-white">
+                  <h3 className={`text-base font-extrabold ${theme === 'light' ? 'text-slate-950' : 'text-white'}`}>
                     Clinical Note: {viewNoteItem.patientName}
                   </h3>
-                  <p className="text-xs text-cyan-400">{viewNoteItem.procedureText} • {viewNoteItem.time}</p>
+                  <p className={`text-xs font-medium ${theme === 'light' ? 'text-cyan-700' : 'text-cyan-400'}`}>
+                    {viewNoteItem.procedureText} • {viewNoteItem.time}
+                  </p>
                 </div>
                 <button
                   onClick={() => setViewNoteItem(null)}
-                  className="p-1.5 text-slate-400 hover:text-white rounded-lg cursor-pointer"
+                  className={`p-1.5 rounded-lg cursor-pointer ${
+                    theme === 'light' ? 'text-slate-400 hover:text-slate-900' : 'text-slate-400 hover:text-white'
+                  }`}
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
 
-              <div className="flex-1 overflow-y-auto py-4 font-mono text-xs text-slate-200 whitespace-pre-wrap leading-relaxed bg-[#0E1620] p-4 rounded-xl border border-[#1E2E40] mt-3 cockpit-scrollbar">
+              <div className={`flex-1 overflow-y-auto py-4 font-mono text-xs whitespace-pre-wrap leading-relaxed p-4 rounded-xl border mt-3 cockpit-scrollbar ${
+                theme === 'light'
+                  ? 'bg-slate-50 border-slate-200 text-slate-800'
+                  : 'bg-[#0E1620] border-[#1E2E40] text-slate-200'
+              }`}>
                 {formatNoteForPmsClipboard(viewNoteItem)}
               </div>
 
-              <div className="flex items-center justify-between pt-4 border-t border-[#1E2E40] mt-4">
-                <span className="text-xs text-slate-400">
+              <div className={`flex items-center justify-between pt-4 border-t mt-4 ${
+                theme === 'light' ? 'border-slate-200' : 'border-[#1E2E40]'
+              }`}>
+                <span className={`text-xs ${theme === 'light' ? 'text-slate-500' : 'text-slate-400'}`}>
                   Ready to paste into D4W / Praktika Notes tab
                 </span>
                 <button
@@ -1888,7 +2034,7 @@ export default function DayScheduleQueue({
                     handleCopyNote(viewNoteItem);
                     setViewNoteItem(null);
                   }}
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-cyan-400 hover:bg-cyan-300 text-slate-950 rounded-xl text-xs font-black transition-all shadow-lg shadow-cyan-950/40 cursor-pointer"
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-cyan-400 to-teal-400 hover:from-cyan-300 hover:to-teal-300 text-slate-950 rounded-xl text-xs font-black transition-all shadow-lg shadow-cyan-950/20 cursor-pointer"
                 >
                   <Copy className="w-4 h-4" />
                   Copy to Clipboard
@@ -1907,37 +2053,53 @@ export default function DayScheduleQueue({
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-[#101923] rounded-2xl max-w-md w-full p-6 shadow-2xl border border-[#1E2E40] flex flex-col text-slate-100"
+              className={`rounded-2xl max-w-md w-full p-6 shadow-2xl border flex flex-col transition-colors ${
+                theme === 'light'
+                  ? 'bg-white border-slate-200 text-slate-900 shadow-slate-900/20'
+                  : 'bg-[#101923] border-[#1E2E40] text-slate-100'
+              }`}
             >
               <div className="flex items-start gap-3.5">
-                <div className="p-3 bg-emerald-500/10 text-emerald-400 rounded-2xl shrink-0 border border-emerald-500/20">
+                <div className={`p-3 rounded-2xl shrink-0 border ${
+                  theme === 'light'
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
+                    : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                }`}>
                   <ShieldCheck className="w-6 h-6" />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <h3 className="text-base font-extrabold text-white">
+                  <h3 className={`text-base font-extrabold ${theme === 'light' ? 'text-slate-950' : 'text-white'}`}>
                     Confirm Verbal Recording Consent
                   </h3>
-                  <p className="text-xs text-slate-400 mt-0.5">
+                  <p className={`text-xs mt-0.5 ${theme === 'light' ? 'text-slate-500' : 'text-slate-400'}`}>
                     {consentGuardItem.patientName} • {consentGuardItem.time}
                   </p>
                 </div>
                 <button
                   onClick={() => setConsentGuardItem(null)}
-                  className="p-1.5 text-slate-400 hover:text-white rounded-lg cursor-pointer"
+                  className={`p-1.5 rounded-lg cursor-pointer ${
+                    theme === 'light' ? 'text-slate-400 hover:text-slate-900' : 'text-slate-400 hover:text-white'
+                  }`}
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
 
-              <div className="mt-4 p-3.5 bg-[#14202D] rounded-xl border border-[#1E2E40] text-xs text-slate-300 leading-relaxed">
-                <p className="font-semibold text-slate-200">
+              <div className={`mt-4 p-3.5 rounded-xl border text-xs leading-relaxed ${
+                theme === 'light'
+                  ? 'bg-slate-50 border-slate-200 text-slate-700'
+                  : 'bg-[#14202D] border-[#1E2E40] text-slate-300'
+              }`}>
+                <p className={`font-semibold ${theme === 'light' ? 'text-slate-900' : 'text-slate-200'}`}>
                   Confirm patient verbal consent for ambient operatory recording:
                 </p>
-                <p className="mt-1.5 text-cyan-300 italic">
+                <p className={`mt-1.5 italic font-medium ${theme === 'light' ? 'text-cyan-800' : 'text-cyan-300'}`}>
                   "I will be using ambient voice transcription to prepare my clinical notes for your record today."
                 </p>
-                <div className="mt-3 pt-2.5 border-t border-[#1E2E40] flex items-center gap-1.5 text-[11px] text-slate-400">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                <div className={`mt-3 pt-2.5 border-t flex items-center gap-1.5 text-[11px] ${
+                  theme === 'light' ? 'border-slate-200 text-slate-500' : 'border-[#1E2E40] text-slate-400'
+                }`}>
+                  <CheckCircle2 className={`w-3.5 h-3.5 shrink-0 ${theme === 'light' ? 'text-emerald-600' : 'text-emerald-400'}`} />
                   <span>Logged to internal compliance audit only. Kept out of PMS clipboard.</span>
                 </div>
               </div>
@@ -1946,14 +2108,18 @@ export default function DayScheduleQueue({
                 <button
                   type="button"
                   onClick={() => recordWithoutConsentTag(consentGuardItem)}
-                  className="px-3.5 py-2 text-xs font-semibold text-slate-400 hover:text-white hover:bg-[#16222F] rounded-xl transition-colors cursor-pointer"
+                  className={`px-3.5 py-2 text-xs font-semibold rounded-xl transition-colors cursor-pointer ${
+                    theme === 'light'
+                      ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
+                      : 'text-slate-400 hover:text-white hover:bg-[#16222F]'
+                  }`}
                 >
                   Record Without Tag
                 </button>
                 <button
                   type="button"
                   onClick={() => confirmConsentAndRecord(consentGuardItem)}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-black rounded-xl transition-all shadow-md shadow-emerald-950/40 cursor-pointer"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 text-xs font-black rounded-xl transition-all shadow-md shadow-emerald-950/20 cursor-pointer"
                 >
                   <ShieldCheck className="w-4 h-4" />
                   Confirm Consent & Record
@@ -1972,32 +2138,52 @@ export default function DayScheduleQueue({
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-[#101923] rounded-2xl max-w-md w-full p-6 shadow-2xl border border-[#1E2E40] text-slate-100"
+              className={`rounded-2xl max-w-md w-full p-6 shadow-2xl border transition-colors ${
+                theme === 'light'
+                  ? 'bg-white border-slate-200 text-slate-900 shadow-slate-900/20'
+                  : 'bg-[#101923] border-[#1E2E40] text-slate-100'
+              }`}
             >
-              <div className="flex items-center justify-between pb-3 border-b border-[#1E2E40]">
+              <div className={`flex items-center justify-between pb-3 border-b ${
+                theme === 'light' ? 'border-slate-200' : 'border-[#1E2E40]'
+              }`}>
                 <div className="flex items-center gap-2.5">
-                  <div className="p-2 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-400">
+                  <div className={`p-2 rounded-xl border ${
+                    theme === 'light'
+                      ? 'bg-rose-50 border-rose-200 text-rose-600'
+                      : 'bg-rose-500/15 border-rose-500/30 text-rose-400'
+                  }`}>
                     <Trash2 className="w-5 h-5" />
                   </div>
                   <div>
-                    <h3 className="text-base font-extrabold text-white">Clear Today's Schedule</h3>
-                    <p className="text-[11px] text-slate-400">Reset operatory roster for {formattedDateTitle}</p>
+                    <h3 className={`text-base font-extrabold ${theme === 'light' ? 'text-slate-950' : 'text-white'}`}>
+                      Clear Today's Schedule
+                    </h3>
+                    <p className={`text-[11px] ${theme === 'light' ? 'text-slate-500' : 'text-slate-400'}`}>
+                      Reset operatory roster for {formattedDateTitle}
+                    </p>
                   </div>
                 </div>
                 <button
                   type="button"
                   onClick={() => setShowClearConfirmModal(false)}
-                  className="p-1.5 text-slate-400 hover:text-white rounded-lg cursor-pointer"
+                  className={`p-1.5 rounded-lg cursor-pointer ${
+                    theme === 'light' ? 'text-slate-400 hover:text-slate-900' : 'text-slate-400 hover:text-white'
+                  }`}
                 >
                   <X className="w-4 h-4" />
                 </button>
               </div>
 
-              <div className="mt-4 p-3.5 bg-rose-950/30 rounded-xl border border-rose-900/40 text-xs text-rose-200 leading-relaxed">
-                <p className="font-semibold text-rose-100">
+              <div className={`mt-4 p-3.5 rounded-xl border text-xs leading-relaxed ${
+                theme === 'light'
+                  ? 'bg-rose-50/80 border-rose-200 text-rose-950'
+                  : 'bg-rose-950/30 border-rose-900/40 text-rose-200'
+              }`}>
+                <p className={`font-semibold ${theme === 'light' ? 'text-rose-900' : 'text-rose-100'}`}>
                   Are you sure you want to remove all {items.length} appointments from today's active roster?
                 </p>
-                <p className="mt-1 text-slate-400 text-[11px]">
+                <p className={`mt-1 text-[11px] ${theme === 'light' ? 'text-slate-600' : 'text-slate-400'}`}>
                   Completed clinical records and consultation notes will remain saved in your Patient Records Hub.
                 </p>
               </div>
@@ -2006,7 +2192,11 @@ export default function DayScheduleQueue({
                 <button
                   type="button"
                   onClick={() => setShowClearConfirmModal(false)}
-                  className="px-3.5 py-2 text-xs font-semibold text-slate-400 hover:text-white hover:bg-[#16222F] rounded-xl transition-colors cursor-pointer"
+                  className={`px-3.5 py-2 text-xs font-semibold rounded-xl transition-colors cursor-pointer ${
+                    theme === 'light'
+                      ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                      : 'text-slate-400 hover:text-white hover:bg-[#16222F]'
+                  }`}
                 >
                   Keep Roster
                 </button>
@@ -2036,31 +2226,55 @@ export default function DayScheduleQueue({
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-[#101923] rounded-2xl max-w-4xl w-full p-6 shadow-2xl border border-[#1E2E40] flex flex-col max-h-[90vh] text-slate-100"
+              className={`rounded-2xl max-w-4xl w-full p-6 shadow-2xl border flex flex-col max-h-[90vh] transition-colors ${
+                theme === 'light'
+                  ? 'bg-white border-slate-200 text-slate-900 shadow-slate-900/20'
+                  : 'bg-[#101923] border-[#1E2E40] text-slate-100'
+              }`}
             >
               {/* Header */}
-              <div className="flex items-center justify-between pb-3 border-b border-[#1E2E40]">
+              <div className={`flex items-center justify-between pb-3 border-b ${
+                theme === 'light' ? 'border-slate-200' : 'border-[#1E2E40]'
+              }`}>
                 <div className="flex items-center gap-3">
-                  <div className={`p-2.5 rounded-xl ${sideBySideItem.isFullyGrounded !== false ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'}`}>
+                  <div className={`p-2.5 rounded-xl border ${
+                    sideBySideItem.isFullyGrounded !== false
+                      ? theme === 'light'
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
+                        : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                      : theme === 'light'
+                      ? 'bg-amber-50 text-amber-700 border-amber-300'
+                      : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                  }`}>
                     {sideBySideItem.isFullyGrounded !== false ? (
-                      <ShieldCheck className="w-5 h-5 text-emerald-400" />
+                      <ShieldCheck className="w-5 h-5" />
                     ) : (
-                      <AlertCircle className="w-5 h-5 text-amber-400" />
+                      <AlertCircle className="w-5 h-5" />
                     )}
                   </div>
                   <div>
                     <div className="flex items-center gap-2">
-                      <h3 className="text-base font-extrabold text-white">
+                      <h3 className={`text-base font-extrabold ${theme === 'light' ? 'text-slate-950' : 'text-white'}`}>
                         Clinical Verification: {sideBySideItem.patientName}
                       </h3>
-                      <span className={`px-2.5 py-0.5 rounded-md text-[11px] font-extrabold ${sideBySideItem.isFullyGrounded !== false ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'}`}>
+                      <span className={`px-2.5 py-0.5 rounded-md text-[11px] font-extrabold border ${
+                        sideBySideItem.isFullyGrounded !== false
+                          ? theme === 'light'
+                            ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                            : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                          : theme === 'light'
+                          ? 'bg-amber-50 text-amber-800 border-amber-300'
+                          : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                      }`}>
                         {sideBySideItem.isFullyGrounded !== false ? '100% Grounded in Audio' : `${sideBySideItem.groundingScore ?? 0}% Audio Grounded`}
                       </span>
                     </div>
-                    <p className="text-xs text-slate-400 mt-0.5">
+                    <p className={`text-xs mt-0.5 ${theme === 'light' ? 'text-slate-500' : 'text-slate-400'}`}>
                       {sideBySideItem.procedureText} • {sideBySideItem.time}
                       {sideBySideItem.consentObtained && (
-                        <span className="ml-2 inline-flex items-center text-emerald-400 font-medium">
+                        <span className={`ml-2 inline-flex items-center font-medium ${
+                          theme === 'light' ? 'text-emerald-700' : 'text-emerald-400'
+                        }`}>
                           • Verbal consent logged ✓
                         </span>
                       )}
@@ -2069,7 +2283,9 @@ export default function DayScheduleQueue({
                 </div>
                 <button
                   onClick={() => setSideBySideItem(null)}
-                  className="p-1.5 text-slate-400 hover:text-white rounded-lg cursor-pointer"
+                  className={`p-1.5 rounded-lg cursor-pointer ${
+                    theme === 'light' ? 'text-slate-400 hover:text-slate-900' : 'text-slate-400 hover:text-white'
+                  }`}
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -2077,12 +2293,18 @@ export default function DayScheduleQueue({
 
               {/* Unverified Claims Warning if any */}
               {sideBySideItem.unverifiedClaims && sideBySideItem.unverifiedClaims.length > 0 && (
-                <div className="mt-3 p-3 bg-amber-950/30 border border-amber-500/30 rounded-xl flex items-start gap-2.5">
-                  <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-                  <div className="text-xs text-amber-300 leading-relaxed">
+                <div className={`mt-3 p-3 rounded-xl border flex items-start gap-2.5 ${
+                  theme === 'light'
+                    ? 'bg-amber-50/90 border-amber-300'
+                    : 'bg-amber-950/30 border-amber-500/30'
+                }`}>
+                  <AlertCircle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                  <div className={`text-xs leading-relaxed ${theme === 'light' ? 'text-amber-950' : 'text-amber-300'}`}>
                     <span className="font-bold">Items not detected in verbatim speech: </span>
-                    <span className="font-semibold text-amber-200">{sideBySideItem.unverifiedClaims.join(', ')}</span>
-                    <p className="text-[11px] text-amber-400/80 mt-0.5">
+                    <span className={`font-semibold ${theme === 'light' ? 'text-amber-900' : 'text-amber-200'}`}>
+                      {sideBySideItem.unverifiedClaims.join(', ')}
+                    </span>
+                    <p className={`text-[11px] mt-0.5 ${theme === 'light' ? 'text-amber-800' : 'text-amber-400/80'}`}>
                       Verify whether these clinical findings or treatments were performed before copying to your practice management system.
                     </p>
                   </div>
@@ -2092,23 +2314,35 @@ export default function DayScheduleQueue({
               {/* Side-by-Side Content Grid */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3.5 flex-1 min-h-0 overflow-hidden">
                 {/* Left Column: Verbatim Spoken Dialogue */}
-                <div className="flex flex-col rounded-xl border border-[#1E2E40] bg-[#14202D] p-3 min-h-0">
-                  <div className="flex items-center justify-between pb-2 mb-2 border-b border-[#1E2E40] text-xs font-bold text-slate-300">
+                <div className={`flex flex-col rounded-xl border p-3 min-h-0 ${
+                  theme === 'light' ? 'bg-slate-50 border-slate-200' : 'border-[#1E2E40] bg-[#14202D]'
+                }`}>
+                  <div className={`flex items-center justify-between pb-2 mb-2 border-b text-xs font-bold ${
+                    theme === 'light' ? 'border-slate-200 text-slate-700' : 'border-[#1E2E40] text-slate-300'
+                  }`}>
                     <span>Spoken Operatory Dialogue</span>
-                    <span className="text-[11px] text-cyan-400 font-mono font-normal">Verbatim Audio</span>
+                    <span className={`text-[11px] font-mono font-normal ${theme === 'light' ? 'text-cyan-700' : 'text-cyan-400'}`}>
+                      Verbatim Audio
+                    </span>
                   </div>
                   <div className="flex-1 overflow-y-auto space-y-2 pr-1 text-xs cockpit-scrollbar">
                     {sideBySideItem.transcript && sideBySideItem.transcript.length > 0 ? (
                       sideBySideItem.transcript.map((utt, i) => (
-                        <div key={i} className="p-2 rounded-lg bg-[#0E1620] border border-[#1E2E40]">
-                          <span className="font-bold text-[11px] text-cyan-400 block mb-0.5">
+                        <div key={i} className={`p-2 rounded-lg border ${
+                          theme === 'light' ? 'bg-white border-slate-200' : 'bg-[#0E1620] border-[#1E2E40]'
+                        }`}>
+                          <span className={`font-bold text-[11px] block mb-0.5 ${
+                            theme === 'light' ? 'text-cyan-800' : 'text-cyan-400'
+                          }`}>
                             {utt.sender}:
                           </span>
-                          <p className="text-slate-300 leading-relaxed font-sans">{utt.text}</p>
+                          <p className={`leading-relaxed font-sans ${theme === 'light' ? 'text-slate-800' : 'text-slate-300'}`}>
+                            {utt.text}
+                          </p>
                         </div>
                       ))
                     ) : (
-                      <div className="p-4 text-center text-slate-500 italic">
+                      <div className={`p-4 text-center italic ${theme === 'light' ? 'text-slate-400' : 'text-slate-500'}`}>
                         Live operatory audio recorded for consultation.
                       </div>
                     )}
@@ -2116,30 +2350,48 @@ export default function DayScheduleQueue({
                 </div>
 
                 {/* Right Column: Synthesized Clinical Note */}
-                <div className="flex flex-col rounded-xl border border-[#1E2E40] bg-[#14202D] p-3 min-h-0">
-                  <div className="flex items-center justify-between pb-2 mb-2 border-b border-[#1E2E40] text-xs font-bold text-slate-300">
+                <div className={`flex flex-col rounded-xl border p-3 min-h-0 ${
+                  theme === 'light' ? 'bg-slate-50 border-slate-200' : 'border-[#1E2E40] bg-[#14202D]'
+                }`}>
+                  <div className={`flex items-center justify-between pb-2 mb-2 border-b text-xs font-bold ${
+                    theme === 'light' ? 'border-slate-200 text-slate-700' : 'border-[#1E2E40] text-slate-300'
+                  }`}>
                     <span>Synthesized Progress Note</span>
-                    <span className="text-[11px] text-cyan-400 font-mono font-normal">D4W / Praktika Format</span>
+                    <span className={`text-[11px] font-mono font-normal ${theme === 'light' ? 'text-cyan-700' : 'text-cyan-400'}`}>
+                      D4W / Praktika Format
+                    </span>
                   </div>
-                  <div className="flex-1 overflow-y-auto p-3 bg-[#0E1620] rounded-lg border border-[#1E2E40] font-mono text-xs text-slate-200 whitespace-pre-wrap leading-relaxed cockpit-scrollbar">
+                  <div className={`flex-1 overflow-y-auto p-3 rounded-lg border font-mono text-xs whitespace-pre-wrap leading-relaxed cockpit-scrollbar ${
+                    theme === 'light'
+                      ? 'bg-white border-slate-200 text-slate-800'
+                      : 'bg-[#0E1620] border-[#1E2E40] text-slate-200'
+                  }`}>
                     {formatNoteForPmsClipboard(sideBySideItem)}
                   </div>
                 </div>
               </div>
 
               {/* Footer */}
-              <div className="flex items-center justify-between pt-4 border-t border-[#1E2E40] mt-4">
-                <div className="text-xs text-slate-400">
+              <div className={`flex items-center justify-between pt-4 border-t mt-4 ${
+                theme === 'light' ? 'border-slate-200' : 'border-[#1E2E40]'
+              }`}>
+                <div className="text-xs">
                   {sideBySideItem.consentObtained ? (
-                    <span className="text-emerald-400 font-semibold">✓ Verbal Consent Recorded for Internal Audit</span>
+                    <span className={`font-semibold ${theme === 'light' ? 'text-emerald-700' : 'text-emerald-400'}`}>
+                      ✓ Verbal Consent Recorded for Internal Audit
+                    </span>
                   ) : (
-                    <span className="text-slate-500">Verbal consent tag not active</span>
+                    <span className={theme === 'light' ? 'text-slate-500' : 'text-slate-500'}>
+                      Verbal consent tag not active
+                    </span>
                   )}
                 </div>
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => setSideBySideItem(null)}
-                    className="px-4 py-2 text-xs font-bold text-slate-400 hover:text-white rounded-xl cursor-pointer"
+                    className={`px-4 py-2 text-xs font-bold rounded-xl cursor-pointer ${
+                      theme === 'light' ? 'text-slate-600 hover:text-slate-900' : 'text-slate-400 hover:text-white'
+                    }`}
                   >
                     Close
                   </button>
@@ -2148,7 +2400,7 @@ export default function DayScheduleQueue({
                       handleCopyNote(sideBySideItem);
                       setSideBySideItem(null);
                     }}
-                    className="inline-flex items-center gap-2 px-4 py-2 bg-cyan-400 hover:bg-cyan-300 text-slate-950 rounded-xl text-xs font-black transition-all shadow-lg shadow-cyan-950/40 cursor-pointer"
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-cyan-400 to-teal-400 hover:from-cyan-300 hover:to-teal-300 text-slate-950 rounded-xl text-xs font-black transition-all shadow-lg shadow-cyan-950/20 cursor-pointer"
                   >
                     <Copy className="w-4 h-4" />
                     Approve & Copy to PMS
@@ -2159,105 +2411,134 @@ export default function DayScheduleQueue({
           </div>
         )}
       </AnimatePresence>
-        {/* Google Gemini API Key Configuration Modal */}
-        {showApiKeyModal && (
-          <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-50 p-4">
-            <div className="bg-[#0E1622] border border-[#1E2E42] rounded-3xl p-6 max-w-lg w-full shadow-2xl relative text-left">
-              <button
-                onClick={() => setShowApiKeyModal(false)}
-                className="absolute top-5 right-5 p-1.5 text-slate-400 hover:text-white rounded-lg transition-colors cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
 
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-10 h-10 rounded-2xl bg-cyan-500/20 border border-cyan-500/40 flex items-center justify-center text-cyan-300">
-                  <Key className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-base font-extrabold text-white">Google Gemini API Key</h3>
-                  <p className="text-xs text-slate-400">For direct PMS schedule OCR & ambient scribing</p>
-                </div>
+      {/* Google Gemini API Key Configuration Modal */}
+      {showApiKeyModal && (
+        <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className={`rounded-3xl p-6 max-w-lg w-full shadow-2xl relative text-left border transition-colors ${
+            theme === 'light'
+              ? 'bg-white border-slate-200 text-slate-900 shadow-slate-900/20'
+              : 'bg-[#0E1622] border-[#1E2E42] text-white shadow-2xl'
+          }`}>
+            <button
+              onClick={() => setShowApiKeyModal(false)}
+              className={`absolute top-5 right-5 p-1.5 rounded-lg transition-colors cursor-pointer ${
+                theme === 'light' ? 'text-slate-400 hover:text-slate-900' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-3 mb-4">
+              <div className={`w-10 h-10 rounded-2xl flex items-center justify-center border ${
+                theme === 'light'
+                  ? 'bg-cyan-50 border-cyan-300 text-cyan-700'
+                  : 'bg-cyan-500/20 border-cyan-500/40 text-cyan-300'
+              }`}>
+                <Key className="w-5 h-5" />
               </div>
-
-              <div className="p-3.5 bg-[#14202E] border border-[#1E3048] rounded-2xl mb-4 text-xs text-slate-300 space-y-2">
-                <div className="flex items-center justify-between font-bold text-white">
-                  <span>How to get a free API key:</span>
-                  <a
-                    href="https://aistudio.google.com/app/apikey"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-1 text-cyan-400 hover:text-cyan-300 underline font-medium"
-                  >
-                    Google AI Studio <ExternalLink className="w-3 h-3" />
-                  </a>
-                </div>
-                <p className="text-[11px] text-slate-400 leading-relaxed">
-                  1. Visit Google AI Studio and click "Create API key".<br/>
-                  2. Free tier grants 15 requests per minute with zero billing or credit card required.<br/>
-                  3. Key is stored strictly in your browser (<code className="text-cyan-300">localStorage</code>) and used for your practice sessions.
+              <div>
+                <h3 className={`text-base font-extrabold ${theme === 'light' ? 'text-slate-950' : 'text-white'}`}>
+                  Google Gemini API Key
+                </h3>
+                <p className={`text-xs ${theme === 'light' ? 'text-slate-500' : 'text-slate-400'}`}>
+                  For direct PMS schedule OCR & ambient scribing
                 </p>
               </div>
+            </div>
 
-              <label className="block text-xs font-bold text-slate-300 mb-1.5">
-                Gemini API Key
-              </label>
-              <input
-                type="password"
-                value={tempApiKeyInput}
-                onChange={(e) => setTempApiKeyInput(e.target.value)}
-                placeholder="AIzaSy... or AQ.Ab8RN..."
-                className="w-full px-4 py-2.5 bg-[#090F17] border border-[#1E2E42] focus:border-cyan-400 rounded-xl text-xs text-white placeholder-slate-600 focus:outline-hidden font-mono mb-4"
-              />
+            <div className={`p-3.5 rounded-2xl mb-4 text-xs space-y-2 border ${
+              theme === 'light'
+                ? 'bg-slate-50 border-slate-200 text-slate-700'
+                : 'bg-[#14202E] border-[#1E3048] text-slate-300'
+            }`}>
+              <div className={`flex items-center justify-between font-bold ${theme === 'light' ? 'text-slate-900' : 'text-white'}`}>
+                <span>How to get a free API key:</span>
+                <a
+                  href="https://aistudio.google.com/app/apikey"
+                  target="_blank"
+                  rel="noreferrer"
+                  className={`inline-flex items-center gap-1 underline font-medium ${
+                    theme === 'light' ? 'text-cyan-700 hover:text-cyan-900' : 'text-cyan-400 hover:text-cyan-300'
+                  }`}
+                >
+                  Google AI Studio <ExternalLink className="w-3 h-3" />
+                </a>
+              </div>
+              <p className={`text-[11px] leading-relaxed ${theme === 'light' ? 'text-slate-600' : 'text-slate-400'}`}>
+                1. Visit Google AI Studio and click "Create API key".<br/>
+                2. Free tier grants 15 requests per minute with zero billing or credit card required.<br/>
+                3. Key is stored strictly in your browser (<code className={theme === 'light' ? 'text-cyan-800 font-bold' : 'text-cyan-300'}>localStorage</code>) and used for your practice sessions.
+              </p>
+            </div>
 
-              <div className="flex items-center justify-between gap-3 pt-3 border-t border-[#182638]">
-                {customApiKey ? (
-                  <button
-                    onClick={() => {
+            <label className={`block text-xs font-bold mb-1.5 ${theme === 'light' ? 'text-slate-700' : 'text-slate-300'}`}>
+              Gemini API Key
+            </label>
+            <input
+              type="password"
+              value={tempApiKeyInput}
+              onChange={(e) => setTempApiKeyInput(e.target.value)}
+              placeholder="AIzaSy... or AQ.Ab8RN..."
+              className={`w-full px-4 py-2.5 rounded-xl text-xs focus:outline-hidden font-mono mb-4 border transition-all ${
+                theme === 'light'
+                  ? 'bg-slate-50 border-slate-300 text-slate-900 placeholder-slate-400 focus:border-cyan-600'
+                  : 'bg-[#090F17] border-[#1E2E42] text-white placeholder-slate-600 focus:border-cyan-400'
+              }`}
+            />
+
+            <div className={`flex items-center justify-between gap-3 pt-3 border-t ${
+              theme === 'light' ? 'border-slate-200' : 'border-[#182638]'
+            }`}>
+              {customApiKey ? (
+                <button
+                  onClick={() => {
+                    localStorage.removeItem('dentai_custom_gemini_key');
+                    setCustomApiKey('');
+                    setTempApiKeyInput('');
+                    setShowApiKeyModal(false);
+                  }}
+                  className="text-xs text-rose-600 hover:text-rose-700 font-bold cursor-pointer"
+                >
+                  Remove Custom Key
+                </button>
+              ) : (
+                <span className="text-[11px] text-slate-400">No custom key configured</span>
+              )}
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setShowApiKeyModal(false)}
+                  className={`px-4 py-2 text-xs font-bold rounded-xl cursor-pointer ${
+                    theme === 'light' ? 'text-slate-600 hover:text-slate-900' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    const cleaned = tempApiKeyInput.trim();
+                    if (cleaned) {
+                      localStorage.setItem('dentai_custom_gemini_key', cleaned);
+                      setCustomApiKey(cleaned);
+                    } else {
                       localStorage.removeItem('dentai_custom_gemini_key');
                       setCustomApiKey('');
-                      setTempApiKeyInput('');
-                      setShowApiKeyModal(false);
-                    }}
-                    className="text-xs text-rose-400 hover:text-rose-300 font-bold cursor-pointer"
-                  >
-                    Remove Custom Key
-                  </button>
-                ) : (
-                  <span className="text-[11px] text-slate-500">No custom key configured</span>
-                )}
-
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setShowApiKeyModal(false)}
-                    className="px-4 py-2 text-xs font-bold text-slate-400 hover:text-white rounded-xl cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={() => {
-                      const cleaned = tempApiKeyInput.trim();
-                      if (cleaned) {
-                        localStorage.setItem('dentai_custom_gemini_key', cleaned);
-                        setCustomApiKey(cleaned);
-                      } else {
-                        localStorage.removeItem('dentai_custom_gemini_key');
-                        setCustomApiKey('');
-                      }
-                      setShowApiKeyModal(false);
-                      if (lastUploadedFile && cleaned) {
-                        handleImageFile(lastUploadedFile, cleaned);
-                      }
-                    }}
-                    className="px-5 py-2 bg-gradient-to-r from-cyan-400 to-teal-400 hover:from-cyan-300 hover:to-teal-300 text-slate-950 font-black text-xs rounded-xl shadow-lg shadow-cyan-950/40 cursor-pointer active:scale-95 transition-all"
-                  >
-                    {lastUploadedFile ? 'Save Key & Re-parse Snip' : 'Save Key'}
-                  </button>
-                </div>
+                    }
+                    if (lastUploadedFile && cleaned) {
+                      handleImageFile(lastUploadedFile, cleaned);
+                    }
+                    setShowApiKeyModal(false);
+                  }}
+                  className="px-4 py-2 bg-gradient-to-r from-cyan-400 to-teal-400 hover:from-cyan-300 hover:to-teal-300 text-slate-950 text-xs font-black rounded-xl shadow-lg shadow-cyan-950/20 transition-all cursor-pointer"
+                >
+                  {lastUploadedFile ? 'Save Key & Re-parse Snip' : 'Save Key'}
+                </button>
               </div>
             </div>
           </div>
-        )}
+        </div>
+      )}
       </div>
 
       {/* FDI Dental Charting Modal */}

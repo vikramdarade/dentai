@@ -58,13 +58,25 @@ export default function CockpitLayout({
     .slice(0, 2) || 'DV';
 
   return (
-    <div className="flex h-screen w-full bg-[#070B11] text-slate-100 overflow-hidden font-sans select-none">
+    <div className={`flex h-screen w-full overflow-hidden font-sans select-none transition-colors ${
+      theme === 'light' ? 'bg-slate-100 text-slate-900' : 'bg-[#070B11] text-slate-100'
+    }`}>
       {/* 1. Left Vertical Surgery Nav Rail (Machined Doppelrand Bezel) */}
-      <aside className="w-16 md:w-20 shrink-0 bg-[#0A1018] border-r border-[#182638] flex flex-col items-center py-4 justify-between z-30 shadow-xl shadow-black/40">
+      <aside className={`w-16 md:w-20 shrink-0 flex flex-col items-center py-4 justify-between z-30 shadow-xl transition-colors border-r ${
+        theme === 'light'
+          ? 'bg-white border-slate-200 shadow-slate-200/50'
+          : 'bg-[#0A1018] border-[#182638] shadow-black/40'
+      }`}>
         {/* Top Logo Bezel */}
         <div className="flex flex-col items-center gap-5 w-full">
-          <div className="p-0.5 rounded-2xl bg-gradient-to-b from-cyan-500/30 via-teal-500/10 to-transparent border border-cyan-500/30 shadow-lg shadow-cyan-950/40">
-            <div className="w-10 h-10 md:w-11 md:h-11 rounded-[calc(1rem-2px)] bg-[#0E1724] flex items-center justify-center text-cyan-400 cursor-pointer hover:scale-105 transition-transform">
+          <div className={`p-0.5 rounded-2xl border shadow-lg ${
+            theme === 'light'
+              ? 'bg-gradient-to-b from-cyan-100 via-teal-50 to-transparent border-cyan-300 shadow-cyan-500/10'
+              : 'bg-gradient-to-b from-cyan-500/30 via-teal-500/10 to-transparent border-cyan-500/30 shadow-cyan-950/40'
+          }`}>
+            <div className={`w-10 h-10 md:w-11 md:h-11 rounded-[calc(1rem-2px)] flex items-center justify-center cursor-pointer hover:scale-105 transition-transform ${
+              theme === 'light' ? 'bg-white text-cyan-600' : 'bg-[#0E1724] text-cyan-400'
+            }`}>
               <Sparkles className="w-5 h-5 fill-current" />
             </div>
           </div>
@@ -76,7 +88,11 @@ export default function CockpitLayout({
               onClick={() => handleNavClick('patients')}
               className={`flex flex-col items-center justify-center w-full py-2.5 rounded-xl transition-all active:scale-95 cursor-pointer ${
                 activeNav === 'patients'
-                  ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-xs'
+                  ? theme === 'light'
+                    ? 'bg-cyan-50 text-cyan-800 border border-cyan-300 shadow-xs'
+                    : 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-xs'
+                  : theme === 'light'
+                  ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
                   : 'text-slate-400 hover:text-slate-100 hover:bg-[#121E2E]'
               }`}
               title="Patient Records Hub"
@@ -90,7 +106,11 @@ export default function CockpitLayout({
               onClick={() => handleNavClick('roster')}
               className={`flex flex-col items-center justify-center w-full py-2.5 rounded-xl transition-all active:scale-95 cursor-pointer relative ${
                 activeNav === 'roster'
-                  ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-xs'
+                  ? theme === 'light'
+                    ? 'bg-cyan-50 text-cyan-800 border border-cyan-300 shadow-xs'
+                    : 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-xs'
+                  : theme === 'light'
+                  ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
                   : 'text-slate-400 hover:text-slate-100 hover:bg-[#121E2E]'
               }`}
               title="Daily Patient Roster"
@@ -107,12 +127,16 @@ export default function CockpitLayout({
               onClick={() => handleNavClick('pipeline')}
               className={`flex flex-col items-center justify-center w-full py-2.5 rounded-xl transition-all active:scale-95 cursor-pointer ${
                 activeNav === 'pipeline'
-                  ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-xs'
+                  ? theme === 'light'
+                    ? 'bg-cyan-50 text-cyan-800 border border-cyan-300 shadow-xs'
+                    : 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-xs'
+                  : theme === 'light'
+                  ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
                   : 'text-slate-400 hover:text-slate-100 hover:bg-[#121E2E]'
               }`}
               title="Treatment Pipeline & Revenue"
             >
-              <Sparkles className="w-5 h-5 stroke-[1.75] text-amber-400" />
+              <Sparkles className="w-5 h-5 stroke-[1.75] text-amber-500" />
               <span className="text-[10px] font-bold mt-1 tracking-tight">Pipeline</span>
             </button>
 
@@ -121,7 +145,11 @@ export default function CockpitLayout({
               onClick={() => handleNavClick('charting')}
               className={`flex flex-col items-center justify-center w-full py-2.5 rounded-xl transition-all active:scale-95 cursor-pointer ${
                 activeNav === 'charting'
-                  ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-xs'
+                  ? theme === 'light'
+                    ? 'bg-cyan-50 text-cyan-800 border border-cyan-300 shadow-xs'
+                    : 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-xs'
+                  : theme === 'light'
+                  ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
                   : 'text-slate-400 hover:text-slate-100 hover:bg-[#121E2E]'
               }`}
               title="FDI Dental Charting"
@@ -135,7 +163,11 @@ export default function CockpitLayout({
               onClick={() => handleNavClick('imaging')}
               className={`flex flex-col items-center justify-center w-full py-2.5 rounded-xl transition-all active:scale-95 cursor-pointer ${
                 activeNav === 'imaging'
-                  ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-xs'
+                  ? theme === 'light'
+                    ? 'bg-cyan-50 text-cyan-800 border border-cyan-300 shadow-xs'
+                    : 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-xs'
+                  : theme === 'light'
+                  ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
                   : 'text-slate-400 hover:text-slate-100 hover:bg-[#121E2E]'
               }`}
               title="Dental Imaging & Radiographs"
@@ -149,7 +181,11 @@ export default function CockpitLayout({
               onClick={() => handleNavClick('settings')}
               className={`flex flex-col items-center justify-center w-full py-2.5 rounded-xl transition-all active:scale-95 cursor-pointer ${
                 activeNav === 'settings'
-                  ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-xs'
+                  ? theme === 'light'
+                    ? 'bg-cyan-50 text-cyan-800 border border-cyan-300 shadow-xs'
+                    : 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-xs'
+                  : theme === 'light'
+                  ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
                   : 'text-slate-400 hover:text-slate-100 hover:bg-[#121E2E]'
               }`}
               title="Practice Settings"
@@ -161,10 +197,16 @@ export default function CockpitLayout({
         </div>
 
         {/* Theme Toggle & Bottom User Avatar & Logout */}
-        <div className="flex flex-col items-center gap-2.5 w-full px-2 pt-3 border-t border-[#182638]">
+        <div className={`flex flex-col items-center gap-2.5 w-full px-2 pt-3 border-t ${
+          theme === 'light' ? 'border-slate-200' : 'border-[#182638]'
+        }`}>
           <button
             onClick={toggleTheme}
-            className="p-2 rounded-xl text-slate-400 hover:text-amber-300 hover:bg-[#162232] dark:hover:bg-[#162232] transition-colors cursor-pointer flex items-center justify-center group"
+            className={`p-2 rounded-xl transition-colors cursor-pointer flex items-center justify-center group ${
+              theme === 'light'
+                ? 'text-slate-600 hover:text-amber-600 hover:bg-slate-100'
+                : 'text-slate-400 hover:text-amber-300 hover:bg-[#162232]'
+            }`}
             title={theme === 'dark' ? 'Switch to Clinical Light Mode' : 'Switch to Dark Cockpit Mode'}
             aria-label="Toggle theme"
           >
@@ -179,13 +221,19 @@ export default function CockpitLayout({
             className="w-10 h-10 rounded-full bg-gradient-to-tr from-cyan-600 via-teal-500 to-emerald-400 p-0.5 flex items-center justify-center shadow-md cursor-pointer hover:scale-105 transition-transform"
             title={dentistName}
           >
-            <div className="w-full h-full rounded-full bg-[#0A1018] flex items-center justify-center text-cyan-300 font-extrabold text-xs">
+            <div className={`w-full h-full rounded-full flex items-center justify-center font-extrabold text-xs ${
+              theme === 'light' ? 'bg-white text-cyan-700' : 'bg-[#0A1018] text-cyan-300'
+            }`}>
               {initials}
             </div>
           </div>
           <button
             onClick={onLogout}
-            className="p-2 text-slate-400 hover:text-rose-400 hover:bg-[#162232] rounded-xl transition-colors cursor-pointer"
+            className={`p-2 rounded-xl transition-colors cursor-pointer ${
+              theme === 'light'
+                ? 'text-slate-500 hover:text-rose-600 hover:bg-rose-50'
+                : 'text-slate-400 hover:text-rose-400 hover:bg-[#162232]'
+            }`}
             title="Logout"
           >
             <LogOut className="w-4 h-4 stroke-[1.75]" />
@@ -194,7 +242,9 @@ export default function CockpitLayout({
       </aside>
 
       {/* 2. Center Workspace (Roster Grid & Day Schedule) */}
-      <main className="flex-1 flex flex-col min-w-0 bg-[#070B11] overflow-hidden relative">
+      <main className={`flex-1 flex flex-col min-w-0 overflow-hidden relative transition-colors ${
+        theme === 'light' ? 'bg-slate-50' : 'bg-[#070B11]'
+      }`}>
         <div className="flex-1 overflow-y-auto cockpit-scrollbar p-3.5 sm:p-5 md:p-6 lg:p-7 xl:p-8">
           {children}
         </div>
@@ -222,7 +272,9 @@ export default function CockpitLayout({
               animate={{ width: 'auto', opacity: 1 }}
               exit={{ width: 0, opacity: 0 }}
               transition={{ type: 'spring', damping: 28, stiffness: 260 }}
-              className="hidden lg:block h-full shrink-0 border-l border-[#182638] bg-[#0A1018] overflow-hidden shadow-2xl"
+              className={`hidden lg:block h-full shrink-0 overflow-hidden shadow-2xl transition-colors border-l ${
+                theme === 'light' ? 'border-slate-200 bg-white' : 'border-[#182638] bg-[#0A1018]'
+              }`}
             >
               {rightDrawer}
             </motion.div>
@@ -234,7 +286,9 @@ export default function CockpitLayout({
               animate={{ x: 0 }}
               exit={{ x: '100%' }}
               transition={{ type: 'spring', damping: 26, stiffness: 240 }}
-              className="fixed inset-y-0 right-0 z-50 w-full sm:w-[420px] max-w-[92vw] h-full bg-[#0A1018] border-l border-[#182638] shadow-2xl lg:hidden flex flex-col"
+              className={`fixed inset-y-0 right-0 z-50 w-full sm:w-[420px] max-w-[92vw] h-full shadow-2xl lg:hidden flex flex-col transition-colors border-l ${
+                theme === 'light' ? 'bg-white border-slate-200' : 'bg-[#0A1018] border-[#182638]'
+              }`}
             >
               {rightDrawer}
             </motion.div>
