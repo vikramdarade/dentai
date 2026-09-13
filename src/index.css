@@ -278,6 +278,8 @@ html.light button.bg-gradient-to-r * {
 /* Retain white text on solid colored alert or status badges, and dark tactical cockpits/islands */
 html.light .bg-rose-500,
 html.light .bg-rose-600,
+html.light .bg-red-500,
+html.light .bg-red-600,
 html.light .bg-emerald-500,
 html.light .bg-emerald-600,
 html.light .bg-cyan-500,

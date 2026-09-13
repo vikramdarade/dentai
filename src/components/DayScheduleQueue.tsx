@@ -1454,27 +1454,35 @@ export default function DayScheduleQueue({
                     {item.preOpBrief && !isReady && (
                       <div
                         title={`Pre-Op Brief: ${item.preOpBrief}`}
-                        className={`group relative flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium border cursor-help transition-all ${
+                        className={`group relative flex items-start gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium border cursor-help transition-all ${
                           theme === 'light'
-                            ? 'bg-amber-50/80 hover:bg-amber-100/90 border-amber-200 text-amber-900 shadow-xs'
-                            : 'bg-amber-500/10 hover:bg-amber-500/20 border-amber-500/25 text-amber-200/90 shadow-xs'
+                            ? 'bg-amber-50/90 hover:bg-amber-100/95 border-amber-200 text-amber-950 shadow-xs'
+                            : 'bg-amber-500/10 hover:bg-amber-500/20 border-amber-500/25 text-amber-200 shadow-xs'
                         }`}
                       >
-                        <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                        <span className="truncate min-w-0 flex-1">
-                          <strong className="font-bold">Pre-Op:</strong> {item.preOpBrief}
+                        <Sparkles className="w-3.5 h-3.5 text-amber-500 dark:text-amber-400 shrink-0 mt-0.5" />
+                        <span className="truncate group-hover:whitespace-normal group-hover:overflow-visible transition-all min-w-0 flex-1 leading-snug">
+                          <strong className="font-bold text-amber-800 dark:text-amber-300">Pre-Op:</strong> {item.preOpBrief}
                         </span>
 
-                        {/* Floating Tooltip on Hover for Full Untruncated Instructions */}
-                        <div className="absolute left-0 bottom-full mb-1.5 hidden group-hover:flex flex-col z-50 w-72 max-w-sm p-3 rounded-xl bg-slate-950/95 text-slate-100 text-xs shadow-2xl border border-amber-500/40 pointer-events-none backdrop-blur-md">
-                          <div className="flex items-center gap-1 text-[10px] font-black uppercase text-amber-400 mb-1 tracking-wider">
-                            <Sparkles className="w-3 h-3" />
+                        {/* Theme-Aware Floating Tooltip positioned BELOW the tag so it NEVER covers the patient header */}
+                        <div className={`absolute left-0 top-full mt-1.5 hidden group-hover:flex flex-col z-50 w-80 max-w-sm p-3 rounded-xl shadow-2xl pointer-events-none border backdrop-blur-md transition-all ${
+                          theme === 'light'
+                            ? 'bg-white text-slate-900 border-amber-300 shadow-slate-900/15'
+                            : 'bg-[#0D1522] text-slate-100 border-amber-500/40 shadow-slate-950/80'
+                        }`}>
+                          <div className="flex items-center gap-1.5 text-[10px] font-black uppercase text-amber-600 dark:text-amber-400 mb-1 tracking-wider">
+                            <Sparkles className="w-3 h-3 text-amber-500" />
                             <span>Pre-Op Clinical Instructions</span>
                           </div>
-                          <p className="text-[11px] leading-relaxed text-slate-200 font-medium whitespace-normal">
+                          <p className={`text-[11px] leading-relaxed font-medium whitespace-normal ${
+                            theme === 'light' ? 'text-slate-800' : 'text-slate-200'
+                          }`}>
                             {item.preOpBrief}
                           </p>
-                          <div className="absolute left-6 top-full -mt-[1px] border-4 border-transparent border-t-slate-950" />
+                          <div className={`absolute left-6 bottom-full -mb-[1px] border-4 border-transparent ${
+                            theme === 'light' ? 'border-b-white' : 'border-b-[#0D1522]'
+                          }`} />
                         </div>
                       </div>
                     )}
@@ -1553,7 +1561,7 @@ export default function DayScheduleQueue({
                         </button>
                       </div>
 
-                      {/* Right: Quick Action Button (iPhone Style Record Button) */}
+                      {/* Right: Quick Action Button (Iconic iPhone Style Record Button) */}
                       <div className="flex items-center gap-1.5">
                         {item.status === 'scheduled' && !isRecordingThis && (
                           <button
@@ -1561,17 +1569,28 @@ export default function DayScheduleQueue({
                               e.stopPropagation();
                               handleRecordClick(item);
                             }}
-                            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-black transition-all active:scale-95 shadow-sm cursor-pointer group border ${
+                            data-tactical-dark={theme === 'dark' ? true : undefined}
+                            className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-black transition-all active:scale-95 shadow-sm cursor-pointer group border ${
                               theme === 'light'
-                                ? 'bg-slate-950 hover:bg-slate-800 text-white border-slate-800 shadow-slate-950/10'
-                                : 'bg-[#0A1019] hover:bg-[#121B29] text-white border-slate-700/80 hover:border-red-500/60 shadow-slate-950/60'
+                                ? 'bg-white hover:bg-red-50/70 text-slate-900 border-slate-300 hover:border-red-500 shadow-slate-200/80'
+                                : 'bg-[#0B121D] hover:bg-[#142032] text-white border-slate-700/80 hover:border-red-500/60 shadow-slate-950/60'
                             }`}
                             title={`Record consultation for ${item.patientName}`}
                           >
-                            <span className="relative flex h-3.5 w-3.5 items-center justify-center rounded-full border-[1.5px] border-white/90 group-hover:border-white transition-colors">
-                              <span className="h-2 w-2 rounded-full bg-red-500 group-hover:bg-red-400 shadow-xs shadow-red-500/80 group-hover:scale-110 transition-all" />
+                            {/* iPhone Camera/Voice Memos Aperture: Circular ring with vibrant red recording core */}
+                            <span className={`relative flex h-3.5 w-3.5 items-center justify-center rounded-full border-[1.5px] transition-colors ${
+                              theme === 'light'
+                                ? 'border-slate-400 group-hover:border-red-500 bg-slate-50'
+                                : 'border-white/90 group-hover:border-white bg-slate-900'
+                            }`}>
+                              <span className="h-2 w-2 rounded-full bg-[#FF3B30] group-hover:bg-red-500 shadow-xs shadow-red-500/80 group-hover:scale-110 transition-transform" />
                             </span>
-                            <span className="text-[11px] font-black tracking-tight text-white">Record</span>
+                            <span
+                              className="text-[11px] font-black tracking-tight transition-colors"
+                              style={{ color: theme === 'light' ? '#0F172A' : '#FFFFFF' }}
+                            >
+                              Record
+                            </span>
                           </button>
                         )}
 
