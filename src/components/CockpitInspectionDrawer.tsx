@@ -335,12 +335,25 @@ export default function CockpitInspectionDrawer({
                 </p>
               </div>
             ) : (
-              <div className="p-6 rounded-2xl bg-[#0E1724] border border-[#182638] text-center space-y-2 text-slate-400">
-                <Clock className="w-6 h-6 mx-auto text-slate-500 mb-1" />
-                <p className="text-xs font-bold text-slate-300">Appointment Scheduled</p>
-                <p className="text-[11px] text-slate-400 max-w-[240px] mx-auto leading-relaxed">
-                  Tap Record when the patient enters surgery to capture ambient dialogue.
-                </p>
+              <div className="space-y-3">
+                {selectedItem.preOpBrief && (
+                  <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/25 space-y-1.5 text-left">
+                    <div className="flex items-center gap-1.5 text-[11px] font-black uppercase tracking-wider text-amber-400">
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>Pre-Op Clinical Instructions</span>
+                    </div>
+                    <p className="text-xs text-amber-200/90 leading-relaxed font-medium">
+                      {selectedItem.preOpBrief}
+                    </p>
+                  </div>
+                )}
+                <div className="p-6 rounded-2xl bg-[#0E1724] border border-[#182638] text-center space-y-2 text-slate-400">
+                  <Clock className="w-6 h-6 mx-auto text-slate-500 mb-1" />
+                  <p className="text-xs font-bold text-slate-300">Appointment Scheduled</p>
+                  <p className="text-[11px] text-slate-400 max-w-[240px] mx-auto leading-relaxed">
+                    Tap the Record button when the patient enters surgery to capture ambient dialogue.
+                  </p>
+                </div>
               </div>
             )}
           </div>

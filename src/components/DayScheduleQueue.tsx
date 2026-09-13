@@ -1452,13 +1452,30 @@ export default function DayScheduleQueue({
 
                     {/* Autonomous Pre-Op Brief (Scheduled / In Progress) */}
                     {item.preOpBrief && !isReady && (
-                      <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium border ${
-                        theme === 'light'
-                          ? 'bg-amber-50/80 border-amber-200 text-amber-900'
-                          : 'bg-amber-500/10 border-amber-500/25 text-amber-200/90'
-                      }`}>
+                      <div
+                        title={`Pre-Op Brief: ${item.preOpBrief}`}
+                        className={`group relative flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium border cursor-help transition-all ${
+                          theme === 'light'
+                            ? 'bg-amber-50/80 hover:bg-amber-100/90 border-amber-200 text-amber-900 shadow-xs'
+                            : 'bg-amber-500/10 hover:bg-amber-500/20 border-amber-500/25 text-amber-200/90 shadow-xs'
+                        }`}
+                      >
                         <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                        <span className="truncate"><strong className="font-bold">Pre-Op:</strong> {item.preOpBrief}</span>
+                        <span className="truncate min-w-0 flex-1">
+                          <strong className="font-bold">Pre-Op:</strong> {item.preOpBrief}
+                        </span>
+
+                        {/* Floating Tooltip on Hover for Full Untruncated Instructions */}
+                        <div className="absolute left-0 bottom-full mb-1.5 hidden group-hover:flex flex-col z-50 w-72 max-w-sm p-3 rounded-xl bg-slate-950/95 text-slate-100 text-xs shadow-2xl border border-amber-500/40 pointer-events-none backdrop-blur-md">
+                          <div className="flex items-center gap-1 text-[10px] font-black uppercase text-amber-400 mb-1 tracking-wider">
+                            <Sparkles className="w-3 h-3" />
+                            <span>Pre-Op Clinical Instructions</span>
+                          </div>
+                          <p className="text-[11px] leading-relaxed text-slate-200 font-medium whitespace-normal">
+                            {item.preOpBrief}
+                          </p>
+                          <div className="absolute left-6 top-full -mt-[1px] border-4 border-transparent border-t-slate-950" />
+                        </div>
                       </div>
                     )}
 
@@ -1536,7 +1553,7 @@ export default function DayScheduleQueue({
                         </button>
                       </div>
 
-                      {/* Right: Quick Action Button */}
+                      {/* Right: Quick Action Button (iPhone Style Record Button) */}
                       <div className="flex items-center gap-1.5">
                         {item.status === 'scheduled' && !isRecordingThis && (
                           <button
@@ -1544,10 +1561,17 @@ export default function DayScheduleQueue({
                               e.stopPropagation();
                               handleRecordClick(item);
                             }}
-                            className="inline-flex items-center gap-1 px-3 py-1.5 bg-cyan-400 hover:bg-cyan-300 text-slate-950 rounded-xl text-xs font-black transition-transform active:scale-95 shadow-sm cursor-pointer"
+                            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-black transition-all active:scale-95 shadow-sm cursor-pointer group border ${
+                              theme === 'light'
+                                ? 'bg-slate-950 hover:bg-slate-800 text-white border-slate-800 shadow-slate-950/10'
+                                : 'bg-[#0A1019] hover:bg-[#121B29] text-white border-slate-700/80 hover:border-red-500/60 shadow-slate-950/60'
+                            }`}
+                            title={`Record consultation for ${item.patientName}`}
                           >
-                            <Play className="w-3 h-3 fill-current" />
-                            Record
+                            <span className="relative flex h-3.5 w-3.5 items-center justify-center rounded-full border-[1.5px] border-white/90 group-hover:border-white transition-colors">
+                              <span className="h-2 w-2 rounded-full bg-red-500 group-hover:bg-red-400 shadow-xs shadow-red-500/80 group-hover:scale-110 transition-all" />
+                            </span>
+                            <span className="text-[11px] font-black tracking-tight text-white">Record</span>
                           </button>
                         )}
 
