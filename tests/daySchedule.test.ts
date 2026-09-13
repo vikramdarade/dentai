@@ -16,6 +16,10 @@ import {
   clearTodaySchedule,
   formatNoteForPmsClipboard,
   getTodayDateStr,
+  getDateStr,
+  fetchScheduleFromCloud,
+  syncScheduleToCloud,
+  deleteScheduleFromCloud,
   cleanPatientDisplayName,
   normalizeStartTime,
   normalizePatientName,
@@ -36,23 +40,27 @@ const usersPath = path.join(dataDir, 'users.json');
 const clinicsPath = path.join(dataDir, 'clinics.json');
 const auditPath = path.join(dataDir, 'audit.json');
 const noteJobsPath = path.join(dataDir, 'note_jobs.json');
+const schedulesPath = path.join(dataDir, 'schedules.json');
 
 let usersBackup: string | null = null;
 let clinicsBackup: string | null = null;
 let auditBackup: string | null = null;
 let noteJobsBackup: string | null = null;
+let schedulesBackup: string | null = null;
 
 beforeAll(() => {
   if (fs.existsSync(usersPath)) usersBackup = fs.readFileSync(usersPath, 'utf-8');
   if (fs.existsSync(clinicsPath)) clinicsBackup = fs.readFileSync(clinicsPath, 'utf-8');
   if (fs.existsSync(auditPath)) auditBackup = fs.readFileSync(auditPath, 'utf-8');
   if (fs.existsSync(noteJobsPath)) noteJobsBackup = fs.readFileSync(noteJobsPath, 'utf-8');
+  if (fs.existsSync(schedulesPath)) schedulesBackup = fs.readFileSync(schedulesPath, 'utf-8');
 });
 
 afterAll(() => {
   if (usersBackup !== null) fs.writeFileSync(usersPath, usersBackup);
   if (clinicsBackup !== null) fs.writeFileSync(clinicsPath, clinicsBackup);
   if (auditBackup !== null) fs.writeFileSync(auditPath, auditBackup);
+  if (schedulesBackup !== null) fs.writeFileSync(schedulesPath, schedulesBackup);
   if (noteJobsBackup !== null) {
     fs.writeFileSync(noteJobsPath, noteJobsBackup);
   } else if (fs.existsSync(noteJobsPath)) {
@@ -923,6 +931,164 @@ describe('Async Note Jobs API with Verbal Consent Audit Logging', () => {
       expect(formatted).toContain('[FRONT DESK ACTION ITEM]:');
       expect(formatted).toContain('UNBOOKED TREATMENT: Full Ceramic / PFM Crown (Tooth #16) — Est. $1750 AUD');
       expect(formatted).toContain('PATIENT AFTERCARE: Please avoid chewing hard nuts');
+    });
+  });
+
+  describe('Multi-Device Cloud Schedule Synchronization API', () => {
+    let cloudAuthToken: string;
+    let neighborAuthToken: string;
+    const syncTestDate = '2026-09-15';
+
+    beforeAll(async () => {
+      // 1. Register or login primary tester
+      const reg1 = await request(app)
+        .post('/api/auth/register')
+        .send({ name: 'Dr. Cloud Sync Tester', specialty: 'Prosthodontics', pin: '4321' });
+      if (reg1.status === 201) {
+        cloudAuthToken = reg1.body.token;
+      } else {
+        const pRes = await request(app).get('/api/auth/profiles');
+        const p1 = pRes.body.find((p: any) => p.name === 'Dr. Cloud Sync Tester');
+        if (p1) {
+          const lRes = await request(app).post('/api/auth/login').send({ dentistId: p1.id, pin: '4321' });
+          cloudAuthToken = lRes.body.token;
+        }
+      }
+
+      // 2. Register or login neighbor tester for isolation check
+      const reg2 = await request(app)
+        .post('/api/auth/register')
+        .send({ name: 'Dr. Neighbor Clinician', specialty: 'Endodontics', pin: '8765' });
+      if (reg2.status === 201) {
+        neighborAuthToken = reg2.body.token;
+      } else {
+        const pRes = await request(app).get('/api/auth/profiles');
+        const p2 = pRes.body.find((p: any) => p.name === 'Dr. Neighbor Clinician');
+        if (p2) {
+          const lRes = await request(app).post('/api/auth/login').send({ dentistId: p2.id, pin: '8765' });
+          neighborAuthToken = lRes.body.token;
+        }
+      }
+    });
+
+    it('rejects unauthenticated GET /api/schedule with 401', async () => {
+      const res = await request(app).get(`/api/schedule?date=${syncTestDate}`);
+      expect(res.status).toBe(401);
+      expect(res.body.error).toContain('token');
+    });
+
+    it('rejects unauthenticated PUT /api/schedule with 401', async () => {
+      const res = await request(app)
+        .put('/api/schedule')
+        .send({ date: syncTestDate, items: [] });
+      expect(res.status).toBe(401);
+    });
+
+    it('rejects PUT /api/schedule with non-array items with 400', async () => {
+      const res = await request(app)
+        .put('/api/schedule')
+        .set('Authorization', `Bearer ${cloudAuthToken}`)
+        .send({ date: syncTestDate, items: 'not an array' });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('must be an array');
+    });
+
+    it('returns empty array when no schedule is yet stored for a date', async () => {
+      const res = await request(app)
+        .get(`/api/schedule?date=${syncTestDate}`)
+        .set('Authorization', `Bearer ${cloudAuthToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body.date).toBe(syncTestDate);
+      expect(res.body.items).toEqual([]);
+    });
+
+    it('persists snipped appointment roster to cloud and returns updatedAt timestamp', async () => {
+      const snippedRoster: DayScheduleItem[] = [
+        {
+          id: 'sched_cloud_1',
+          time: '08:30',
+          patientName: 'Sarah Connor',
+          procedureText: 'Comprehensive Exam & Bitewings',
+          appointmentType: 'examination',
+          templateId: 'standard',
+          status: 'scheduled',
+          source: 'snip',
+          preOpBrief: 'Check lower quadrant sensitivity.'
+        },
+        {
+          id: 'sched_cloud_2',
+          time: '09:15',
+          patientName: 'David Miller',
+          procedureText: 'Tooth #16 Ceramic Crown Prep',
+          appointmentType: 'prosthodontic',
+          templateId: 'standard',
+          status: 'scheduled',
+          source: 'snip',
+          preOpBrief: 'Evaluate margin definition.'
+        }
+      ];
+
+      const putRes = await request(app)
+        .put('/api/schedule')
+        .set('Authorization', `Bearer ${cloudAuthToken}`)
+        .send({ date: syncTestDate, items: snippedRoster });
+
+      expect(putRes.status).toBe(200);
+      expect(putRes.body.success).toBe(true);
+      expect(putRes.body.items.length).toBe(2);
+      expect(putRes.body.updatedAt).toBeTruthy();
+
+      // Verify retrieval on a second device / phone (simulated via GET)
+      const getRes = await request(app)
+        .get(`/api/schedule?date=${syncTestDate}`)
+        .set('Authorization', `Bearer ${cloudAuthToken}`);
+
+      expect(getRes.status).toBe(200);
+      expect(getRes.body.date).toBe(syncTestDate);
+      expect(getRes.body.items.length).toBe(2);
+      expect(getRes.body.items[0].patientName).toBe('Sarah Connor');
+      expect(getRes.body.items[1].patientName).toBe('David Miller');
+    });
+
+    it('enforces multi-tenant clinician isolation between dentists', async () => {
+      // Dr. Neighbor Clinician checks the same date -> must see 0 items
+      const neighborRes = await request(app)
+        .get(`/api/schedule?date=${syncTestDate}`)
+        .set('Authorization', `Bearer ${neighborAuthToken}`);
+
+      expect(neighborRes.status).toBe(200);
+      expect(neighborRes.body.items).toEqual([]);
+    });
+
+    it('deletes cloud schedule on demand', async () => {
+      const delRes = await request(app)
+        .delete(`/api/schedule?date=${syncTestDate}`)
+        .set('Authorization', `Bearer ${cloudAuthToken}`);
+
+      expect(delRes.status).toBe(200);
+      expect(delRes.body.success).toBe(true);
+
+      const verifyRes = await request(app)
+        .get(`/api/schedule?date=${syncTestDate}`)
+        .set('Authorization', `Bearer ${cloudAuthToken}`);
+
+      expect(verifyRes.status).toBe(200);
+      expect(verifyRes.body.items).toEqual([]);
+    });
+
+    it('getDateStr accurately calculates offsets for yesterday, today, and tomorrow', () => {
+      const todayStr = getTodayDateStr();
+      expect(getDateStr(0)).toBe(todayStr);
+
+      const dPlus1 = new Date();
+      dPlus1.setDate(dPlus1.getDate() + 1);
+      const expectedTomorrow = `${dPlus1.getFullYear()}-${String(dPlus1.getMonth() + 1).padStart(2, '0')}-${String(dPlus1.getDate()).padStart(2, '0')}`;
+      expect(getDateStr(1)).toBe(expectedTomorrow);
+
+      const dMinus1 = new Date();
+      dMinus1.setDate(dMinus1.getDate() - 1);
+      const expectedYesterday = `${dMinus1.getFullYear()}-${String(dMinus1.getMonth() + 1).padStart(2, '0')}-${String(dMinus1.getDate()).padStart(2, '0')}`;
+      expect(getDateStr(-1)).toBe(expectedYesterday);
     });
   });
 });

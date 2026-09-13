@@ -87,12 +87,99 @@ export function generateSafeUuid(): string {
   return `consult_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 }
 
-export function getTodayDateStr(): string {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
+function getStoredAuthToken(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    return window.localStorage?.getItem('dentai_token') || window.sessionStorage?.getItem('dentai_token') || null;
+  } catch {
+    return null;
+  }
+}
+
+export function getDateStr(offsetDays = 0): string {
+  const d = new Date();
+  d.setDate(d.getDate() + offsetDays);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+}
+
+export function getTodayDateStr(): string {
+  return getDateStr(0);
+}
+
+export async function fetchScheduleFromCloud(
+  dateStr = getTodayDateStr(),
+  authToken?: string
+): Promise<DayScheduleItem[] | null> {
+  const token = authToken || getStoredAuthToken();
+  if (!token) return null;
+
+  try {
+    const res = await fetch(`/api/schedule?date=${encodeURIComponent(dateStr)}`, {
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (data && Array.isArray(data.items)) {
+      return data.items;
+    }
+    return null;
+  } catch (err) {
+    console.warn('[ScheduleCloud] Failed to fetch schedule from cloud:', err);
+    return null;
+  }
+}
+
+export async function syncScheduleToCloud(
+  items: DayScheduleItem[],
+  dateStr = getTodayDateStr(),
+  authToken?: string
+): Promise<boolean> {
+  const token = authToken || getStoredAuthToken();
+  if (!token) return false;
+
+  try {
+    const res = await fetch('/api/schedule', {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        date: dateStr,
+        items
+      })
+    });
+    return res.ok;
+  } catch (err) {
+    console.warn('[ScheduleCloud] Failed to sync schedule to cloud:', err);
+    return false;
+  }
+}
+
+export async function deleteScheduleFromCloud(
+  dateStr = getTodayDateStr(),
+  authToken?: string
+): Promise<boolean> {
+  const token = authToken || getStoredAuthToken();
+  if (!token) return false;
+
+  try {
+    const res = await fetch(`/api/schedule?date=${encodeURIComponent(dateStr)}`, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
+    return res.ok;
+  } catch (err) {
+    console.warn('[ScheduleCloud] Failed to delete schedule from cloud:', err);
+    return false;
+  }
 }
 
 export function loadTodaySchedule(dateStr = getTodayDateStr()): DayScheduleItem[] {
@@ -128,6 +215,8 @@ export function loadTodaySchedule(dateStr = getTodayDateStr()): DayScheduleItem[
 export function saveTodaySchedule(items: DayScheduleItem[], dateStr = getTodayDateStr()): void {
   try {
     setStorageItem(`${STORAGE_KEY_PREFIX}${dateStr}`, JSON.stringify(items));
+    // Asynchronously sync to cloud without blocking local storage
+    syncScheduleToCloud(items, dateStr).catch(() => {});
   } catch (err) {
     console.error('Failed to save today schedule to storage:', err);
   }
@@ -177,6 +266,7 @@ export function deleteScheduleItem(id: string, dateStr = getTodayDateStr()): Day
 export function clearTodaySchedule(dateStr = getTodayDateStr()): void {
   try {
     removeStorageItem(`${STORAGE_KEY_PREFIX}${dateStr}`);
+    deleteScheduleFromCloud(dateStr).catch(() => {});
   } catch {
     // ignore
   }

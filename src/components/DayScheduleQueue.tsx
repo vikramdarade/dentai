@@ -42,6 +42,9 @@ import {
   clearTodaySchedule,
   formatNoteForPmsClipboard,
   getTodayDateStr,
+  getDateStr,
+  fetchScheduleFromCloud,
+  syncScheduleToCloud,
   mergeScheduleItems,
   calculateDailyProduction,
   generateSafeUuid,
@@ -137,8 +140,52 @@ export default function DayScheduleQueue({
     return items.find(i => i.id === selectedInspectionId) || items[0] || null;
   }, [items, selectedInspectionId]);
 
-  // Date Navigator Header
+  // Date Navigator Header & Multi-Device Sync
   const [dateOffset, setDateOffset] = useState(0);
+  const currentDateStr = useMemo(() => getDateStr(dateOffset), [dateOffset]);
+  const [cloudSyncStatus, setCloudSyncStatus] = useState<'synced' | 'syncing' | 'offline' | 'idle'>('idle');
+
+  // Immediately load local schedule whenever currentDateStr changes
+  useEffect(() => {
+    setItems(loadTodaySchedule(currentDateStr));
+  }, [currentDateStr]);
+
+  // Cloud schedule hydration on mount & date change (Multi-device continuity)
+  useEffect(() => {
+    let isCancelled = false;
+    async function hydrateFromCloud() {
+      if (!authToken) return;
+      setCloudSyncStatus('syncing');
+      try {
+        const cloudItems = await fetchScheduleFromCloud(currentDateStr, authToken);
+        if (isCancelled) return;
+        if (cloudItems && Array.isArray(cloudItems)) {
+          const currentLocal = loadTodaySchedule(currentDateStr);
+          if (cloudItems.length > 0) {
+            // Merge cloud items into local roster without overwriting in-progress work
+            const merged = mergeScheduleItems(currentLocal, cloudItems, currentDateStr);
+            saveTodaySchedule(merged, currentDateStr);
+            setItems(merged);
+          } else if (currentLocal.length > 0) {
+            // Local has items (e.g. freshly snipped offline) but cloud is empty: push up to cloud
+            await syncScheduleToCloud(currentLocal, currentDateStr, authToken);
+          }
+          setCloudSyncStatus('synced');
+        } else {
+          setCloudSyncStatus('idle');
+        }
+      } catch (err) {
+        console.warn('[Schedule] Cloud hydration error:', err);
+        setCloudSyncStatus('offline');
+      }
+    }
+
+    hydrateFromCloud();
+    return () => {
+      isCancelled = true;
+    };
+  }, [currentDateStr, authToken]);
+
   const formattedDateTitle = useMemo(() => {
     const d = new Date();
     d.setDate(d.getDate() + dateOffset);
@@ -166,7 +213,7 @@ export default function DayScheduleQueue({
       consentObtained: nextVal,
       consentCapturedAt: nextVal ? new Date().toISOString() : undefined,
       consentPractitionerId: nextVal ? dentistName : undefined
-    });
+    }, currentDateStr);
     setItems(updated);
   };
 
@@ -183,7 +230,7 @@ export default function DayScheduleQueue({
       consentObtained: true,
       consentCapturedAt: new Date().toISOString(),
       consentPractitionerId: dentistName
-    });
+    }, currentDateStr);
     setItems(updated);
     const target = updated.find(i => i.id === item.id) || {
       ...item,
@@ -218,7 +265,7 @@ export default function DayScheduleQueue({
   useEffect(() => {
     let lastRosterSnapshot = '';
     const refresh = () => {
-      const current = loadTodaySchedule();
+      const current = loadTodaySchedule(currentDateStr);
       const snapshot = JSON.stringify(current);
       if (snapshot !== lastRosterSnapshot) {
         lastRosterSnapshot = snapshot;
@@ -227,12 +274,12 @@ export default function DayScheduleQueue({
     };
     refresh();
     window.addEventListener('storage', refresh);
-    const interval = setInterval(refresh, 2000);
+    const interval = setInterval(refresh, 2500);
     return () => {
       window.removeEventListener('storage', refresh);
       clearInterval(interval);
     };
-  }, []);
+  }, [currentDateStr]);
 
   // Quick Walk-in form state
   const [walkInName, setWalkInName] = useState('');
@@ -395,10 +442,16 @@ export default function DayScheduleQueue({
       }
 
       // 3-Way Smart Hash Merge: eliminates duplicates & preserves existing progress
-      const currentRoster = loadTodaySchedule();
-      const merged = mergeScheduleItems(currentRoster, newAppointments, getTodayDateStr());
+      const currentRoster = loadTodaySchedule(currentDateStr);
+      const merged = mergeScheduleItems(currentRoster, newAppointments, currentDateStr);
       setItems(merged);
-      saveTodaySchedule(merged);
+      saveTodaySchedule(merged, currentDateStr);
+      if (authToken) {
+        setCloudSyncStatus('syncing');
+        syncScheduleToCloud(merged, currentDateStr, authToken).then((ok) => {
+          if (ok) setCloudSyncStatus('synced');
+        });
+      }
       setSuccessBanner(`Successfully imported ${newAppointments.length} appointments from your schedule!`);
       setTimeout(() => setSuccessBanner(null), 5000);
     } catch (err: any) {
@@ -586,8 +639,8 @@ export default function DayScheduleQueue({
         treatmentOpportunity: opp,
         aftercareSummary: aftercare,
         error: undefined
-      });
-      setItems(loadTodaySchedule());
+      }, currentDateStr);
+      setItems(loadTodaySchedule(currentDateStr));
       setSuccessBanner(`Instant offline note generated for ${item.patientName}. 100% grounded against operatory record.`);
       setTimeout(() => setSuccessBanner(null), 4000);
     } catch (err: any) {
@@ -606,8 +659,8 @@ export default function DayScheduleQueue({
       status: 'processing',
       consultationId: assignedConsultationId,
       error: undefined
-    });
-    setItems(loadTodaySchedule());
+    }, currentDateStr);
+    setItems(loadTodaySchedule(currentDateStr));
 
     const nameParts = item.patientName.trim().split(/\s+/);
     const firstName = nameParts[0] || 'Patient';
@@ -641,8 +694,8 @@ export default function DayScheduleQueue({
       }
 
       const { jobId } = await submitRes.json();
-      updateScheduleItem(item.id, { jobId });
-      setItems(loadTodaySchedule());
+      updateScheduleItem(item.id, { jobId }, currentDateStr);
+      setItems(loadTodaySchedule(currentDateStr));
 
       (async () => {
         try {
@@ -686,7 +739,7 @@ export default function DayScheduleQueue({
             }, {
               firstName,
               lastName,
-              date: getTodayDateStr(),
+              date: currentDateStr,
               appointmentType: item.appointmentType,
               findings: {
                 chiefComplaint: jobResult.chiefComplaint || item.procedureText,
@@ -719,35 +772,35 @@ export default function DayScheduleQueue({
               treatmentOpportunity: opp,
               aftercareSummary: aftercare,
               error: undefined
-            });
-            setItems(loadTodaySchedule());
+            }, currentDateStr);
+            setItems(loadTodaySchedule(currentDateStr));
           } else {
             updateScheduleItem(item.id, {
               status: 'failed',
               error: failureReason || 'Synthesis timed out in background.'
-            });
-            setItems(loadTodaySchedule());
+            }, currentDateStr);
+            setItems(loadTodaySchedule(currentDateStr));
           }
         } catch (pollErr: any) {
           updateScheduleItem(item.id, {
             status: 'failed',
             error: pollErr?.message || 'Background worker error.'
-          });
-          setItems(loadTodaySchedule());
+          }, currentDateStr);
+          setItems(loadTodaySchedule(currentDateStr));
         }
       })();
     } catch (err: any) {
       updateScheduleItem(item.id, {
         status: 'failed',
         error: err?.message || 'Network error starting note job.'
-      });
-      setItems(loadTodaySchedule());
+      }, currentDateStr);
+      setItems(loadTodaySchedule(currentDateStr));
     }
   };
 
   const handleDeleteItem = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    const updated = deleteScheduleItem(id);
+    const updated = deleteScheduleItem(id, currentDateStr);
     setItems(updated);
   };
 
@@ -762,9 +815,9 @@ export default function DayScheduleQueue({
       appointmentType: walkInType,
       templateId: walkInType === 'emergency' ? 'soap' : 'standard',
       source: 'manual'
-    });
+    }, currentDateStr);
 
-    setItems(loadTodaySchedule());
+    setItems(loadTodaySchedule(currentDateStr));
     setWalkInName('');
     setShowWalkInModal(false);
   };
@@ -927,9 +980,23 @@ export default function DayScheduleQueue({
                 </button>
               </div>
 
-              <h2 className="text-xl md:text-2xl font-black text-white tracking-tight uppercase">
-                {formattedDateTitle}
-              </h2>
+              <div className="flex items-center gap-3 flex-wrap">
+                <h2 className="text-xl md:text-2xl font-black text-white tracking-tight uppercase">
+                  {formattedDateTitle}
+                </h2>
+                {cloudSyncStatus === 'syncing' && (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 animate-pulse">
+                    <UploadCloud className="w-3 h-3 animate-spin text-cyan-400" />
+                    Cloud Syncing
+                  </span>
+                )}
+                {cloudSyncStatus === 'synced' && (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30" title="Schedule synchronized with DentAI Cloud. Available across all mobile and desktop devices.">
+                    <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                    Multi-Device Synced
+                  </span>
+                )}
+              </div>
             </div>
           </div>
 
@@ -1903,7 +1970,7 @@ export default function DayScheduleQueue({
                 <button
                   type="button"
                   onClick={() => {
-                    clearTodaySchedule();
+                    clearTodaySchedule(currentDateStr);
                     setItems([]);
                     setShowClearConfirmModal(false);
                   }}

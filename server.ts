@@ -761,12 +761,14 @@ const USERS_FILE = path.resolve(__dirname, 'data', 'users.json');
 const CONSULTATIONS_FILE = path.resolve(__dirname, 'data', 'consultations.json');
 const AUDIT_FILE = path.resolve(__dirname, 'data', 'audit.json');
 const CLINICS_FILE = path.resolve(__dirname, 'data', 'clinics.json');
+const SCHEDULES_FILE = path.resolve(__dirname, 'data', 'schedules.json');
 
 // In-memory caching layer for read-only environments (like Vercel serverless)
 const dbCache: Record<string, any> = {
   'dentai:users': null,
   'dentai:consultations': null,
-  'dentai:clinics': null
+  'dentai:clinics': null,
+  'dentai:schedules': null
 };
 
 const isKvConfigured = !!(process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN);
@@ -866,6 +868,14 @@ async function readClinicsDb(): Promise<{ clinics: any[] }> {
 
 async function writeClinicsDb(data: { clinics: any[] }) {
   return writeDb('dentai:clinics', CLINICS_FILE, data);
+}
+
+async function readSchedulesDb(): Promise<{ schedules: Record<string, any> }> {
+  return readDb('dentai:schedules', SCHEDULES_FILE, { schedules: {} });
+}
+
+async function writeSchedulesDb(data: { schedules: Record<string, any> }) {
+  return writeDb('dentai:schedules', SCHEDULES_FILE, data);
 }
 
 // Immutable audit trail for compliance (who did what, when). Event payloads must NEVER
@@ -1122,6 +1132,9 @@ async function initDb() {
     }
     if (!fs.existsSync(CLINICS_FILE)) {
       fs.writeFileSync(CLINICS_FILE, JSON.stringify({ clinics: [] }, null, 2));
+    }
+    if (!fs.existsSync(SCHEDULES_FILE)) {
+      fs.writeFileSync(SCHEDULES_FILE, JSON.stringify({ schedules: {} }, null, 2));
     }
   } catch (err: any) {
     logger.warn('[Database] Read-only filesystem detected during initialization. Relying on in-memory caching.', err.message);
@@ -3155,6 +3168,102 @@ app.post('/api/schedule/parse-image', authenticateToken, async (req: any, res) =
   } catch (err: any) {
     logger.error('Failed to parse schedule image:', err);
     res.status(500).json({ error: 'Failed to parse appointment schedule image.' });
+  }
+});
+
+// Schedule Multi-Device Cloud Sync Endpoints
+app.get('/api/schedule', authenticateToken, async (req: any, res: express.Response) => {
+  try {
+    const dentistId = req.dentist?.id;
+    const date = String(req.query.date || getTodayStr()).trim();
+    if (!date) {
+      return res.status(400).json({ error: 'Date parameter is required.' });
+    }
+
+    const scheduleKey = `${dentistId}:${date}`;
+    const db = await readSchedulesDb();
+    const entry = db.schedules?.[scheduleKey];
+
+    if (!entry) {
+      return res.json({
+        date,
+        items: [],
+        updatedAt: null
+      });
+    }
+
+    return res.json({
+      date,
+      items: Array.isArray(entry.items) ? entry.items : [],
+      updatedAt: entry.updatedAt || null
+    });
+  } catch (err: any) {
+    logger.error('Failed to read schedule from cloud:', err);
+    res.status(500).json({ error: 'Failed to retrieve schedule.' });
+  }
+});
+
+app.put('/api/schedule', authenticateToken, async (req: any, res: express.Response) => {
+  try {
+    const dentistId = req.dentist?.id;
+    const { date, items } = req.body || {};
+    const targetDate = String(date || getTodayStr()).trim();
+
+    if (!targetDate) {
+      return res.status(400).json({ error: 'Date is required.' });
+    }
+    if (!Array.isArray(items)) {
+      return res.status(400).json({ error: 'Items must be an array.' });
+    }
+
+    const scheduleKey = `${dentistId}:${targetDate}`;
+    const db = await readSchedulesDb();
+    if (!db.schedules) {
+      db.schedules = {};
+    }
+
+    const now = new Date().toISOString();
+    db.schedules[scheduleKey] = {
+      dentistId,
+      date: targetDate,
+      items,
+      updatedAt: now
+    };
+
+    await writeSchedulesDb(db);
+
+    return res.json({
+      success: true,
+      date: targetDate,
+      items,
+      updatedAt: now
+    });
+  } catch (err: any) {
+    logger.error('Failed to save schedule to cloud:', err);
+    res.status(500).json({ error: 'Failed to save schedule.' });
+  }
+});
+
+app.delete('/api/schedule', authenticateToken, async (req: any, res: express.Response) => {
+  try {
+    const dentistId = req.dentist?.id;
+    const date = String(req.query.date || getTodayStr()).trim();
+
+    if (!date) {
+      return res.status(400).json({ error: 'Date parameter is required.' });
+    }
+
+    const scheduleKey = `${dentistId}:${date}`;
+    const db = await readSchedulesDb();
+    if (db.schedules && db.schedules[scheduleKey]) {
+      delete db.schedules[scheduleKey];
+      await writeSchedulesDb(db);
+    }
+
+    return res.json({ success: true, date });
+  } catch (err: any) {
+    logger.error('Failed to delete schedule from cloud:', err);
+    res.status(500).json({ error: 'Failed to delete schedule.' });
   }
 });
 
