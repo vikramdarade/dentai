@@ -1,0 +1,70 @@
+name: Daily Autonomous Company Cycle (Grokbot)
+
+on:
+  schedule:
+    # 20:00 UTC = 06:00 AEST (Sydney/Melbourne morning)
+    - cron: '0 20 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  daily-autonomous-cycle:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: 1. Run Type Contract Checks
+        run: npm run lint
+
+      - name: 2. Run Clinical Safety Evals Gate (Golden Dataset)
+        run: npm run eval
+
+      - name: 3. Run Full 8-Department Grokbot Autonomous Cycle
+        id: grokbot-cycle
+        run: npm run grokbot
+
+      - name: 4. Publish Executive Briefing to GitHub Actions Summary
+        if: always()
+        run: |
+          LATEST_REPORT=$(ls -t reports/company/autonomous-briefing-*.md 2>/dev/null | head -n 1)
+          if [ -f "$LATEST_REPORT" ]; then
+            cat "$LATEST_REPORT" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "No briefing report generated." >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: 5. Upload Briefing Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily-autonomous-briefing
+          path: reports/company/*.md
+          retention-days: 30
+
+      - name: 6. Commit & Push Daily Briefing Report
+        run: |
+          git config --global user.name "Grokbot Autonomous Orchestrator"
+          git config --global user.email "grokbot@dentai.internal"
+          git add reports/company/*.md
+          if git diff --staged --quiet; then
+            echo "No new briefing to commit."
+          else
+            git commit -m "chore(company): daily autonomous briefing for $(date +'%Y-%m-%d') [skip ci]"
+            git push origin HEAD:${{ github.ref_name }}
+          fi
