@@ -25,6 +25,7 @@ export interface SupportCycleResult {
     estimatedReadTimeMinutes: number;
     steps: string[];
   }[];
+  playbookFilePath?: string;
   proactiveInterventionSummary: string;
 }
 
@@ -79,6 +80,7 @@ export async function runSupportAgent(): Promise<SupportCycleResult> {
     clinicSatisfactionScore: 98,
     activeTriageTickets,
     onboardingPlaybook,
+    playbookFilePath: 'docs/ONBOARDING_PLAYBOOK.md',
     proactiveInterventionSummary: '2 proactive resolution guides dispatched. 0 open critical clinic escalations. Clinic onboarding time averaging 4.5 minutes per practice.'
   };
 }

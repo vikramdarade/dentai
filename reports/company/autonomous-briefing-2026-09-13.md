@@ -1,7 +1,7 @@
 # 🤖 DentAI Grokbot Autonomous Company Daily Briefing
 
-- **Cycle ID**: `CYCLE-2026-09-13-MTZAP3OW`
-- **Timestamp**: 2026-09-13T04:09:41.360Z
+- **Cycle ID**: `CYCLE-2026-09-13-MU0E19QW`
+- **Timestamp**: 2026-09-13T22:30:54.104Z
 - **Release Status**: **🟢 SHIP_READY (Certified)**
 
 > **Executive Summary**: Grokbot autonomous daily cycle PASSED across all 8 executive departments. Clinical safety certified (0 hallucinations, 100% FDI tooth grounding). AHPRA & Privacy Act 1988 compliance verified. Unbooked treatment recovery surfaced $8,530 AUD. Operating at 99.6% gross margin. All systems green for continuous production delivery.
@@ -9,7 +9,7 @@
 ---
 
 ## 🩺 1. QA & Clinical Safety Auditor Bot
-- **Certificate ID**: `CERT-DENTAI-MTZAP3P2-OFFLINE`
+- **Certificate ID**: `CERT-DENTAI-MU0E19R3-OFFLINE`
 - **Audit Status**: **CERTIFIED_FOR_PRODUCTION**
 - **Hallucinations Detected**: **0** (Zero tolerance required)
 - **Avg Tooth Number Recall**: 100.0%
@@ -19,7 +19,7 @@
 
 ## 💻 2. Software Engineering Bot
 - **Active Sprint Ticket**: [P0] **Dental4Windows Trojan Horse Handoff Auto-Splitting**
-- **Generated PR Proposal**: `PR-MTZAP3OX` (`feat/feat-d4w-clip-enhance`)
+- **Generated PR Proposal**: `PR-MU0E19QX` (`feat/feat-d4w-clip-enhance`)
 - **PR Status**: **COMPILED_CLEAN**
 - **Type Check Contract**: ✅ Clean
 - **Target Files**:
@@ -48,6 +48,7 @@
 - **Clinic Satisfaction Score**: **98%**
 - **Active Support Tickets**: 2
 - **Onboarding Playbooks**: Receptionist 3-Minute Quick Start: D4W & EXACT Trojan Horse (3m), Dentist 90-Second Chairside Flow: Zero-Typing Scribe (2m)
+- **Full Guide Document**: [docs/ONBOARDING_PLAYBOOK.md](file:///c:/Users/swati/Downloads/dentai/docs/ONBOARDING_PLAYBOOK.md)
 - **Summary**: 2 proactive resolution guides dispatched. 0 open critical clinic escalations. Clinic onboarding time averaging 4.5 minutes per practice.
 
 ## 💰 6. GTM & Revenue Intelligence Bot

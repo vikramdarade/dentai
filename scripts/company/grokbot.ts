@@ -236,6 +236,7 @@ export function formatExecutiveBriefingMarkdown(briefing: GrokbotExecutiveBriefi
       `- **Clinic Satisfaction Score**: **${sup.clinicSatisfactionScore}%**`,
       `- **Active Support Tickets**: ${sup.activeTriageTickets.length}`,
       `- **Onboarding Playbooks**: ${sup.onboardingPlaybook.map(p => `${p.title} (${p.estimatedReadTimeMinutes}m)`).join(', ')}`,
+      `- **Full Guide Document**: [docs/ONBOARDING_PLAYBOOK.md](file:///c:/Users/swati/Downloads/dentai/docs/ONBOARDING_PLAYBOOK.md)`,
       `- **Summary**: ${sup.proactiveInterventionSummary}`,
       ``
     );
