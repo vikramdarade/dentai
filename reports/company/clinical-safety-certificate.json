@@ -1,0 +1,12 @@
+{
+  "certificateId": "CERT-DENTAI-MU0E6J2A-OFFLINE",
+  "issuedAt": "2026-09-13T22:34:59.458Z",
+  "status": "CERTIFIED_FOR_PRODUCTION",
+  "totalCases": 6,
+  "passedCases": 6,
+  "hallucinationCount": 0,
+  "avgGroundingScore": 100,
+  "avgToothRecall": 1,
+  "avgAdaCodeF1": 1,
+  "summary": "All clinical benchmark scenarios passed with 0 hallucinations and >= 90% grounding."
+}
