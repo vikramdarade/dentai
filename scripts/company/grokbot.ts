@@ -158,26 +158,41 @@ export async function runGrokbotCycle(options: {
 
   // Write deliverables to disk in reports/company
   const reportDir = path.resolve(process.cwd(), 'reports', 'company');
-  if (!fs.existsSync(reportDir)) {
-    fs.mkdirSync(reportDir, { recursive: true });
+  const dateDir = path.join(reportDir, dateStr);
+  const latestDir = path.join(reportDir, 'latest');
+
+  for (const dir of [reportDir, dateDir, latestDir]) {
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
   }
 
+  // Master Executive Markdown Briefing (saved in date folder, latest folder, and root for backward compatibility)
   const targetPath = options.outputPath || path.join(reportDir, `autonomous-briefing-${dateStr}.md`);
   fs.writeFileSync(targetPath, markdownReport, 'utf-8');
+  fs.writeFileSync(path.join(dateDir, '0-autonomous-briefing.md'), markdownReport, 'utf-8');
+  fs.writeFileSync(path.join(latestDir, '0-autonomous-briefing.md'), markdownReport, 'utf-8');
 
-  // Persist dedicated deliverables for all 8 departments on the CEO's desk
+  // Helper to save a deliverable file to both date-stamped archive and latest directory
+  const saveDeliverable = (filename: string, content: string) => {
+    fs.writeFileSync(path.join(reportDir, filename), content, 'utf-8');
+    fs.writeFileSync(path.join(dateDir, filename), content, 'utf-8');
+    fs.writeFileSync(path.join(latestDir, filename), content, 'utf-8');
+  };
+
+  // Persist dedicated deliverables for all 8 departments across historical archives
   if (productResult) {
-    fs.writeFileSync(path.join(reportDir, '1-product-roadmap-spec.json'), JSON.stringify(productResult, null, 2), 'utf-8');
+    saveDeliverable('1-product-roadmap-spec.json', JSON.stringify(productResult, null, 2));
   }
   if (engineerResult) {
-    fs.writeFileSync(path.join(reportDir, '2-engineering-sprint-pr.json'), JSON.stringify(engineerResult, null, 2), 'utf-8');
+    saveDeliverable('2-engineering-sprint-pr.json', JSON.stringify(engineerResult, null, 2));
   }
   if (qaResult) {
-    fs.writeFileSync(path.join(reportDir, '3-clinical-safety-certificate.json'), JSON.stringify(qaResult.safetyCertificate, null, 2), 'utf-8');
-    fs.writeFileSync(path.join(reportDir, 'clinical-safety-certificate.json'), JSON.stringify(qaResult.safetyCertificate, null, 2), 'utf-8');
+    saveDeliverable('3-clinical-safety-certificate.json', JSON.stringify(qaResult.safetyCertificate, null, 2));
+    saveDeliverable('clinical-safety-certificate.json', JSON.stringify(qaResult.safetyCertificate, null, 2));
   }
   if (securityResult) {
-    fs.writeFileSync(path.join(reportDir, '4-security-compliance-audit.json'), JSON.stringify(securityResult, null, 2), 'utf-8');
+    saveDeliverable('4-security-compliance-audit.json', JSON.stringify(securityResult, null, 2));
   }
   if (supportResult) {
     const supportMd = [
@@ -196,10 +211,10 @@ export async function runGrokbotCycle(options: {
         ``
       ].join('\n'))
     ].join('\n');
-    fs.writeFileSync(path.join(reportDir, '5-clinic-onboarding-playbook.md'), supportMd, 'utf-8');
+    saveDeliverable('5-clinic-onboarding-playbook.md', supportMd);
   }
   if (financeResult) {
-    fs.writeFileSync(path.join(reportDir, '6-finance-unit-economics.json'), JSON.stringify(financeResult, null, 2), 'utf-8');
+    saveDeliverable('6-finance-unit-economics.json', JSON.stringify(financeResult, null, 2));
   }
   if (gtmResult) {
     const gtmMd = [
@@ -212,12 +227,12 @@ export async function runGrokbotCycle(options: {
       `### Outbound Pitch Angle`,
       gtmResult.outboundSalesPitchAngle
     ].join('\n');
-    fs.writeFileSync(path.join(reportDir, '7-gtm-revenue-teardown.md'), gtmMd, 'utf-8');
-    fs.writeFileSync(path.join(reportDir, 'practice-manager-changelog.md'), gtmResult.practiceManagerChangelog, 'utf-8');
-    fs.writeFileSync(path.join(reportDir, 'roi-teardown.md'), gtmResult.practiceOwnerExecutiveBrief, 'utf-8');
+    saveDeliverable('7-gtm-revenue-teardown.md', gtmMd);
+    saveDeliverable('practice-manager-changelog.md', gtmResult.practiceManagerChangelog);
+    saveDeliverable('roi-teardown.md', gtmResult.practiceOwnerExecutiveBrief);
   }
   if (opsResult) {
-    fs.writeFileSync(path.join(reportDir, '8-operations-fleet-health.json'), JSON.stringify(opsResult, null, 2), 'utf-8');
+    saveDeliverable('8-operations-fleet-health.json', JSON.stringify(opsResult, null, 2));
   }
 
   return briefing;
