@@ -66,7 +66,24 @@ function HistoryHubInner({
   const [showImagingModal, setShowImagingModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [speedReviewOpen, setSpeedReviewOpen] = useState(false);
-  const [sidebarDockOpen, setSidebarDockOpen] = useState(false);
+  const [sidebarDockOpen, setSidebarDockOpen] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('mode') === 'cockpit') return false;
+      if (params.get('mode') === 'docked') return true;
+      const saved = localStorage.getItem('dentai_companion_mode');
+      if (saved !== null) return saved === 'true';
+      return true; // Default to 340px companion mode
+    }
+    return true;
+  });
+
+  const toggleSidebarDock = (open: boolean) => {
+    setSidebarDockOpen(open);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('dentai_companion_mode', String(open));
+    }
+  };
 
   // Group consultations by date
   const todayStr = getTodayStr();
@@ -203,7 +220,7 @@ function HistoryHubInner({
                   )}
                 </button>
                 <button
-                  onClick={() => setSidebarDockOpen(prev => !prev)}
+                  onClick={() => toggleSidebarDock(!sidebarDockOpen)}
                   className={`flex items-center gap-1.5 px-3 py-2 border rounded-xl text-xs font-bold transition-all cursor-pointer ${
                     sidebarDockOpen
                       ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40 shadow-xs'
@@ -431,37 +448,39 @@ function HistoryHubInner({
               onManageClinic={() => setManageOpen(true)}
             />
 
-            {/* 5:00 PM Speed Review Modal */}
-            <AnimatePresence>
-              {speedReviewOpen && (
-                <div className="fixed inset-0 z-[150] bg-black/80 backdrop-blur-sm flex flex-col">
-                  <SpeedReviewStrip
-                    consultations={consultations}
-                    dentistName={dentistName}
-                    clinicName={activeClinic?.clinicName}
-                    onClose={() => setSpeedReviewOpen(false)}
-                    onUpdateConsultation={(c) => {
-                      // Handled locally
-                    }}
-                  />
-                </div>
-              )}
-            </AnimatePresence>
-
-            {/* Prototype A: 340px Clean Sidebar Dock */}
-            <AnimatePresence>
-              {sidebarDockOpen && (
-                <SidebarDockMode
-                  dentistName={dentistName}
-                  clinicName={activeClinic?.clinicName}
-                  onExpandCockpit={() => setSidebarDockOpen(false)}
-                  onClose={() => setSidebarDockOpen(false)}
-                />
-              )}
-            </AnimatePresence>
           </div>
         </CockpitLayout>
       )}
+
+      {/* 5:00 PM Speed Review Modal */}
+      <AnimatePresence>
+        {speedReviewOpen && (
+          <div className="fixed inset-0 z-[150] bg-black/80 backdrop-blur-sm flex flex-col">
+            <SpeedReviewStrip
+              consultations={consultations}
+              dentistName={dentistName}
+              clinicName={activeClinic?.clinicName}
+              onClose={() => setSpeedReviewOpen(false)}
+              onUpdateConsultation={(c) => {
+                // Handled locally
+              }}
+            />
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Prototype A: 340px Clean Sidebar Dock */}
+      <AnimatePresence>
+        {sidebarDockOpen && (
+          <SidebarDockMode
+            dentistName={dentistName}
+            clinicName={activeClinic?.clinicName}
+            onExpandCockpit={() => toggleSidebarDock(false)}
+            onOpenSpeedReview={() => setSpeedReviewOpen(true)}
+            onClose={() => toggleSidebarDock(false)}
+          />
+        )}
+      </AnimatePresence>
     </>
   );
 }

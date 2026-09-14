@@ -24,7 +24,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
         return 'light';
       }
     }
-    return 'dark'; // Clinical dark cockpit by default
+    return 'light'; // Crisp Clinical Light by default
   });
 
   useEffect(() => {

@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
   Mic,
-  Square,
   Copy,
   Check,
   Sparkles,
@@ -9,10 +8,12 @@ import {
   Maximize2,
   X,
   Volume2,
-  ShieldCheck,
   ChevronRight,
+  ChevronLeft,
   User,
-  Zap
+  Zap,
+  Activity,
+  FileText
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { DayScheduleItem } from '../lib/dayScheduleStorage';
@@ -23,6 +24,7 @@ interface SidebarDockModeProps {
   dentistName: string;
   clinicName?: string;
   onExpandCockpit: () => void;
+  onOpenSpeedReview?: () => void;
   onFinishNote?: () => void;
   onClose?: () => void;
 }
@@ -32,19 +34,32 @@ export default function SidebarDockMode({
   dentistName,
   clinicName = 'Bright Smile Dental',
   onExpandCockpit,
+  onOpenSpeedReview,
   onFinishNote,
   onClose
 }: SidebarDockModeProps) {
   const [seconds, setSeconds] = useState(0);
   const [isRecording, setIsRecording] = useState(true);
   const [copied, setCopied] = useState(false);
-  const [liveChips, setLiveChips] = useState<string[]>([
-    '#16 MOD',
-    'ADA 531',
-    'Caries Mesial',
-    'Deep Excavation',
-    'Fuji VII Base'
-  ]);
+  const [patientIndex, setPatientIndex] = useState(0);
+
+  // Sample schedule for active companion switcher if none passed
+  const samplePatients = [
+    { name: 'Sarah Jenkins', time: '09:00 AM', procedure: 'Restoration', tooth: '#16 MOD', codes: '531, 583' },
+    { name: 'Mark Taylor', time: '10:15 AM', procedure: 'Emergency Exam', tooth: '#21 Incisal', codes: '013, 022' },
+    { name: 'Emma Roberts', time: '11:30 AM', procedure: 'Periodic Checkup', tooth: 'Full Dentition', codes: '012, 114, 121' },
+    { name: 'David Wilson', time: '02:00 PM', procedure: 'Crown Prep', tooth: '#46 Ceramic', codes: '615, 627' }
+  ];
+
+  const currentPatient = activePatient
+    ? {
+        name: 'patientName' in activePatient ? activePatient.patientName : `${activePatient.firstName} ${activePatient.lastName}`,
+        time: 'time' in activePatient && activePatient.time ? activePatient.time : '09:00 AM',
+        procedure: 'appointmentType' in activePatient ? activePatient.appointmentType : 'Restorative',
+        tooth: '#16 MOD',
+        codes: '012, 531, 583'
+      }
+    : samplePatients[patientIndex % samplePatients.length];
 
   useEffect(() => {
     if (!isRecording) return;
@@ -58,51 +73,78 @@ export default function SidebarDockMode({
     return `${String(mins).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   };
 
-  const patientName = activePatient
-    ? ('patientName' in activePatient ? activePatient.patientName : `${activePatient.firstName} ${activePatient.lastName}`)
-    : 'Sarah Jenkins';
+  const formattedSoapNote = `PATIENT: ${currentPatient.name}
+DATE: ${new Date().toLocaleDateString('en-AU')}
+CLINICIAN: Dr. ${dentistName}
+APPOINTMENT: ${currentPatient.procedure.toUpperCase()}
+----------------------------------------
+SOAP CLINICAL RECORD:
+• Tooth: ${currentPatient.tooth}
+• Diagnosis: Dental caries involving dentine. Cold test positive, non-lingering.
+• Anesthetic: 2.2mL Scandonest 2% with 1:100,000 adrenaline.
+• Procedure: Caries excavation under rubber dam. Indirect pulp cap with GC Fuji VII glass ionomer base. Etched, bonded with Scotchbond Universal, composite resin layered and light-cured.
+• Material: Filtek Supreme A3.
+• Occlusion & Post-Op: Occlusion checked with articulating paper, adjusted and polished. Warned of post-op numbness for 2-3 hours.
+• Recall: 6 months routine recall.
 
-  const appointmentType = activePatient
-    ? ('appointmentType' in activePatient ? activePatient.appointmentType : 'Restorative')
-    : 'Restorative';
+ADA ITEM CODES: ${currentPatient.codes}
+----------------------------------------
+VERIFIED & SIGNED BY DR. ${dentistName.toUpperCase()}`;
 
   const handleQuickCopy = () => {
-    const sampleText = `PATIENT: ${patientName}\nDATE: ${new Date().toLocaleDateString('en-AU')}\nCLINICIAN: Dr. ${dentistName}\nAPPOINTMENT: ${appointmentType.toUpperCase()}\n----------------------------------------\nFINDINGS:\nTooth 16: Deep mesio-occlusal carious lesion. Cold test positive, non-lingering.\n\nTREATMENT PERFORMED:\nLocal anaesthetic: 2.2mL Scandonest 2% with 1:100k adrenaline.\nTooth 16: Excavation of caries under rubber dam. Indirect pulp protection with GC Fuji VII glass ionomer.\nEtch, Prime, Bond (3M Scotchbond Universal). Composite resin restoration (Filtek Supreme A3 MOD).\nFinishing and polishing burs, occlusion checked with articulating paper.\n\nADA CODES: 012, 531, 583\n----------------------------------------\nVERIFIED & SIGNED BY DR. ${dentistName.toUpperCase()}`;
-
     if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(sampleText);
+      navigator.clipboard.writeText(formattedSoapNote);
     }
     setCopied(true);
-    setTimeout(() => setCopied(false), 2500);
+    setTimeout(() => setCopied(false), 2200);
   };
+
+  // Keyboard shortcut: Spacebar copies note when dock is focused
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return;
+      if (e.code === 'Space') {
+        e.preventDefault();
+        handleQuickCopy();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [formattedSoapNote]);
 
   return (
     <aside
-      className="w-[340px] h-screen bg-[#070B11] border-l border-[#182638] text-white flex flex-col justify-between shadow-2xl shadow-black select-none z-50 fixed top-0 right-0"
-      aria-label="DentAI Invisible Chairside Dock"
+      className="w-[340px] h-screen bg-white border-l border-slate-200 text-slate-900 flex flex-col justify-between shadow-2xl shadow-slate-900/10 select-none z-50 fixed top-0 right-0 font-sans"
+      aria-label="DentAI Invisible Chairside Companion"
     >
-      {/* Top Header */}
-      <div className="p-3.5 border-b border-[#182638] bg-[#0A1018] flex items-center justify-between">
+      {/* 1. Crisp Medical Header */}
+      <div className="px-4 py-3 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <div className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse" />
-          <span className="font-mono text-[11px] font-black tracking-widest text-cyan-400 uppercase">
-            DentAI Dock (340px)
+          <div className="w-2 h-2 rounded-full bg-teal-600" />
+          <span className="font-semibold text-xs tracking-wide text-slate-800 uppercase">
+            DentAI Companion
+          </span>
+          <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-200 text-slate-600 font-mono font-medium">
+            340px
           </span>
         </div>
 
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1">
           <button
             onClick={onExpandCockpit}
-            className="p-1.5 rounded-lg bg-[#121E2E] hover:bg-[#18283D] border border-[#1E3048] text-slate-300 hover:text-white transition-colors cursor-pointer"
-            title="Switch to Dual-Monitor Cockpit (Prototype B)"
+            className="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-200 transition-colors cursor-pointer"
+            title="Expand to Full Cockpit / History Dashboard"
+            aria-label="Expand cockpit"
           >
             <Maximize2 className="w-3.5 h-3.5" />
           </button>
           {onClose && (
             <button
               onClick={onClose}
-              className="p-1.5 rounded-lg hover:bg-rose-950/40 text-slate-400 hover:text-rose-400 transition-colors cursor-pointer"
-              title="Close Dock"
+              className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200 transition-colors cursor-pointer"
+              title="Close Companion"
+              aria-label="Close companion"
             >
               <X className="w-3.5 h-3.5" />
             </button>
@@ -110,126 +152,163 @@ export default function SidebarDockMode({
         </div>
       </div>
 
-      {/* Operatory Room-Mic DSP Status Banner */}
-      <div className="px-3.5 py-2 bg-[#09111C] border-b border-[#182638] flex items-center justify-between text-[10px] font-mono">
-        <span className="text-emerald-400 flex items-center gap-1.5 font-bold">
-          <Volume2 className="w-3 h-3 text-emerald-400" />
-          <span>DSP Room Mic • 1.8m AGC</span>
-        </span>
-        <span className="text-slate-400">Drill Whistle Cut</span>
+      {/* 2. Calm Audio DSP Status Pill (Zero peripheral distraction) */}
+      <div className="px-4 py-2 bg-slate-100/80 border-b border-slate-200 flex items-center justify-between text-[11px]">
+        <div className="flex items-center gap-2">
+          <span className="inline-block w-2 h-2 rounded-full bg-emerald-500" />
+          <span className="font-medium text-slate-700">
+            Room Mic Active <span className="text-slate-500 font-normal">(DSP Filtered)</span>
+          </span>
+        </div>
+        {/* Subtle, calm volume indicator */}
+        <div className="flex items-center gap-0.5 h-2.5">
+          <span className="w-1 h-1.5 bg-emerald-500 rounded-full" />
+          <span className="w-1 h-2 bg-emerald-500 rounded-full" />
+          <span className="w-1 h-2.5 bg-emerald-500 rounded-full" />
+          <span className="w-1 h-1 bg-slate-300 rounded-full" />
+        </div>
       </div>
 
-      {/* Active Chairside Card */}
-      <div className="p-3.5 flex-grow overflow-y-auto custom-scrollbar space-y-3.5">
-        {/* Patient Capsule */}
-        <div className="p-3 rounded-xl bg-[#0B1320] border border-[#182638] space-y-2">
-          <div className="flex items-center justify-between text-xs">
-            <span className="font-black text-white truncate">{patientName}</span>
-            <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-cyan-950/60 text-cyan-300 border border-cyan-800/60 uppercase">
-              {appointmentType}
-            </span>
+      {/* 3. Main Operatory Content Area */}
+      <div className="p-4 flex-grow overflow-y-auto space-y-4">
+        {/* Active Patient Card with Switcher */}
+        <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2.5 shadow-xs">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1.5 text-xs text-slate-500">
+              <Clock className="w-3.5 h-3.5 text-slate-400" />
+              <span className="font-mono font-semibold text-slate-700">{currentPatient.time}</span>
+            </div>
+            {/* Prev / Next Patient Selector */}
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setPatientIndex(i => Math.max(0, i - 1))}
+                className="p-1 rounded hover:bg-slate-200 text-slate-500 disabled:opacity-30 cursor-pointer"
+                disabled={patientIndex === 0}
+                title="Previous Patient"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+              </button>
+              <span className="text-[10px] font-mono text-slate-500 px-1">
+                {patientIndex + 1}/{samplePatients.length}
+              </span>
+              <button
+                onClick={() => setPatientIndex(i => i + 1)}
+                className="p-1 rounded hover:bg-slate-200 text-slate-500 cursor-pointer"
+                title="Next Patient"
+              >
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
 
-          {/* Recording Timer & Mic Button */}
-          <div className="flex items-center justify-between pt-1 border-t border-[#182638]">
+          <div>
+            <h3 className="text-sm font-bold text-slate-900 leading-tight">
+              {currentPatient.name}
+            </h3>
+            <p className="text-xs text-slate-600 mt-0.5">
+              {currentPatient.procedure}
+            </p>
+          </div>
+
+          {/* Recording Status & Controls */}
+          <div className="pt-2 border-t border-slate-200 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setIsRecording(!isRecording)}
                 className={`w-7 h-7 rounded-full flex items-center justify-center transition-all cursor-pointer ${
                   isRecording
-                    ? 'bg-rose-500/20 text-rose-400 border border-rose-500/40 animate-pulse'
-                    : 'bg-slate-800 text-slate-400'
+                    ? 'bg-rose-50 text-rose-600 border border-rose-200 hover:bg-rose-100'
+                    : 'bg-slate-200 text-slate-600 hover:bg-slate-300'
                 }`}
-                title={isRecording ? 'Pause Mic Capture' : 'Resume Mic Capture'}
+                title={isRecording ? 'Pause Recording' : 'Resume Recording'}
               >
                 <Mic className="w-3.5 h-3.5" />
               </button>
-              <span className="font-mono text-sm font-black text-cyan-300">
+              <span className="font-mono text-xs font-bold text-slate-800">
                 {formatTimer(seconds)}
               </span>
             </div>
-
-            <span className="text-[10px] font-mono text-slate-400">
-              {isRecording ? 'Listening Operatory' : 'Paused'}
+            <span className="text-[11px] text-slate-500 font-medium">
+              {isRecording ? 'Capturing natural speech' : 'Paused'}
             </span>
           </div>
         </div>
 
-        {/* Live Detected FDI Teeth & Clinical Anchors */}
+        {/* Real-Time Clinical Anchors (FDI & ADA Chips) */}
         <div className="space-y-1.5">
-          <div className="flex items-center justify-between text-[10px] font-mono font-bold uppercase tracking-wider text-slate-400">
-            <span className="flex items-center gap-1 text-cyan-400">
-              <Sparkles className="w-3 h-3" />
-              <span>Parsed Dental Anchors</span>
-            </span>
-            <span>Live Stream</span>
+          <div className="flex items-center justify-between text-[11px] font-medium text-slate-500">
+            <span>Detected Dental Anchors</span>
+            <span className="text-teal-700 font-semibold">100% FDI Recall</span>
           </div>
-
           <div className="flex flex-wrap gap-1.5">
-            {liveChips.map((chip, idx) => (
-              <span
-                key={idx}
-                className="px-2.5 py-1 rounded-lg bg-[#0E1A2B] border border-cyan-500/30 text-cyan-300 font-mono text-[11px] font-bold shadow-xs flex items-center gap-1"
-              >
-                <span className="w-1 h-1 rounded-full bg-cyan-400" />
-                {chip}
-              </span>
-            ))}
+            <span className="px-2 py-0.5 rounded-md bg-teal-50 border border-teal-200 text-teal-800 font-mono text-xs font-bold">
+              {currentPatient.tooth}
+            </span>
+            <span className="px-2 py-0.5 rounded-md bg-sky-50 border border-sky-200 text-sky-800 font-mono text-xs font-semibold">
+              ADA {currentPatient.codes}
+            </span>
+            <span className="px-2 py-0.5 rounded-md bg-slate-100 border border-slate-200 text-slate-700 text-xs">
+              Filtek A3
+            </span>
+            <span className="px-2 py-0.5 rounded-md bg-slate-100 border border-slate-200 text-slate-700 text-xs">
+              Fuji VII Base
+            </span>
           </div>
         </div>
 
-        {/* Shorthand Note Preview */}
+        {/* Clean SOAP Clinical Note Preview */}
         <div className="space-y-1.5">
-          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-400">
-            PMS Note Shorthand
-          </span>
-          <div className="p-2.5 rounded-xl bg-[#090E17] border border-[#152232] font-mono text-[11px] text-slate-300 leading-relaxed space-y-1 select-text">
-            <p className="text-white font-bold">16 MOD Composite Restoration</p>
-            <p className="text-slate-400">• LA: 2.2mL Scandonest 2% with 1:100k adr</p>
-            <p className="text-slate-400">• Prep: Deep MO caries excavation under rubber dam</p>
-            <p className="text-slate-400">• Lining: GC Fuji VII GIC sub-base</p>
-            <p className="text-slate-400">• Restorative: Scotchbond + Filtek A3 MOD</p>
-            <p className="text-teal-400 font-bold">• Codes: 012, 531, 583</p>
+          <div className="flex items-center justify-between text-[11px] font-medium text-slate-500">
+            <span>Clinical Shorthand (SOAP)</span>
+            <span className="text-[10px] text-slate-400">D4W / EXACT Ready</span>
+          </div>
+          <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-800 font-mono leading-relaxed space-y-1 select-text max-h-56 overflow-y-auto custom-scrollbar">
+            <p className="font-bold text-slate-900">• Tooth: {currentPatient.tooth}</p>
+            <p className="text-slate-600">• Diagnosis: Caries into dentine</p>
+            <p className="text-slate-600">• LA: 2.2mL Scandonest 2% 1:100k</p>
+            <p className="text-slate-600">• Prep: Caries excavation, rubber dam</p>
+            <p className="text-slate-600">• Lining: Fuji VII sub-base</p>
+            <p className="text-slate-600">• Restoration: Scotchbond + Filtek A3</p>
+            <p className="text-slate-600">• Occlusion: Checked with paper, good</p>
+            <p className="text-teal-800 font-semibold">• Codes: {currentPatient.codes}</p>
           </div>
         </div>
 
-        {/* Rapid 1-Click Clipboard Action */}
+        {/* Prominent Medical Blue Copy Button */}
         <button
           onClick={handleQuickCopy}
-          className="w-full py-2.5 px-3 rounded-xl bg-gradient-to-r from-cyan-400 via-teal-400 to-emerald-400 hover:from-cyan-300 hover:to-emerald-300 text-slate-950 font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg shadow-cyan-950/60 transition-all active:scale-98 cursor-pointer"
+          className={`w-full py-3 px-4 rounded-xl font-bold text-xs tracking-wide flex items-center justify-center gap-2 transition-all cursor-pointer shadow-sm ${
+            copied
+              ? 'bg-emerald-600 text-white shadow-emerald-600/30'
+              : 'bg-sky-600 hover:bg-sky-500 text-white shadow-sky-600/30 active:scale-98'
+          }`}
         >
           {copied ? (
             <>
-              <Check className="w-4 h-4 stroke-[3]" />
+              <Check className="w-4 h-4 stroke-[2.5]" />
               <span>Copied to PMS Clipboard!</span>
             </>
           ) : (
             <>
-              <Copy className="w-4 h-4 fill-current" />
-              <span>Copy Note for PMS (Spacebar)</span>
+              <Copy className="w-4 h-4" />
+              <span>Copy Note to PMS (Spacebar)</span>
             </>
           )}
         </button>
       </div>
 
-      {/* Bottom Footer: Next Patient Queue preview */}
-      <div className="p-3 border-t border-[#182638] bg-[#0A1018] space-y-2 text-xs">
-        <div className="flex items-center justify-between text-[10px] font-mono text-slate-400 uppercase font-bold">
-          <span>Up Next in Operatory</span>
-          <span className="text-cyan-400">10:15 AM</span>
-        </div>
-        <div className="flex items-center justify-between p-2 rounded-lg bg-[#0C1420] border border-[#182638]">
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded-md bg-teal-950 border border-teal-800 text-teal-300 font-mono text-[10px] font-bold flex items-center justify-center">
-              MT
-            </div>
-            <div className="flex flex-col">
-              <span className="text-xs font-bold text-white leading-tight">Mark Taylor</span>
-              <span className="text-[10px] text-slate-400">Limited Emergency</span>
-            </div>
-          </div>
-          <ChevronRight className="w-4 h-4 text-slate-500" />
-        </div>
+      {/* 4. Prominent End-of-Day Review Action */}
+      <div className="p-3.5 border-t border-slate-200 bg-slate-50">
+        <button
+          onClick={() => {
+            if (onOpenSpeedReview) onOpenSpeedReview();
+            else onExpandCockpit();
+          }}
+          className="w-full py-2.5 px-3 rounded-xl bg-white hover:bg-slate-100 border border-slate-300 text-slate-800 font-bold text-xs flex items-center justify-center gap-2 shadow-xs transition-all cursor-pointer"
+        >
+          <Zap className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
+          <span>⚡ 5:00 PM Speed Review (All Notes)</span>
+        </button>
       </div>
     </aside>
   );
