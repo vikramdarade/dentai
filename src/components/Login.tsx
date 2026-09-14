@@ -143,7 +143,13 @@ export default function Login({ onLoginSuccess }: LoginProps) {
         })
       });
 
-      const data = await res.json();
+      let data: any = {};
+      try {
+        data = await res.json();
+      } catch {
+        data = { error: `Server returned HTTP ${res.status} (${res.statusText || 'Unknown'})` };
+      }
+
       if (res.ok) {
         if (data.mfaRequired && data.mfaToken) {
           // 2-Step Multi-Factor Authentication challenge
@@ -164,13 +170,13 @@ export default function Login({ onLoginSuccess }: LoginProps) {
 
         onLoginSuccess(data.token, data.dentist);
       } else {
-        setLoginError(data.error || 'Invalid credentials. Please verify your practitioner name and PIN.');
+        setLoginError(data.error || `Authentication failed (HTTP ${res.status}). Please verify your practitioner name and PIN.`);
         setPin('');
         setShakeTrigger(true);
         setTimeout(() => setShakeTrigger(false), 500);
       }
-    } catch (err) {
-      setLoginError('Server connection error. Please verify network connectivity.');
+    } catch (err: any) {
+      setLoginError(`Network/Server connection error: ${err?.message || 'Please check network'}`);
       setPin('');
     } finally {
       setIsSubmitting(false);
