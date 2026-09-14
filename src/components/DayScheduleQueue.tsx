@@ -564,15 +564,6 @@ export default function DayScheduleQueue({
     }
   };
 
-  const handleExpressCopyNext = () => {
-    const uncopied = items.find(i => i.status === 'ready' && copiedId !== i.id);
-    if (uncopied) {
-      handleCopyNote(uncopied);
-    } else {
-      const firstReady = items.find(i => i.status === 'ready');
-      if (firstReady) handleCopyNote(firstReady);
-    }
-  };
 
   const handleOfflineDraftForFailed = (item: DayScheduleItem) => {
     try {
@@ -1049,16 +1040,6 @@ export default function DayScheduleQueue({
               <span>{isInspectionOpen ? 'Hide Inspection' : 'Inspect Patient'}</span>
             </button>
 
-            {readyCount > 0 && (
-              <button
-                onClick={handleExpressCopyNext}
-                className="inline-flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-emerald-400 via-teal-400 to-cyan-400 hover:from-emerald-300 hover:to-cyan-300 text-slate-950 rounded-xl text-xs font-black transition-all active:scale-95 shadow-lg shadow-emerald-950/60 cursor-pointer"
-                title="Copy the next completed note directly for D4W"
-              >
-                <Copy className="w-4 h-4 stroke-[2.5]" />
-                Express Copy (D4W)
-              </button>
-            )}
 
             {/* Theme Toggle Button */}
             <button
