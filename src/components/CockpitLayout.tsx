@@ -2,16 +2,9 @@ import React, { useState, useEffect } from 'react';
 import {
   Calendar,
   Users,
-  FileText,
   Settings,
-  Image as ImageIcon,
-  Activity,
   LogOut,
-  Bell,
   Sparkles,
-  ChevronRight,
-  Stethoscope,
-  X,
   Sun,
   Moon,
   ShieldCheck,
@@ -106,7 +99,7 @@ export default function CockpitLayout({
             {/* Patients / Records */}
             <button
               onClick={() => handleNavClick('patients')}
-              className={`flex flex-col items-center justify-center w-full py-2.5 rounded-xl transition-all active:scale-95 cursor-pointer ${
+              className={`flex flex-col items-center justify-center w-full py-2.5 rounded-xl transition-all active:scale-95 cursor-pointer relative ${
                 activeNav === 'patients'
                   ? theme === 'light'
                     ? 'bg-cyan-50 text-cyan-800 border border-cyan-300 shadow-xs'
@@ -119,25 +112,7 @@ export default function CockpitLayout({
             >
               <Users className="w-5 h-5 stroke-[1.75]" />
               <span className="text-[10px] font-bold mt-1 tracking-tight">Records</span>
-            </button>
-
-            {/* Visualizer Studio */}
-            <button
-              onClick={() => handleNavClick('visualizer')}
-              className={`flex flex-col items-center justify-center w-full py-2.5 rounded-xl transition-all active:scale-95 cursor-pointer ${
-                activeNav === 'visualizer'
-                  ? theme === 'light'
-                    ? 'bg-cyan-50 text-cyan-800 border border-cyan-300 shadow-xs'
-                    : 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-xs'
-                  : theme === 'light'
-                  ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
-                  : 'text-slate-400 hover:text-slate-100 hover:bg-[#121E2E]'
-              }`}
-              title="Chairside Visualizer Studio (4 Paradigms)"
-            >
-              <Activity className="w-5 h-5 stroke-[1.75]" />
-              <span className="text-[10px] font-bold mt-1 tracking-tight">Studio</span>
-              {activeNav === 'visualizer' && (
+              {activeNav === 'patients' && (
                 <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-5 bg-cyan-400 rounded-r-full shadow-sm shadow-cyan-400" />
               )}
             </button>
@@ -166,7 +141,7 @@ export default function CockpitLayout({
             {/* Treatment Pipeline */}
             <button
               onClick={() => handleNavClick('pipeline')}
-              className={`flex flex-col items-center justify-center w-full py-2.5 rounded-xl transition-all active:scale-95 cursor-pointer ${
+              className={`flex flex-col items-center justify-center w-full py-2.5 rounded-xl transition-all active:scale-95 cursor-pointer relative ${
                 activeNav === 'pipeline'
                   ? theme === 'light'
                     ? 'bg-cyan-50 text-cyan-800 border border-cyan-300 shadow-xs'
@@ -179,48 +154,15 @@ export default function CockpitLayout({
             >
               <Sparkles className="w-5 h-5 stroke-[1.75] text-amber-500" />
               <span className="text-[10px] font-bold mt-1 tracking-tight">Pipeline</span>
-            </button>
-
-            {/* Charting */}
-            <button
-              onClick={() => handleNavClick('charting')}
-              className={`flex flex-col items-center justify-center w-full py-2.5 rounded-xl transition-all active:scale-95 cursor-pointer ${
-                activeNav === 'charting'
-                  ? theme === 'light'
-                    ? 'bg-cyan-50 text-cyan-800 border border-cyan-300 shadow-xs'
-                    : 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-xs'
-                  : theme === 'light'
-                  ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
-                  : 'text-slate-400 hover:text-slate-100 hover:bg-[#121E2E]'
-              }`}
-              title="FDI Dental Charting"
-            >
-              <Activity className="w-5 h-5 stroke-[1.75]" />
-              <span className="text-[10px] font-bold mt-1 tracking-tight">Charting</span>
-            </button>
-
-            {/* Imaging */}
-            <button
-              onClick={() => handleNavClick('imaging')}
-              className={`flex flex-col items-center justify-center w-full py-2.5 rounded-xl transition-all active:scale-95 cursor-pointer ${
-                activeNav === 'imaging'
-                  ? theme === 'light'
-                    ? 'bg-cyan-50 text-cyan-800 border border-cyan-300 shadow-xs'
-                    : 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-xs'
-                  : theme === 'light'
-                  ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
-                  : 'text-slate-400 hover:text-slate-100 hover:bg-[#121E2E]'
-              }`}
-              title="Dental Imaging & Radiographs"
-            >
-              <ImageIcon className="w-5 h-5 stroke-[1.75]" />
-              <span className="text-[10px] font-bold mt-1 tracking-tight">Imaging</span>
+              {activeNav === 'pipeline' && (
+                <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-5 bg-cyan-400 rounded-r-full shadow-sm shadow-cyan-400" />
+              )}
             </button>
 
             {/* Settings */}
             <button
               onClick={() => handleNavClick('settings')}
-              className={`flex flex-col items-center justify-center w-full py-2.5 rounded-xl transition-all active:scale-95 cursor-pointer ${
+              className={`flex flex-col items-center justify-center w-full py-2.5 rounded-xl transition-all active:scale-95 cursor-pointer relative ${
                 activeNav === 'settings'
                   ? theme === 'light'
                     ? 'bg-cyan-50 text-cyan-800 border border-cyan-300 shadow-xs'
@@ -233,6 +175,9 @@ export default function CockpitLayout({
             >
               <Settings className="w-5 h-5 stroke-[1.75]" />
               <span className="text-[10px] font-bold mt-1 tracking-tight">Settings</span>
+              {activeNav === 'settings' && (
+                <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-5 bg-cyan-400 rounded-r-full shadow-sm shadow-cyan-400" />
+              )}
             </button>
 
             {/* SOLO FOUNDER EXECUTIVE COCKPIT (Visible ONLY to Founder) */}

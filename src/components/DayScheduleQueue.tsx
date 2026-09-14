@@ -59,8 +59,6 @@ import TopSurgeryBar from './TopSurgeryBar';
 import ErrorBoundary from './ErrorBoundary';
 import CockpitLayout from './CockpitLayout';
 import CockpitInspectionDrawer from './CockpitInspectionDrawer';
-import FdiChartingModal from './FdiChartingModal';
-import VisualCaseImagingModal from './VisualCaseImagingModal';
 import PracticeSettingsModal from './PracticeSettingsModal';
 import { ClinicMembership } from '../lib/clinics';
 import { useSurgeryIsland } from '../context/SurgeryIslandContext';
@@ -118,9 +116,7 @@ export default function DayScheduleQueue({
   const [lastUploadedFile, setLastUploadedFile] = useState<File | null>(null);
   const [successBanner, setSuccessBanner] = useState<string | null>(null);
 
-  // Left Panel Modal States (Charting, Imaging, Practice Settings)
-  const [showChartingModal, setShowChartingModal] = useState(false);
-  const [showImagingModal, setShowImagingModal] = useState(false);
+  // Left Panel Modal States (Practice Settings)
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [showClearConfirmModal, setShowClearConfirmModal] = useState(false);
 
@@ -840,8 +836,6 @@ export default function DayScheduleQueue({
       onTabChange={(tab) => {
         if (tab === 'patients') onNavigateTab?.('records');
         else if (tab === 'pipeline') onNavigateTab?.('pipeline');
-        else if (tab === 'charting') setShowChartingModal(true);
-        else if (tab === 'imaging') setShowImagingModal(true);
         else if (tab === 'settings') setShowSettingsModal(true);
       }}
       onDrawerClose={() => setIsInspectionOpen(false)}
@@ -2543,19 +2537,6 @@ export default function DayScheduleQueue({
         </div>
       )}
       </div>
-
-      {/* FDI Dental Charting Modal */}
-      <FdiChartingModal
-        isOpen={showChartingModal}
-        onClose={() => setShowChartingModal(false)}
-        selectedItem={selectedItem}
-      />
-
-      {/* Visual Case Presentation & Patient Imaging Library Modal */}
-      <VisualCaseImagingModal
-        isOpen={showImagingModal}
-        onClose={() => setShowImagingModal(false)}
-      />
 
       {/* Surgery Cockpit & Practice Settings Modal */}
       <PracticeSettingsModal

@@ -9,13 +9,10 @@ import DayScheduleQueue from './DayScheduleQueue';
 import ErrorBoundary from './ErrorBoundary';
 import SpeedReviewStrip from './SpeedReviewStrip';
 import SidebarDockMode from './SidebarDockMode';
-import ChairsideVisualizerSuite from './ChairsideVisualizerSuite';
 import { DayScheduleItem } from '../lib/dayScheduleStorage';
 import { isPmsPreviewEnabled } from '../utils/previewMode';
 import { ClinicMembership } from '../lib/clinics';
 import CockpitLayout from './CockpitLayout';
-import FdiChartingModal from './FdiChartingModal';
-import VisualCaseImagingModal from './VisualCaseImagingModal';
 import PracticeSettingsModal from './PracticeSettingsModal';
 import { SurgeryIslandProvider, SurgeryIslandHUD } from '../context/SurgeryIslandContext';
 import { useTheme } from '../context/ThemeContext';
@@ -57,11 +54,9 @@ function HistoryHubInner({
 }: HistoryHubProps) {
   const [manageOpen, setManageOpen] = useState(false);
   const [previewEnabled] = useState(() => isPmsPreviewEnabled());
-  const [hubTab, setHubTab] = useState<'schedule' | 'records' | 'pipeline' | 'visualizer'>('schedule');
+  const [hubTab, setHubTab] = useState<'schedule' | 'records' | 'pipeline'>('schedule');
   const [searchQuery, setSearchQuery] = useState('');
   const { theme, toggleTheme } = useTheme();
-  const [showChartingModal, setShowChartingModal] = useState(false);
-  const [showImagingModal, setShowImagingModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [speedReviewOpen, setSpeedReviewOpen] = useState(false);
   const [sidebarDockOpen, setSidebarDockOpen] = useState(() => {
@@ -175,14 +170,11 @@ function HistoryHubInner({
           clinicId={activeClinic?.clinicId}
           clinicName={activeClinic?.clinicName}
           onLogout={onLogout}
-          activeTab={hubTab === 'schedule' ? 'roster' : hubTab === 'pipeline' ? 'pipeline' : hubTab === 'visualizer' ? 'visualizer' : 'patients'}
+          activeTab={hubTab === 'schedule' ? 'roster' : hubTab === 'pipeline' ? 'pipeline' : 'patients'}
           onTabChange={(tab) => {
             if (tab === 'roster') setHubTab('schedule');
-            else if (tab === 'visualizer') setHubTab('visualizer');
             else if (tab === 'pipeline') setHubTab('pipeline');
             else if (tab === 'patients') setHubTab('records');
-            else if (tab === 'charting') setShowChartingModal(true);
-            else if (tab === 'imaging') setShowImagingModal(true);
             else if (tab === 'settings') setShowSettingsModal(true);
           }}
         >
@@ -250,13 +242,7 @@ function HistoryHubInner({
               </div>
             </div>
 
-            {hubTab === 'visualizer' ? (
-              <ChairsideVisualizerSuite
-                dentistName={dentistName}
-                clinicName={activeClinic?.clinicName}
-                onOpenSpeedReview={() => setSpeedReviewOpen(true)}
-              />
-            ) : hubTab === 'pipeline' ? (
+            {hubTab === 'pipeline' ? (
               <TreatmentPipeline
                 authToken={authToken}
                 activeClinic={activeClinic}
@@ -388,18 +374,6 @@ function HistoryHubInner({
                 onChanged={onClinicChanged}
               />
             )}
-
-            {/* FDI Dental Charting Modal */}
-            <FdiChartingModal
-              isOpen={showChartingModal}
-              onClose={() => setShowChartingModal(false)}
-            />
-
-            {/* Visual Case Presentation & Patient Imaging Library Modal */}
-            <VisualCaseImagingModal
-              isOpen={showImagingModal}
-              onClose={() => setShowImagingModal(false)}
-            />
 
             {/* Surgery Cockpit & Practice Settings Modal */}
             <PracticeSettingsModal
