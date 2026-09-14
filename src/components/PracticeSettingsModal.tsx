@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
 import {
   X, Settings, Key, ShieldCheck, Sun, Moon, ExternalLink,
-  Building2, Check, Eye, EyeOff, Loader2, FileDown, ArrowRight
+  Building2, Check, Eye, EyeOff, Loader2, FileDown
 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { ClinicMembership } from '../lib/clinics';
@@ -12,15 +12,13 @@ interface PracticeSettingsModalProps {
   onClose: () => void;
   dentistName: string;
   activeClinic?: ClinicMembership | null;
-  onManageClinic?: () => void;
 }
 
 export default function PracticeSettingsModal({
   isOpen,
   onClose,
   dentistName,
-  activeClinic,
-  onManageClinic
+  activeClinic
 }: PracticeSettingsModalProps) {
   const { theme, setTheme } = useTheme();
   const shouldReduceMotion = useReducedMotion();
@@ -269,20 +267,6 @@ export default function PracticeSettingsModal({
                     </p>
                   </div>
                 </div>
-
-                {onManageClinic && activeClinic?.role === 'owner' && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onClose();
-                      onManageClinic();
-                    }}
-                    className="inline-flex items-center gap-1 text-xs text-cyan-400 hover:text-cyan-300 font-bold hover:underline cursor-pointer group"
-                  >
-                    <span>Manage Roster</span>
-                    <ArrowRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" strokeWidth={2} />
-                  </button>
-                )}
               </div>
 
               <div className="flex items-center gap-2 pt-1 text-[11px] text-slate-300">

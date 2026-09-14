@@ -1,21 +1,16 @@
 import React, { useState } from 'react';
-import { Search, FileText, Menu, Building2, Sparkles, TrendingUp, Calendar, Sun, Moon, Zap, Maximize2, Layout } from 'lucide-react';
+import { Search, FileText } from 'lucide-react';
 import { Consultation, getTodayStr, getYesterdayStr } from '../types';
-import { motion, AnimatePresence } from 'motion/react';
-import ClinicSwitcher from './ClinicSwitcher';
-import ClinicMembersModal from './ClinicMembersModal';
+import { motion } from 'motion/react';
 import TreatmentPipeline from './TreatmentPipeline';
 import DayScheduleQueue from './DayScheduleQueue';
 import ErrorBoundary from './ErrorBoundary';
-import SpeedReviewStrip from './SpeedReviewStrip';
-import SidebarDockMode from './SidebarDockMode';
 import { DayScheduleItem } from '../lib/dayScheduleStorage';
 import { isPmsPreviewEnabled } from '../utils/previewMode';
 import { ClinicMembership } from '../lib/clinics';
 import CockpitLayout from './CockpitLayout';
 import PracticeSettingsModal from './PracticeSettingsModal';
 import { SurgeryIslandProvider, SurgeryIslandHUD } from '../context/SurgeryIslandContext';
-import { useTheme } from '../context/ThemeContext';
 
 interface HistoryHubProps {
   consultations: Consultation[];
@@ -50,31 +45,10 @@ function HistoryHubInner({
   currentDentistId,
   memberNames
 }: HistoryHubProps) {
-  const [manageOpen, setManageOpen] = useState(false);
   const [previewEnabled] = useState(() => isPmsPreviewEnabled());
   const [hubTab, setHubTab] = useState<'schedule' | 'records' | 'pipeline'>('schedule');
   const [searchQuery, setSearchQuery] = useState('');
-  const { theme, toggleTheme } = useTheme();
   const [showSettingsModal, setShowSettingsModal] = useState(false);
-  const [speedReviewOpen, setSpeedReviewOpen] = useState(false);
-  const [sidebarDockOpen, setSidebarDockOpen] = useState(() => {
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      if (params.get('mode') === 'cockpit') return false;
-      if (params.get('mode') === 'docked') return true;
-      const saved = localStorage.getItem('dentai_companion_mode');
-      if (saved !== null) return saved === 'true';
-      return true; // Default to 340px companion mode
-    }
-    return true;
-  });
-
-  const toggleSidebarDock = (open: boolean) => {
-    setSidebarDockOpen(open);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('dentai_companion_mode', String(open));
-    }
-  };
 
   // Group consultations by date
   const todayStr = getTodayStr();
@@ -148,18 +122,9 @@ function HistoryHubInner({
             clinics={clinics}
             activeClinic={activeClinic}
             onSelectClinic={onSelectClinic}
-            onManageClinic={() => setManageOpen(true)}
             onClinicChanged={onClinicChanged}
             onJoinClinic={onJoinClinic}
           />
-          {manageOpen && activeClinic && (
-            <ClinicMembersModal
-              clinic={activeClinic}
-              authToken={authToken}
-              onClose={() => setManageOpen(false)}
-              onChanged={onClinicChanged}
-            />
-          )}
         </ErrorBoundary>
       ) : (
         <CockpitLayout
@@ -177,60 +142,6 @@ function HistoryHubInner({
           }}
         >
           <div className="w-full max-w-6xl mx-auto space-y-5 text-slate-100 font-sans pb-16">
-            {/* Top Control Toolbar in Cockpit Styling */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-2xl bg-[#0A1018] border border-[#182638] shadow-lg shadow-black/40">
-              <div className="flex items-center gap-3">
-                <ClinicSwitcher
-                  clinics={clinics}
-                  activeClinic={activeClinic}
-                  onSelectClinic={onSelectClinic}
-                  onJoinClinic={onJoinClinic}
-                  onManageClinic={() => setManageOpen(true)}
-                  onClinicChanged={onClinicChanged}
-                />
-                {activeClinic?.role === 'owner' && (
-                  <span className="text-[10px] font-bold px-2.5 py-1 rounded-lg bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
-                    Owner Mode Active
-                  </span>
-                )}
-              </div>
-
-              <div className="flex items-center gap-2.5">
-                <button
-                  onClick={toggleTheme}
-                  className="p-2 rounded-xl text-slate-400 hover:text-amber-300 bg-[#0E1724] border border-[#182638] transition-colors cursor-pointer flex items-center justify-center"
-                  title={theme === 'dark' ? 'Switch to Clinical Light Mode' : 'Switch to Dark Cockpit Mode'}
-                  aria-label="Toggle theme"
-                >
-                  {theme === 'dark' ? (
-                    <Sun className="w-4 h-4 text-amber-400" />
-                  ) : (
-                    <Moon className="w-4 h-4 text-cyan-600" />
-                  )}
-                </button>
-                <button
-                  onClick={() => toggleSidebarDock(!sidebarDockOpen)}
-                  className={`flex items-center gap-1.5 px-3 py-2 border rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                    sidebarDockOpen
-                      ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40 shadow-xs'
-                      : 'bg-[#0E1724] border-[#182638] text-slate-300 hover:text-white hover:bg-[#162438]'
-                  }`}
-                  title="Toggle 340px Invisible Chairside Companion (Prototype A)"
-                >
-                  <Maximize2 className="w-3.5 h-3.5 text-cyan-400" />
-                  <span>340px Dock</span>
-                </button>
-
-                <button
-                  onClick={() => setSpeedReviewOpen(true)}
-                  className="flex items-center gap-1.5 px-3.5 py-2 bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 font-black rounded-xl text-xs shadow-md shadow-emerald-950/50 cursor-pointer active:scale-95 transition-all"
-                  title="Launch 5:00 PM Rapid 1-Stroke Note Approval"
-                >
-                  <Zap className="w-3.5 h-3.5 fill-current" />
-                  <span>5:00 PM Speed Review</span>
-                </button>
-              </div>
-            </div>
 
             {hubTab === 'pipeline' ? (
               <TreatmentPipeline
@@ -348,58 +259,17 @@ function HistoryHubInner({
               </div>
             )}
 
-            {/* Owner clinic management modal */}
-            {manageOpen && activeClinic && (
-              <ClinicMembersModal
-                clinic={activeClinic}
-                authToken={authToken}
-                onClose={() => setManageOpen(false)}
-                onChanged={onClinicChanged}
-              />
-            )}
-
             {/* Surgery Cockpit & Practice Settings Modal */}
             <PracticeSettingsModal
               isOpen={showSettingsModal}
               onClose={() => setShowSettingsModal(false)}
               dentistName={dentistName}
               activeClinic={activeClinic}
-              onManageClinic={() => setManageOpen(true)}
             />
 
           </div>
         </CockpitLayout>
       )}
-
-      {/* 5:00 PM Speed Review Modal */}
-      <AnimatePresence>
-        {speedReviewOpen && (
-          <div className="fixed inset-0 z-[150] bg-black/80 backdrop-blur-sm flex flex-col">
-            <SpeedReviewStrip
-              consultations={consultations}
-              dentistName={dentistName}
-              clinicName={activeClinic?.clinicName}
-              onClose={() => setSpeedReviewOpen(false)}
-              onUpdateConsultation={(c) => {
-                // Handled locally
-              }}
-            />
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* Prototype A: 340px Clean Sidebar Dock */}
-      <AnimatePresence>
-        {sidebarDockOpen && (
-          <SidebarDockMode
-            dentistName={dentistName}
-            clinicName={activeClinic?.clinicName}
-            onExpandCockpit={() => toggleSidebarDock(false)}
-            onOpenSpeedReview={() => setSpeedReviewOpen(true)}
-            onClose={() => toggleSidebarDock(false)}
-          />
-        )}
-      </AnimatePresence>
     </>
   );
 }

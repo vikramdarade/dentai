@@ -74,7 +74,6 @@ interface DayScheduleQueueProps {
   activeClinic?: ClinicMembership | null;
   clinics?: ClinicMembership[];
   onSelectClinic?: (clinicId: string) => void;
-  onManageClinic?: () => void;
   onClinicChanged?: () => void;
   onJoinClinic?: (code: string) => Promise<{ ok: boolean; message: string }>;
 }
@@ -89,7 +88,6 @@ export default function DayScheduleQueue({
   activeClinic,
   clinics,
   onSelectClinic,
-  onManageClinic,
   onClinicChanged,
   onJoinClinic
 }: DayScheduleQueueProps) {
@@ -2544,7 +2542,6 @@ export default function DayScheduleQueue({
         onClose={() => setShowSettingsModal(false)}
         dentistName={dentistName}
         activeClinic={activeClinic}
-        onManageClinic={onManageClinic}
       />
     </CockpitLayout>
   );
