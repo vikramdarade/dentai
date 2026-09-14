@@ -115,9 +115,23 @@ Response format:
 
 ---
 
+## Product Documentation & Architecture Decisions
+
+- [Product Requirements Document (PRD)](file:///c:/Users/swati/Downloads/dentai/docs/PRD.md) — Comprehensive product vision, personas, 5 autonomous solo-founder pillars, and functional/non-functional requirements.
+- [Architecture Decision Records (ADRs)](file:///c:/Users/swati/Downloads/dentai/docs/decisions/README.md) — Architectural decisions, rationale, alternatives considered, and trade-offs.
+  - [ADR-001: Web-Only Zero-Admin Trojan Horse Architecture](file:///c:/Users/swati/Downloads/dentai/docs/decisions/ADR-001-zero-admin-web-architecture.md)
+  - [ADR-002: Neon PostgreSQL Persistence & In-Memory Caching](file:///c:/Users/swati/Downloads/dentai/docs/decisions/ADR-002-neon-serverless-storage-and-in-memory-caching.md)
+  - [ADR-003: Composite Entity Identifiers & Slot Fingerprinting](file:///c:/Users/swati/Downloads/dentai/docs/decisions/ADR-003-composite-entity-identifiers-and-slot-fingerprinting.md)
+  - [ADR-004: Solo-Founder Autonomous Operations & In-App Concierge](file:///c:/Users/swati/Downloads/dentai/docs/decisions/ADR-004-solo-founder-autonomous-operations-and-support-concierge.md)
+  - [ADR-005: Sterile Audio Pipeline (Ambient Desktop & Smart Headset)](file:///c:/Users/swati/Downloads/dentai/docs/decisions/ADR-005-sterile-audio-ambient-desktop-and-smart-headset.md)
+- [Solo-Founder Operating System Blueprint](file:///c:/Users/swati/Downloads/dentai/docs/architecture/solo-founder-operating-system.md) — Autonomous operational framework and zero-human SaaS pipeline.
+
+---
+
 ## Strategy & Playbooks
 
 - [GTM Strategy & Execution Roadmap](file:///c:/Users/swati/Downloads/dentai/GTM_STRATEGY.md) — Comprehensive unit economics, pilot model, budget allocation, timelines, and ecosystem partners.
 - [Outreach & Practice Growth Playbook](file:///c:/Users/swati/Downloads/dentai/OUTREACH_CAMPAIGN.md) — Clinician-to-clinician messaging, study club scripts, and practice owner ROI pitches.
 - [Production Rollout & Rollback Playbook](file:///c:/Users/swati/Downloads/dentai/ROLLOUT_PLAYBOOK.md) — Vercel canary deployment, traffic splitting, and telemetry thresholds.
+
 

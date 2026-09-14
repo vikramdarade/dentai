@@ -6,11 +6,15 @@ import {
   Clock,
   Volume2,
   AlertCircle,
-  X
+  X,
+  Activity,
+  Bot
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { DayScheduleItem } from '../lib/dayScheduleStorage';
 import { getAppointmentTypeLabel } from '../lib/dentalLibrary';
+import DiagnosticAssistant from './DiagnosticAssistant';
+import ClinicalAiConcierge from './ClinicalAiConcierge';
 
 interface TopSurgeryBarProps {
   activeItem: DayScheduleItem;
@@ -32,6 +36,8 @@ export default function TopSurgeryBar({
   const [seconds, setSeconds] = useState(0);
   const [frequencyData, setFrequencyData] = useState<number[]>(new Array(24).fill(12));
   const [detectedChips, setDetectedChips] = useState<string[]>([]);
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
+  const [showConcierge, setShowConcierge] = useState(false);
   const animationFrameRef = useRef<number | null>(null);
 
   // Timer increment
@@ -217,6 +223,26 @@ export default function TopSurgeryBar({
             </div>
           )}
 
+          {/* Hardware Audio Diagnostics */}
+          <button
+            type="button"
+            onClick={() => setShowDiagnostics(true)}
+            className="p-1.5 text-slate-400 hover:text-emerald-400 rounded-lg hover:bg-[#162436] transition-colors cursor-pointer shrink-0 relative z-50"
+            title="Operatory Audio & Hardware Diagnostics (Reset/Self-Heal)"
+          >
+            <Activity className="w-4 h-4" />
+          </button>
+
+          {/* Clinical Concierge Assistant */}
+          <button
+            type="button"
+            onClick={() => setShowConcierge(true)}
+            className="p-1.5 text-slate-400 hover:text-indigo-400 rounded-lg hover:bg-[#162436] transition-colors cursor-pointer shrink-0 relative z-50"
+            title="Clinical AI Concierge (ADA Codes & AHPRA Guidance)"
+          >
+            <Bot className="w-4 h-4" />
+          </button>
+
           {/* Finish Button Pill */}
           <button
             onClick={onFinish}
@@ -241,6 +267,19 @@ export default function TopSurgeryBar({
           </button>
         </div>
       </div>
+
+      {/* Diagnostics Modal */}
+      <DiagnosticAssistant
+        isOpen={showDiagnostics}
+        onClose={() => setShowDiagnostics(false)}
+      />
+
+      {/* Clinical Concierge Drawer */}
+      <ClinicalAiConcierge
+        isOpen={showConcierge}
+        onClose={() => setShowConcierge(false)}
+        currentScreenContext="surgery_cockpit"
+      />
     </motion.div>
   );
 }

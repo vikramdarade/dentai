@@ -135,6 +135,22 @@ export default function SpeedReviewStrip({
     }
   };
 
+  // Master 1-Click Batch Sign All
+  const handleBatchApproveAll = async () => {
+    if (items.length === 0) return;
+    const allIds = new Set(items.map(it => it.id));
+    setApprovedSet(allIds);
+    notify(`Approved all ${items.length} notes! All charts marked Completed and synced.`);
+    if (onUpdateConsultation) {
+      items.forEach(c => {
+        onUpdateConsultation({
+          ...c,
+          status: 'Completed'
+        });
+      });
+    }
+  };
+
   // Keyboard shortcut: Spacebar or Enter approves & advances
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -227,7 +243,18 @@ export default function SpeedReviewStrip({
         </div>
 
         {/* Progress Pill & Close */}
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
+          {items.length > 0 && approvedSet.size < items.length && (
+            <button
+              onClick={handleBatchApproveAll}
+              className="px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white text-xs font-black rounded-xl shadow-md shadow-emerald-950/20 flex items-center gap-1.5 cursor-pointer active:scale-95 transition-all"
+              title="Sign and Approve All Patient Notes in 1 Click"
+            >
+              <CheckCircle2 className="w-4 h-4" />
+              <span>Sign All ({items.length}) & Push to EHR</span>
+            </button>
+          )}
+
           <div className="flex items-center gap-2.5 bg-white border border-slate-200 px-4 py-2 rounded-xl shadow-xs">
             <div className="flex flex-col items-end">
               <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-500">Day Completion</span>
@@ -254,6 +281,19 @@ export default function SpeedReviewStrip({
           )}
         </div>
       </div>
+
+      {/* Clean Slate Banner (When All Notes Completed) */}
+      {progressPercent === 100 && items.length > 0 && (
+        <div className="bg-gradient-to-r from-emerald-600 to-teal-600 text-white px-6 py-2.5 flex items-center justify-between text-xs font-bold shadow-inner animate-fade-in">
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-4 h-4" />
+            <span>Clean Slate Achieved: 100% of today's clinical notes are verified, signed, and synchronized! You are free for the evening.</span>
+          </div>
+          <span className="px-2.5 py-0.5 rounded-full bg-emerald-700/80 text-[10px] font-mono uppercase tracking-wider border border-emerald-400/30">
+            All Charts Closed
+          </span>
+        </div>
+      )}
 
       {/* Main Split Layout: Left (Vertical Patient Timeline) | Right (Expanded Clinical Note Card) */}
       <div className="flex flex-grow overflow-hidden">

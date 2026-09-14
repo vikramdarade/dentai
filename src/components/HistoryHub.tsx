@@ -5,7 +5,6 @@ import { motion, AnimatePresence } from 'motion/react';
 import ClinicSwitcher from './ClinicSwitcher';
 import ClinicMembersModal from './ClinicMembersModal';
 import TreatmentPipeline from './TreatmentPipeline';
-import CareContinuityHub from './CareContinuityHub';
 import DayScheduleQueue from './DayScheduleQueue';
 import ErrorBoundary from './ErrorBoundary';
 import SpeedReviewStrip from './SpeedReviewStrip';
@@ -58,7 +57,7 @@ function HistoryHubInner({
 }: HistoryHubProps) {
   const [manageOpen, setManageOpen] = useState(false);
   const [previewEnabled] = useState(() => isPmsPreviewEnabled());
-  const [hubTab, setHubTab] = useState<'schedule' | 'records' | 'pipeline' | 'visualizer'>('visualizer');
+  const [hubTab, setHubTab] = useState<'schedule' | 'records' | 'pipeline' | 'visualizer'>('schedule');
   const [searchQuery, setSearchQuery] = useState('');
   const { theme, toggleTheme } = useTheme();
   const [showChartingModal, setShowChartingModal] = useState(false);
@@ -176,7 +175,7 @@ function HistoryHubInner({
           clinicId={activeClinic?.clinicId}
           clinicName={activeClinic?.clinicName}
           onLogout={onLogout}
-          activeTab={hubTab === 'pipeline' ? 'pipeline' : 'patients'}
+          activeTab={hubTab === 'schedule' ? 'roster' : hubTab === 'pipeline' ? 'pipeline' : hubTab === 'visualizer' ? 'visualizer' : 'patients'}
           onTabChange={(tab) => {
             if (tab === 'roster') setHubTab('schedule');
             else if (tab === 'visualizer') setHubTab('visualizer');
@@ -249,64 +248,6 @@ function HistoryHubInner({
                   <span>New Consultation</span>
                 </button>
               </div>
-            </div>
-
-            {/* Unified Hub Navigation Switcher Tabs */}
-            <div className="flex items-center gap-2 border-b border-[#182638] pb-3 flex-wrap">
-              <button
-                onClick={() => setHubTab('visualizer')}
-                className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all border flex items-center gap-2 cursor-pointer ${
-                  hubTab === 'visualizer'
-                    ? 'bg-sky-500/20 text-sky-300 border-sky-500/40 shadow-xs'
-                    : 'border-[#1E3048] bg-[#0A1018] text-slate-400 hover:text-white hover:bg-[#121E2E]'
-                }`}
-              >
-                <Sparkles className="w-4 h-4 text-sky-400" />
-                <span>Chairside Studio (4 Paradigms)</span>
-                <span className="px-2 py-0.5 rounded-md bg-sky-500/15 text-sky-300 text-[10px] font-black border border-sky-500/30">
-                  Odontogram • Island • HUD
-                </span>
-              </button>
-
-              {previewEnabled && (
-                <button
-                  onClick={() => setHubTab('schedule')}
-                  className="px-3.5 py-2 rounded-xl text-xs font-bold transition-all border flex items-center gap-2 cursor-pointer border-[#1E3048] bg-[#0A1018] text-slate-400 hover:text-white hover:bg-[#121E2E]"
-                >
-                  <Calendar className="w-4 h-4 text-cyan-400" />
-                  <span>Today's Schedule</span>
-                  <span className="px-2 py-0.5 rounded-md bg-cyan-500/15 text-cyan-300 text-[10px] font-black border border-cyan-500/30">
-                    PMS Queue
-                  </span>
-                </button>
-              )}
-
-              <button
-                onClick={() => setHubTab('records')}
-                className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all border flex items-center gap-2 cursor-pointer ${
-                  hubTab === 'records'
-                    ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40 shadow-xs'
-                    : 'border-[#1E3048] bg-[#0A1018] text-slate-400 hover:text-white hover:bg-[#121E2E]'
-                }`}
-              >
-                <FileText className="w-4 h-4" />
-                <span>Patient Records ({filtered.length})</span>
-              </button>
-
-              <button
-                onClick={() => setHubTab('pipeline')}
-                className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all border flex items-center gap-2 cursor-pointer ${
-                  hubTab === 'pipeline'
-                    ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40 shadow-xs'
-                    : 'border-[#1E3048] bg-[#0A1018] text-slate-400 hover:text-white hover:bg-[#121E2E]'
-                }`}
-              >
-                <Sparkles className="w-4 h-4 text-amber-400" />
-                <span>Treatment Pipeline & ROI</span>
-                <span className="px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-300 text-[10px] font-black border border-emerald-500/30">
-                  Revenue Engine
-                </span>
-              </button>
             </div>
 
             {hubTab === 'visualizer' ? (

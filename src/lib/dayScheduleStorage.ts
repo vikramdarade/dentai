@@ -2,9 +2,11 @@ import { AppointmentType } from './dentalLibrary';
 
 export type ScheduleItemStatus =
   | 'scheduled'
+  | 'arrived'
   | 'recording'
   | 'processing'
   | 'ready'
+  | 'completed'
   | 'failed';
 
 export interface DayScheduleItem {
@@ -15,6 +17,8 @@ export interface DayScheduleItem {
   appointmentType: AppointmentType;
   templateId: string;
   status: ScheduleItemStatus;
+  isWalkIn?: boolean;
+  priority?: 'normal' | 'emergency';
   jobId?: string;
   consultationId?: string;
   error?: string;
@@ -254,6 +258,52 @@ export function addScheduleItem(
   const updated = [...current, newItem].sort((a, b) => normalizeStartTime(a.time).localeCompare(normalizeStartTime(b.time)));
   saveTodaySchedule(updated, dateStr);
   return newItem;
+}
+
+/**
+ * Adds an ad-hoc walk-in or emergency appointment dynamically to today's schedule,
+ * immediately synchronizing it to Neon PostgreSQL.
+ */
+export function addWalkInPatient(
+  data: {
+    patientName: string;
+    appointmentType?: AppointmentType;
+    procedureText?: string;
+    priority?: 'normal' | 'emergency';
+    time?: string;
+  },
+  dateStr = getTodayDateStr()
+): DayScheduleItem {
+  const now = new Date();
+  const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  const apptType = data.appointmentType || (data.priority === 'emergency' ? 'emergency' : 'examination');
+  const proc = data.procedureText || (data.priority === 'emergency' ? 'Emergency Evaluation / Pain Relief' : 'Walk-in Consultation / Exam');
+
+  const current = loadTodaySchedule(dateStr);
+  const newItem: DayScheduleItem = {
+    id: `walkin_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+    time: data.time || currentTime,
+    patientName: cleanPatientDisplayName(data.patientName || 'Walk-in Patient'),
+    procedureText: proc,
+    appointmentType: apptType,
+    templateId: 'standard',
+    status: 'arrived',
+    isWalkIn: true,
+    priority: data.priority || 'normal',
+    preOpBrief: `Ad-hoc ${data.priority === 'emergency' ? 'EMERGENCY' : 'Walk-in'}: ${proc}. Direct chairside triage.`
+  };
+
+  const updated = [newItem, ...current.filter(c => c.id !== newItem.id)];
+  saveTodaySchedule(updated, dateStr);
+  return newItem;
+}
+
+export function updateScheduleStatus(
+  id: string,
+  status: ScheduleItemStatus,
+  dateStr = getTodayDateStr()
+): DayScheduleItem[] {
+  return updateScheduleItem(id, { status }, dateStr);
 }
 
 export function deleteScheduleItem(id: string, dateStr = getTodayDateStr()): DayScheduleItem[] {

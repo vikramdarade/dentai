@@ -137,6 +137,50 @@ export async function initDbSchema(): Promise<void> {
   `;
   await sql`CREATE INDEX IF NOT EXISTS idx_usage_events_scope_day ON usage_events (scope_id, day)`;
 
+  await sql`
+    CREATE TABLE IF NOT EXISTS schedules (
+      dentist_id TEXT NOT NULL,
+      date       TEXT NOT NULL,
+      items      JSONB NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (dentist_id, date)
+    )
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS idx_schedules_dentist_date ON schedules (dentist_id, date)`;
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS subscriptions (
+      id                     TEXT PRIMARY KEY,
+      clinic_id              TEXT NOT NULL,
+      stripe_customer_id     TEXT NOT NULL,
+      stripe_subscription_id TEXT,
+      tier                   TEXT NOT NULL DEFAULT 'solo',
+      status                 TEXT NOT NULL DEFAULT 'active',
+      seats                  INTEGER NOT NULL DEFAULT 1,
+      current_period_end     TIMESTAMPTZ,
+      created_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at             TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS idx_subscriptions_clinic ON subscriptions (clinic_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_subscriptions_stripe_sub ON subscriptions (stripe_subscription_id)`;
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS referral_gifts (
+      id                     TEXT PRIMARY KEY,
+      sender_dentist_id      TEXT NOT NULL,
+      clinic_id              TEXT NOT NULL,
+      recipient_chair_label  TEXT NOT NULL DEFAULT 'Chair 2',
+      pass_duration_days     INTEGER NOT NULL DEFAULT 30,
+      status                 TEXT NOT NULL DEFAULT 'active',
+      claimed_by_dentist_id  TEXT,
+      created_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+      expires_at             TIMESTAMPTZ NOT NULL
+    )
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS idx_referral_gifts_clinic ON referral_gifts (clinic_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_referral_gifts_status ON referral_gifts (status)`;
+
   await sql`ALTER TABLE dentists ADD COLUMN IF NOT EXISTS is_founder BOOLEAN NOT NULL DEFAULT FALSE`;
   await sql`ALTER TABLE dentists ADD COLUMN IF NOT EXISTS founder_access_status TEXT NOT NULL DEFAULT 'none'`;
 
@@ -1138,4 +1182,280 @@ export async function dbApproveFounderRequest(requestId: string, approve: boolea
     `;
   }
 }
+
+export async function dbGetSchedule(
+  dentistId: string,
+  date: string
+): Promise<{ items: any[]; updatedAt: string | null } | null> {
+  if (!sql) return null;
+  const rows = (await sql`
+    SELECT items, updated_at
+    FROM schedules
+    WHERE dentist_id = ${dentistId} AND date = ${date}
+    LIMIT 1
+  `) as any[];
+  if (!rows || rows.length === 0) return null;
+  return {
+    items: Array.isArray(rows[0].items) ? rows[0].items : [],
+    updatedAt: rows[0].updated_at ? new Date(rows[0].updated_at).toISOString() : null
+  };
+}
+
+export async function dbSaveSchedule(
+  dentistId: string,
+  date: string,
+  items: any[]
+): Promise<{ items: any[]; updatedAt: string }> {
+  if (!sql) throw new Error('Database is not enabled.');
+  const now = new Date().toISOString();
+  await sql`
+    INSERT INTO schedules (dentist_id, date, items, updated_at)
+    VALUES (${dentistId}, ${date}, ${JSON.stringify(items)}, ${now})
+    ON CONFLICT (dentist_id, date)
+    DO UPDATE SET items = EXCLUDED.items, updated_at = EXCLUDED.updated_at
+  `;
+  return { items, updatedAt: now };
+}
+
+export async function dbDeleteSchedule(dentistId: string, date: string): Promise<boolean> {
+  if (!sql) return false;
+  await sql`
+    DELETE FROM schedules
+    WHERE dentist_id = ${dentistId} AND date = ${date}
+  `;
+  return true;
+}
+
+export interface SubscriptionRecord {
+  id: string;
+  clinicId: string;
+  stripeCustomerId: string;
+  stripeSubscriptionId?: string | null;
+  tier: 'solo' | 'clinic_pro' | 'enterprise';
+  status: 'active' | 'trialing' | 'past_due' | 'canceled';
+  seats: number;
+  currentPeriodEnd?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// In-memory fallback map for serverless resilience & offline tests
+const inMemorySubscriptions = new Map<string, SubscriptionRecord>();
+
+export async function dbGetSubscriptionByClinic(clinicId: string): Promise<SubscriptionRecord | null> {
+  if (sql) {
+    try {
+      const rows = (await sql`
+        SELECT id, clinic_id, stripe_customer_id, stripe_subscription_id, tier, status, seats, current_period_end, created_at, updated_at
+        FROM subscriptions
+        WHERE clinic_id = ${clinicId}
+        ORDER BY created_at DESC
+        LIMIT 1
+      `) as any[];
+      if (rows && rows.length > 0) {
+        const r = rows[0];
+        const record: SubscriptionRecord = {
+          id: r.id,
+          clinicId: r.clinic_id,
+          stripeCustomerId: r.stripe_customer_id,
+          stripeSubscriptionId: r.stripe_subscription_id,
+          tier: r.tier || 'solo',
+          status: r.status || 'active',
+          seats: Number(r.seats) || 1,
+          currentPeriodEnd: r.current_period_end ? new Date(r.current_period_end).toISOString() : null,
+          createdAt: new Date(r.created_at).toISOString(),
+          updatedAt: new Date(r.updated_at).toISOString()
+        };
+        inMemorySubscriptions.set(clinicId, record);
+        return record;
+      }
+    } catch (err) {
+      logger.warn('[dbGetSubscriptionByClinic] Neon query failed, checking memory fallback', { err, clinicId });
+    }
+  }
+  return inMemorySubscriptions.get(clinicId) || null;
+}
+
+export async function dbSaveSubscription(sub: SubscriptionRecord): Promise<SubscriptionRecord> {
+  inMemorySubscriptions.set(sub.clinicId, sub);
+  if (sql) {
+    try {
+      await sql`
+        INSERT INTO subscriptions (
+          id, clinic_id, stripe_customer_id, stripe_subscription_id, tier, status, seats, current_period_end, created_at, updated_at
+        ) VALUES (
+          ${sub.id}, ${sub.clinicId}, ${sub.stripeCustomerId}, ${sub.stripeSubscriptionId || null},
+          ${sub.tier}, ${sub.status}, ${sub.seats}, ${sub.currentPeriodEnd ? new Date(sub.currentPeriodEnd) : null},
+          ${new Date(sub.createdAt)}, ${new Date(sub.updatedAt)}
+        )
+        ON CONFLICT (id)
+        DO UPDATE SET
+          stripe_subscription_id = EXCLUDED.stripe_subscription_id,
+          tier = EXCLUDED.tier,
+          status = EXCLUDED.status,
+          seats = EXCLUDED.seats,
+          current_period_end = EXCLUDED.current_period_end,
+          updated_at = EXCLUDED.updated_at
+      `;
+    } catch (err) {
+      logger.warn('[dbSaveSubscription] Neon upsert failed, preserved in memory', { err, subId: sub.id });
+    }
+  }
+  return sub;
+}
+
+export async function dbGetSubscriptionByStripeId(stripeSubId: string): Promise<SubscriptionRecord | null> {
+  if (sql) {
+    try {
+      const rows = (await sql`
+        SELECT id, clinic_id, stripe_customer_id, stripe_subscription_id, tier, status, seats, current_period_end, created_at, updated_at
+        FROM subscriptions
+        WHERE stripe_subscription_id = ${stripeSubId}
+        LIMIT 1
+      `) as any[];
+      if (rows && rows.length > 0) {
+        const r = rows[0];
+        return {
+          id: r.id,
+          clinicId: r.clinic_id,
+          stripeCustomerId: r.stripe_customer_id,
+          stripeSubscriptionId: r.stripe_subscription_id,
+          tier: r.tier || 'solo',
+          status: r.status || 'active',
+          seats: Number(r.seats) || 1,
+          currentPeriodEnd: r.current_period_end ? new Date(r.current_period_end).toISOString() : null,
+          createdAt: new Date(r.created_at).toISOString(),
+          updatedAt: new Date(r.updated_at).toISOString()
+        };
+      }
+    } catch (err) {
+      logger.warn('[dbGetSubscriptionByStripeId] Neon query failed', { err, stripeSubId });
+    }
+  }
+  for (const s of inMemorySubscriptions.values()) {
+    if (s.stripeSubscriptionId === stripeSubId) return s;
+  }
+  return null;
+}
+
+// --- Milestone 4: Viral Gifting & Referral Flywheel Data Layer ---
+
+export interface ReferralGiftRecord {
+  id: string; // Token code e.g. "GIFT-CHAIR2-ABCD"
+  senderDentistId: string;
+  clinicId: string;
+  recipientChairLabel: string;
+  passDurationDays: number;
+  status: 'active' | 'claimed' | 'expired';
+  claimedByDentistId?: string | null;
+  createdAt: string;
+  expiresAt: string;
+}
+
+const inMemoryReferralGifts = new Map<string, ReferralGiftRecord>();
+
+export async function dbCreateReferralGift(gift: ReferralGiftRecord): Promise<ReferralGiftRecord> {
+  inMemoryReferralGifts.set(gift.id, gift);
+  if (sql) {
+    try {
+      await sql`
+        INSERT INTO referral_gifts (
+          id, sender_dentist_id, clinic_id, recipient_chair_label, pass_duration_days, status, claimed_by_dentist_id, created_at, expires_at
+        ) VALUES (
+          ${gift.id}, ${gift.senderDentistId}, ${gift.clinicId}, ${gift.recipientChairLabel},
+          ${gift.passDurationDays}, ${gift.status}, ${gift.claimedByDentistId || null},
+          ${new Date(gift.createdAt)}, ${new Date(gift.expiresAt)}
+        )
+      `;
+    } catch (err) {
+      logger.warn('[dbCreateReferralGift] Neon insert failed, preserved in memory', { err, giftId: gift.id });
+    }
+  }
+  return gift;
+}
+
+export async function dbGetReferralGift(code: string): Promise<ReferralGiftRecord | null> {
+  const cleanCode = code.trim().toUpperCase();
+  if (sql) {
+    try {
+      const rows = (await sql`
+        SELECT id, sender_dentist_id, clinic_id, recipient_chair_label, pass_duration_days, status, claimed_by_dentist_id, created_at, expires_at
+        FROM referral_gifts
+        WHERE id = ${cleanCode}
+        LIMIT 1
+      `) as any[];
+      if (rows && rows.length > 0) {
+        const r = rows[0];
+        const record: ReferralGiftRecord = {
+          id: r.id,
+          senderDentistId: r.sender_dentist_id,
+          clinicId: r.clinic_id,
+          recipientChairLabel: r.recipient_chair_label,
+          passDurationDays: Number(r.pass_duration_days),
+          status: r.status,
+          claimedByDentistId: r.claimed_by_dentist_id,
+          createdAt: new Date(r.created_at).toISOString(),
+          expiresAt: new Date(r.expires_at).toISOString()
+        };
+        inMemoryReferralGifts.set(cleanCode, record);
+        return record;
+      }
+    } catch (err) {
+      logger.warn('[dbGetReferralGift] Neon query failed', { err, cleanCode });
+    }
+  }
+  return inMemoryReferralGifts.get(cleanCode) || null;
+}
+
+export async function dbClaimReferralGift(code: string, recipientDentistId: string): Promise<ReferralGiftRecord | null> {
+  const gift = await dbGetReferralGift(code);
+  if (!gift) return null;
+  if (gift.status !== 'active') return gift;
+
+  gift.status = 'claimed';
+  gift.claimedByDentistId = recipientDentistId;
+  inMemoryReferralGifts.set(gift.id, gift);
+
+  if (sql) {
+    try {
+      await sql`
+        UPDATE referral_gifts
+        SET status = 'claimed', claimed_by_dentist_id = ${recipientDentistId}
+        WHERE id = ${gift.id}
+      `;
+    } catch (err) {
+      logger.warn('[dbClaimReferralGift] Neon update failed', { err, giftId: gift.id });
+    }
+  }
+  return gift;
+}
+
+export async function dbListReferralGiftsForClinic(clinicId: string): Promise<ReferralGiftRecord[]> {
+  if (sql) {
+    try {
+      const rows = (await sql`
+        SELECT id, sender_dentist_id, clinic_id, recipient_chair_label, pass_duration_days, status, claimed_by_dentist_id, created_at, expires_at
+        FROM referral_gifts
+        WHERE clinic_id = ${clinicId}
+        ORDER BY created_at DESC
+      `) as any[];
+      return rows.map((r: any) => ({
+        id: r.id,
+        senderDentistId: r.sender_dentist_id,
+        clinicId: r.clinic_id,
+        recipientChairLabel: r.recipient_chair_label,
+        passDurationDays: Number(r.pass_duration_days),
+        status: r.status,
+        claimedByDentistId: r.claimed_by_dentist_id,
+        createdAt: new Date(r.created_at).toISOString(),
+        expiresAt: new Date(r.expires_at).toISOString()
+      }));
+    } catch (err) {
+      logger.warn('[dbListReferralGiftsForClinic] Neon query failed', { err, clinicId });
+    }
+  }
+  return Array.from(inMemoryReferralGifts.values()).filter(g => g.clinicId === clinicId);
+}
+
+
 
