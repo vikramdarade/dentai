@@ -5,7 +5,6 @@ import { ClinicMembership } from './lib/clinics';
 import { getTemplateById, getDefaultTemplateIdForType, AppointmentType } from './lib/dentalLibrary';
 import { normalizedToPayload } from './lib/normalizeNoteOutput';
 import HistoryHub from './components/HistoryHub';
-import PatientIntake from './components/PatientIntake';
 import LiveRecording from './components/LiveRecording';
 import ClinicalSummary from './components/ClinicalSummary';
 import Login from './components/Login';
@@ -28,7 +27,7 @@ import {
 } from './utils/storage';
 import { DayScheduleItem, updateScheduleItem, formatNoteForPmsClipboard } from './lib/dayScheduleStorage';
 
-type ViewType = 'history' | 'intake' | 'record' | 'summary';
+type ViewType = 'history' | 'record' | 'summary';
 
 export default function App() {
   // Public narrated product demo at #/demo — no auth, no backend required.
@@ -456,22 +455,6 @@ export default function App() {
   const handleSelectConsultation = (c: Consultation) => {
     setSelectedConsultation(c);
     setView('summary');
-  };
-
-  const handleStartNewConsultation = () => {
-    setView('intake');
-  };
-
-  const handleIntakeSubmit = (intakeData: {
-    firstName: string;
-    lastName: string;
-    dob: string;
-    appointmentType: AppointmentType;
-    templateId?: string;
-  }) => {
-    setActiveIntake(intakeData);
-    saveActiveIntake(intakeData);
-    setView('record');
   };
 
   const handleStartScheduledConsultation = (item: DayScheduleItem) => {
@@ -927,7 +910,6 @@ export default function App() {
         <HistoryHub
           consultations={visibleConsultations}
           onSelectConsultation={handleSelectConsultation}
-          onStartNewConsultation={handleStartNewConsultation}
           onStartScheduledConsultation={handleStartScheduledConsultation}
           dentistName={currentUser.name}
           onLogout={handleLogout}
@@ -942,9 +924,13 @@ export default function App() {
         />
       )}
 
-      {view === 'intake' && (
-        <PatientIntake
-          onCancel={() => {
+      {view === 'record' && activeIntake && (
+        <LiveRecording
+          patientName={`${activeIntake.firstName} ${activeIntake.lastName}`}
+          dob={activeIntake.dob}
+          appointmentType={activeIntake.appointmentType}
+          templateId={activeIntake.templateId || ''}
+          onBack={() => {
             clearActiveIntake();
             sessionStorage.removeItem('dentai_active_transcript');
             sessionStorage.removeItem('dentai_active_seconds');
@@ -952,17 +938,6 @@ export default function App() {
             sessionStorage.removeItem('dentai_active_item_times');
             setView('history');
           }}
-          onSubmit={handleIntakeSubmit}
-        />
-      )}
-
-      {view === 'record' && activeIntake && (
-        <LiveRecording
-          patientName={`${activeIntake.firstName} ${activeIntake.lastName}`}
-          dob={activeIntake.dob}
-          appointmentType={activeIntake.appointmentType}
-          templateId={activeIntake.templateId || ''}
-          onBack={() => setView('intake')}
           onFinish={handleRecordFinish}
           processingHint={processingHint}
           authToken={authToken}

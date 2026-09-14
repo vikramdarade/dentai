@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Search, Plus, FileText, Menu, Building2, Sparkles, TrendingUp, Calendar, Sun, Moon, Zap, Maximize2, Layout } from 'lucide-react';
+import { Search, FileText, Menu, Building2, Sparkles, TrendingUp, Calendar, Sun, Moon, Zap, Maximize2, Layout } from 'lucide-react';
 import { Consultation, getTodayStr, getYesterdayStr } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import ClinicSwitcher from './ClinicSwitcher';
@@ -20,7 +20,6 @@ import { useTheme } from '../context/ThemeContext';
 interface HistoryHubProps {
   consultations: Consultation[];
   onSelectConsultation: (consultation: Consultation) => void;
-  onStartNewConsultation: () => void;
   onStartScheduledConsultation?: (item: DayScheduleItem) => void;
   dentistName: string;
   onLogout: () => void;
@@ -39,7 +38,6 @@ interface HistoryHubProps {
 function HistoryHubInner({
   consultations,
   onSelectConsultation,
-  onStartNewConsultation,
   onStartScheduledConsultation,
   dentistName,
   onLogout,
@@ -231,14 +229,6 @@ function HistoryHubInner({
                   <Zap className="w-3.5 h-3.5 fill-current" />
                   <span>5:00 PM Speed Review</span>
                 </button>
-
-                <button
-                  onClick={onStartNewConsultation}
-                  className="flex items-center gap-1.5 px-3.5 py-2 bg-gradient-to-r from-cyan-400 to-teal-400 hover:from-cyan-300 hover:to-teal-300 text-slate-950 font-black rounded-xl text-xs shadow-md shadow-cyan-950/50 cursor-pointer active:scale-95 transition-all"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>New Consultation</span>
-                </button>
               </div>
             </div>
 
@@ -351,14 +341,7 @@ function HistoryHubInner({
                     <div className="text-center py-12 bg-[#0A1018] rounded-2xl border border-dashed border-[#182638] p-8 flex flex-col items-center gap-3">
                       <FileText className="text-slate-600 w-12 h-12" />
                       <div className="text-base font-bold text-white">No Patient Records Found</div>
-                      <p className="text-slate-400 text-xs max-w-sm">No clinical notes match your search query. Verify the spelling or start a new consultation.</p>
-                      <button
-                        onClick={onStartNewConsultation}
-                        className="mt-2 inline-flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-cyan-400 to-teal-400 text-slate-950 font-black text-xs rounded-xl shadow-md transition-all hover:opacity-95 cursor-pointer"
-                      >
-                        <Plus className="w-4 h-4" />
-                        <span>Start Consultation</span>
-                      </button>
+                      <p className="text-slate-400 text-xs max-w-sm">No clinical notes match your search query. Verify the spelling or select a patient from the daily roster.</p>
                     </div>
                   )}
                 </section>
