@@ -34,7 +34,6 @@ import { TreatmentOpportunity, TreatmentStatus, PracticeRoiSummary, Consultation
 import { ClinicMembership } from '../lib/clinics';
 import { extractProposedTreatmentsFromFindings } from '../lib/adaFees';
 import { generateTreatmentEstimate, FormattedTreatmentEstimate } from '../lib/treatmentEstimate';
-import PatientRoadmapPrototype from './PatientRoadmapPrototype';
 
 interface TreatmentPipelineProps {
   authToken: string;
@@ -97,7 +96,6 @@ export default function TreatmentPipeline({
   const [outreachChannel, setOutreachChannel] = useState<'sms' | 'whatsapp' | 'email'>('sms');
   const [copiedText, setCopiedText] = useState<boolean>(false);
   const [actionSuccessMessage, setActionSuccessMessage] = useState<string | null>(null);
-  const [showRoadmapPrototype, setShowRoadmapPrototype] = useState<boolean>(false);
 
   const DECLINE_PRESETS = [
     { id: 'cost', label: 'Cost / Financial Constraint', desc: 'Out of pocket expense or lack of private health cover' },
@@ -376,13 +374,6 @@ export default function TreatmentPipeline({
         </div>
 
         <div className="flex items-center gap-2.5 self-start md:self-auto flex-wrap">
-          <button
-            onClick={() => setShowRoadmapPrototype(true)}
-            className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-cyan-400 to-teal-400 hover:from-cyan-300 hover:to-teal-300 text-slate-950 text-xs font-black transition-all flex items-center gap-1.5 shadow-md cursor-pointer"
-          >
-            <Stethoscope className="w-3.5 h-3.5" />
-            <span>Review Phased Care Prototype</span>
-          </button>
           <button
             onClick={fetchData}
             className="px-3.5 py-2 rounded-xl bg-[#121E2E] hover:bg-[#18283D] border border-[#1E3048] text-slate-200 text-xs font-bold transition-all cursor-pointer"
@@ -1155,16 +1146,6 @@ export default function TreatmentPipeline({
         )}
       </AnimatePresence>
 
-      {/* Phased Care Roadmap & Clinical Oversight Visual Prototype Modal */}
-      <AnimatePresence>
-        {showRoadmapPrototype && (
-          <PatientRoadmapPrototype
-            onClose={() => setShowRoadmapPrototype(false)}
-            dentistName={dentistName}
-            clinicName={activeClinic?.clinicName}
-          />
-        )}
-      </AnimatePresence>
     </div>
   );
 }

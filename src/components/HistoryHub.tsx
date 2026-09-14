@@ -1,12 +1,15 @@
 import React, { useState } from 'react';
-import { Search, Plus, FileText, Menu, Building2, Sparkles, TrendingUp, Calendar, Sun, Moon } from 'lucide-react';
+import { Search, Plus, FileText, Menu, Building2, Sparkles, TrendingUp, Calendar, Sun, Moon, Zap, Maximize2, Layout } from 'lucide-react';
 import { Consultation, getTodayStr, getYesterdayStr } from '../types';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import ClinicSwitcher from './ClinicSwitcher';
 import ClinicMembersModal from './ClinicMembersModal';
 import TreatmentPipeline from './TreatmentPipeline';
+import CareContinuityHub from './CareContinuityHub';
 import DayScheduleQueue from './DayScheduleQueue';
 import ErrorBoundary from './ErrorBoundary';
+import SpeedReviewStrip from './SpeedReviewStrip';
+import SidebarDockMode from './SidebarDockMode';
 import { DayScheduleItem } from '../lib/dayScheduleStorage';
 import { isPmsPreviewEnabled } from '../utils/previewMode';
 import { ClinicMembership } from '../lib/clinics';
@@ -62,6 +65,8 @@ function HistoryHubInner({
   const [showChartingModal, setShowChartingModal] = useState(false);
   const [showImagingModal, setShowImagingModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [speedReviewOpen, setSpeedReviewOpen] = useState(false);
+  const [sidebarDockOpen, setSidebarDockOpen] = useState(false);
 
   // Group consultations by date
   const todayStr = getTodayStr();
@@ -197,6 +202,28 @@ function HistoryHubInner({
                     <Moon className="w-4 h-4 text-cyan-600" />
                   )}
                 </button>
+                <button
+                  onClick={() => setSidebarDockOpen(prev => !prev)}
+                  className={`flex items-center gap-1.5 px-3 py-2 border rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    sidebarDockOpen
+                      ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40 shadow-xs'
+                      : 'bg-[#0E1724] border-[#182638] text-slate-300 hover:text-white hover:bg-[#162438]'
+                  }`}
+                  title="Toggle 340px Invisible Chairside Companion (Prototype A)"
+                >
+                  <Maximize2 className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>340px Dock</span>
+                </button>
+
+                <button
+                  onClick={() => setSpeedReviewOpen(true)}
+                  className="flex items-center gap-1.5 px-3.5 py-2 bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 font-black rounded-xl text-xs shadow-md shadow-emerald-950/50 cursor-pointer active:scale-95 transition-all"
+                  title="Launch 5:00 PM Rapid 1-Stroke Note Approval"
+                >
+                  <Zap className="w-3.5 h-3.5 fill-current" />
+                  <span>5:00 PM Speed Review</span>
+                </button>
+
                 <button
                   onClick={onStartNewConsultation}
                   className="flex items-center gap-1.5 px-3.5 py-2 bg-gradient-to-r from-cyan-400 to-teal-400 hover:from-cyan-300 hover:to-teal-300 text-slate-950 font-black rounded-xl text-xs shadow-md shadow-cyan-950/50 cursor-pointer active:scale-95 transition-all"
@@ -403,6 +430,35 @@ function HistoryHubInner({
               activeClinic={activeClinic}
               onManageClinic={() => setManageOpen(true)}
             />
+
+            {/* 5:00 PM Speed Review Modal */}
+            <AnimatePresence>
+              {speedReviewOpen && (
+                <div className="fixed inset-0 z-[150] bg-black/80 backdrop-blur-sm flex flex-col">
+                  <SpeedReviewStrip
+                    consultations={consultations}
+                    dentistName={dentistName}
+                    clinicName={activeClinic?.clinicName}
+                    onClose={() => setSpeedReviewOpen(false)}
+                    onUpdateConsultation={(c) => {
+                      // Handled locally
+                    }}
+                  />
+                </div>
+              )}
+            </AnimatePresence>
+
+            {/* Prototype A: 340px Clean Sidebar Dock */}
+            <AnimatePresence>
+              {sidebarDockOpen && (
+                <SidebarDockMode
+                  dentistName={dentistName}
+                  clinicName={activeClinic?.clinicName}
+                  onExpandCockpit={() => setSidebarDockOpen(false)}
+                  onClose={() => setSidebarDockOpen(false)}
+                />
+              )}
+            </AnimatePresence>
           </div>
         </CockpitLayout>
       )}

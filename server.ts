@@ -2204,7 +2204,24 @@ app.get('/api/clinics/:id/consultations', authenticateToken, async (req: any, re
         (c: any) => c.clinicId === clinicId
       );
     }
-    res.json(consultations);
+
+    // Associate Private Vault:
+    // When a clinic owner reviews clinic-wide activity, associates' patient conversation
+    // transcripts are strictly redacted to guarantee clinical privacy and autonomy.
+    // Raw conversational transcripts are only accessible to the treating clinician (c.dentistId === req.dentist.id).
+    const sanitizedConsultations = consultations.map((c: any) => {
+      if (c.dentistId !== req.dentist.id) {
+        return {
+          ...c,
+          transcript: [], // Redacted for associate privacy
+          isAssociateProtected: true,
+          confidentialNotice: 'Protected Associate Record: Audio dialogue and verbatim transcripts are restricted to the treating clinician.'
+        };
+      }
+      return c;
+    });
+
+    res.json(sanitizedConsultations);
   } catch (err) {
     logger.error('Failed to list clinic consultations:', err);
     res.status(500).json({ error: 'Failed to retrieve clinic records.' });

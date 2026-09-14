@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, UserRound, Pause, Play, ArrowRight, Sparkles, ArrowUpDown, CornerDownLeft, AlertCircle, X, Mic, MicOff, RotateCcw, RefreshCw, WifiOff, Bot, Check, CheckCircle, Smartphone } from 'lucide-react';
-import ChairBeaconModal from './ChairBeaconModal';
+import { ArrowLeft, UserRound, Pause, Play, ArrowRight, Sparkles, ArrowUpDown, CornerDownLeft, AlertCircle, X, Mic, MicOff, RotateCcw, RefreshCw, WifiOff, Bot, Check, CheckCircle } from 'lucide-react';
 import { TranscriptItem, GeneratedNotePayload } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { AppointmentType, getTemplateById, getAppointmentTypeLabel } from '../lib/dentalLibrary';
@@ -93,7 +92,6 @@ export default function LiveRecording({
   // Ambient Mode & Reset states
   const [isAmbientMode, setIsAmbientMode] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
-  const [showBeaconModal, setShowBeaconModal] = useState(false);
 
   // Voice transcription state
   const [isListening, setIsListening] = useState(false);
@@ -563,7 +561,7 @@ export default function LiveRecording({
           target.tagName === 'SELECT' ||
           target.isContentEditable
         );
-        if (!isInputField && !showBeaconModal && !isProcessing) {
+        if (!isInputField && !isProcessing) {
           e.preventDefault();
           setIsRecording((prev) => !prev);
         }
@@ -571,7 +569,7 @@ export default function LiveRecording({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [showBeaconModal, isProcessing]);
+  }, [isProcessing]);
 
 
   // Keep refs in sync for use inside long-lived callbacks (SpeechRecognition handlers).
@@ -916,15 +914,6 @@ export default function LiveRecording({
               {clinicUsage.used}/{clinicUsage.limit} AI notes today
             </span>
           )}
-          <button
-            type="button"
-            onClick={() => setShowBeaconModal(true)}
-            title="Pair chairside smartphone as hands-free beacon microphone"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[#1E3048] bg-[#0E1724] hover:bg-[#152338] text-cyan-300 transition-all cursor-pointer shadow-sm"
-          >
-            <Smartphone className="w-3.5 h-3.5 text-cyan-400" />
-            <span className="text-[10px] font-mono font-bold uppercase tracking-wider">Phone Beacon</span>
-          </button>
           <button
             onClick={() => setIsAmbientMode(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-cyan-500/40 bg-cyan-950/40 hover:bg-cyan-900/50 text-cyan-300 transition-all cursor-pointer shadow-[0_0_12px_rgba(34,211,238,0.2)]"
@@ -1776,16 +1765,6 @@ export default function LiveRecording({
         )}
       </AnimatePresence>
 
-      {/* Operatory Phone Beacon Pairing & Remote Control Modal */}
-      <ChairBeaconModal
-        isOpen={showBeaconModal}
-        onClose={() => setShowBeaconModal(false)}
-        roomName="Operatory Chair 1"
-        clinicId={activeClinicId || undefined}
-        onStartRecordingFromDesktop={() => setIsRecording(true)}
-        onStopRecordingFromDesktop={() => setIsRecording(false)}
-        isRecordingActive={isRecording}
-      />
     </div>
   );
 }
