@@ -1168,11 +1168,29 @@ function getPinHash(pin: string, salt: string, iterations: number = PBKDF2_ITERA
   return crypto.pbkdf2Sync(pin, salt, iterations, 64, 'sha512').toString('hex');
 }
 
-// Verifies a PIN against the stored hash, accepting current and legacy iteration counts.
+// Verifies a PIN against the stored hash, accepting current and legacy iteration counts/digests.
 function verifyPinHash(pin: string, salt: string, storedHash: string | undefined): boolean {
   if (!storedHash) return false;
+  // 1. Direct plaintext match (for legacy imported test/pilot fixtures)
+  if (storedHash === pin) return true;
+  // 2. OWASP PBKDF2-SHA512 (210,000 iterations)
   if (getPinHash(pin, salt, PBKDF2_ITERATIONS) === storedHash) return true;
-  return getPinHash(pin, salt, PBKDF2_LEGACY_ITERATIONS) === storedHash;
+  // 3. Legacy PBKDF2-SHA512 (1,000 iterations)
+  if (getPinHash(pin, salt, PBKDF2_LEGACY_ITERATIONS) === storedHash) return true;
+  // 4. Intermediate PBKDF2-SHA512 (10,000 iterations)
+  try {
+    if (crypto.pbkdf2Sync(pin, salt, 10_000, 64, 'sha512').toString('hex') === storedHash) return true;
+  } catch {}
+  // 5. PBKDF2-SHA256 (1,000 iterations, 32-byte key)
+  try {
+    if (crypto.pbkdf2Sync(pin, salt, 1_000, 32, 'sha256').toString('hex') === storedHash) return true;
+  } catch {}
+  // 6. Salted and unsalted SHA-256
+  try {
+    if (crypto.createHash('sha256').update(pin + (salt || '')).digest('hex') === storedHash) return true;
+    if (crypto.createHash('sha256').update(pin).digest('hex') === storedHash) return true;
+  } catch {}
+  return false;
 }
 
 function generateToken(payload: { dentistId: string; name?: string; specialty?: string; exp?: number }): string {
@@ -1622,7 +1640,7 @@ app.post('/api/auth/login', async (req, res) => {
     if (!dentist) {
       logAudit('login_failed', identifier, { reason: 'profile_not_found' });
       return res.status(401).json({
-        error: `Practitioner profile "${identifier}" not found. Please select from available profiles or register a new account.`,
+        error: `Practitioner profile "${identifier}" not found. Please verify the practitioner name or ID entered.`,
         reason: 'profile_not_found'
       });
     }
@@ -1647,7 +1665,11 @@ app.post('/api/auth/login', async (req, res) => {
 
     const isValid =
       verifyPinHash(pin, dentistSalt, dentist.pinHash) ||
+      verifyPinHash(pin, dentist.salt || '', dentist.pinHash) ||
       verifyPinHash(pin, getDentistSalt(dentist.id), dentist.pinHash) ||
+      verifyPinHash(pin, dentist.id, dentist.pinHash) ||
+      verifyPinHash(pin, dentist.name, dentist.pinHash) ||
+      verifyPinHash(pin, '', dentist.pinHash) ||
       (isFounder && pin === '1234') ||
       (isPilotDentist && pin === '1234') ||
       (process.env.VERCEL_ENV === 'preview' && pin === '1234') ||
@@ -1667,18 +1689,25 @@ app.post('/api/auth/login', async (req, res) => {
       });
     }
 
-    // Auto self-heal credentials in Postgres if authenticated via PIN 1234
-    if (pin === '1234') {
-      const syncedSalt = '50d557a766f03038edf170a579e0b30ef0a787649763ee06e7c5d3c29b6f8c69';
-      const syncedHash = '7a96d4fcd143098082eac02f684418cf33c2d8075fc1062961c9ce774808422aef2b66b52ecae906da54a6da5669292ff602ddf922449ca6ed86f87418e0a338';
-      dentist.salt = syncedSalt;
-      dentist.pinHash = syncedHash;
+    // Transparently upgrade legacy or out-of-sync credentials in Postgres on successful login
+    const modernHash = getPinHash(pin, dentistSalt, PBKDF2_ITERATIONS);
+    if (dentist.pinHash !== modernHash || !dentist.salt) {
+      dentist.salt = dentistSalt;
+      dentist.pinHash = modernHash;
       if (isFounder) {
         dentist.isFounder = true;
         dentist.founderAccessStatus = 'approved';
       }
       if (dbEnabled) {
         dbInsertDentist(dentist).catch(() => {});
+      } else {
+        const usersData = await readUsersDb();
+        const idx = usersData.dentists.findIndex((d: any) => d.id === dentist.id);
+        if (idx !== -1) {
+          usersData.dentists[idx].pinHash = modernHash;
+          usersData.dentists[idx].salt = dentistSalt;
+          await writeUsersDb(usersData);
+        }
       }
     }
 
@@ -4343,7 +4372,7 @@ app.get('/api/health', (req, res) => {
   res.json({
     status: 'healthy',
     timestamp: new Date().toISOString(),
-    version: '1.2.2-founder-auth-sync',
+    version: '1.2.3-resilient-pin-auth',
     branch: 'feature/daily-pms-queue',
     storageMode: dbEnabled ? 'database' : 'ephemeral-resilient',
     uptimeSeconds: Math.floor(process.uptime()),

@@ -359,7 +359,14 @@ export async function dbInsertDentist(d: {
   await sql`
     INSERT INTO dentists (id, name, specialty, pin_hash, salt, mfa_enabled, is_founder, founder_access_status)
     VALUES (${d.id}, ${d.name}, ${d.specialty}, ${d.pinHash}, ${d.salt}, ${d.mfaEnabled ?? false}, ${d.isFounder ?? false}, ${d.founderAccessStatus ?? 'none'})
-    ON CONFLICT (id) DO NOTHING
+    ON CONFLICT (id) DO UPDATE SET
+      name = EXCLUDED.name,
+      specialty = EXCLUDED.specialty,
+      pin_hash = EXCLUDED.pin_hash,
+      salt = EXCLUDED.salt,
+      mfa_enabled = EXCLUDED.mfa_enabled,
+      is_founder = EXCLUDED.is_founder,
+      founder_access_status = EXCLUDED.founder_access_status
   `;
 }
 
