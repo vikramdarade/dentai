@@ -759,7 +759,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
       {/* Build Info Badge */}
       <div className="mt-4 text-[10px] text-slate-400/80 font-mono tracking-wider flex items-center gap-2">
         <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-        <span>v1.2.3-resilient-pin-auth</span>
+        <span>v1.2.4-universal-auth</span>
         <span>•</span>
         <span>feature/daily-pms-queue</span>
       </div>
