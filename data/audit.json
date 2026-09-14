@@ -609,6 +609,68 @@
       "dentistId": "founder-vikram-id",
       "detail": {},
       "timestamp": "2026-09-14T08:37:27.991Z"
+    },
+    {
+      "event": "support_ticket_created",
+      "dentistId": "anonymous",
+      "detail": {
+        "ticketId": "TICKET-MU117Y3A",
+        "category": "PMS Pasting"
+      },
+      "timestamp": "2026-09-14T09:19:56.761Z"
+    },
+    {
+      "event": "support_ticket_updated",
+      "dentistId": "founder-vikram-id",
+      "detail": {
+        "ticketId": "TICKET-MU117Y3A",
+        "status": "resolved"
+      },
+      "timestamp": "2026-09-14T09:19:56.775Z"
+    },
+    {
+      "event": "feedback_submitted",
+      "dentistId": "anonymous",
+      "detail": {
+        "feedbackId": "FB-MU117Y3X",
+        "rating": 5
+      },
+      "timestamp": "2026-09-14T09:19:56.782Z"
+    },
+    {
+      "event": "founder_access_requested",
+      "dentistId": "clinician-dr-smith-id",
+      "detail": {
+        "reason": "Practice Co-Founder equity review"
+      },
+      "timestamp": "2026-09-14T09:19:56.792Z"
+    },
+    {
+      "event": "founder_access_reviewed",
+      "dentistId": "founder-vikram-id",
+      "detail": {
+        "targetDentistId": "clinician-dr-smith-id",
+        "approved": true
+      },
+      "timestamp": "2026-09-14T09:19:56.799Z"
+    },
+    {
+      "event": "login_success",
+      "dentistId": "founder-vikram-id",
+      "detail": {},
+      "timestamp": "2026-09-14T09:19:56.868Z"
+    },
+    {
+      "event": "login_success",
+      "dentistId": "ea8e5a3a-d788-45d9-b44b-63faa8db43b3",
+      "detail": {},
+      "timestamp": "2026-09-14T09:19:56.933Z"
+    },
+    {
+      "event": "login_success",
+      "dentistId": "founder-vikram-id",
+      "detail": {},
+      "timestamp": "2026-09-14T09:19:57.000Z"
     }
   ]
 }

@@ -121,6 +121,27 @@ export default function CockpitLayout({
               <span className="text-[10px] font-bold mt-1 tracking-tight">Records</span>
             </button>
 
+            {/* Visualizer Studio */}
+            <button
+              onClick={() => handleNavClick('visualizer')}
+              className={`flex flex-col items-center justify-center w-full py-2.5 rounded-xl transition-all active:scale-95 cursor-pointer ${
+                activeNav === 'visualizer'
+                  ? theme === 'light'
+                    ? 'bg-cyan-50 text-cyan-800 border border-cyan-300 shadow-xs'
+                    : 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-xs'
+                  : theme === 'light'
+                  ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
+                  : 'text-slate-400 hover:text-slate-100 hover:bg-[#121E2E]'
+              }`}
+              title="Chairside Visualizer Studio (4 Paradigms)"
+            >
+              <Activity className="w-5 h-5 stroke-[1.75]" />
+              <span className="text-[10px] font-bold mt-1 tracking-tight">Studio</span>
+              {activeNav === 'visualizer' && (
+                <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-5 bg-cyan-400 rounded-r-full shadow-sm shadow-cyan-400" />
+              )}
+            </button>
+
             {/* Roster (Active Default) */}
             <button
               onClick={() => handleNavClick('roster')}

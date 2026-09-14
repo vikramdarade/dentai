@@ -10,6 +10,7 @@ import DayScheduleQueue from './DayScheduleQueue';
 import ErrorBoundary from './ErrorBoundary';
 import SpeedReviewStrip from './SpeedReviewStrip';
 import SidebarDockMode from './SidebarDockMode';
+import ChairsideVisualizerSuite from './ChairsideVisualizerSuite';
 import { DayScheduleItem } from '../lib/dayScheduleStorage';
 import { isPmsPreviewEnabled } from '../utils/previewMode';
 import { ClinicMembership } from '../lib/clinics';
@@ -57,9 +58,7 @@ function HistoryHubInner({
 }: HistoryHubProps) {
   const [manageOpen, setManageOpen] = useState(false);
   const [previewEnabled] = useState(() => isPmsPreviewEnabled());
-  const [hubTab, setHubTab] = useState<'schedule' | 'records' | 'pipeline'>(() => {
-    return previewEnabled ? 'schedule' : 'records';
-  });
+  const [hubTab, setHubTab] = useState<'schedule' | 'records' | 'pipeline' | 'visualizer'>('visualizer');
   const [searchQuery, setSearchQuery] = useState('');
   const { theme, toggleTheme } = useTheme();
   const [showChartingModal, setShowChartingModal] = useState(false);
@@ -180,6 +179,7 @@ function HistoryHubInner({
           activeTab={hubTab === 'pipeline' ? 'pipeline' : 'patients'}
           onTabChange={(tab) => {
             if (tab === 'roster') setHubTab('schedule');
+            else if (tab === 'visualizer') setHubTab('visualizer');
             else if (tab === 'pipeline') setHubTab('pipeline');
             else if (tab === 'patients') setHubTab('records');
             else if (tab === 'charting') setShowChartingModal(true);
@@ -253,6 +253,21 @@ function HistoryHubInner({
 
             {/* Unified Hub Navigation Switcher Tabs */}
             <div className="flex items-center gap-2 border-b border-[#182638] pb-3 flex-wrap">
+              <button
+                onClick={() => setHubTab('visualizer')}
+                className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all border flex items-center gap-2 cursor-pointer ${
+                  hubTab === 'visualizer'
+                    ? 'bg-sky-500/20 text-sky-300 border-sky-500/40 shadow-xs'
+                    : 'border-[#1E3048] bg-[#0A1018] text-slate-400 hover:text-white hover:bg-[#121E2E]'
+                }`}
+              >
+                <Sparkles className="w-4 h-4 text-sky-400" />
+                <span>Chairside Studio (4 Paradigms)</span>
+                <span className="px-2 py-0.5 rounded-md bg-sky-500/15 text-sky-300 text-[10px] font-black border border-sky-500/30">
+                  Odontogram • Island • HUD
+                </span>
+              </button>
+
               {previewEnabled && (
                 <button
                   onClick={() => setHubTab('schedule')}
@@ -294,7 +309,13 @@ function HistoryHubInner({
               </button>
             </div>
 
-            {hubTab === 'pipeline' ? (
+            {hubTab === 'visualizer' ? (
+              <ChairsideVisualizerSuite
+                dentistName={dentistName}
+                clinicName={activeClinic?.clinicName}
+                onOpenSpeedReview={() => setSpeedReviewOpen(true)}
+              />
+            ) : hubTab === 'pipeline' ? (
               <TreatmentPipeline
                 authToken={authToken}
                 activeClinic={activeClinic}

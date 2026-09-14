@@ -234,6 +234,35 @@ VERIFIED & SIGNED BY DR. ${dentistName.toUpperCase()}`;
           </div>
         </div>
 
+        {/* Mini Anatomical Tooth Arch */}
+        <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1.5 shadow-2xs">
+          <div className="flex items-center justify-between text-[10px] font-mono uppercase text-slate-500 font-semibold">
+            <span>Anatomical Tooth Arch</span>
+            <span className="text-teal-700 font-bold">FDI Live</span>
+          </div>
+          <div className="flex items-center justify-between gap-1">
+            {['18', '17', '16', '15', '14', '24', '25', '26'].map((t) => {
+              const isTarget = t === '16';
+              const isOther = t === '24';
+              return (
+                <div
+                  key={t}
+                  className={`flex-1 py-1.5 rounded text-center font-mono text-[10px] font-bold border transition-all ${
+                    isTarget
+                      ? 'bg-teal-50 border-teal-400 text-teal-800 ring-1 ring-teal-400'
+                      : isOther
+                      ? 'bg-amber-50 border-amber-400 text-amber-800'
+                      : 'bg-white border-slate-200 text-slate-500'
+                  }`}
+                >
+                  <div>{t}</div>
+                  <div className="text-[8px] leading-none opacity-80">{isTarget ? 'MOD' : isOther ? 'O' : '—'}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
         {/* Real-Time Clinical Anchors (FDI & ADA Chips) */}
         <div className="space-y-1.5">
           <div className="flex items-center justify-between text-[11px] font-medium text-slate-500">
