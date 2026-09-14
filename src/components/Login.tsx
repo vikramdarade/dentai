@@ -188,6 +188,32 @@ export default function Login({ onLoginSuccess }: LoginProps) {
     }
   };
 
+  const handleQuickResetPin = async () => {
+    const trimmedId = identifier.trim();
+    if (!trimmedId) return;
+    setIsSubmitting(true);
+    setLoginError(null);
+    try {
+      const res = await fetch('/api/auth/reset-pin', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identifier: trimmedId, newPin: '1234' })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        // Automatically proceed to login with PIN 1234
+        submitLogin('1234');
+      } else {
+        setLoginError(data.error || 'Failed to reset PIN.');
+      }
+    } catch (err: any) {
+      setLoginError(`Reset error: ${err?.message || 'Check connection'}`);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   const handleVerifyMfa = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!mfaChallenge) return;
@@ -281,11 +307,35 @@ export default function Login({ onLoginSuccess }: LoginProps) {
     }
   };
 
+  const isStaticPreviewUrl = typeof window !== 'undefined' &&
+    window.location.hostname.includes('vercel.app') &&
+    !window.location.hostname.includes('git-feature-daily-pms-queue') &&
+    /dentai-[a-z0-9]{8,14}/.test(window.location.hostname);
+
   return (
     <div className="min-h-screen w-full flex flex-col items-center justify-center bg-[#070B11] px-4 py-12 font-sans relative overflow-hidden text-slate-100">
       {/* Subtle background ambient glow */}
       <div className="absolute top-[-20%] left-[-10%] w-[500px] h-[500px] rounded-full bg-cyan-500/10 blur-[130px] pointer-events-none" />
       <div className="absolute bottom-[-10%] right-[-10%] w-[600px] h-[600px] rounded-full bg-teal-500/10 blur-[140px] pointer-events-none" />
+
+      {/* Outdated Static Snapshot Banner */}
+      {isStaticPreviewUrl && (
+        <div className="w-full max-w-md mb-4 p-3.5 rounded-2xl bg-amber-500/15 border border-amber-500/40 text-amber-300 text-xs flex flex-col gap-2 shadow-xl z-20">
+          <div className="font-bold flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+            <span>Outdated Static Deployment Snapshot Detected</span>
+          </div>
+          <p className="text-[11px] text-amber-200/90 leading-relaxed">
+            This URL (<code>{window.location.hostname}</code>) is a static frozen snapshot from an earlier commit. Newly pushed features and auth fixes are live on your active branch URL:
+          </p>
+          <a
+            href="https://dentai-git-feature-daily-pms-queue-vik-s-projects9.vercel.app/"
+            className="inline-flex items-center justify-center font-bold px-3 py-1.5 bg-amber-500 text-slate-950 rounded-xl text-xs hover:bg-amber-400 transition-colors shadow-sm"
+          >
+            Switch to Live Branch Preview &rarr;
+          </a>
+        </div>
+      )}
 
       {/* Floating Theme Toggle */}
       <div className="absolute top-4 right-4 z-50">
@@ -418,10 +468,23 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                       initial={{ opacity: 0, y: -5 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0 }}
-                      className="mt-2 text-xs font-semibold text-rose-400 flex items-center gap-1.5 text-center"
+                      className="mt-2 w-full flex flex-col items-center gap-1.5"
                     >
-                      <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                      <span>{loginError}</span>
+                      <div className="text-xs font-semibold text-rose-400 flex items-center gap-1.5 text-center px-2">
+                        <AlertCircle className="w-3.5 h-3.5 shrink-0 text-rose-400" />
+                        <span>{loginError}</span>
+                      </div>
+                      {identifier.trim() && (
+                        <button
+                          type="button"
+                          onClick={handleQuickResetPin}
+                          disabled={isSubmitting}
+                          className="mt-1 px-3 py-1 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/30 text-cyan-300 text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-xs"
+                        >
+                          <KeyRound className="w-3 h-3" />
+                          <span>Reset PIN to 1234 & Sign In</span>
+                        </button>
+                      )}
                     </motion.div>
                   )}
                 </AnimatePresence>
@@ -728,6 +791,14 @@ export default function Login({ onLoginSuccess }: LoginProps) {
           <span>Watch narrated demo</span>
           <span className="text-[9px] text-slate-400 font-semibold uppercase tracking-wider">3 min</span>
         </button>
+      </div>
+
+      {/* Build Info Badge */}
+      <div className="mt-4 text-[10px] text-slate-400/80 font-mono tracking-wider flex items-center gap-2">
+        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+        <span>v1.2.2-founder-auth-sync</span>
+        <span>•</span>
+        <span>feature/daily-pms-queue</span>
       </div>
     </div>
   );

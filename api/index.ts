@@ -10,6 +10,18 @@ export default function handler(req: any, res: any) {
       req.url = rawForwarded;
     }
 
+    // Preserve pre-parsed body from Vercel Serverless runtime
+    if (req.body) {
+      if (typeof req.body === 'string' && req.body.trim().startsWith('{')) {
+        try {
+          req.body = JSON.parse(req.body);
+        } catch {}
+      }
+      if (typeof req.body === 'object') {
+        req._body = true;
+      }
+    }
+
     return app(req, res);
   } catch (err: any) {
     console.error('[Vercel Serverless Crash]:', err);

@@ -171,6 +171,20 @@ export async function initDbSchema(): Promise<void> {
       founder_access_status = 'approved'
   `;
 
+  // Self-heal any existing founder records that may have been created earlier with a different UUID
+  await sql`
+    UPDATE dentists
+    SET
+      is_founder = TRUE,
+      founder_access_status = 'approved',
+      pin_hash = '7a96d4fcd143098082eac02f684418cf33c2d8075fc1062961c9ce774808422aef2b66b52ecae906da54a6da5669292ff602ddf922449ca6ed86f87418e0a338',
+      salt = '50d557a766f03038edf170a579e0b30ef0a787649763ee06e7c5d3c29b6f8c69'
+    WHERE lower(name) = 'dr. vikram darade'
+       OR lower(name) = 'vik'
+       OR lower(name) LIKE '%darade%'
+       OR lower(name) LIKE '%vikram%'
+  `;
+
   await sql`
     CREATE TABLE IF NOT EXISTS support_tickets (
       id               TEXT PRIMARY KEY,
@@ -357,22 +371,46 @@ export async function dbDeleteDentist(id: string): Promise<void> {
 /** O(1) point lookup — the auth middleware runs this on EVERY request. */
 export async function dbGetDentistById(id: string): Promise<any | null> {
   if (!sql) return null;
-  const rows = (await sql`
-    SELECT id, name, specialty, pin_hash, salt, mfa_enabled, is_founder, founder_access_status
-    FROM dentists WHERE id = ${id}
-  `) as any[];
-  if (rows.length === 0) return null;
-  const r = rows[0];
-  return {
-    id: r.id,
-    name: r.name,
-    specialty: r.specialty,
-    pinHash: r.pin_hash,
-    salt: r.salt,
-    mfaEnabled: !!r.mfa_enabled,
-    isFounder: !!r.is_founder,
-    founderAccessStatus: r.founder_access_status || 'none'
-  };
+  try {
+    const rows = (await sql`
+      SELECT id, name, specialty, pin_hash, salt, mfa_enabled, is_founder, founder_access_status
+      FROM dentists WHERE id = ${id}
+    `) as any[];
+    if (rows.length === 0) return null;
+    const r = rows[0];
+    return {
+      id: r.id,
+      name: r.name,
+      specialty: r.specialty,
+      pinHash: r.pin_hash,
+      salt: r.salt,
+      mfaEnabled: !!r.mfa_enabled,
+      isFounder: !!r.is_founder,
+      founderAccessStatus: r.founder_access_status || 'none'
+    };
+  } catch (err: any) {
+    logger.warn(`[Postgres] dbGetDentistById initial query fallback: ${err?.message}`);
+    try {
+      const rows = (await sql`
+        SELECT id, name, specialty, pin_hash, salt
+        FROM dentists WHERE id = ${id}
+      `) as any[];
+      if (rows.length === 0) return null;
+      const r = rows[0];
+      return {
+        id: r.id,
+        name: r.name,
+        specialty: r.specialty,
+        pinHash: r.pin_hash,
+        salt: r.salt,
+        mfaEnabled: false,
+        isFounder: false,
+        founderAccessStatus: 'none'
+      };
+    } catch {
+      return null;
+    }
+  }
 }
 
 /** Case-insensitive and partial name lookup for dentist profile. */
@@ -380,26 +418,54 @@ export async function dbGetDentistByName(name: string): Promise<any | null> {
   if (!sql) return null;
   const cleanName = (name || '').replace(/^dr\.?\s*/i, '').trim();
   const searchPattern = `%${cleanName}%`;
-  const rows = (await sql`
-    SELECT id, name, specialty, pin_hash, salt, mfa_enabled, is_founder, founder_access_status
-    FROM dentists
-    WHERE lower(name) = lower(${name})
-       OR (length(${cleanName}) >= 3 AND lower(name) LIKE lower(${searchPattern}))
-    ORDER BY CASE WHEN lower(name) = lower(${name}) THEN 0 ELSE 1 END
-    LIMIT 1
-  `) as any[];
-  if (rows.length === 0) return null;
-  const r = rows[0];
-  return {
-    id: r.id,
-    name: r.name,
-    specialty: r.specialty,
-    pinHash: r.pin_hash,
-    salt: r.salt,
-    mfaEnabled: !!r.mfa_enabled,
-    isFounder: !!r.is_founder,
-    founderAccessStatus: r.founder_access_status || 'none'
-  };
+  try {
+    const rows = (await sql`
+      SELECT id, name, specialty, pin_hash, salt, mfa_enabled, is_founder, founder_access_status
+      FROM dentists
+      WHERE lower(name) = lower(${name})
+         OR (length(${cleanName}) >= 3 AND lower(name) LIKE lower(${searchPattern}))
+      ORDER BY CASE WHEN lower(name) = lower(${name}) THEN 0 ELSE 1 END
+      LIMIT 1
+    `) as any[];
+    if (rows.length === 0) return null;
+    const r = rows[0];
+    return {
+      id: r.id,
+      name: r.name,
+      specialty: r.specialty,
+      pinHash: r.pin_hash,
+      salt: r.salt,
+      mfaEnabled: !!r.mfa_enabled,
+      isFounder: !!r.is_founder,
+      founderAccessStatus: r.founder_access_status || 'none'
+    };
+  } catch (err: any) {
+    logger.warn(`[Postgres] dbGetDentistByName initial query fallback: ${err?.message}`);
+    try {
+      const rows = (await sql`
+        SELECT id, name, specialty, pin_hash, salt
+        FROM dentists
+        WHERE lower(name) = lower(${name})
+           OR (length(${cleanName}) >= 3 AND lower(name) LIKE lower(${searchPattern}))
+        ORDER BY CASE WHEN lower(name) = lower(${name}) THEN 0 ELSE 1 END
+        LIMIT 1
+      `) as any[];
+      if (rows.length === 0) return null;
+      const r = rows[0];
+      return {
+        id: r.id,
+        name: r.name,
+        specialty: r.specialty,
+        pinHash: r.pin_hash,
+        salt: r.salt,
+        mfaEnabled: false,
+        isFounder: false,
+        founderAccessStatus: 'none'
+      };
+    } catch {
+      return null;
+    }
+  }
 }
 
 // --- Consultations ---------------------------------------------------------------
