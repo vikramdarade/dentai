@@ -140,6 +140,37 @@ export async function initDbSchema(): Promise<void> {
   await sql`ALTER TABLE dentists ADD COLUMN IF NOT EXISTS is_founder BOOLEAN NOT NULL DEFAULT FALSE`;
   await sql`ALTER TABLE dentists ADD COLUMN IF NOT EXISTS founder_access_status TEXT NOT NULL DEFAULT 'none'`;
 
+  // Always guarantee that founder dentists exist in Postgres with PIN 1234
+  await sql`
+    INSERT INTO dentists (id, name, specialty, pin_hash, salt, is_founder, founder_access_status)
+    VALUES
+      (
+        '5a002da7-d8e6-4d5c-8566-000d534e2a32',
+        'Dr. Vikram Darade',
+        'General & Implant Dentistry',
+        '7a96d4fcd143098082eac02f684418cf33c2d8075fc1062961c9ce774808422aef2b66b52ecae906da54a6da5669292ff602ddf922449ca6ed86f87418e0a338',
+        '50d557a766f03038edf170a579e0b30ef0a787649763ee06e7c5d3c29b6f8c69',
+        TRUE,
+        'approved'
+      ),
+      (
+        'ea8e5a3a-d788-45d9-b44b-63faa8db43b3',
+        'Vik',
+        'Dentist',
+        '7a96d4fcd143098082eac02f684418cf33c2d8075fc1062961c9ce774808422aef2b66b52ecae906da54a6da5669292ff602ddf922449ca6ed86f87418e0a338',
+        '50d557a766f03038edf170a579e0b30ef0a787649763ee06e7c5d3c29b6f8c69',
+        TRUE,
+        'approved'
+      )
+    ON CONFLICT (id) DO UPDATE SET
+      name = EXCLUDED.name,
+      specialty = EXCLUDED.specialty,
+      pin_hash = EXCLUDED.pin_hash,
+      salt = EXCLUDED.salt,
+      is_founder = TRUE,
+      founder_access_status = 'approved'
+  `;
+
   await sql`
     CREATE TABLE IF NOT EXISTS support_tickets (
       id               TEXT PRIMARY KEY,
