@@ -52,6 +52,21 @@ export default function Login({ onLoginSuccess }: LoginProps) {
   const identifierInputRef = useRef<HTMLInputElement>(null);
   const mfaInputRef = useRef<HTMLInputElement>(null);
 
+  // Practitioner profile list fetched from backend for effortless 1-click select
+  const [availableProfiles, setAvailableProfiles] = useState<Array<{ id: string; name: string; specialty: string }>>([]);
+
+  useEffect(() => {
+    fetch('/api/auth/profiles')
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data) && data.length > 0) {
+          setAvailableProfiles(data);
+          setIdentifier(prev => prev || data[0].name);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   // Auto-focus logic
   useEffect(() => {
     if (!isRegistering && !mfaChallenge && identifierInputRef.current) {
@@ -59,7 +74,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
         identifierInputRef.current.focus();
       }
     }
-  }, [isRegistering, mfaChallenge]);
+  }, [isRegistering, mfaChallenge, identifier]);
 
   useEffect(() => {
     if (mfaChallenge && mfaInputRef.current) {
@@ -324,6 +339,28 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                     className="w-full bg-transparent text-sm font-bold text-white outline-none placeholder:text-slate-600"
                   />
                 </div>
+                {availableProfiles.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                    <span className="text-[10px] text-slate-400 font-semibold mr-1">Registered:</span>
+                    {availableProfiles.map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => {
+                          setIdentifier(p.name);
+                          setLoginError(null);
+                        }}
+                        className={`text-[11px] font-bold px-2.5 py-1 rounded-lg border transition-all cursor-pointer ${
+                          identifier.toLowerCase() === p.name.toLowerCase()
+                            ? 'bg-cyan-500/20 border-cyan-400 text-cyan-300 shadow-xs shadow-cyan-500/20'
+                            : 'bg-[#121E2E] border-[#1E3048] text-slate-400 hover:border-cyan-500/40 hover:text-white'
+                        }`}
+                      >
+                        {p.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* 4-Digit PIN Section */}

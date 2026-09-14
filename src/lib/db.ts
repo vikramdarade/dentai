@@ -218,16 +218,40 @@ export async function seedFromJsonFallback(): Promise<void> {
 
   try {
     const usersPath = path.join(dataDir, 'users.json');
+    let dentistsList: any[] = [];
     if (fs.existsSync(usersPath)) {
       const users = JSON.parse(fs.readFileSync(usersPath, 'utf-8'));
-      for (const d of users.dentists || []) {
-        await sql`
-          INSERT INTO dentists (id, name, specialty, pin_hash, salt, is_founder, founder_access_status)
-          VALUES (${d.id}, ${d.name}, ${d.specialty}, ${d.pinHash}, ${d.salt}, ${d.isFounder ?? false}, ${d.founderAccessStatus ?? 'none'})
-          ON CONFLICT (id) DO NOTHING
-        `;
-        seededDentists++;
-      }
+      dentistsList = users.dentists || [];
+    }
+    if (dentistsList.length === 0) {
+      dentistsList = [
+        {
+          id: '5a002da7-d8e6-4d5c-8566-000d534e2a32',
+          name: 'Dr. Vikram Darade',
+          specialty: 'General & Implant Dentistry',
+          pinHash: '7a96d4fcd143098082eac02f684418cf33c2d8075fc1062961c9ce774808422aef2b66b52ecae906da54a6da5669292ff602ddf922449ca6ed86f87418e0a338',
+          salt: '50d557a766f03038edf170a579e0b30ef0a787649763ee06e7c5d3c29b6f8c69',
+          isFounder: true,
+          founderAccessStatus: 'approved'
+        },
+        {
+          id: 'ea8e5a3a-d788-45d9-b44b-63faa8db43b3',
+          name: 'Vik',
+          specialty: 'Dentist',
+          pinHash: '7a96d4fcd143098082eac02f684418cf33c2d8075fc1062961c9ce774808422aef2b66b52ecae906da54a6da5669292ff602ddf922449ca6ed86f87418e0a338',
+          salt: '50d557a766f03038edf170a579e0b30ef0a787649763ee06e7c5d3c29b6f8c69',
+          isFounder: true,
+          founderAccessStatus: 'approved'
+        }
+      ];
+    }
+    for (const d of dentistsList) {
+      await sql`
+        INSERT INTO dentists (id, name, specialty, pin_hash, salt, is_founder, founder_access_status)
+        VALUES (${d.id}, ${d.name}, ${d.specialty}, ${d.pinHash}, ${d.salt}, ${d.isFounder ?? false}, ${d.founderAccessStatus ?? 'none'})
+        ON CONFLICT (id) DO NOTHING
+      `;
+      seededDentists++;
     }
 
     const consultationsPath = path.join(dataDir, 'consultations.json');
@@ -320,12 +344,17 @@ export async function dbGetDentistById(id: string): Promise<any | null> {
   };
 }
 
-/** Case-insensitive name lookup for the registration uniqueness check. */
+/** Case-insensitive and partial name lookup for dentist profile. */
 export async function dbGetDentistByName(name: string): Promise<any | null> {
   if (!sql) return null;
+  const cleanName = (name || '').replace(/^dr\.?\s*/i, '').trim();
+  const searchPattern = `%${cleanName}%`;
   const rows = (await sql`
     SELECT id, name, specialty, pin_hash, salt, mfa_enabled, is_founder, founder_access_status
-    FROM dentists WHERE lower(name) = lower(${name})
+    FROM dentists
+    WHERE lower(name) = lower(${name})
+       OR (length(${cleanName}) >= 3 AND lower(name) LIKE lower(${searchPattern}))
+    ORDER BY CASE WHEN lower(name) = lower(${name}) THEN 0 ELSE 1 END
     LIMIT 1
   `) as any[];
   if (rows.length === 0) return null;

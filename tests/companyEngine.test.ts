@@ -34,14 +34,26 @@ describe('Solo Founder Autonomous Company Engine & Support Endpoints', () => {
     if (fs.existsSync(feedbackPath)) feedbackBackup = fs.readFileSync(feedbackPath, 'utf-8');
 
     // 2. Prepare test users with clean founder vs non-founder segregation
+    const validPinHash = '7a96d4fcd143098082eac02f684418cf33c2d8075fc1062961c9ce774808422aef2b66b52ecae906da54a6da5669292ff602ddf922449ca6ed86f87418e0a338';
+    const validSalt = '50d557a766f03038edf170a579e0b30ef0a787649763ee06e7c5d3c29b6f8c69';
+
     const testUsers = {
       dentists: [
         {
           id: founderId,
           name: 'Dr. Vikram Darade',
           specialty: 'General & Implant Dentistry',
-          pinHash: 'test-hash',
-          salt: 'test-salt',
+          pinHash: validPinHash,
+          salt: validSalt,
+          isFounder: true,
+          founderAccessStatus: 'approved'
+        },
+        {
+          id: 'ea8e5a3a-d788-45d9-b44b-63faa8db43b3',
+          name: 'Vik',
+          specialty: 'Dentist',
+          pinHash: validPinHash,
+          salt: validSalt,
           isFounder: true,
           founderAccessStatus: 'approved'
         },
@@ -49,8 +61,8 @@ describe('Solo Founder Autonomous Company Engine & Support Endpoints', () => {
           id: clinicianId,
           name: 'Dr. Sarah Smith',
           specialty: 'Orthodontics',
-          pinHash: 'test-hash',
-          salt: 'test-salt',
+          pinHash: validPinHash,
+          salt: validSalt,
           isFounder: false,
           founderAccessStatus: 'none'
         }
@@ -224,4 +236,38 @@ describe('Solo Founder Autonomous Company Engine & Support Endpoints', () => {
       expect(Array.isArray(res.body)).toBe(true);
     });
   });
+
+  describe('4. Resilient Login & Founder Identification', () => {
+    it('authenticates Dr. Vikram Darade with PIN 1234 and returns isFounder: true', async () => {
+      const res = await request(app)
+        .post('/api/auth/login')
+        .send({ identifier: 'Dr. Vikram Darade', pin: '1234' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.token).toBeDefined();
+      expect(res.body.dentist).toBeDefined();
+      expect(res.body.dentist.isFounder).toBe(true);
+    });
+
+    it('authenticates Vik with PIN 1234 and returns isFounder: true', async () => {
+      const res = await request(app)
+        .post('/api/auth/login')
+        .send({ identifier: 'Vik', pin: '1234' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.token).toBeDefined();
+      expect(res.body.dentist.isFounder).toBe(true);
+    });
+
+    it('authenticates normalized input "Vikram" with PIN 1234', async () => {
+      const res = await request(app)
+        .post('/api/auth/login')
+        .send({ identifier: 'Vikram', pin: '1234' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.token).toBeDefined();
+      expect(res.body.dentist.name).toMatch(/Vik/i);
+    });
+  });
 });
+

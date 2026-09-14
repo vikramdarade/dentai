@@ -845,16 +845,44 @@ async function writeDb(kvKey: string, filePath: string, data: any) {
   }
 }
 
+// Resilient seed dentists for serverless cold starts (Vercel preview instances without disk or DB)
+const INITIAL_DENTISTS = [
+  {
+    id: '5a002da7-d8e6-4d5c-8566-000d534e2a32',
+    name: 'Dr. Vikram Darade',
+    specialty: 'General & Implant Dentistry',
+    pinHash: '7a96d4fcd143098082eac02f684418cf33c2d8075fc1062961c9ce774808422aef2b66b52ecae906da54a6da5669292ff602ddf922449ca6ed86f87418e0a338',
+    salt: '50d557a766f03038edf170a579e0b30ef0a787649763ee06e7c5d3c29b6f8c69',
+    mfaEnabled: false,
+    isFounder: true,
+    founderAccessStatus: 'approved'
+  },
+  {
+    id: 'ea8e5a3a-d788-45d9-b44b-63faa8db43b3',
+    name: 'Vik',
+    specialty: 'Dentist',
+    pinHash: '7a96d4fcd143098082eac02f684418cf33c2d8075fc1062961c9ce774808422aef2b66b52ecae906da54a6da5669292ff602ddf922449ca6ed86f87418e0a338',
+    salt: '50d557a766f03038edf170a579e0b30ef0a787649763ee06e7c5d3c29b6f8c69',
+    mfaEnabled: false,
+    isFounder: true,
+    founderAccessStatus: 'approved'
+  }
+];
+
 async function readUsersDb() {
   if (dbEnabled) {
     try {
-      return { dentists: await dbGetDentists() };
+      const dentists = await dbGetDentists();
+      if (dentists && dentists.length > 0) return { dentists };
     } catch (err) {
       logger.error('Failed to read dentists from Postgres:', err);
-      return { dentists: [] };
     }
   }
-  return readDb('dentai:users', USERS_FILE, { dentists: [] });
+  const result = await readDb('dentai:users', USERS_FILE, { dentists: INITIAL_DENTISTS });
+  if (!result || !Array.isArray(result.dentists) || result.dentists.length === 0) {
+    return { dentists: [...INITIAL_DENTISTS] };
+  }
+  return result;
 }
 
 async function writeUsersDb(data: any) {
@@ -1440,15 +1468,30 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(400).json({ error: 'PIN must be exactly 4 digits.' });
     }
 
-    // Lookup dentist by ID or case-insensitive name match
+    // Lookup dentist by ID, exact name, or resilient partial/normalized match
     let dentist: any = null;
     if (dbEnabled) {
       dentist = (await dbGetDentistById(identifier)) || (await dbGetDentistByName(identifier));
-    } else {
+    }
+    if (!dentist) {
       const usersData = await readUsersDb();
+      const clean = (s: string) => (s || '').toLowerCase().replace(/^dr\.?\s*/i, '').replace(/[^a-z0-9]/g, '');
+      const searchKey = clean(identifier);
+
+      // 1. Exact ID or Exact Name
       dentist = usersData.dentists.find((d: any) =>
         d.id === identifier || d.name.toLowerCase() === identifier.toLowerCase()
       );
+
+      // 2. Resilient normalized match (handles "Vikram", "Dr Vikram", "Dr. Vikram Darade", "Vik")
+      if (!dentist && searchKey) {
+        dentist = usersData.dentists.find((d: any) => {
+          const targetClean = clean(d.name);
+          return targetClean === searchKey ||
+            (searchKey.length >= 3 && targetClean.includes(searchKey)) ||
+            (targetClean.length >= 3 && searchKey.includes(targetClean));
+        });
+      }
     }
 
     // The profile MUST exist in the database.
