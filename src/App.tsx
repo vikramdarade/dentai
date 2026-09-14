@@ -115,6 +115,7 @@ export default function App() {
 
       // Verify token with backend silently without aggressive session drop
       fetch('/api/auth/me', {
+        credentials: 'include',
         headers: { 'Authorization': `Bearer ${token}` }
       })
         .then(async res => {

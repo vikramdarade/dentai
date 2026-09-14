@@ -56,7 +56,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
   const [availableProfiles, setAvailableProfiles] = useState<Array<{ id: string; name: string; specialty: string }>>([]);
 
   useEffect(() => {
-    fetch('/api/auth/profiles')
+    fetch('/api/auth/profiles', { credentials: 'include' })
       .then(res => res.json())
       .then(data => {
         if (Array.isArray(data) && data.length > 0) {
@@ -136,6 +136,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
     try {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           identifier: trimmedId,
@@ -170,7 +171,11 @@ export default function Login({ onLoginSuccess }: LoginProps) {
 
         onLoginSuccess(data.token, data.dentist);
       } else {
-        setLoginError(data.error || `Authentication failed (HTTP ${res.status}). Please verify your practitioner name and PIN.`);
+        if (data?.error?.message === 'Protected deployment' || data?.protection?.vercel_auth_enabled) {
+          setLoginError('Vercel Deployment Protection is blocking API requests on this preview. In your Vercel Project Settings > Deployment Protection, turn off "Vercel Authentication", or log in to vercel.com in this browser.');
+        } else {
+          setLoginError(data.error || `Authentication failed (HTTP ${res.status}). Please verify your practitioner name and PIN.`);
+        }
         setPin('');
         setShakeTrigger(true);
         setTimeout(() => setShakeTrigger(false), 500);
@@ -242,6 +247,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
     try {
       const res = await fetch('/api/auth/register', {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: regName.trim(),
@@ -251,14 +257,24 @@ export default function Login({ onLoginSuccess }: LoginProps) {
         })
       });
 
-      const data = await res.json();
+      let data: any = {};
+      try {
+        data = await res.json();
+      } catch {
+        data = { error: `Server returned HTTP ${res.status}` };
+      }
+
       if (res.ok) {
         try {
           localStorage.setItem('dentai_last_practitioner_name', data.dentist.name);
         } catch {}
         onLoginSuccess(data.token, data.dentist);
       } else {
-        setRegError(data.error || 'Failed to register account.');
+        if (data?.error?.message === 'Protected deployment' || data?.protection?.vercel_auth_enabled) {
+          setRegError('Vercel Deployment Protection is active. In Vercel Project Settings > Deployment Protection, disable "Vercel Authentication", or log in to vercel.com in this browser.');
+        } else {
+          setRegError(data.error || 'Failed to register account.');
+        }
       }
     } catch (err) {
       setRegError('Server connection error. Please try again.');
