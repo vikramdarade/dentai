@@ -15,3 +15,26 @@ server.js
 
 # TypeScript incremental build info
 *.tsbuildinfo
+
+# Local data store — patient records, clinician records, audit log, queue state.
+# These are runtime data, never source. Committing them publishes patient
+# information and PIN hashes; see docs/legal/data-flow-and-subprocessors.md.
+# Keep an empty directory so a fresh clone still has somewhere to write. The
+# pattern is `data/*` rather than `data/` on purpose: git cannot re-include a file
+# whose parent directory is excluded, so `data/` would also swallow `.gitkeep` and
+# a fresh clone would have nowhere to write.
+data/*
+!data/.gitkeep
+
+# Demo/recording artefacts and local exports
+demo/out/
+*.mp4
+test-results/
+playwright-report/
+exports/
+
+# Database dumps (scripts/ops/backup-database.sh). A clinical dump in a repository
+# is a breach: they belong in encrypted storage you control, never in git.
+backups/
+*.dump
+*.dump.gz

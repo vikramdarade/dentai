@@ -23,7 +23,49 @@ interface LandingProps {
 const NAV_LINKS = [
   { href: '#how-it-works', label: 'How it works' },
   { href: '#features', label: 'Features' },
-  { href: '#formats', label: 'Formats' }
+  { href: '#formats', label: 'Formats' },
+  { href: '#trust', label: 'Privacy & AI' }
+];
+
+/**
+ * Compliance claims shown to Australian practices. Every line here must be
+ * true of the running system — a practice's privacy officer will check, and an
+ * overstated claim is worse than no claim. Sources of truth:
+ *   privacy notice + terms .......... src/components/LegalPage.tsx
+ *   sub-processors and residency ..... docs/legal/data-flow-and-subprocessors.md
+ *   retention and deletion ........... docs/legal/retention-and-deletion.md
+ */
+const TRUST_POINTS = [
+  {
+    icon: ShieldCheck,
+    title: 'Processed in Australia by default',
+    body: 'Hosted AI runs in an Australian region (australia-southeast1). Every draft records which engine produced it, so you can always see where a note came from.'
+  },
+  {
+    icon: ClipboardCheck,
+    title: 'Consent captured with the record',
+    body: 'The AI-assist disclosure is shown at intake, and the patient’s consent is stored against the consultation with the wording version they agreed to.'
+  },
+  {
+    icon: Lock,
+    title: 'One clinician, one profile',
+    body: 'No shared logins and no universal PIN. Failed attempts lock an account, sessions can be revoked remotely, and every credential change is logged.'
+  },
+  {
+    icon: FileText,
+    title: 'Access log your practice owns',
+    body: 'Opens and edits of a patient record are recorded and can be reviewed by the practice owner — exactly what an audit or a patient query asks for.'
+  },
+  {
+    icon: BadgeCheck,
+    title: 'Clinician review is mandatory',
+    body: 'Drafts are flagged for review when they come from a fallback engine, and nothing is saved or sent until the treating dentist signs it off.'
+  },
+  {
+    icon: Clock,
+    title: 'Retained, exportable, deletable',
+    body: 'Records are kept for the practice’s retention period (7 years by default), can be exported, and are deleted or de-identified on request.'
+  }
 ];
 
 function ToothMark({ className }: { className?: string }) {
@@ -448,6 +490,50 @@ export default function Landing({ onGetStarted }: LandingProps) {
         </div>
       </section>
 
+      {/* ---------- Trust: privacy, AI and record custody ---------- */}
+      <section id="trust" className="bg-white py-20 md:py-24">
+        <div className="mx-auto max-w-7xl px-5 md:px-8">
+          <div className="mx-auto flex max-w-3xl flex-col items-center text-center">
+            <SectionEyebrow>Privacy, consent & AI</SectionEyebrow>
+            <h2 className="mt-5 text-3xl font-extrabold tracking-tight text-slate-900 md:text-4xl">
+              Built to survive a practice’s privacy review.
+            </h2>
+            <p className="mt-4 text-base leading-relaxed text-slate-500">
+              Patient records are held by the practice, processed on its instructions under the Privacy Act 1988, and
+              never used to train models. The full notice and our sub-processors are published in the app —{' '}
+              <a href="#/privacy" className="font-semibold text-primary underline-offset-2 hover:underline">
+                read the privacy notice
+              </a>
+              .
+            </p>
+          </div>
+
+          <div className="mt-14 grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
+            {TRUST_POINTS.map((point, i) => (
+              <motion.div
+                key={point.title}
+                initial={{ opacity: 0, y: 18 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true, margin: '-60px' }}
+                transition={{ duration: 0.45, delay: i * 0.05 }}
+                className="rounded-2xl border border-slate-200 bg-[#F8F7F5] p-6 transition-shadow hover:shadow-md"
+              >
+                <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-primary shadow-sm">
+                  <point.icon className="h-4 w-4" />
+                </span>
+                <h3 className="mt-4 text-sm font-extrabold tracking-tight text-slate-900">{point.title}</h3>
+                <p className="mt-2 text-sm leading-relaxed text-slate-500">{point.body}</p>
+              </motion.div>
+            ))}
+          </div>
+
+          <p className="mx-auto mt-10 max-w-2xl text-center text-xs leading-relaxed text-slate-400">
+            DentAI is documentation software. It does not diagnose or prescribe, and it does not replace clinical
+            judgement — the treating practitioner reviews every draft and remains responsible for the record.
+          </p>
+        </div>
+      </section>
+
       {/* ---------- CTA band ---------- */}
       <section className="px-5 pb-20 md:px-8">
         <motion.div
@@ -511,12 +597,17 @@ export default function Landing({ onGetStarted }: LandingProps) {
             </div>
           </div>
 
-          <p className="text-xs leading-relaxed text-slate-400">
-            Built for dental practices. Your data stays yours.
+          <p className="max-w-sm text-center text-xs leading-relaxed text-slate-400 md:text-left">
+            Built for Australian dental practices. AI drafts the note; your clinician reviews and owns it. Patient data
+            is processed under the practice's instructions — never sold, never used to train models.
           </p>
 
-          <div className="flex items-center gap-6 text-xs font-semibold text-slate-400">
-            <a href="#top" className="transition-colors hover:text-primary">Back to top</a>
+          <div className="flex flex-col items-center gap-3 text-xs font-semibold text-slate-400 md:items-end">
+            <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2">
+              <a href="#/privacy" className="transition-colors hover:text-primary">Privacy notice</a>
+              <a href="#/terms" className="transition-colors hover:text-primary">Terms</a>
+              <a href="#top" className="transition-colors hover:text-primary">Back to top</a>
+            </div>
             <span>© {new Date().getFullYear()} DentAI</span>
           </div>
         </div>

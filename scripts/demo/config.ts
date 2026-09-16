@@ -1,13 +1,33 @@
 /**
  * DentAI demo pipeline configuration.
  *
- * The demo is recorded against the LIVE deployment by default (the app is
- * fully functional there), using clearly-named demo dentist accounts. Run
- * `bun run demo:cleanup` afterwards to remove the demo profiles from the
- * production data (audit trail is preserved by design).
+ * Recording creates real accounts and real consultations, so this pipeline must
+ * never touch production by accident. It therefore defaults to a local server
+ * and refuses a non-local target unless you opt in explicitly:
+ *
+ *   DEMO_URL=https://staging.example.com DEMO_ALLOW_REMOTE=true bun run demo
+ *
+ * If you do record against a hosted environment, run `bun run demo:cleanup`
+ * afterwards so the demo profiles and their consultations are removed (the
+ * append-only audit trail is preserved by design) — and never record against
+ * the same database a clinic is using.
  */
 
-export const LIVE_URL = process.env.DEMO_URL || 'https://dentai-one.vercel.app';
+const EXPLICIT_DEMO_URL = process.env.DEMO_URL || '';
+const LOCAL_DEFAULT_URL = 'http://localhost:5173';
+
+function isLocalUrl(url: string): boolean {
+  return /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?/i.test(url);
+}
+
+if (EXPLICIT_DEMO_URL && !isLocalUrl(EXPLICIT_DEMO_URL) && process.env.DEMO_ALLOW_REMOTE !== 'true') {
+  throw new Error(
+    `Refusing to record against ${EXPLICIT_DEMO_URL}: a remote target is not local. ` +
+      'Set DEMO_ALLOW_REMOTE=true if you are certain it is a staging environment, then run demo:cleanup afterwards.'
+  );
+}
+
+export const LIVE_URL = EXPLICIT_DEMO_URL || LOCAL_DEFAULT_URL;
 
 export const OUT_DIR = 'demo/out';
 export const FINAL_VIDEO = 'demo/dentai-demo.mp4';

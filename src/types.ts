@@ -33,6 +33,41 @@ export interface NoteOrigin {
   needsReview: boolean;
   /** Short human note, e.g. 'Generated while Gemini quota was exhausted'. */
   detail?: string;
+  /** Model/engine identifier that produced the content (audit provenance). */
+  modelId?: string;
+  /** When generation happened (ISO). */
+  generatedAt?: string;
+  /** Disclosure version the patient was shown when this content was captured. */
+  disclosureVersion?: string;
+}
+
+/**
+ * Patient consent to AI-assisted charting, captured before a recording starts.
+ * Stored with the consultation so the clinic can evidence what the patient was
+ * told and when (APP 3/5 — see the in-app notice in src/components/LegalPage.tsx
+ * and docs/legal/data-flow-and-subprocessors.md).
+ */
+export interface ConsultationConsent {
+  /** ISO timestamp of the verbal consent. */
+  obtainedAt: string;
+  /** Which disclosure wording was used (src/lib/compliance.ts). */
+  disclosureVersion: string;
+  /** Who recorded it. */
+  recordedBy: string;
+}
+
+/**
+ * One saved revision of a consultation. Clinical records are append-only in
+ * intent: the current state is the consultation body, and every save appends
+ * who changed it and when, so an edit can never silently rewrite history.
+ */
+export interface ConsultationRevision {
+  id: string;
+  savedAt: string;
+  savedBy: string;
+  engine?: NoteOrigin['engine'];
+  /** True when this revision was written by the async AI worker. */
+  systemGenerated?: boolean;
 }
 
 /**
@@ -67,6 +102,10 @@ export interface Consultation {
   patientSummary: string;
   templateId?: string;
   noteOrigin?: NoteOrigin;
+  /** AI-assist consent captured at intake (required for new records). */
+  consent?: ConsultationConsent;
+  /** Append-only revision trail (server-maintained). */
+  revisions?: ConsultationRevision[];
 }
 
 export const getTodayStr = (when: Date = new Date()) => {

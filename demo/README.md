@@ -44,21 +44,31 @@ bun run demo:assemble   # transcode, mux narration, concat → MP4
 
 ## Live-data hygiene
 
-Recording runs against the **live deployment** using two clearly-named demo
-identities (see `DEMO` in `scripts/demo/config.ts`). Clean them up afterwards:
+Recording **creates real accounts, real consultations and real patient rows**, so
+the pipeline defaults to `http://localhost:5173` and refuses any non-local target
+unless you opt in:
 
 ```bash
+# Local recording (default)
+bun run demo
+
+# Staging recording — explicit opt-in, then clean up
+DEMO_URL=https://staging.example.com DEMO_ALLOW_REMOTE=true bun run demo
 bun run demo:cleanup
 ```
 
-This removes the demo dentist profiles, their consultations, and their owned
-clinics. The append-only audit trail is preserved by design — it records that
-the deletion happened.
+Two clearly-named demo identities are used (see `DEMO` in
+`scripts/demo/config.ts`). `demo:cleanup` removes the demo dentist profiles, their
+consultations, and their owned clinics; the append-only audit trail is preserved
+by design — it records that the deletion happened.
+
+**Never record against an environment a clinic is using.** Point it at a Neon
+branch or a staging database instead.
 
 ## Configuration
 
-- `LIVE_URL` — override with `DEMO_URL` env var to record against a different
-  deployment (e.g. a staging URL).
+- `LIVE_URL` — defaults to the local dev server. Set `DEMO_URL` (plus
+  `DEMO_ALLOW_REMOTE=true` for anything non-local) to record against staging.
 - Scene pacing, narration copy, and demo identities: `scripts/demo/config.ts`.
 - Voice: `VOICE` in `scripts/demo/narrator.ts` (Gemini prebuilt voices).
 

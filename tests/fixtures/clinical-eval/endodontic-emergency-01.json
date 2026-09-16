@@ -1,0 +1,61 @@
+{
+  "id": "endodontic-emergency-01",
+  "description": "Emergency visit for irreversible pulpitis. The safety-critical fixture: the note must record the diagnosis the dentist made, must not invent an extraction, and must not credit treatment that was not performed.",
+  "transcript": [
+    { "sender": "Patient", "text": "The top right has been throbbing since Friday night, it woke me up twice." },
+    { "sender": "Dentist", "text": "Does it linger after cold?" },
+    { "sender": "Patient", "text": "Yes, for ages. And it hurts when I bite down." },
+    { "sender": "Dentist", "text": "16 has a deep distal cavity, and it is tender to percussion. Cold test lingers well past ten seconds. No swelling, no sinus tract, no trismus." },
+    { "sender": "Dentist", "text": "This is irreversible pulpitis on 16. Because of the time, I'll place a temporary dressing and start root canal treatment at the next visit." },
+    { "sender": "Dentist", "text": "Ibuprofen 400 milligrams, three times a day with food, and paracetamol if needed. If you get facial swelling or a fever, call us or go to the hospital." },
+    { "sender": "Patient", "text": "Understood, thank you." },
+    { "sender": "Dentist", "text": "Book in for the first appointment, thirty minutes, within the week, and avoid very hot drinks." }
+  ],
+  "intake": {
+    "firstName": "Marcus",
+    "lastName": "Bell",
+    "appointmentType": "emergency",
+    "templateId": "standard"
+  },
+  "expected": {
+    "required": {
+      "chiefComplaint": [["throbbing"], ["top right", "upper right"]],
+      "toothFindings": [["16"], ["tender to percussion", "percussion"]],
+      "diagnosis": [["irreversible pulpitis"]],
+      "treatmentPerformed": [["temporary dressing", "dressing"], ["root canal", "endodontic"]],
+      "recommendations": [["ibuprofen"]],
+      "recallRequirements": [["within the week", "week"], ["root canal", "endodontic"]]
+    },
+    "mustBePresent": ["history"],
+    "forbidden": [
+      "extraction performed",
+      "tooth extracted",
+      "composite restoration placed",
+      "antibiotics prescribed",
+      "pulpitis on 26",
+      "sinus tract present"
+    ],
+    "expectedCodes": ["011", "013", "071", "911"],
+    "requiredCodes": ["071"]
+  },
+  "recorded": {
+    "fields": {
+      "chiefComplaint": "Throbbing pain upper right since Friday, waking the patient at night. Linger after cold stimulation and pain on biting.",
+      "history": "Nil medical history recorded that contraindicates ibuprofen. No reported allergies. Systemic health otherwise unremarkable at this visit.",
+      "toothFindings": "16: deep distal cavity. Tender to percussion. Cold test produces a response that lingers well beyond ten seconds. No swelling, no sinus tract, no trismus.",
+      "findingsGingival": "Gingivae unrelated to the presenting complaint, no localised swelling around 16.",
+      "diagnosis": "Irreversible pulpitis on tooth 16.",
+      "treatmentPerformed": "Temporary dressing placed to 16. Due to the time available, definitive root canal treatment has been planned for the next visit rather than commenced today.",
+      "recommendations": "Ibuprofen 400 mg three times daily with food. Paracetamol as required. Avoid very hot drinks. If facial swelling, fever or difficulty swallowing develop, contact the practice urgently or attend hospital.",
+      "recallRequirements": "Book within the week for the first thirty-minute root canal treatment appointment."
+    },
+    "patientSummary": "You attended with severe pain in the upper right. The nerve of that tooth is inflamed and cannot heal by itself, so the tooth needs root canal treatment. A temporary dressing was placed today, pain relief was discussed, and you should book the first treatment appointment this week. Warn us immediately if you get facial swelling or a fever.",
+    "adaCodes": [
+      { "code": "011", "description": "Comprehensive oral examination" },
+      { "code": "071", "description": "Emergency palliative treatment" },
+      { "code": "911", "description": "Occlusal radiographic examination" }
+    ],
+    "engine": "gemini",
+    "needsReview": false
+  }
+}

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Search, Plus, FileText, Menu, Building2 } from 'lucide-react';
+import { Search, Plus, FileText, Menu, Building2, Download, X } from 'lucide-react';
 import { Consultation, getTodayStr, getYesterdayStr } from '../types';
 import { motion } from 'motion/react';
 import ClinicSwitcher from './ClinicSwitcher';
@@ -40,6 +40,39 @@ export default function HistoryHub({
   memberNames
 }: HistoryHubProps) {
   const [manageOpen, setManageOpen] = useState(false);
+  // Practice records export (see /api/clinic/export on the server).
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [exportMessage, setExportMessage] = useState<string | null>(null);
+
+  const downloadExport = async (format: 'csv' | 'json') => {
+    setExporting(true);
+    setExportMessage(null);
+    try {
+      const res = await fetch(`/api/clinic/export?format=${format}`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setExportMessage(body.error || 'Export failed. Please try again.');
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `dentai-practice-export-${new Date().toISOString().slice(0, 10)}.${format}`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      setExportMessage('Downloaded. It contains patient information — delete it when no longer needed.');
+    } catch {
+      setExportMessage('Export failed. Check your connection and try again.');
+    } finally {
+      setExporting(false);
+    }
+  };
   const getInitials = (name: string) => {
     return name
       .split(' ')
@@ -121,6 +154,53 @@ export default function HistoryHub({
           />
         </div>
         <div className="flex items-center gap-4">
+          {/*
+            Records export. A practice must be able to get its own records out
+            without asking us — under APP 12 part of the point is that the
+            practice answers its own patient access requests. The download is
+            audited server-side (see /api/clinic/export).
+          */}
+          <div className="relative">
+            <button
+              onClick={() => setExportOpen(!exportOpen)}
+              disabled={exporting}
+              className="hidden md:flex items-center gap-2 px-3 py-2 rounded-lg border border-outline-variant text-slate-700 font-label-md transition-all hover:bg-slate-50 active:scale-95 disabled:opacity-50"
+            >
+              <Download className="w-4 h-4" />
+              <span>{exporting ? 'Preparing…' : 'Records'}</span>
+            </button>
+            {exportOpen && (
+              <div className="absolute right-0 mt-2 w-72 rounded-xl border border-slate-200 bg-white p-3 shadow-xl z-50">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-xs font-bold text-slate-700">Export practice records</p>
+                  <button onClick={() => setExportOpen(false)} className="text-slate-400 hover:text-slate-600">
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
+                  Everything recorded by this clinic, plus the access log. This contains patient
+                  information — store it as carefully as the records themselves.
+                </p>
+                <div className="mt-3 flex gap-2">
+                  <button
+                    onClick={() => downloadExport('csv')}
+                    className="flex-1 rounded-lg bg-primary-container px-3 py-2 text-xs font-bold text-white hover:bg-opacity-90"
+                  >
+                    Spreadsheet (CSV)
+                  </button>
+                  <button
+                    onClick={() => downloadExport('json')}
+                    className="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"
+                  >
+                    Complete (JSON)
+                  </button>
+                </div>
+                {exportMessage && (
+                  <p className="mt-2 text-[11px] text-slate-600">{exportMessage}</p>
+                )}
+              </div>
+            )}
+          </div>
           <button
             onClick={onStartNewConsultation}
             className="hidden md:flex items-center gap-2 px-4 py-2 bg-primary-container text-white rounded-lg font-label-md transition-all hover:bg-opacity-90 active:scale-95"

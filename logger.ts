@@ -17,6 +17,46 @@ const metrics: TelemetryMetrics = {
 
 const MAX_LATENCY_HISTORY = 100;
 
+/* ---------------------------------------------------------------------------
+ * Outbound alerting (optional, zero-dependency).
+ *
+ * A solo operator has no on-call rotation: if something breaks in production
+ * the founder has to be told, not have to go looking. Setting ERROR_WEBHOOK_URL
+ * (Slack/Discord/Teams incoming webhook, or any endpoint accepting JSON POST)
+ * forwards ERROR-level events. It is throttled and fully detached from the
+ * request path — alerting must never be able to break a clinical request.
+ * ------------------------------------------------------------------------- */
+
+const ALERT_WEBHOOK_URL = process.env.ERROR_WEBHOOK_URL || '';
+const ALERT_THROTTLE_MS = 60_000 / 10; // at most ~10 alerts/minute
+let lastAlertAt = 0;
+let alertsSent = 0;
+
+function sendAlert(payload: Record<string, any>): void {
+  if (!ALERT_WEBHOOK_URL) return;
+  const now = Date.now();
+  if (now - lastAlertAt < ALERT_THROTTLE_MS) return;
+  lastAlertAt = now;
+  alertsSent++;
+  // Fire-and-forget: never awaited, never throws into the caller.
+  void (async () => {
+    try {
+      const body = JSON.stringify({ text: `DentAI alert: ${payload.message}`, ...payload });
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 5000);
+      await fetch(ALERT_WEBHOOK_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+    } catch {
+      // Alert delivery is best-effort by definition.
+    }
+  })();
+}
+
 export const logger = {
   info: (message: string, context?: Record<string, any>) => {
     console.log(
@@ -42,16 +82,26 @@ export const logger = {
 
   error: (message: string, error?: any, context?: Record<string, any>) => {
     metrics.totalErrors++;
+    const errorMessage = error instanceof Error ? error.message : String(error);
     console.error(
       JSON.stringify({
         timestamp: new Date().toISOString(),
         level: 'ERROR',
         message,
-        error: error instanceof Error ? error.message : String(error),
+        error: errorMessage,
         stack: error instanceof Error ? error.stack : undefined,
         ...context,
       })
     );
+    // Alert payloads deliberately carry no patient data and no request context
+    // beyond the route — see docs/legal/data-flow-and-subprocessors.md.
+    sendAlert({
+      level: 'ERROR',
+      message,
+      error: errorMessage,
+      route: context?.url,
+      timestamp: new Date().toISOString(),
+    });
   },
 
   /**
@@ -65,13 +115,22 @@ export const logger = {
     }
   },
 
+  /** True when outbound alerting is configured. */
+  alertingEnabled: () => !!ALERT_WEBHOOK_URL,
+
   /**
-   * Retrieves summary telemetry statistics.
+   * Retrieves summary telemetry statistics for THIS process instance.
+   * On a serverless runtime each instance keeps its own counters, so the
+   * numbers describe the instance that answered — not the fleet. Real
+   * fleet-level metrics belong in the hosting provider's dashboard.
    */
   getTelemetry: () => {
     const count = metrics.latencies.length;
     if (count === 0) {
       return {
+        scope: 'process-instance',
+        alertsSent,
+        alertingEnabled: !!ALERT_WEBHOOK_URL,
         totalRequests: metrics.totalRequests,
         totalErrors: metrics.totalErrors,
         p50LatencyMs: 0,
@@ -89,6 +148,9 @@ export const logger = {
     const p95Index = Math.min(Math.floor(count * 0.95), count - 1);
 
     return {
+      scope: 'process-instance',
+      alertsSent,
+      alertingEnabled: !!ALERT_WEBHOOK_URL,
       totalRequests: metrics.totalRequests,
       totalErrors: metrics.totalErrors,
       p50LatencyMs: Math.round(sorted[p50Index]),

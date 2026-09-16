@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { User, Lock, Plus, ArrowLeft, AlertCircle, Sparkles, UserPlus, Trash2, X, CirclePlay } from 'lucide-react';
+import { User, Lock, Plus, ArrowLeft, AlertCircle, Sparkles, UserPlus, Trash2, X, CirclePlay, ShieldCheck } from 'lucide-react';
 
 interface DentistProfile {
   id: string;
@@ -39,6 +39,13 @@ export default function Login({ onLoginSuccess }: LoginProps) {
   const [pin, setPin] = useState('');
   const [loginError, setLoginError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // Two-factor step. When the account has a confirmed authenticator, the PIN
+  // alone does not issue a session: the server answers 401 { mfaRequired } and
+  // this second step collects the code (or a recovery code) instead.
+  const [mfaRequired, setMfaRequired] = useState(false);
+  const [mfaCode, setMfaCode] = useState('');
+  const [useRecoveryCode, setUseRecoveryCode] = useState(false);
+  const [pendingPin, setPendingPin] = useState('');
   const [shakeTrigger, setShakeTrigger] = useState(false);
 
   // Register states
@@ -146,7 +153,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [pin, selectedProfile, isRegistering, profileToDelete]);
 
-  const submitLogin = async (completedPin: string) => {
+  const submitLogin = async (completedPin: string, secondFactor?: { code: string; recovery: boolean }) => {
     if (!selectedProfile) return;
     setIsSubmitting(true);
     setLoginError(null);
@@ -160,12 +167,31 @@ export default function Login({ onLoginSuccess }: LoginProps) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           dentistId: selectedProfile.id,
-          pin: completedPin
+          pin: completedPin,
+          ...(secondFactor?.code
+            ? secondFactor.recovery
+              ? { recoveryCode: secondFactor.code.trim().toUpperCase() }
+              : { mfaCode: secondFactor.code.replace(/\s+/g, '') }
+            : {})
         })
       });
 
       const data = await res.json();
+
+      // A correct PIN with a second factor outstanding: ask for the code rather
+      // than reporting a failure. The PIN is kept only in memory for this step.
+      if (!res.ok && data.mfaRequired) {
+        setPendingPin(completedPin);
+        setMfaRequired(true);
+        setMfaCode('');
+        setLoginError(secondFactor?.code ? data.error || 'That code was not accepted.' : null);
+        return;
+      }
+
       if (res.ok) {
+        setMfaRequired(false);
+        setPendingPin('');
+        setMfaCode('');
         try {
           const updatedLocal = localProfiles.map(p => p.id === data.dentist.id ? { ...p, ...data.dentist } : p);
           if (!updatedLocal.some(p => p.id === data.dentist.id)) {
@@ -295,6 +321,82 @@ export default function Login({ onLoginSuccess }: LoginProps) {
       {/* Cinematic subtle mesh orbs in background */}
       <div className="absolute top-[-20%] left-[-10%] w-[500px] h-[500px] rounded-full bg-indigo-50/50 blur-[120px] pointer-events-none"></div>
       <div className="absolute bottom-[-10%] right-[-10%] w-[600px] h-[600px] rounded-full bg-emerald-50/30 blur-[130px] pointer-events-none"></div>
+
+      {/* Second-factor step: PIN accepted, code required. */}
+      <AnimatePresence>
+        {mfaRequired && (
+          <motion.div
+            key="mfa"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 z-30 flex items-center justify-center bg-[#F8F7F5]/95 backdrop-blur-sm px-4"
+          >
+            <div className="w-full max-w-sm bg-white rounded-3xl border border-slate-200 shadow-2xl p-7">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                  <ShieldCheck className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-extrabold text-slate-800 tracking-tight">Two-factor code</h2>
+                  <p className="text-slate-500 text-xs">
+                    {useRecoveryCode
+                      ? 'Enter one of your saved recovery codes.'
+                      : 'Enter the 6-digit code from your authenticator app.'}
+                  </p>
+                </div>
+              </div>
+
+              {loginError && (
+                <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-700">
+                  {loginError}
+                </div>
+              )}
+
+              <form
+                className="mt-5 flex flex-col gap-3"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  submitLogin(pendingPin, { code: mfaCode, recovery: useRecoveryCode });
+                }}
+              >
+                <input
+                  autoFocus
+                  value={mfaCode}
+                  onChange={(e) => setMfaCode(e.target.value)}
+                  inputMode={useRecoveryCode ? 'text' : 'numeric'}
+                  placeholder={useRecoveryCode ? 'XXXXX-XXXXX' : '000000'}
+                  className="w-full rounded-xl border border-slate-200 px-4 py-3 text-center text-lg font-mono tracking-[0.3em] focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                />
+                <button
+                  type="submit"
+                  disabled={isSubmitting || mfaCode.trim().length < 6}
+                  className="w-full rounded-xl bg-primary px-4 py-3 text-sm font-bold text-white hover:bg-primary-dark disabled:opacity-50 transition-colors"
+                >
+                  {isSubmitting ? 'Verifying…' : 'Verify and sign in'}
+                </button>
+              </form>
+
+              <div className="mt-4 flex flex-col gap-2 text-xs">
+                <button
+                  type="button"
+                  onClick={() => { setUseRecoveryCode(!useRecoveryCode); setMfaCode(''); setLoginError(null); }}
+                  className="text-indigo-600 font-semibold hover:underline"
+                >
+                  {useRecoveryCode ? 'Use my authenticator app instead' : 'Lost your phone? Use a recovery code'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setMfaRequired(false); setPendingPin(''); setMfaCode(''); setLoginError(null); }}
+                  className="text-slate-400 hover:text-slate-600"
+                >
+                  Cancel and choose another profile
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <AnimatePresence mode="wait">
         {/* Step 1: Profile Selector Screen */}
@@ -644,6 +746,29 @@ export default function Login({ onLoginSuccess }: LoginProps) {
         <span>Watch the narrated product demo</span>
         <span className="text-[9px] text-slate-400 font-semibold uppercase tracking-wider">3 min</span>
       </button>
+
+      {/*
+        Legal + access links. A clinic cannot lawfully be onboarded without a
+        reachable privacy notice, so these must be one tap from the sign-in
+        screen the dentist actually sees — not buried on the marketing page.
+      */}
+      <div className="relative mt-4 mx-auto flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-[11px] font-semibold text-slate-400">
+        <a href="#/privacy" className="transition-colors hover:text-primary">
+          Privacy notice
+        </a>
+        <span aria-hidden className="text-slate-300">·</span>
+        <a href="#/terms" className="transition-colors hover:text-primary">
+          Terms
+        </a>
+        <span aria-hidden className="text-slate-300">·</span>
+        <a href="#/credential" className="transition-colors hover:text-primary">
+          Change PIN or recover access
+        </a>
+      </div>
+      <p className="relative mt-2 mx-auto max-w-sm text-center text-[10px] leading-relaxed text-slate-400">
+        DentAI drafts clinical documentation with AI assistance. The treating practitioner reviews and is responsible
+        for every record.
+      </p>
 
       {/* PIN-Protected Profile Deletion Modal */}
       <AnimatePresence>

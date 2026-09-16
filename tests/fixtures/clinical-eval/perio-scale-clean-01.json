@@ -1,0 +1,51 @@
+{
+  "id": "perio-scale-clean-01",
+  "description": "Scale and clean with generalised moderate periodontitis. Checks that pocket depths and bleeding on probing survive into the note, and that a six-week review is captured rather than a routine recall.",
+  "transcript": [
+    { "sender": "Dentist", "text": "You mentioned bleeding when you brush?" },
+    { "sender": "Patient", "text": "Yes, most mornings. My gums feel tender." },
+    { "sender": "Dentist", "text": "Medical history: type 2 diabetes, metformin, well controlled. Non-smoker." },
+    { "sender": "Dentist", "text": "BPE 3 3 2. Probing depths 4 to 5 millimetres upper right and lower left, bleeding on probing throughout. Moderate calculus lower anterior. Generalised marginal inflammation." },
+    { "sender": "Dentist", "text": "I'll do a full scale and clean today, ultrasonic plus hand scaling, then fluoride." },
+    { "sender": "Patient", "text": "That feels much better already." },
+    { "sender": "Dentist", "text": "Six weeks for a review, and I want you flossing with the interdental brushes I showed you." }
+  ],
+  "intake": {
+    "firstName": "Daniel",
+    "lastName": "Okoye",
+    "appointmentType": "scale_clean",
+    "templateId": "hygiene"
+  },
+  "expected": {
+    "required": {
+      "chiefComplaint": [["bleed"], ["tender", "sore"]],
+      "history": [["diabetes"]],
+      "findingsGingival": [["bpe 3"], ["bleeding on probing"], ["calculus"]],
+      "treatmentPerformed": [["scale"], ["fluoride"]],
+      "recallRequirements": [["six weeks", "6 weeks"]]
+    },
+    "mustBePresent": ["toothFindings", "recommendations"],
+    "forbidden": ["no bleeding on probing", "healthy gingivae", "periodontitis resolved"],
+    "expectedCodes": ["114", "121", "011"]
+  },
+  "recorded": {
+    "fields": {
+      "chiefComplaint": "Reports bleeding gums on brushing most mornings, with generalised tenderness.",
+      "history": "Type 2 diabetes mellitus, managed with metformin, reported as well controlled. Non-smoker. No known allergies.",
+      "toothFindings": "Moderate calculus on the lower anterior teeth. No caries visible on examination of the dentition present.",
+      "findingsGingival": "BPE 3 3 2. Probing depths of 4–5 mm upper right and lower left quadrants with bleeding on probing throughout. Generalised marginal inflammation with moderate subgingival calculus.",
+      "diagnosis": "Generalised moderate chronic periodontitis with marginal gingivitis, complicated by diabetes as a risk modifier.",
+      "treatmentPerformed": "Full mouth supragingival and subgingival scale and clean performed with ultrasonic and hand instruments. Fluoride varnish applied. Oral hygiene instruction given.",
+      "recommendations": "Interdental brushing daily in addition to twice-daily manual brushing. Continue diabetes management with the usual GP reviews.",
+      "recallRequirements": "Periodontal review in six weeks to re-measure probing depths and reinforce oral hygiene."
+    },
+    "patientSummary": "We cleaned your teeth above and below the gum line today and applied fluoride. Your gums are inflamed and there is some bone-level loss to monitor. Please use the interdental brushes daily and return in six weeks for a re-check.",
+    "adaCodes": [
+      { "code": "114", "description": "Removal of calculus — first visit" },
+      { "code": "121", "description": "Topical application of fluoride" },
+      { "code": "011", "description": "Comprehensive oral examination" }
+    ],
+    "engine": "gemini",
+    "needsReview": false
+  }
+}

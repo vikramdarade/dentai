@@ -1,4 +1,45 @@
 /**
+ * Verbatim transcript sentences relevant to one template section — the
+ * review screen's evidence chips. Strict quote-only contract (same safety
+ * rules as the offline draft): sentences are normalised exactly like the
+ * draft (FDI spoken numbers resolved, small talk stripped) but never
+ * paraphrased, reordered by meaning, or invented. Sections the AI left empty
+ * can be filled by tapping a quote; sections the AI filled can be checked
+ * against what was actually said.
+ */
+export function sectionEvidence(
+  section: TemplateSection,
+  transcript: TranscriptItem[],
+  maxSentences: number = 6
+): string[] {
+  if (!transcript.length) return [];
+  const keywords = SECTION_KEYWORDS[section.key] || [];
+  if (!keywords.length) return [];
+
+  const combined = normalizeFdiSpoken(transcript.map((t) => `${t.sender}: ${t.text}`).join(' '));
+  const patientSpeech = normalizeFdiSpoken(
+    transcript.filter((t) => !isClinician(t.sender)).map((t) => t.text).join(' ')
+  );
+  const isComplaintStyle = section.key === 'chiefComplaint' || section.key === 'subjective';
+  const combinedClean = splitSentences(combined).map(cleanSentenceForNote).filter(Boolean);
+  const patientClean = splitSentences(patientSpeech).map(cleanSentenceForNote).filter(Boolean);
+  const pool = isComplaintStyle ? [...patientClean, ...combinedClean] : combinedClean;
+
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const s of pool) {
+    const lower = s.toLowerCase();
+    if (!keywords.some((kw) => lower.includes(kw))) continue;
+    const norm = lower.replace(/[^a-z0-9 ]/g, '').trim();
+    if (seen.has(norm)) continue;
+    seen.add(norm);
+    out.push(s);
+    if (out.length >= maxSentences) break;
+  }
+  return out;
+}
+
+/**
  * Offline draft engine — Tier 3 of the scribing resilience chain.
  *
  * When every hosted AI route is exhausted or the device is offline, this

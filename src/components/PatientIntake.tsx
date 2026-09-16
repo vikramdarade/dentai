@@ -3,6 +3,7 @@ import { X, User, ArrowLeft, ArrowRight, Mic, Info, Hammer, Check } from 'lucide
 import { motion, AnimatePresence } from 'motion/react';
 import { maskDobInput, isValidDob, parseDobToIso } from '../utils/date';
 import { getSavedTemplates, getActiveTemplateId, setActiveTemplateId, NoteTemplate } from '../utils/templates';
+import { AI_DISCLOSURE_TEXT, AI_DISCLOSURE_VERSION } from '../lib/compliance';
 import { APPOINTMENT_TYPES, AppointmentType, getDefaultTemplateIdForType, getTemplateById, getAppointmentTypeLabel } from '../lib/dentalLibrary';
 
 interface PatientIntakeProps {
@@ -13,6 +14,8 @@ interface PatientIntakeProps {
     dob: string;
     appointmentType: AppointmentType;
     templateId?: string;
+    /** Recorded consent — stored with the consultation as compliance evidence. */
+    consent?: { obtainedAt: string; disclosureVersion: string };
   }) => void;
 }
 
@@ -57,7 +60,14 @@ export default function PatientIntake({ onCancel, onSubmit }: PatientIntakeProps
           lastName,
           dob: parseDobToIso(dob),
           appointmentType,
-          templateId: selectedTemplateId
+          templateId: selectedTemplateId,
+          // Consent is captured as data, not just as a checkbox: the timestamp
+          // and the exact disclosure wording version are stored with the
+          // consultation so the clinic can evidence what the patient was told.
+          consent: {
+            obtainedAt: new Date().toISOString(),
+            disclosureVersion: AI_DISCLOSURE_VERSION
+          }
         });
       }
     }
@@ -337,6 +347,12 @@ export default function PatientIntake({ onCancel, onSubmit }: PatientIntakeProps
                     </div>
                     <p className="text-slate-600 text-sm leading-relaxed">
                       By initiating this recording, you confirm that the patient has been informed that DentAI uses artificial intelligence to assist in dental charting and note-taking. All data is processed securely and in accordance with Australian privacy law (Privacy Act 1988) and the clinic's confidentiality obligations. The practitioner remains solely responsible for findings.
+                    </p>
+                    <p className="text-slate-600 text-sm leading-relaxed">
+                      {AI_DISCLOSURE_TEXT}
+                    </p>
+                    <p className="text-slate-500 text-xs leading-relaxed">
+                      Wording version {AI_DISCLOSURE_VERSION} — this version is stored with the record so the clinic can evidence what the patient was told.
                     </p>
                   </div>
 

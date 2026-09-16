@@ -68,6 +68,17 @@ export function isQuotaError(err: { status?: number; message?: string }): boolea
 /** Free-tier daily AI note allowance per clinic (soft limit). */
 export const DEFAULT_CLINIC_DAILY_LIMIT = 40;
 
+/**
+ * Daily AI processing allowance per clinic, measured in transcript tokens.
+ *
+ * The note count is a product limit; this is the cost limit. Without it a
+ * clinic can consume an unbounded amount of the model budget inside its 40
+ * notes (one 200-line transcript is far more expensive than twenty short
+ * consults). ~150k tokens/day is roughly a busy single-chair day and keeps a
+ * runaway client from turning into a runaway invoice.
+ */
+export const DEFAULT_CLINIC_DAILY_TOKEN_LIMIT = 150_000;
+
 export interface UsageSnapshot {
   /** Clinic (or dentist fallback) the usage belongs to. */
   scopeId: string;

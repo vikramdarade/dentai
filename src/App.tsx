@@ -10,6 +10,9 @@ import LiveRecording from './components/LiveRecording';
 import ClinicalSummary from './components/ClinicalSummary';
 import Login from './components/Login';
 import DemoMovie from './demo/DemoMovie';
+import CredentialScreen from './components/CredentialScreen';
+import LegalPage from './components/LegalPage';
+import { AI_DISCLOSURE_VERSION } from './lib/compliance';
 import {
   saveAuth,
   getAuth,
@@ -28,11 +31,25 @@ import {
 type ViewType = 'history' | 'intake' | 'record' | 'summary';
 
 export default function App() {
-  // Public narrated product demo at #/demo — no auth, no backend required.
-  const [demoOpen, setDemoOpen] = useState<boolean>(() => window.location.hash.startsWith('#/demo'));
+  // Public (unauthenticated) screens, addressable by hash so they can be linked
+  // from the landing page, from a clinic's onboarding email, and from support:
+  //   #/demo      narrated product walkthrough
+  //   #/privacy   privacy notice (incl. AI disclosure + subprocessors)
+  //   #/terms     terms of service
+  //   #/recover   change PIN or redeem an operator recovery token
+  type PublicRoute = 'demo' | 'privacy' | 'terms' | 'recover' | null;
+  const parseRoute = (hash: string): PublicRoute => {
+    if (hash.startsWith('#/demo')) return 'demo';
+    if (hash.startsWith('#/privacy')) return 'privacy';
+    if (hash.startsWith('#/terms')) return 'terms';
+    if (hash.startsWith('#/recover') || hash.startsWith('#/credential')) return 'recover';
+    return null;
+  };
+
+  const [publicRoute, setPublicRoute] = useState<PublicRoute>(() => parseRoute(window.location.hash));
 
   useEffect(() => {
-    const onHashChange = () => setDemoOpen(window.location.hash.startsWith('#/demo'));
+    const onHashChange = () => setPublicRoute(parseRoute(window.location.hash));
     window.addEventListener('hashchange', onHashChange);
     return () => window.removeEventListener('hashchange', onHashChange);
   }, []);
@@ -65,13 +82,15 @@ export default function App() {
   /** Live status line shown on the processing overlay (async job progress). */
   const [processingHint, setProcessingHint] = useState<string | null>(null);
 
-  // Temporary container for active intake details
+  // Temporary container for active intake details (including the patient's
+  // recorded consent, which is stamped onto the consultation on save).
   const [activeIntake, setActiveIntake] = useState<{
     firstName: string;
     lastName: string;
     dob: string;
     appointmentType: AppointmentType;
     templateId?: string;
+    consent?: { obtainedAt: string; disclosureVersion: string };
   } | null>(null);
 
   // Load token and currentUser from persistent storage on mount
@@ -440,6 +459,7 @@ export default function App() {
     dob: string;
     appointmentType: AppointmentType;
     templateId?: string;
+    consent?: { obtainedAt: string; disclosureVersion: string };
   }) => {
     setActiveIntake(intakeData);
     saveActiveIntake(intakeData);
@@ -573,7 +593,12 @@ export default function App() {
         templateId: template.id,
         findings,
         patientSummary: payload.patientSummary || '',
-        noteOrigin
+        noteOrigin,
+        // Patient consent travels with the record: what they were told, when,
+        // and under which disclosure version (APP 3/5 evidence).
+        consent: activeIntake.consent
+          ? { ...activeIntake.consent, recordedBy: currentUser.id }
+          : { obtainedAt: '', disclosureVersion: AI_DISCLOSURE_VERSION, recordedBy: currentUser.id }
       };
 
       // Always save to scoped local cache immediately to prevent data loss
@@ -683,15 +708,32 @@ export default function App() {
     );
   }
 
-  if (demoOpen) {
+  const exitPublicRoute = () => {
+    window.location.hash = '';
+    setPublicRoute(null);
+  };
+
+  if (publicRoute === 'privacy' || publicRoute === 'terms') {
+    return <LegalPage page={publicRoute} onExit={exitPublicRoute} />;
+  }
+
+  if (publicRoute === 'recover') {
     return (
-      <DemoMovie
-        onExit={() => {
-          window.location.hash = '';
-          setDemoOpen(false);
+      <CredentialScreen
+        authToken={authToken}
+        onExit={exitPublicRoute}
+        onAuthenticated={(token, user) => {
+          saveAuth(token, user);
+          setAuthToken(token);
+          setCurrentUser(user);
+          exitPublicRoute();
         }}
       />
     );
+  }
+
+  if (publicRoute === 'demo') {
+    return <DemoMovie onExit={exitPublicRoute} />;
   }
 
   if (!authToken || !currentUser) {

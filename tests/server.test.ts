@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, beforeAll, afterAll } from 'vites
 import request from 'supertest';
 import dotenv from 'dotenv';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 
 // Load environment variables (such as from .env.local)
@@ -23,6 +24,14 @@ process.env.GEMINI_API_KEY = 'TEST_API_KEY';
 // import time, but dotenv never overrides a key that already exists, so an empty
 // value keeps the DB layer disabled for the whole test process.
 process.env.DATABASE_URL = '';
+// Tests must never read or write the developer's working data directory: that
+// directory holds real patient records and clinician PIN hashes. Every test run
+// gets a throwaway store instead.
+process.env.DENTAI_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'dentai-test-'));
+// Give the metering ceilings room so a test asserting generation behaviour is
+// never rejected for quota reasons; quota behaviour is asserted explicitly.
+process.env.DENTAI_DAILY_NOTE_LIMIT = '500';
+process.env.DENTAI_DAILY_TOKEN_LIMIT = '5000000';
 
 // Dynamically import the app to ensure environment variables are evaluated first
 const { app } = await import('../server.ts');
@@ -58,12 +67,14 @@ vi.mock('@google/genai', () => {
 
 describe('DentAI Server - Mocked Unit Tests', () => {
   let authToken = '';
-  const dbPath = path.join(__dirname, '..', 'data', 'consultations.json');
-  const usersDbPath = path.join(__dirname, '..', 'data', 'users.json');
-  const clinicsDbPath = path.join(__dirname, '..', 'data', 'clinics.json');
-  const auditDbPath = path.join(__dirname, '..', 'data', 'audit.json');
-  const jobsDbPath = path.join(__dirname, '..', 'data', 'note_jobs.json');
-  const usageDbPath = path.join(__dirname, '..', 'data', 'usage_events.json');
+  // The store lives in the throwaway directory configured above.
+  const testDataDir = process.env.DENTAI_DATA_DIR as string;
+  const dbPath = path.join(testDataDir, 'consultations.json');
+  const usersDbPath = path.join(testDataDir, 'users.json');
+  const clinicsDbPath = path.join(testDataDir, 'clinics.json');
+  const auditDbPath = path.join(testDataDir, 'audit.json');
+  const jobsDbPath = path.join(testDataDir, 'note_jobs.json');
+  const usageDbPath = path.join(testDataDir, 'usage_events.json');
   let dbBackup: string | null = null;
   let usersDbBackup: string | null = null;
   let clinicsDbBackup: string | null = null;
@@ -95,7 +106,7 @@ describe('DentAI Server - Mocked Unit Tests', () => {
     }
     const regRes = await request(app)
       .post('/api/auth/register')
-      .send({ name: 'Dr. Sarah Jenkins', specialty: 'General Dentistry', pin: '1234' });
+      .send({ name: 'Dr. Sarah Jenkins', specialty: 'General Dentistry', pin: '4826' });
     if (regRes.status === 201) {
       authToken = regRes.body.token;
     } else {
@@ -104,7 +115,7 @@ describe('DentAI Server - Mocked Unit Tests', () => {
       if (sarah) {
         const loginRes = await request(app)
           .post('/api/auth/login')
-          .send({ dentistId: sarah.id, pin: '1234' });
+          .send({ dentistId: sarah.id, pin: '4826' });
         authToken = loginRes.body.token;
       }
     }
@@ -311,7 +322,7 @@ describe('DentAI Server - Mocked Unit Tests', () => {
     
     const loginRes = await request(app)
       .post('/api/auth/login')
-      .send({ dentistId: sarah.id, pin: '1234' });
+      .send({ dentistId: sarah.id, pin: '4826' });
     expect(loginRes.status).toBe(200);
     expect(loginRes.body).toHaveProperty('token');
   });
@@ -333,7 +344,7 @@ describe('DentAI Server - Mocked Unit Tests', () => {
       .send({
         name: testName,
         specialty: 'Testing Dentistry',
-        pin: '9999'
+        pin: '7294'
       });
     expect(regRes.status).toBe(201);
     expect(regRes.body).toHaveProperty('token');
@@ -347,7 +358,7 @@ describe('DentAI Server - Mocked Unit Tests', () => {
       .send({
         name: testName,
         specialty: 'Testing Dentistry',
-        pin: '9999'
+        pin: '7294'
       });
     const regToken = regRes.body.token;
 
@@ -364,7 +375,7 @@ describe('DentAI Server - Mocked Unit Tests', () => {
     const ownerName = `Dr. Owner ${Math.random().toString(36).substring(7)}`;
     const ownerReg = await request(app)
       .post('/api/auth/register')
-      .send({ name: ownerName, specialty: 'General Dentistry', pin: '2222' });
+      .send({ name: ownerName, specialty: 'General Dentistry', pin: '8053' });
     expect(ownerReg.status).toBe(201);
     const ownerToken = ownerReg.body.token;
 
@@ -380,7 +391,7 @@ describe('DentAI Server - Mocked Unit Tests', () => {
     const memberName = `Dr. Member ${Math.random().toString(36).substring(7)}`;
     const memberReg = await request(app)
       .post('/api/auth/register')
-      .send({ name: memberName, specialty: 'General Dentistry', pin: '3333', inviteCode: ownedClinic.inviteCode });
+      .send({ name: memberName, specialty: 'General Dentistry', pin: '6172', inviteCode: ownedClinic.inviteCode });
     expect(memberReg.status).toBe(201);
     const memberToken = memberReg.body.token;
     const memberDentistId = memberReg.body.dentist.id;
@@ -462,7 +473,7 @@ describe('DentAI Server - Mocked Unit Tests', () => {
     
     const loginRes = await request(app)
       .post('/api/auth/login')
-      .send({ dentistId: sarah.id, pin: '1234' });
+      .send({ dentistId: sarah.id, pin: '4826' });
     expect(loginRes.status).toBe(200);
     const token = loginRes.body.token;
 
@@ -479,31 +490,263 @@ describe('DentAI Server - Mocked Unit Tests', () => {
     expect(invalidMeRes.status).toBe(403);
   });
 
-  it('should require 4-digit PIN to delete a profile and remove it on correct PIN', async () => {
+  it('profile deletion requires a session for that same account (and the PIN)', async () => {
     const testDentistName = `Dr. Deletion Test ${Math.random().toString(36).substring(7)}`;
     const regRes = await request(app)
       .post('/api/auth/register')
-      .send({ name: testDentistName, specialty: 'Temporary', pin: '5555' });
+      .send({ name: testDentistName, specialty: 'Temporary', pin: '4086' });
     expect(regRes.status).toBe(201);
     const dentistId = regRes.body.dentist.id;
+    const ownToken = regRes.body.token;
 
-    // Wrong PIN should fail with 401
+    // 1) Unauthenticated deletion is refused outright — knowing an id is not
+    //    enough, which is what previously allowed deleting a colleague.
+    const anonRes = await request(app)
+      .delete(`/api/auth/profiles/${dentistId}`)
+      .send({ pin: '4086' });
+    expect(anonRes.status).toBe(401);
+
+    // 2) A signed-in clinician cannot delete somebody else's account.
+    const crossRes = await request(app)
+      .delete(`/api/auth/profiles/${dentistId}`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ pin: '4826' });
+    expect(crossRes.status).toBe(403);
+
+    // 3) Wrong PIN still fails, even with a valid session.
     const failRes = await request(app)
       .delete(`/api/auth/profiles/${dentistId}`)
+      .set('Authorization', `Bearer ${ownToken}`)
       .send({ pin: '0000' });
     expect(failRes.status).toBe(401);
 
-    // Correct PIN should succeed
+    // 4) The account owner, with their PIN, can delete their own profile.
     const successRes = await request(app)
       .delete(`/api/auth/profiles/${dentistId}`)
-      .send({ pin: '5555' });
+      .set('Authorization', `Bearer ${ownToken}`)
+      .send({ pin: '4086' });
     expect(successRes.status).toBe(200);
     expect(successRes.body.success).toBe(true);
 
-    // Verify profile is no longer in profiles list
     const profilesRes = await request(app).get('/api/auth/profiles');
     const exists = profilesRes.body.some((p: any) => p.id === dentistId);
     expect(exists).toBe(false);
+  });
+
+  it('rejects trivially guessable PINs at registration', async () => {
+    for (const weak of ['1234', '0000', '1111', '4321']) {
+      const res = await request(app)
+        .post('/api/auth/register')
+        .send({ name: `Dr. Weak ${weak} ${Math.random().toString(36).substring(7)}`, specialty: 'Testing', pin: weak });
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe('WEAK_PIN');
+    }
+  });
+
+  it('locks an account out after repeated wrong PINs (durable, not in-process)', async () => {
+    const name = `Dr. Lockout ${Math.random().toString(36).substring(7)}`;
+    const reg = await request(app)
+      .post('/api/auth/register')
+      .send({ name, specialty: 'Testing', pin: '5083' });
+    expect(reg.status).toBe(201);
+    const target = reg.body.dentist.id;
+
+    for (let i = 0; i < 5; i++) {
+      const res = await request(app).post('/api/auth/login').send({ dentistId: target, pin: '9173' });
+      expect(res.status).toBe(401);
+    }
+
+    // The sixth attempt is refused BEFORE the PIN is checked, and the correct
+    // PIN does not bypass the lockout.
+    const locked = await request(app).post('/api/auth/login').send({ dentistId: target, pin: '5083' });
+    expect(locked.status).toBe(429);
+    expect(locked.body.code).toBe('LOCKED_OUT');
+  });
+
+  it('logout revokes the session server-side', async () => {
+    const name = `Dr. Logout ${Math.random().toString(36).substring(7)}`;
+    const reg = await request(app)
+      .post('/api/auth/register')
+      .send({ name, specialty: 'Testing', pin: '6194' });
+    expect(reg.status).toBe(201);
+    const token = reg.body.token;
+
+    const before = await request(app).get('/api/auth/me').set('Authorization', `Bearer ${token}`);
+    expect(before.status).toBe(200);
+
+    const out = await request(app).post('/api/auth/logout').set('Authorization', `Bearer ${token}`);
+    expect(out.status).toBe(204);
+
+    const after = await request(app).get('/api/auth/me').set('Authorization', `Bearer ${token}`);
+    expect(after.status).toBe(403);
+  });
+
+  it('PIN change requires the current PIN and retires other sessions', async () => {
+    const name = `Dr. PinChange ${Math.random().toString(36).substring(7)}`;
+    const reg = await request(app)
+      .post('/api/auth/register')
+      .send({ name, specialty: 'Testing', pin: '3628' });
+    expect(reg.status).toBe(201);
+    const oldToken = reg.body.token;
+
+    // A weak new PIN is refused.
+    const weak = await request(app)
+      .post('/api/auth/change-pin')
+      .set('Authorization', `Bearer ${oldToken}`)
+      .send({ currentPin: '3628', newPin: '1234' });
+    expect(weak.status).toBe(400);
+    expect(weak.body.code).toBe('WEAK_PIN');
+
+    // A wrong current PIN is refused.
+    const wrong = await request(app)
+      .post('/api/auth/change-pin')
+      .set('Authorization', `Bearer ${oldToken}`)
+      .send({ currentPin: '1111', newPin: '7529' });
+    expect(wrong.status).toBe(401);
+
+    const ok = await request(app)
+      .post('/api/auth/change-pin')
+      .set('Authorization', `Bearer ${oldToken}`)
+      .send({ currentPin: '3628', newPin: '7529' });
+    expect(ok.status).toBe(200);
+    expect(ok.body.token).toBeTruthy();
+
+    // Every token minted before the change is dead (shared-workstation safety).
+    const stale = await request(app).get('/api/auth/me').set('Authorization', `Bearer ${oldToken}`);
+    expect(stale.status).toBe(403);
+    expect(stale.body.code).toBe('SESSION_SUPERSEDED');
+
+    // The refreshed token works, and the new PIN signs in.
+    const fresh = await request(app).get('/api/auth/me').set('Authorization', `Bearer ${ok.body.token}`);
+    expect(fresh.status).toBe(200);
+    const login = await request(app).post('/api/auth/login').send({ dentistId: reg.body.dentist.id, pin: '7529' });
+    expect(login.status).toBe(200);
+  });
+
+  it('recovery tokens are single-use and reject unknown values', async () => {
+    const bogus = await request(app)
+      .post('/api/auth/recovery/redeem')
+      .send({ token: 'not-a-real-recovery-token-value-000000', newPin: '8461' });
+    expect(bogus.status).toBe(401);
+
+    const weak = await request(app)
+      .post('/api/auth/recovery/redeem')
+      .send({ token: 'not-a-real-recovery-token-value-000000', newPin: '1111' });
+    expect(weak.status).toBe(400);
+  });
+
+  it('generation is metered on every path, including the legacy endpoint', async () => {
+    const previousLimit = process.env.DENTAI_DAILY_NOTE_LIMIT;
+    process.env.DENTAI_DAILY_NOTE_LIMIT = '1';
+    try {
+      const name = `Dr. Metered ${Math.random().toString(36).substring(7)}`;
+      const reg = await request(app)
+        .post('/api/auth/register')
+        .send({ name, specialty: 'Testing', pin: '4917' });
+      expect(reg.status).toBe(201);
+      const token = reg.body.token;
+      const payload = {
+        intakeData: { firstName: 'Sarah', lastName: 'Jenkins', dob: '1988-04-12', appointmentType: 'emergency' },
+        transcript: [{ sender: 'Dentist', text: 'Tapping tooth 16 exhibits tenderness' }]
+      };
+
+      const first = await request(app)
+        .post('/api/generate-notes')
+        .set('Authorization', `Bearer ${token}`)
+        .send(payload);
+      expect(first.status).toBe(200);
+
+      // The same clinic is now out of allowance — the legacy route can no
+      // longer be used to bypass the daily cap.
+      const second = await request(app)
+        .post('/api/generate-notes')
+        .set('Authorization', `Bearer ${token}`)
+        .send(payload);
+      expect(second.status).toBe(429);
+      expect(second.body.code).toBe('QUOTA_DAILY');
+
+      const usage = await request(app).get('/api/usage/today').set('Authorization', `Bearer ${token}`);
+      expect(usage.status).toBe(200);
+      expect(usage.body.used).toBe(1);
+    } finally {
+      if (previousLimit === undefined) delete process.env.DENTAI_DAILY_NOTE_LIMIT;
+      else process.env.DENTAI_DAILY_NOTE_LIMIT = previousLimit;
+    }
+  });
+
+  it('stamps consent, privacy version and append-only revisions on records', async () => {
+    const name = `Dr. Consent ${Math.random().toString(36).substring(7)}`;
+    const reg = await request(app)
+      .post('/api/auth/register')
+      .send({ name, specialty: 'Testing', pin: '5739' });
+    expect(reg.status).toBe(201);
+    const token = reg.body.token;
+
+    const created = await request(app)
+      .post('/api/consultations')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        firstName: 'Pat',
+        lastName: 'Nguyen',
+        dob: '1975-03-02',
+        appointmentType: 'examination',
+        status: 'In Review',
+        transcript: [{ sender: 'Dentist', text: 'Upper right discomfort, tooth 16 tender to percussion.' }],
+        findings: { chiefComplaint: 'Discomfort', history: '', toothFindings: '' },
+        patientSummary: '',
+        consent: { obtainedAt: new Date().toISOString(), disclosureVersion: 'test-disclosure-v1', recordedBy: 'clinician' }
+      });
+    expect(created.status).toBe(201);
+    expect(created.body.consent.obtainedAt).toBeTruthy();
+    expect(created.body.consent.disclosureVersion).toBe('test-disclosure-v1');
+    expect(created.body.privacyNoticeVersion).toBeTruthy();
+    expect(created.body.retentionYears).toBeGreaterThan(0);
+    expect(created.body.revisions).toHaveLength(1);
+
+    // A later save appends a revision and cannot erase the recorded consent.
+    const updated = await request(app)
+      .put(`/api/consultations/${created.body.id}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        findings: { chiefComplaint: 'Discomfort', history: 'Reviewed', toothFindings: '16 tender' },
+        status: 'Completed'
+      });
+    expect(updated.status).toBe(200);
+    expect(updated.body.consent.disclosureVersion).toBe('test-disclosure-v1');
+    expect(updated.body.revisions).toHaveLength(2);
+    expect(updated.body.revisions[0].savedAt).toBeTruthy();
+  });
+
+  it('exposes a public health probe and keeps telemetry operator-only', async () => {
+    const health = await request(app).get('/api/health');
+    expect(health.status).toBe(200);
+    expect(health.body.status).toBe('ok');
+    expect(health.body.storage).toBe('file-fallback');
+
+    const telemetry = await request(app).get('/api/telemetry');
+    expect(telemetry.status).toBe(401);
+
+    const ops = await request(app).get('/api/ops/telemetry');
+    expect(ops.status).toBe(503); // ops surface disabled until DENTAI_OPS_SECRET is set
+  });
+
+  it('drains the note queue on a scheduled (ops-authenticated) request', async () => {
+    const previousSecret = process.env.DENTAI_OPS_SECRET;
+    process.env.DENTAI_OPS_SECRET = 'test-ops-secret-value';
+    try {
+      const unauthorised = await request(app).post('/api/ops/drain').send({});
+      expect(unauthorised.status).toBe(401);
+
+      const drained = await request(app)
+        .post('/api/ops/drain')
+        .set('Authorization', 'Bearer test-ops-secret-value')
+        .send({});
+      expect(drained.status).toBe(200);
+      expect(drained.body.ok).toBe(true);
+    } finally {
+      if (previousSecret === undefined) delete process.env.DENTAI_OPS_SECRET;
+      else process.env.DENTAI_OPS_SECRET = previousSecret;
+    }
   });
 
   /** Polls a note job until it reaches a terminal state (or times out). */
@@ -586,7 +829,7 @@ describe('DentAI Server - Mocked Unit Tests', () => {
     const otherName = `Dr. Job Isolation ${Math.random().toString(36).substring(7)}`;
     const otherReg = await request(app)
       .post('/api/auth/register')
-      .send({ name: otherName, specialty: 'Orthodontics', pin: '4321' });
+      .send({ name: otherName, specialty: 'Orthodontics', pin: '9351' });
     expect(otherReg.status).toBe(201);
     const otherToken = otherReg.body.token;
 
@@ -685,7 +928,7 @@ describe.runIf(hasRealKey)('DentAI Server - Live LLM Integration & Accent Resili
 
     const loginRes = await request(app)
       .post('/api/auth/login')
-      .send({ dentistId: sarah.id, pin: '1234' });
+      .send({ dentistId: sarah.id, pin: '4826' });
     expect(loginRes.status).toBe(200);
     authToken = loginRes.body.token;
   });
@@ -806,5 +1049,99 @@ describe.runIf(hasRealKey)('DentAI Server - Live LLM Integration & Accent Resili
     expect(res.body.diagnosis.toLowerCase()).toContain('pulpitis');
     const combinedTreatmentAndRecs = (res.body.treatmentPerformed + ' ' + res.body.recommendations).toLowerCase();
     expect(combinedTreatmentAndRecs).toContain('root canal');
+  });
+});
+
+/**
+ * The operator surface is what makes the product supportable by one person:
+ * a public health probe, metered/authenticated telemetry, and a scheduler that
+ * advances the note queue with no browser open. These tests pin the contract
+ * (which endpoint is public, which needs which secret) so a future refactor
+ * cannot quietly re-publish process metrics or leave the queue with no driver.
+ */
+describe('DentAI Server - Operator surface', () => {
+  const originalEnv = {
+    ops: process.env.DENTAI_OPS_SECRET,
+    cron: process.env.CRON_SECRET,
+    signup: process.env.DENTAI_ALLOW_SELF_SIGNUP,
+    directory: process.env.DENTAI_DISABLE_PROFILE_DIRECTORY,
+  };
+
+  afterAll(() => {
+    process.env.DENTAI_OPS_SECRET = originalEnv.ops;
+    process.env.CRON_SECRET = originalEnv.cron;
+    process.env.DENTAI_ALLOW_SELF_SIGNUP = originalEnv.signup;
+    process.env.DENTAI_DISABLE_PROFILE_DIRECTORY = originalEnv.directory;
+  });
+
+  it('serves /api/health without authentication and names the storage mode', async () => {
+    const res = await request(app).get('/api/health');
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('ok');
+    // Tests run against the JSON store, so the health output must say so rather
+    // than implying Postgres is protecting the records.
+    expect(res.body.storage).toBe('file-fallback');
+    expect(res.body.database).toBe('not-configured');
+  });
+
+  it('no longer publishes process telemetry to anonymous callers', async () => {
+    const res = await request(app).get('/api/telemetry');
+    expect(res.status).toBe(401);
+  });
+
+  it('disables operator endpoints until DENTAI_OPS_SECRET is configured', async () => {
+    delete process.env.DENTAI_OPS_SECRET;
+    const res = await request(app).get('/api/ops/telemetry');
+    expect(res.status).toBe(503);
+    expect(res.body.code).toBe('OPS_DISABLED');
+  });
+
+  it('rejects a wrong operator secret and accepts the right one', async () => {
+    process.env.DENTAI_OPS_SECRET = 'ops-secret-for-tests';
+
+    const wrong = await request(app).get('/api/ops/telemetry').set('x-dentai-ops-secret', 'nope');
+    expect(wrong.status).toBe(401);
+
+    const right = await request(app).get('/api/ops/telemetry').set('x-dentai-ops-secret', 'ops-secret-for-tests');
+    expect(right.status).toBe(200);
+    expect(right.body).toHaveProperty('totalRequests');
+    expect(right.body.storage).toBe('file-fallback');
+  });
+
+  it('will not drain the queue without CRON_SECRET, and drains it with the right one', async () => {
+    delete process.env.CRON_SECRET;
+    const unconfigured = await request(app).get('/api/cron/drain');
+    expect(unconfigured.status).toBe(503);
+    expect(unconfigured.body.code).toBe('CRON_DISABLED');
+
+    process.env.CRON_SECRET = 'cron-secret-for-tests';
+    const wrong = await request(app).get('/api/cron/drain').set('x-cron-secret', 'nope');
+    expect(wrong.status).toBe(401);
+
+    // Vercel Cron sends the secret as a bearer token.
+    const right = await request(app)
+      .get('/api/cron/drain')
+      .set('Authorization', 'Bearer cron-secret-for-tests');
+    expect(right.status).toBe(200);
+    expect(right.body.ok).toBe(true);
+    expect(typeof right.body.openNoteJobs).toBe('number');
+  });
+
+  it('lets signup be closed without a code change', async () => {
+    process.env.DENTAI_ALLOW_SELF_SIGNUP = 'false';
+    const res = await request(app).post('/api/auth/register').send({
+      name: 'Dr Blocked Onboarding',
+      specialty: 'General Dentistry',
+      pin: '9317',
+    });
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe('SIGNUP_CLOSED');
+  });
+
+  it('can hide the clinician directory so accounts cannot be enumerated', async () => {
+    process.env.DENTAI_DISABLE_PROFILE_DIRECTORY = 'true';
+    const res = await request(app).get('/api/auth/profiles');
+    expect(res.status).toBe(404);
+    expect(res.body.code).toBe('DIRECTORY_DISABLED');
   });
 });

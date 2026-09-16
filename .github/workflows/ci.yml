@@ -2,10 +2,13 @@ name: DentAI CI
 
 on:
   push:
-    branches: [main]
+    branches: ['**']
   pull_request:
     branches: [main]
 
+# One package manager (Bun) end to end: install, lint, test, build. The
+# lockfile is `bun.lock`; `bun install --frozen-lockfile` fails the build if it
+# is out of date, which is what keeps CI and the preview in agreement.
 jobs:
   quality-gate:
     runs-on: ubuntu-latest
@@ -14,23 +17,115 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
         with:
-          node-version: '22'
-          cache: 'npm'
+          bun-version: '1.2.x'
 
       - name: Install Dependencies
-        run: npm ci
+        run: bun install --frozen-lockfile
 
       - name: Run Linting (Type Check)
-        run: npm run lint
+        run: bun run lint
 
       - name: Run Unit Tests
-        run: npm test
+        run: bun run test
 
       - name: Build Application
-        run: npm run build
+        run: bun run build
 
-      - name: Security Audit
-        run: npm audit --audit-level=high
+      # Advisory, deliberately non-blocking. A new high-severity advisory in a
+      # transitive dependency must not stop a clinic's deploy at 8am, but it
+      # must be visible: the report is uploaded and the run carries the summary.
+      - name: Dependency audit (advisory)
+        continue-on-error: true
+        run: |
+          bun audit || true
+          bun audit > audit-report.txt 2>&1 || true
+
+      - name: Upload audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-audit
+          path: audit-report.txt
+          if-no-files-found: ignore
+
+  # The unit suite forces the JSON fallback store, so nothing in it proves the
+  # queries, atomic SKIP LOCKED claims, migrations or tenancy checks work —
+  # which is the mode production actually runs. This job runs the same app
+  # against a disposable Postgres.
+  postgres:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: dentai
+          POSTGRES_PASSWORD: dentai_ci_only
+          POSTGRES_DB: dentai_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # Both names on purpose: the suite points itself at
+      # DENTAI_TEST_DATABASE_URL, while the migration CLI reads DATABASE_URL.
+      DENTAI_TEST_DATABASE_URL: postgres://dentai:dentai_ci_only@localhost:5432/dentai_test
+      DATABASE_URL: postgres://dentai:dentai_ci_only@localhost:5432/dentai_test
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.2.x'
+
+      - name: Install Dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Apply migrations
+        run: bun run db:migrate
+
+      # Proves the down path exists and works, which is the whole point of
+      # versioned migrations: a bad change is fixable without a restore. The
+      # confirmation flag is required because `down` drops tables and columns.
+      - name: Migration rollback rehearsal
+        env:
+          DENTAI_CONFIRM_DESTRUCTIVE: 'true'
+        run: |
+          bunx tsx scripts/migrate.ts status
+          bunx tsx scripts/migrate.ts down 1
+          bunx tsx scripts/migrate.ts up
+          bunx tsx scripts/migrate.ts status
+
+      - name: Run Postgres-backed tests
+        run: bun run test:postgres
+
+  # A fixed set of synthetic transcripts with expected findings, scored on every
+  # change to the prompt, model or template path. Offline scoring only (no model
+  # calls, no API key in CI) — see docs/runbooks/clinical-eval.md.
+  clinical-eval:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.2.x'
+
+      - name: Install Dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Score recorded generations against fixtures
+        run: bun run eval:notes --offline --min-score 0.9

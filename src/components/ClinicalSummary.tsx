@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   Menu,
   User,
@@ -9,7 +9,10 @@ import {
   Save,
   ClipboardList,
   FileText,
-  Tag
+  Tag,
+  Undo2,
+  Quote,
+  ListChecks
 } from 'lucide-react';
 import { Consultation, AdaCodeItem, ClinicalFindings } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
@@ -21,6 +24,7 @@ import {
   isCanonicalField
 } from '../lib/dentalLibrary';
 import { getSavedTemplates, getTemplate } from '../utils/templates';
+import { sectionEvidence } from '../lib/draftEngine';
 
 interface ClinicalSummaryProps {
   consultation: Consultation;
@@ -96,16 +100,16 @@ export default function ClinicalSummary({
 }: ClinicalSummaryProps) {
   const templates = getSavedTemplates();
   const initialTemplate = getTemplate(consultation.templateId);
+  const seedTemplate = templates.find((x) => x.id === consultation.templateId) || initialTemplate;
   const [activeTemplateId, setActiveTemplateId] = useState<string>(
     templates.some((t) => t.id === consultation.templateId) ? consultation.templateId || 'standard' : 'standard'
   );
-  const [activeTemplate, setActiveTemplate] = useState<NoteTemplate>(() => {
-    const t = templates.find((x) => x.id === initialTemplate.id) || initialTemplate;
-    return t;
-  });
-  const [edits, setEdits] = useState<Record<string, string>>(() =>
-    initEdits(consultation, templates.find((x) => x.id === consultation.templateId) || initialTemplate)
-  );
+  const [activeTemplate, setActiveTemplate] = useState<NoteTemplate>(seedTemplate);
+  const [edits, setEdits] = useState<Record<string, string>>(() => initEdits(consultation, seedTemplate));
+  /** As-generated text per section — the revert target for undo-after-edit. */
+  const [pristineEdits] = useState<Record<string, string>>(() => initEdits(consultation, seedTemplate));
+  /** Sections the dentist has touched since opening — powers the review scan strip. */
+  const [editedKeys, setEditedKeys] = useState<Set<string>>(new Set());
 
   const [patientLetter, setPatientLetter] = useState(consultation.patientSummary || '');
   const [adaCodes, setAdaCodes] = useState<AdaCodeItem[]>(consultation.findings.adaCodes || []);
@@ -136,9 +140,64 @@ export default function ClinicalSummary({
 
   const updateEdit = (key: string, value: string) => {
     setEdits((prev) => ({ ...prev, [key]: value }));
+    setEditedKeys((prev) => {
+      if (prev.has(key)) return prev;
+      const next = new Set(prev);
+      next.add(key);
+      return next;
+    });
   };
 
   const getSectionValue = (key: string): string => edits[key] ?? '';
+
+  const revertEdit = (key: string) => {
+    setEdits((prev) => ({ ...prev, [key]: pristineEdits[key] ?? '' }));
+    setEditedKeys((prev) => {
+      if (!prev.has(key)) return prev;
+      const next = new Set(prev);
+      next.delete(key);
+      return next;
+    });
+  };
+
+  /** First section still empty in edit order — the scan strip's jump target. */
+  const firstEmptyKey = useMemo(
+    () => activeTemplate.sections.find((s) => !(edits[s.key] ?? '').trim())?.key ?? null,
+    [activeTemplate, edits]
+  );
+  const firstEditedKey = useMemo(
+    () => activeTemplate.sections.find((s) => editedKeys.has(s.key))?.key ?? null,
+    [activeTemplate, editedKeys]
+  );
+  const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const focusSection = (key: string) => {
+    const el = sectionRefs.current[key];
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const ta = el.querySelector('textarea');
+    if (ta) ta.focus();
+  };
+  /** Auto-scan on open for drafts: park the cursor at the first empty field. */
+  useEffect(() => {
+    if (!needsReview || !firstEmptyKey) return;
+    const id = window.setTimeout(() => focusSection(firstEmptyKey), 350);
+    return () => window.clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleSignNote = () => handleSaveToRecord();
+
+  /** ⌘/Ctrl+Enter anywhere on the review screen signs the note. */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        e.preventDefault();
+        handleSignNote();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
 
   const handleCopySummary = () => {
     navigator.clipboard.writeText(patientLetter);
@@ -211,6 +270,15 @@ export default function ClinicalSummary({
   };
 
   const patientSummaryEmpty = !patientLetter.trim();
+  const emptyCount = activeTemplate.sections.filter((s) => !(edits[s.key] ?? '').trim()).length;
+  const editedCount = editedKeys.size;
+  const evidenceBySection = useMemo(() => {
+    const map: Record<string, string[]> = {};
+    for (const s of activeTemplate.sections) {
+      map[s.key] = sectionEvidence(s, consultation.transcript || []);
+    }
+    return map;
+  }, [activeTemplate, consultation.transcript]);
   const sectionRows = activeTemplate.sections.map((section, idx) => {
     const accent = ACCENTS[idx % ACCENTS.length];
     const isRecall = section.key === 'recallRequirements';
@@ -220,6 +288,7 @@ export default function ClinicalSummary({
     return (
       <div
         key={section.key}
+        ref={(el) => { sectionRefs.current[section.key] = el; }}
         className={`p-1 rounded-2xl transition-all duration-300 shadow-sm border focus-within:ring-1 ${accent.card}`}
       >
         <div className="bg-white border rounded-[calc(1rem-0.25rem)] p-4">
@@ -230,6 +299,21 @@ export default function ClinicalSummary({
             <label className={`font-bold text-[10px] uppercase tracking-wider ${accent.label}`}>
               {section.label}
             </label>
+            {editedKeys.has(section.key) && (
+              <span className="ml-auto flex items-center gap-2">
+                <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400">edited</span>
+                {(pristineEdits[section.key] ?? '') !== (edits[section.key] ?? '') && (
+                  <button
+                    type="button"
+                    onClick={() => revertEdit(section.key)}
+                    title="Revert this section to the generated text"
+                    className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-slate-400 hover:text-primary transition-colors cursor-pointer"
+                  >
+                    <Undo2 className="w-3 h-3" /> Undo
+                  </button>
+                )}
+              </span>
+            )}
           </div>
           {isRecall ? (
             <div className="flex flex-col md:flex-row md:items-center gap-3 pt-1">
@@ -256,6 +340,42 @@ export default function ClinicalSummary({
               className="w-full border-none p-0 focus:ring-0 text-slate-700 text-sm resize-none bg-transparent outline-none"
             />
           )}
+          {/* Verbatim transcript evidence for this section (quote-only). */}
+          {!isRecall && evidenceBySection[section.key]?.length ? (
+            <div className="mt-2 pt-2 border-t border-slate-100">
+              <div className="flex items-center gap-1.5 mb-1.5">
+                <Quote className="w-3 h-3 text-slate-300" />
+                <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400">What was said</span>
+              </div>
+              <div className="flex flex-col gap-1">
+                {evidenceBySection[section.key].slice(0, 3).map((q, qi) => {
+                  const insertable = !current.trim();
+                  return (
+                    <button
+                      key={qi}
+                      type="button"
+                      onClick={() => {
+                        if (insertable) updateEdit(section.key, current ? `${current} ${q}` : q);
+                      }}
+                      title={insertable ? 'Insert this quote into the section' : 'Verbatim transcript quote — for verification'}
+                      className={`text-left text-[11px] leading-snug text-slate-500 italic truncate px-2 py-1 rounded-lg border transition-colors ${
+                        insertable
+                          ? 'border-slate-100 bg-slate-50/60 hover:border-indigo-200 hover:bg-indigo-50/60 hover:text-indigo-700 cursor-pointer'
+                          : 'border-transparent cursor-default'
+                      }`}
+                    >
+                      “{q}”
+                    </button>
+                  );
+                })}
+                {evidenceBySection[section.key].length > 3 && (
+                  <span className="text-[9px] text-slate-300 font-semibold pl-2">
+                    +{evidenceBySection[section.key].length - 3} more quotes in transcript
+                  </span>
+                )}
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
     );
@@ -344,6 +464,31 @@ export default function ClinicalSummary({
                     {activeTemplate.name}
                   </span>
                 </div>
+                {/* Review scan strip: empty/edited counters + one-tap jump. */}
+                {(emptyCount > 0 || editedCount > 0) && (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {emptyCount > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => firstEmptyKey && focusSection(firstEmptyKey)}
+                        className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 transition-colors cursor-pointer"
+                      >
+                        <ListChecks className="w-3 h-3" />
+                        {emptyCount} empty — jump
+                      </button>
+                    )}
+                    {editedCount > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => firstEditedKey && focusSection(firstEditedKey)}
+                        className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-sky-50 text-sky-700 border border-sky-200 hover:bg-sky-100 transition-colors cursor-pointer"
+                      >
+                        <ListChecks className="w-3 h-3" />
+                        {editedCount} edited — jump
+                      </button>
+                    )}
+                  </div>
+                )}
                 <button
                   onClick={handleCopyPmsNote}
                   title="Copy the note formatted for your PMS"
@@ -468,7 +613,10 @@ export default function ClinicalSummary({
                     className="w-full bg-[#004ac6] hover:bg-opacity-95 text-white h-14 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all cursor-pointer text-sm"
                   >
                     <Save className="w-5 h-5 fill-white" />
-                    <span>{needsReview ? 'Review Complete — Save to Record' : 'Save to Practice Record'}</span>
+                    <span>
+                      {needsReview ? 'Review Complete — Save to Record' : 'Save to Practice Record'}
+                      <span className="ml-2 text-[10px] font-semibold text-blue-200 hidden md:inline">⌘↵</span>
+                    </span>
                   </button>
                 </div>
               </div>

@@ -16,7 +16,7 @@ We utilize Vercel's Git integrations or CLI deployments to perform canary releas
                          Canary Production Release
                          (e.g., 10% Traffic Split via Vercel Dashboard)
                                  │
-                                 ├── Monitor /api/telemetry (P95 Latency)
+                                 ├── Monitor /api/health + /api/ops/telemetry (P95, queue depth)
                                  ▼
                          100% Production Promotion
 ```
@@ -24,7 +24,8 @@ We utilize Vercel's Git integrations or CLI deployments to perform canary releas
 ### Rollout Step-by-Step
 1. **Push code to branch**: Create a PR to `main` branch. This triggers a **Vercel Preview Deployment**.
 2. **Staging Smoke Test**: Access the preview URL and run Indian/AU accent simulations.
-   - Verify `/api/telemetry` responds with `200 OK`.
+   - Verify `/api/health` responds `200` with `"database":"ok"`, and
+     `/api/ops/telemetry` (with `DENTAI_OPS_SECRET`) shows a draining queue.
 3. **Merge to Main**: Merging triggers production deployment.
 4. **Configure Traffic Split** (Canary):
    - Navigate to the **Vercel Dashboard** -> **Deployments**.
@@ -36,13 +37,20 @@ We utilize Vercel's Git integrations or CLI deployments to perform canary releas
 
 ## 2. Telemetry and Decision Thresholds
 
-Query `GET https://<your-app-domain>/api/telemetry` or inspect Vercel logs to make the following decisions:
+Query `GET https://<your-app-domain>/api/health` and
+`GET https://<your-app-domain>/api/ops/telemetry` (header
+`x-dentai-ops-secret`) or inspect host logs to make the following decisions.
+Telemetry counters are per instance and reset on cold start — use
+`ERROR_WEBHOOK_URL` alerting for anything that must survive a restart.
 
 | Metric | Target (Advance) | Hold & Investigate | Rollback Immediately |
 |---|---|---|---|
 | **API Error Rate** | 0% | < 2% of requests | >= 2% of requests or new critical anomalies |
 | **P95 Latency** | < 3000ms | 3000ms - 5000ms | > 5000ms |
 | **HTTP Statuses** | 200, 400 (Expected validation errors) | 503 (API down) | 500 Internal Server Errors |
+| **`/api/health`** | `status: ok`, `database: ok` | `status: degraded` | Non-200 for > 5 minutes |
+| **Queue depth (`openNoteJobs`)** | 0 in steady state | Rising but draining | > 20 and not draining for 10 minutes |
+| **Clinic daily ceiling** | Below limit | Approaching limit | Clinics hitting the ceiling daily (under-provisioned plan) |
 
 ---
 

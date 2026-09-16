@@ -31,24 +31,23 @@ View your app in AI Studio: https://ai.studio/apps/baa326da-f1fe-4df5-9760-464dd
    ```bash
    npm install
    ```
-2. Configure `.env.local` or `.env` in the root:
-```env
-GEMINI_API_KEY="your-gemini-api-key"
-# Optional: secondary Gemini project key used automatically when the primary
-# key hits its quota/billing limit (its own separate quota pool).
-GEMINI_FALLBACK_API_KEY="your-second-gemini-api-key"
-# Optional: override the fallback model (defaults to GEMINI_MODEL or gemini-3.6-flash).
-GEMINI_FALLBACK_MODEL="gemini-3.6-flash"
-SESSION_SECRET="a-long-random-secret-used-to-sign-session-tokens"
-```
-   `SESSION_SECRET` is required in production (`NODE_ENV=production`) — the server will refuse to start without it.
-
-3. (Optional but recommended) Add a Postgres connection string to make data durable on serverless:
+2. Configure environment variables in `.env.local` (never commit them). The
+   minimum for local development is `GEMINI_API_KEY` and `SESSION_SECRET`:
    ```env
-   DATABASE_URL="postgresql://..."
+   GEMINI_API_KEY="your-gemini-api-key"
+   SESSION_SECRET="a-long-random-secret-used-to-sign-session-tokens"
+   DATABASE_URL="postgresql://..."   # required in production
    ```
-   When `DATABASE_URL` is set, dentists, consultations, and the audit log are stored in
-   Postgres (Neon-compatible). Without it, the server falls back to JSON files / Vercel KV.
+   `SESSION_SECRET` is required in production (`NODE_ENV=production`).
+   **Every variable, what it does, and the safe production value is documented in
+   `docs/operations/environment-reference.md`** — including `DENTAI_OPS_SECRET`,
+   `CRON_SECRET`, the per-clinic daily ceilings and the residency settings.
+
+   When `DATABASE_URL` is set, dentists, consultations, the audit log and the note
+   queue are stored in Postgres (Neon-compatible). **Production requires Postgres**:
+   without it the server falls back to JSON files, which on serverless means
+   records written to a disk that disappears between requests. That fallback now
+   fails closed unless `DENTAI_ALLOW_FILE_STORAGE=true` is set deliberately.
 3. Run the development server:
    ```bash
    npm run dev
@@ -97,18 +96,46 @@ DentAI is configured for Vercel out of the box with serverless function mapping 
 
 ---
 
-## Monitoring and Telemetry
+## Monitoring and operations
 
-DentAI tracks requests, errors, and P50/P95 response times. You can fetch metrics via:
-`GET /api/telemetry`
+Three endpoints, deliberately separated by who may call them:
 
-Response format:
-```json
-{
-  "totalRequests": 42,
-  "totalErrors": 0,
-  "p50LatencyMs": 1820,
-  "p95LatencyMs": 3100,
-  "averageLatencyMs": 1940
-}
+| Endpoint | Auth | Purpose |
+|---|---|---|
+| `GET /api/health` | none | Liveness/readiness. `200` when serving and the database answers; `503` when degraded. Safe to feed an uptime monitor. |
+| `GET /api/ops/telemetry` | `DENTAI_OPS_SECRET` | Per-instance request/error/latency counters plus `openNoteJobs` queue depth. |
+| `POST /api/ops/drain` · `GET|POST /api/cron/drain` | ops secret · `CRON_SECRET` | Advance the note queue. The cron route is what makes completion durable when no browser is open. |
+
+```bash
+curl -s https://<app>/api/health | jq
+curl -s -H "x-dentai-ops-secret: $DENTAI_OPS_SECRET" https://<app>/api/ops/telemetry | jq
 ```
+
+`GET /api/telemetry` is retired and returns `401` — it used to publish process
+metrics to anyone who asked, and on serverless those counters were per-instance
+anyway. Set `ERROR_WEBHOOK_URL` to have errors pushed to Slack/Teams/Discord;
+logging never includes clinical content.
+
+Operator procedures: `docs/runbooks/operator-runbook.md`,
+`docs/runbooks/queue-scheduling.md`, `docs/runbooks/backup-and-restore.md`.
+
+---
+
+## Compliance and clinical safety
+
+The product is built for Australian practices, so the paper trail is part of the
+repository:
+
+- In-app **privacy notice** and **terms** (`#/privacy`, `#/terms`), reachable from
+the landing page and the sign-in screen, with the AI-assist disclosure shown at intake.
+- Patient consent (timestamp + disclosure version) stored on the consultation.
+- Append-only note revisions and an audited access log per clinic.
+- Model provenance on every note: which engine drafted it, and whether it needs
+  clinician review.
+- `docs/legal/data-flow-and-subprocessors.md` — exactly where patient data goes.
+- `docs/legal/retention-and-deletion.md`, `docs/legal/practice-agreement-checklist.md`.
+- `docs/runbooks/notifiable-data-breach.md` — the NDB response procedure.
+- `docs/operations/au-go-live-checklist.md` — go/no-go list and known limitations.
+
+DentAI is documentation software: it does not diagnose or prescribe, and the
+treating practitioner reviews and owns every record.

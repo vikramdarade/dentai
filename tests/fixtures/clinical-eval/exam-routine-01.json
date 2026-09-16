@@ -1,0 +1,49 @@
+{
+  "id": "exam-routine-01",
+  "description": "Routine examination with existing restorations, no pathology. Checks that a clean examination does not acquire a diagnosis or a treatment it did not perform.",
+  "transcript": [
+    { "sender": "Dentist", "text": "What brings you in today?" },
+    { "sender": "Patient", "text": "Just a check-up, no pain anywhere." },
+    { "sender": "Dentist", "text": "Any sensitivity to cold or hot?" },
+    { "sender": "Patient", "text": "No, nothing like that." },
+    { "sender": "Dentist", "text": "BPE is 1 1 1. Upper right six has an existing composite, looks intact, no marginal breakdown. Lower left six has a small amalgam, sound." },
+    { "sender": "Dentist", "text": "No caries visible on bitewings from March. Gingivae are pink and firm, no bleeding on probing." },
+    { "sender": "Dentist", "text": "I'll see you again in six months. Keep up the flossing." }
+  ],
+  "intake": {
+    "firstName": "Alicia",
+    "lastName": "Moretti",
+    "appointmentType": "examination",
+    "templateId": "standard"
+  },
+  "expected": {
+    "required": {
+      "chiefComplaint": [["check-up", "check up", "no pain"]],
+      "toothFindings": [["16"], ["no caries", "sound"]],
+      "findingsGingival": [["bpe 1", "1 1 1"], ["no bleeding"]],
+      "recallRequirements": [["six months", "6 months"]]
+    },
+    "mustBePresent": ["history", "recommendations"],
+    "forbidden": ["irreversible pulpitis", "extraction", "caries on bitewing", "root canal"],
+    "expectedCodes": ["011", "114"]
+  },
+  "recorded": {
+    "fields": {
+      "chiefComplaint": "Attends for a routine check-up. No pain, no thermal sensitivity reported.",
+      "history": "Nil relevant medical or dental history recorded at this visit. Existing restorations noted.",
+      "toothFindings": "16: existing composite intact, no marginal breakdown. 36: small amalgam restoration, sound. No caries visible on bitewing radiographs taken March 2026.",
+      "findingsGingival": "BPE 1 1 1. Gingivae pink and firm with no bleeding on probing.",
+      "diagnosis": "No active dental disease identified at this visit.",
+      "treatmentPerformed": "Comprehensive examination performed. Bitewing radiographs reviewed. No operative treatment today.",
+      "recommendations": "Continue brushing twice daily and flossing. Maintain current oral hygiene routine.",
+      "recallRequirements": "Routine recall in six months, or sooner if symptoms develop."
+    },
+    "patientSummary": "You attended for a routine examination. No decay or gum problems were found today. Your existing fillings are intact. Please continue flossing daily and return in six months.",
+    "adaCodes": [
+      { "code": "011", "description": "Comprehensive oral examination" },
+      { "code": "114", "description": "Removal of calculus — first visit" }
+    ],
+    "engine": "gemini",
+    "needsReview": false
+  }
+}

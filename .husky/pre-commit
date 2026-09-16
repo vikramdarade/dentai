@@ -1,1 +1,3 @@
-npm run lint && npm test
+#!/bin/sh
+# One package manager (Bun). Keep this in sync with .github/workflows/ci.yml.
+bun run lint && bun run test

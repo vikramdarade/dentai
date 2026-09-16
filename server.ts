@@ -21,6 +21,7 @@ import {
   JOB_CONFIG,
   PRIORITY_WEIGHT,
   DEFAULT_CLINIC_DAILY_LIMIT,
+  DEFAULT_CLINIC_DAILY_TOKEN_LIMIT,
   backoffDelayMs,
   isQuotaError,
   meteringDay,
@@ -73,9 +74,47 @@ import {
   dbRequeueStuckProcessingJobs,
   dbUpdateNoteJob,
   dbRecordUsage,
-  dbGetUsageCount
+  dbGetUsageCount,
+  dbGetUsageTokens,
+  dbRecordLoginFailure,
+  dbGetLoginLock,
+  dbClearLoginFailures,
+  dbRevokeSession,
+  dbIsSessionRevoked,
+  dbPruneRevokedSessions,
+  dbConsumeRecoveryToken,
+  dbPing,
+  dbCountOpenNoteJobs,
+  dbOldestOpenJobAgeMs,
+  dbUpdateDentistPin,
+  dbBumpSessionEpoch,
+  dbListRecentAudit,
+  dbInsertRecoveryToken,
+  dbMigrationRows,
+  dbListClinics,
+  dbClinicMemberCounts,
+  dbListSubscriptions,
+  dbSetLoginLock
 } from './src/lib/db';
 import { getTodayStr, getCurrentTimeStr } from './src/types';
+import {
+  LOGIN_MAX_ATTEMPTS,
+  LOGIN_LOCKOUT_MS,
+  RECOVERY_TOKEN_TTL_MS,
+  SESSION_TTL_SECONDS,
+  isWeakPin,
+  isValidPinFormat,
+  loginAttemptKeys,
+  weakPinMessage
+} from './src/lib/authPolicy';
+import {
+  AI_DISCLOSURE_VERSION,
+  PRIVACY_NOTICE_VERSION,
+  TERMS_VERSION,
+  DPA_VERSION
+} from './src/lib/compliance';
+import { GENESIS_HASH, auditEntryHash } from './src/lib/auditChain';
+import { retentionPolicyFromEnv, type RetentionPolicy } from './src/lib/retentionPolicy';
 
 // Load environment variables
 dotenv.config({ path: '.env.local' });
@@ -85,6 +124,21 @@ const __filename = typeof import.meta !== 'undefined' && import.meta.url
   ? fileURLToPath(import.meta.url)
   : '';
 const __dirname = __filename ? path.dirname(__filename) : process.cwd();
+
+/**
+ * Where the JSON fallback store lives.
+ *
+ * DENTAI_DATA_DIR exists so tests and operator tooling write somewhere
+ * disposable instead of the developer's working copy — a test run must never
+ * mutate (or leak) real patient records. Production does not use this path at
+ * all: see the fail-closed storage check below.
+ */
+const DATA_DIR = process.env.DENTAI_DATA_DIR
+  ? path.resolve(process.env.DENTAI_DATA_DIR)
+  : path.resolve(__dirname, 'data');
+
+/** True when the deployment explicitly accepts file-based storage. */
+const FILE_STORAGE_ACCEPTED = process.env.DENTAI_ALLOW_FILE_STORAGE === 'true';
 
 const app = express();
 
@@ -96,7 +150,237 @@ app.use(
   })
 );
 
-app.use(express.json({ limit: '1mb' }));
+// The raw body is kept alongside the parsed one because Stripe webhook
+// signatures are computed over the exact bytes received — a re-serialised
+// object would never match, and trusting the parsed body would mean trusting
+// whoever sent it. See src/server/billing.ts.
+app.use(
+  express.json({
+    limit: '1mb',
+    verify: (req: any, _res, buf) => {
+      if (Buffer.isBuffer(buf)) req.rawBody = buf.toString('utf8');
+    },
+  })
+);
+
+/* ===========================================================================
+ * Stores and services shared by the governance layers and the routes below.
+ *
+ * Created once at module load so every layer sees the same instances (and the
+ * same caches), and so a deployment's configuration is evaluated exactly once
+ * and logged in one place.
+ * ======================================================================== */
+const jsonKv = { read: readDb, write: writeDb, dir: DATA_DIR };
+const storeDeps = { kv: jsonKv, logger: logger as StoreLogger };
+
+const practiceAcceptanceStore = createPracticeAcceptanceStore(storeDeps);
+const rateLimitStore = createRateLimitStore(storeDeps);
+const rateLimitDeps = { store: rateLimitStore, logger };
+const mfaStore = createMfaStore(storeDeps);
+const clinicInviteStore = createClinicInviteStore(storeDeps);
+const retentionStore = createRetentionStore(storeDeps);
+const subscriptionStore = createSubscriptionStore(storeDeps);
+const billingEventStore = createBillingEventStore(storeDeps);
+const emailer = createEmailer({ logger });
+const entitlements = createEntitlementResolver({ store: subscriptionStore, logger });
+const alertThresholds = thresholdsFromEnv();
+const alerter = createAlerter({ thresholds: alertThresholds, logger });
+
+/** Retention configuration. Off unless the operator turns it on. */
+const retentionPolicy: RetentionPolicy = retentionPolicyFromEnv();
+const RETENTION_ENABLED = (process.env.DENTAI_RETENTION_ENABLED || '') === 'true';
+let lastRetentionSweep: RetentionSweepResult | null = null;
+
+/** The configuration contract, evaluated once and reported at boot. */
+const configuration = checkConfiguration();
+assertStartupConfiguration(configuration);
+logger.info(describeConfiguration(configuration));
+
+/**
+ * The allowance that actually applies to a clinic: plan entitlement capped by
+ * the operator's global cost ceiling (see src/lib/plans.ts).
+ */
+async function resolveDailyLimits(scopeId: string): Promise<{ notes: number; tokens: number }> {
+  const resolved = await entitlements.resolve(scopeId);
+  return { notes: resolved.dailyNotes, tokens: resolved.dailyTokens };
+}
+
+/** Oldest open job in the JSON store, for the queue-stall alert. */
+async function oldestJsonJobAgeMs(): Promise<number | null> {
+  const data = await readJobsDb();
+  const open = data.jobs.filter((j: any) => j.status === 'queued' || j.status === 'processing');
+  if (open.length === 0) return null;
+  const oldest = open.reduce(
+    (min: number, j: any) => Math.min(min, Date.parse(j.createdAt) || Date.now()),
+    Date.now()
+  );
+  return Math.max(0, Date.now() - oldest);
+}
+
+/* ===========================================================================
+ * Governance layers
+ *
+ * Registered here so they wrap the clinical handlers below. Their behaviour
+ * and rationale live in src/server/*.ts:
+ *   - aiMetering        : every generation path spends the same clinic budget
+ *   - recordGovernance  : consent, append-only revisions, audited reads
+ *   - opsRoutes         : /api/health, operator telemetry, queue drain
+ *
+ * Note on ordering: these run before the route-level handlers they protect, so
+ * each verifies the session itself (composing the shared auth middleware)
+ * rather than assuming another layer already did.
+ * ======================================================================== */
+import { createAiMetering } from './src/server/aiMetering';
+import { createRecordGovernance } from './src/server/recordGovernance';
+import { createOpsGuard, registerOpsRoutes } from './src/server/opsRoutes';
+import { registerSessionSecurityRoutes } from './src/server/sessionSecurity';
+import { createSignupGuard } from './src/server/signupGuard';
+import { DEFAULT_RETENTION_YEARS } from './src/lib/compliance';
+import { createDurableRateLimit } from './src/server/durableRateLimit';
+import {
+  createBillingEventStore,
+  createClinicInviteStore,
+  createMfaStore,
+  createPracticeAcceptanceStore,
+  createRateLimitStore,
+  createRetentionStore,
+  createSubscriptionStore,
+  type StoreLogger
+} from './src/server/stores';
+import { registerPracticeAgreementRoutes } from './src/server/practiceAgreement';
+import { registerClinicExportRoutes } from './src/server/clinicExport';
+import {
+  activateManually,
+  createEntitlementResolver,
+  registerBillingRoutes
+} from './src/server/billing';
+import { createLoginMfaGuard, registerMfaRoutes } from './src/server/mfa';
+import { createEmailer, recoveryCodeEmail } from './src/server/email';
+import { registerOpsActionRoutes } from './src/server/opsActions';
+import {
+  assertStartupConfiguration,
+  checkConfiguration,
+  describeConfiguration
+} from './src/server/configCheck';
+import { createAlerter, thresholdsFromEnv } from './src/server/alerting';
+import { runRetentionSweep, type RetentionSweepResult } from './src/server/retention';
+import { createTranscriptValidation } from './src/server/payloadValidation';
+
+// Credential change and "sign out every device". Registered here so they are
+// the authoritative handlers for those paths (Express routes to the first
+// registered match), and so a credential change reliably retires other
+// sessions via the account's session epoch.
+registerSessionSecurityRoutes(app, {
+  logger,
+  authenticate: authenticateToken,
+  dbEnabled,
+  readUsersDb,
+  writeUsersDb,
+  dbUpdateDentistPin,
+  dbGetDentistById,
+  consumeRecoveryToken: dbConsumeRecoveryToken,
+  bumpEpoch: bumpDentistEpoch,
+  recordLoginFailure,
+  clearLoginFailures,
+  verifyPinHash,
+  getDentistSalt,
+  getPinHash,
+  generateToken,
+  sessionTtlSeconds: SESSION_TTL_SECONDS,
+  logAudit,
+});
+
+/** Schema/behaviour version reported by /api/health (bump on breaking change). */
+const SCHEMA_VERSION = '2026-09-16-security-1';
+
+const generationLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 60,
+  message: { error: 'Too many AI generation requests from this address. Please wait and try again.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const aiMeteringDeps = {
+  logger,
+  authenticate: authenticateToken,
+  resolveClinicScope,
+  getUsageCountToday,
+  getTokensUsedToday,
+  recordUsageEvent,
+  resolveDailyLimits,
+  usageSnapshotFor,
+  approxTokens: (transcript: any[]) => getTranscriptStats(transcript).approxTokens,
+  logAudit,
+};
+
+// The legacy synchronous generation route is metered like everything else.
+const syncGenerationMetering = createAiMetering(aiMeteringDeps, {
+  route: 'generate-notes',
+  recordUsage: true,
+  usageKind: 'ai_note_sync',
+  onlyMethod: 'POST',
+});
+app.use('/api/generate-notes', generationLimiter, syncGenerationMetering);
+
+// Job submission is metered for the token ceiling too (the note count is
+// enforced in the job handler; the cost ceiling was previously absent).
+const jobSubmitMetering = createAiMetering(aiMeteringDeps, {
+  route: 'notes-jobs',
+  recordUsage: false,
+  onlyMethod: 'POST',
+});
+app.use('/api/notes/jobs', jobSubmitMetering);
+
+// Consent, revisions and read auditing for every consultation write/read.
+const recordGovernance = createRecordGovernance({
+  logger,
+  authenticate: authenticateToken,
+  aiDisclosureVersion: AI_DISCLOSURE_VERSION,
+  privacyNoticeVersion: PRIVACY_NOTICE_VERSION,
+  retentionYears: DEFAULT_RETENTION_YEARS,
+  requireConsent: (process.env.DENTAI_REQUIRE_CONSENT || '') === 'true',
+  logAudit,
+  listConsultations: async (dentistId: string) =>
+    dbEnabled
+      ? dbListConsultations(dentistId)
+      : (await readConsultationsDb()).consultations.filter((c: any) => c.dentistId === dentistId),
+});
+app.use('/api', recordGovernance);
+
+registerOpsRoutes(app, {
+  logger,
+  dbEnabled,
+  dbPing,
+  countOpenNoteJobs: dbCountOpenNoteJobs,
+  drainQueue,
+  constantTimeEquals: signaturesMatch,
+  schemaVersion: SCHEMA_VERSION,
+  // Counts only. /api/health is public, so it must never name a missing secret.
+  configuration: () => ({
+    readiness: configuration.readiness,
+    blocking: configuration.blocking.length,
+    advisories: configuration.advisories.length,
+  }),
+  migrationLabel: () => migrationLabel,
+});
+// Registration is gated before the signup handler runs: a closed flag and a
+// per-address account-creation limit, because each new account brings its own
+// AI allowance (see src/server/signupGuard.ts). The limiter is the durable one
+// so the cap holds across instances.
+const signupLimiterFactory = (options: Record<string, any>) =>
+  createDurableRateLimit(rateLimitDeps, {
+    name: 'signup',
+    windowMs: options.windowMs,
+    max: options.max,
+    skip: options.skip,
+    message: options.message?.error || 'Too many new accounts from this address.',
+  });
+app.use('/api/auth/register', ...createSignupGuard({ rateLimit: signupLimiterFactory, logger }));
+
+// Screenshot import carries a full PMS screenshot as base64 — a retina capture
+// routinely exceeds the global 1MB cap, so this route gets its own parser.
+app.use('/api/day/import-screenshot', express.json({ limit: '8mb' }));
 
 // Request Logging & Latency Telemetry Middleware
 app.use((req, res, next) => {
@@ -114,21 +398,356 @@ app.use((req, res, next) => {
   next();
 });
 
-// API Rate Limiting (max 100 requests per 15 minutes)
-const apiLimiter = rateLimit({
+/*
+ * API rate limiting (100 requests / 15 minutes per address).
+ *
+ * Durable: the counters live in the shared store, so twenty serverless
+ * instances share one budget instead of each getting its own. See
+ * src/server/durableRateLimit.ts.
+ */
+const apiLimiter = createDurableRateLimit(rateLimitDeps, {
+  name: 'api',
   windowMs: 15 * 60 * 1000,
   max: 100,
-  message: { error: 'Too many requests, please try again later.' },
-  standardHeaders: true,
-  legacyHeaders: false,
+  message: 'Too many requests, please try again later.',
   // Job polling is the async fabric's own heartbeat: the client polls every
   // ~1.5s while a note generates, and each poll opportunistically ticks the
   // worker. Counting polls here would spend the dentist's entire 100-request
   // window mid-consult; the POST that enqueues is still metered.
-  skip: (req) => req.method === 'GET' && /^\/api\/notes\/jobs\/[0-9a-fA-F-]+$/.test(req.originalUrl || ''),
+  skip: (req) =>
+    req.method === 'GET' && /^\/api\/notes\/jobs\/[0-9a-fA-F-]+$/.test(req.originalUrl || ''),
 });
 
 app.use('/api/', apiLimiter);
+
+/* ===========================================================================
+ * Practice-facing and operator routes added on top of the clinical core.
+ *
+ *   practiceAgreement : the practice's acceptance of terms and the DPA
+ *   clinicExport      : self-serve export of a practice's own records
+ *   billing           : entitlements, verified webhooks, checkout
+ *   mfa               : real TOTP, enforced at sign-in
+ *   opsActions        : support actions for the operator (config, audit, plans)
+ *
+ * Registered after the request logger and the rate limiter so they are logged
+ * and budgeted like every other API route.
+ * ======================================================================== */
+const requireOps = createOpsGuard({ constantTimeEquals: signaturesMatch, logger });
+
+/*
+ * Payload shape checks, registered before the generation and record handlers.
+ * `transcript: [1, 2, 3]` used to be accepted and enqueued — spending a model
+ * call to produce nothing. See src/server/payloadValidation.ts.
+ */
+app.use('/api/notes/jobs', createTranscriptValidation({ requireIntake: true }));
+app.use('/api/generate-notes', createTranscriptValidation({ requireIntake: true }));
+app.use('/api/consultations', createTranscriptValidation({ requireIntake: false }));
+
+/**
+ * Schema version reported by /api/health. Read from the migrations ledger
+ * rather than hardcoded, so a deployment that failed to migrate says so
+ * instead of claiming to be current.
+ */
+let migrationLabel = 'unknown';
+async function refreshMigrationLabel(): Promise<void> {
+  try {
+    const rows = await dbMigrationRows();
+    const active = rows.filter((r: any) => !r.rolled_back_at);
+    migrationLabel = active.length
+      ? `v${Math.max(...active.map((r: any) => Number(r.version)))}`
+      : 'v0';
+  } catch {
+    // Keep the previous value; a transient read failure is not worth an alert.
+  }
+}
+void refreshMigrationLabel();
+
+/**
+ * Sets or clears a durable login lock for an operator action (lock for hours,
+ * or unlock immediately). The 15-minute lock a failed PIN earns is a separate,
+ * automatic path — see recordLoginFailure.
+ */
+async function setLoginLock(key: string, lockedUntil: Date | null): Promise<void> {
+  if (dbEnabled) return dbSetLoginLock(key, lockedUntil);
+  const store = await readLoginAttemptsStore();
+  if (!lockedUntil) delete store[key];
+  else store[key] = { failures: 0, lockedUntil: lockedUntil.getTime() };
+  await writeDb('dentai:login_attempts', LOGIN_ATTEMPTS_FILE, store);
+}
+
+{
+  // Refreshed periodically so a migration applied after boot (by an operator)
+  // shows up without a redeploy. Unref'd so it never holds the process open.
+  const migrationTimer = setInterval(() => void refreshMigrationLabel(), 5 * 60 * 1000);
+  if (typeof migrationTimer.unref === 'function') migrationTimer.unref();
+}
+
+/** Clinic members in either persistence mode, normalised for the export. */
+async function membersForClinic(clinicId: string) {
+  if (dbEnabled) return dbListClinicMembers(clinicId);
+  const data = await readClinicsDb();
+  const clinic = findClinicLocal(data, clinicId);
+  return ((clinic?.members as any[]) || []).map((m: any) => ({
+    dentistId: m.dentistId,
+    name: m.name,
+    role: m.role,
+    status: m.status
+  }));
+}
+
+/** Every consultation recorded in a clinic, in either persistence mode. */
+async function consultationsForClinicScope(clinicId: string) {
+  if (dbEnabled) return dbListConsultationsForClinic(clinicId);
+  const data = await readConsultationsDb();
+  return data.consultations.filter((c: any) => c.clinicId === clinicId);
+}
+
+/** Recent audit entries, newest first, normalised for the operator console. */
+async function auditEntriesForOps(limit: number) {
+  if (dbEnabled) return dbListRecentAudit(limit);
+  const data = await readDb('dentai:audit', AUDIT_FILE, { events: [] });
+  return [...(data.events as any[])]
+    .reverse()
+    .slice(0, limit)
+    .map((e: any) => ({
+      event: e.event,
+      dentistId: e.dentistId ?? null,
+      detail: e.detail ?? {},
+      createdAt: e.createdAt || e.timestamp,
+      prevHash: e.prevHash ?? null,
+      hash: e.hash ?? null
+    }));
+}
+
+/**
+ * Issues a single-use, expiring credential-recovery token for one account.
+ * Same mechanism as scripts/issue-recovery-token.ts, callable from the console.
+ */
+async function issueRecoveryTokenFor(input: {
+  dentistId: string;
+  hours: number;
+  operator: string;
+}): Promise<{ token: string; expiresAt: string; dentistName: string }> {
+  const dentist: any = dbEnabled
+    ? await dbGetDentistById(input.dentistId)
+    : (await readUsersDb()).dentists.find((d: any) => d.id === input.dentistId);
+  if (!dentist) throw new Error('Clinician profile not found.');
+
+  const token = crypto.randomBytes(32).toString('base64url');
+  const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+  const expiresAt = new Date(Date.now() + input.hours * 60 * 60 * 1000);
+
+  if (dbEnabled) {
+    await dbInsertRecoveryToken({
+      tokenHash,
+      dentistId: dentist.id,
+      issuedBy: input.operator,
+      expiresAt
+    });
+  } else {
+    const store = await readDb('dentai:recovery_tokens', RECOVERY_FILE, { tokens: {} });
+    store.tokens[tokenHash] = {
+      dentistId: dentist.id,
+      issuedBy: input.operator,
+      expiresAt: expiresAt.toISOString(),
+      usedAt: null,
+      createdAt: new Date().toISOString()
+    };
+    await writeDb('dentai:recovery_tokens', RECOVERY_FILE, store);
+  }
+  return { token, expiresAt: expiresAt.toISOString(), dentistName: dentist.name };
+}
+
+/**
+ * Retires every session for an account and, unless unlocking, blocks new
+ * sign-ins for the requested window. Never deletes the account: the practice
+ * must keep its records regardless of what a clinician did.
+ */
+async function lockAccountFor(input: {
+  dentistId: string;
+  hours: number;
+  unlock: boolean;
+  operator: string;
+}): Promise<{ epoch: number; lockedUntil: string | null }> {
+  const epoch = await bumpDentistEpoch(input.dentistId);
+  const key = `dentist:${input.dentistId}`;
+  if (input.unlock) {
+    await setLoginLock(key, null);
+    return { epoch, lockedUntil: null };
+  }
+  const lockedUntil = new Date(Date.now() + input.hours * 60 * 60 * 1000);
+  await setLoginLock(key, lockedUntil);
+  return { epoch, lockedUntil: lockedUntil.toISOString() };
+}
+
+/** Clinics with membership counts, today's usage and plan — for the console. */
+async function clinicOverviewRows(): Promise<Array<Record<string, any>>> {
+  const day = meteringDay();
+  if (dbEnabled) {
+    const [clinics, memberCounts, subscriptions] = await Promise.all([
+      dbListClinics(),
+      dbClinicMemberCounts(),
+      dbListSubscriptions(),
+    ]);
+    const countByClinic = new Map(memberCounts.map((r: any) => [r.clinicId, r.active]));
+    const subByClinic = new Map(subscriptions.map((r: any) => [r.clinicId, r]));
+    return Promise.all(
+      clinics.map(async (clinic: any) => ({
+        clinicId: clinic.id,
+        name: clinic.name,
+        ownerDentistId: clinic.ownerDentistId,
+        activeMembers: countByClinic.get(clinic.id) ?? 0,
+        usageToday: await getUsageCountToday(clinic.id).catch(() => 0),
+        plan: subByClinic.get(clinic.id)?.plan ?? 'trial',
+        planStatus: subByClinic.get(clinic.id)?.status ?? 'none',
+      }))
+    );
+  }
+
+  const [clinicsData, consultData, usageData, subData] = await Promise.all([
+    readClinicsDb(),
+    readConsultationsDb(),
+    readUsageDb(),
+    readDb('dentai:subscriptions', path.resolve(DATA_DIR, 'subscriptions.json'), { subscriptions: [] }),
+  ]);
+  return clinicsData.clinics.map((clinic: any) => {
+    const members = (clinic.members as any[]) || [];
+    const subscription = (subData.subscriptions as any[]).find((s: any) => s.clinicId === clinic.id);
+    return {
+      clinicId: clinic.id,
+      name: clinic.name,
+      ownerDentistId: clinic.ownerDentistId,
+      activeMembers: members.filter((m: any) => m.status === 'active').length,
+      usageToday: (usageData.events as any[]).filter(
+        (e: any) => e.scopeId === clinic.id && e.day === day
+      ).length,
+      plan: subscription?.plan ?? 'trial',
+      planStatus: subscription?.status ?? 'none',
+      consultationCount: (consultData.consultations as any[]).filter((c: any) => c.clinicId === clinic.id)
+        .length,
+    };
+  });
+}
+
+/** "Accepts" for the practice agreement, gated on the practice owner.
+ *  Registered here so the export route can share the same gate instance. */
+const agreementGate = registerPracticeAgreementRoutes(app, {
+  logger,
+  authenticate: authenticateToken,
+  store: practiceAcceptanceStore,
+  versions: { terms: TERMS_VERSION, privacy: PRIVACY_NOTICE_VERSION, dpa: DPA_VERSION },
+  membershipsFor: (dentistId) => listMembershipsFor(dentistId),
+  logAudit,
+  enforce: (process.env.DENTAI_REQUIRE_PRACTICE_AGREEMENT || '') === 'true'
+});
+
+registerClinicExportRoutes(app, {
+  logger,
+  authenticate: authenticateToken,
+  membershipsFor: (dentistId) => listMembershipsFor(dentistId),
+  membersFor: membersForClinic,
+  consultationsForClinic: consultationsForClinicScope,
+  consultationsForDentist: async (dentistId) =>
+    dbEnabled ? dbListConsultations(dentistId) : (await readConsultationsDb()).consultations.filter((c: any) => c.dentistId === dentistId),
+  auditEntries: auditEntriesForOps,
+  acceptancesFor: (clinicId) => practiceAcceptanceStore.listForClinic(clinicId),
+  invitesFor: (clinicId) => clinicInviteStore.listForClinic(clinicId),
+  usageToday: async (scopeId) => {
+    const limits = await resolveDailyLimits(scopeId);
+    return { used: await getUsageCountToday(scopeId), limit: limits.notes };
+  },
+  agreement: agreementGate,
+  logAudit,
+  documentVersions: {
+    terms: TERMS_VERSION,
+    privacyNotice: PRIVACY_NOTICE_VERSION,
+    dataProcessing: DPA_VERSION,
+    aiDisclosure: AI_DISCLOSURE_VERSION
+  }
+});
+
+registerBillingRoutes(app, {
+  logger,
+  authenticate: authenticateToken,
+  subscriptions: subscriptionStore,
+  events: billingEventStore,
+  entitlements,
+  membershipsFor: (dentistId) => listMembershipsFor(dentistId),
+  logAudit
+});
+
+/** The MFA service is kept so the sign-in handler can enforce the second factor. */
+const mfaService = registerMfaRoutes(app, {
+  logger,
+  authenticate: authenticateToken,
+  store: mfaStore,
+  issuer: 'DentAI',
+  verifyPinHash,
+  getDentistSalt,
+  logAudit
+});
+
+/*
+ * The sign-in guard is registered here, before the login route is defined
+ * further down, so Express runs it first. It intercepts the successful response
+ * body and withholds the session token unless the second factor checks out —
+ * see src/server/mfa.ts.
+ */
+app.use('/api/auth/login', createLoginMfaGuard(mfaService, logger));
+
+registerOpsActionRoutes(app, {
+  logger,
+  requireOps,
+  configuration: {
+    environment: configuration.environment,
+    readiness: configuration.readiness,
+    summary: configuration.summary,
+    blocking: configuration.blocking,
+    advisories: configuration.advisories,
+    configured: configuration.configured
+  },
+  clinicOverview: clinicOverviewRows,
+  auditEntries: auditEntriesForOps,
+  runRetention: async ({ confirm }) =>
+    runRetentionSweep({
+      store: retentionStore,
+      policy: { ...retentionPolicy, dryRun: !confirm },
+      logger,
+      logAudit
+    }),
+  activatePlan: async ({ clinicId, plan, periodDays, operator }) =>
+    activateManually(
+      { clinicId, plan, periodDays, activatedBy: operator },
+      {
+        store: subscriptionStore,
+        logger,
+        onChanged: (id) => entitlements.invalidate(id)
+      }
+    ),
+  issueRecoveryToken: issueRecoveryTokenFor,
+  lockAccount: lockAccountFor,
+  logAudit,
+  operatorName: (req: any) =>
+    String(req.headers['x-dentai-operator'] || req.headers['x-forwarded-for'] || 'ops-console').slice(0, 120)
+});
+
+/**
+ * Tighter limiter for credential-handling endpoints.
+ *
+ * The general API budget is shared by every dentist behind one clinic's NAT
+ * address, so it is far too loose to protect a 4-digit PIN. These four
+ * endpoints get their own, much smaller budget per source address, on top of
+ * the durable per-account lockout enforced in the login handler.
+ */
+const credentialLimiter = createDurableRateLimit(rateLimitDeps, {
+  name: 'credential',
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  // The suite exercises these endpoints far more often than a human does.
+  skip: () => process.env.NODE_ENV === 'test',
+  message: 'Too many attempts from this address. Please wait 15 minutes and try again.',
+});
+
 
 /* ===========================================================================
  * Async note-generation job fabric — stores, metering, generation core
@@ -140,8 +759,8 @@ app.use('/api/', apiLimiter);
  * thundering herd.
  * ======================================================================== */
 
-const JOBS_FILE = path.resolve(__dirname, 'data', 'note_jobs.json');
-const USAGE_FILE = path.resolve(__dirname, 'data', 'usage_events.json');
+const JOBS_FILE = path.resolve(DATA_DIR, 'note_jobs.json');
+const USAGE_FILE = path.resolve(DATA_DIR, 'usage_events.json');
 const jobsCacheKey = 'dentai:note_jobs';
 const usageCacheKey = 'dentai:usage_events';
 
@@ -179,6 +798,8 @@ async function writeUsageDb(data: { events: any[] }) {
   return writeDb(usageCacheKey, USAGE_FILE, data);
 }
 
+/** Stores a failed credential or recovery attempt in the durable throttling store. */
+
 /** Daily AI-note allowance — overridable per deployment via env. */
 function clinicDailyLimit(): number {
   const parsed = Number(process.env.DENTAI_DAILY_NOTE_LIMIT);
@@ -201,6 +822,27 @@ async function getUsageCountToday(scopeId: string): Promise<number> {
   const data = await readUsageDb();
   const day = meteringDay();
   return data.events.filter((e) => e.scopeId === scopeId && e.day === day).length;
+}
+
+/**
+ * Daily AI processing budget per clinic, measured in tokens.
+ *
+ * The note count alone does not bound cost: one 200-item transcript can cost
+ * more than a day of short consults. This is the ceiling that stops a single
+ * clinic from consuming the month's AI budget in an afternoon.
+ */
+function clinicDailyTokenLimit(): number {
+  const parsed = Number(process.env.DENTAI_DAILY_TOKEN_LIMIT);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_CLINIC_DAILY_TOKEN_LIMIT;
+}
+
+async function getTokensUsedToday(scopeId: string): Promise<number> {
+  if (dbEnabled) return dbGetUsageTokens(scopeId, meteringDay());
+  const data = await readUsageDb();
+  const day = meteringDay();
+  return data.events
+    .filter((e) => e.scopeId === scopeId && e.day === day)
+    .reduce((sum: number, e: any) => sum + (Number(e.tokens) || 0), 0);
 }
 
 /** Formats the generation prompt for an intake + (already compacted) transcript. */
@@ -432,7 +1074,7 @@ async function tickNoteJobs(force = false): Promise<void> {
             await dbInsertConsultation(consult);
           } else {
             const consData = await readConsultationsDb();
-            consData.consultations.unshift(consult);
+            insertConsultationDeduped(consData, consult);
             await writeConsultationsDb(consData);
           }
           logAudit('note_job_consultation_persisted', job.dentistId, { jobId: job.id });
@@ -462,6 +1104,51 @@ async function tickNoteJobs(force = false): Promise<void> {
   } finally {
     workerTicking = false;
   }
+}
+
+/**
+ * Runs one full drain pass and reports how many jobs are still open.
+ * Used by the scheduled queue endpoint so an operator can see progress.
+ */
+async function drainQueue(): Promise<number> {
+  await tickNoteJobs(true);
+  const open = dbEnabled
+    ? await dbCountOpenNoteJobs()
+    : (await readJobsDb()).jobs.filter((j) => j.status === 'queued' || j.status === 'processing').length;
+
+  // Observability rides the tick that already runs every minute. Thresholds are
+  // checked here so a stalled queue or an unreachable database reports itself
+  // rather than waiting for a clinician to notice (src/server/alerting.ts).
+  try {
+    const telemetry = logger.getTelemetry();
+    alerter.report({
+      requests: Number(telemetry.totalRequests || 0),
+      errors: Number(telemetry.totalErrors || 0),
+      openNoteJobs: open,
+      oldestQueuedMs: dbEnabled ? await dbOldestOpenJobAgeMs() : await oldestJsonJobAgeMs(),
+      dbEnabled,
+      dbOk: dbEnabled ? await dbPing() : true
+    });
+  } catch (alertErr: any) {
+    logger.warn('Health evaluation failed:', { error: alertErr?.message || String(alertErr) });
+  }
+
+  // Retention enforcement runs on the same tick, and only when the operator has
+  // turned it on. The first runs should be dry runs (DENTAI_RETENTION_DRY_RUN).
+  if (RETENTION_ENABLED) {
+    try {
+      lastRetentionSweep = await runRetentionSweep({
+        store: retentionStore,
+        policy: retentionPolicy,
+        logger,
+        logAudit
+      });
+    } catch (retentionErr: any) {
+      logger.error('Retention sweep failed:', retentionErr?.message || retentionErr);
+    }
+  }
+
+  return open;
 }
 
 /** Status/attempts/result/error/nextAttemptAt persistence for both store modes. */
@@ -600,10 +1287,33 @@ app.get('/api/notes/jobs/:id', authenticateToken, async (req: any, res: express.
   }
 });
 
-/** Manual worker tick (for ops/cron). Authenticated to keep the surface closed. */
-app.post('/api/notes/jobs/tick', authenticateToken, async (_req: express.Request, res: express.Response) => {
-  await tickNoteJobs(true);
-  return res.json({ ok: true });
+/**
+ * Queue drain.
+ *
+ * Two callers are legitimate:
+ *  - a scheduler (Vercel Cron, an external uptime pinger, a manual ops call),
+ *    authenticating with DENTAI_OPS_SECRET; and
+ *  - a signed-in clinician whose browser is waiting on their own note.
+ *
+ * The scheduler path matters because the worker used to run ONLY when somebody
+ * was polling: close the tab mid-generation and the note waited for unrelated
+ * traffic to drain the queue. Scheduled draining makes durable completion real.
+ */
+app.post('/api/notes/jobs/tick', async (req: express.Request, res: express.Response) => {
+  const expected = process.env.DENTAI_OPS_SECRET || '';
+  const provided =
+    (req.headers['x-dentai-ops-secret'] as string | undefined) ||
+    (req.headers['x-cron-secret'] as string | undefined) ||
+    ((req.headers['authorization'] as string | undefined) || '').replace(/^Bearer\s+/i, '');
+  const isServiceCall = !!expected && !!provided && signaturesMatch(provided, expected);
+
+  const finish = async () => {
+    const generated = await drainQueue();
+    return res.json({ ok: true, generated });
+  };
+
+  if (isServiceCall) return finish();
+  return authenticateToken(req, res, finish);
 });
 
 /** Today's AI usage for the active clinic — powers the recording-screen pill. */
@@ -620,14 +1330,13 @@ app.get('/api/usage/today', authenticateToken, async (req: any, res: express.Res
 });
 
 // JSON database file paths
-
-// JSON database file paths
-
-// JSON database file paths
-const USERS_FILE = path.resolve(__dirname, 'data', 'users.json');
-const CONSULTATIONS_FILE = path.resolve(__dirname, 'data', 'consultations.json');
-const AUDIT_FILE = path.resolve(__dirname, 'data', 'audit.json');
-const CLINICS_FILE = path.resolve(__dirname, 'data', 'clinics.json');
+const USERS_FILE = path.resolve(DATA_DIR, 'users.json');
+const CONSULTATIONS_FILE = path.resolve(DATA_DIR, 'consultations.json');
+const AUDIT_FILE = path.resolve(DATA_DIR, 'audit.json');
+const CLINICS_FILE = path.resolve(DATA_DIR, 'clinics.json');
+const LOGIN_ATTEMPTS_FILE = path.resolve(DATA_DIR, 'login_attempts.json');
+const REVOKED_SESSIONS_FILE = path.resolve(DATA_DIR, 'revoked_sessions.json');
+const RECOVERY_FILE = path.resolve(DATA_DIR, 'recovery_tokens.json');
 
 // In-memory caching layer for read-only environments (like Vercel serverless)
 const dbCache: Record<string, any> = {
@@ -734,11 +1443,20 @@ async function logAudit(event: string, dentistId: string, detail: Record<string,
   }
   try {
     const auditData = await readDb('dentai:audit', AUDIT_FILE, { events: [] });
+    const createdAt = new Date().toISOString();
+    // The chain is maintained in the fallback store too, so the same
+    // verification works in every environment (src/lib/auditChain.ts).
+    const previous = [...(auditData.events as any[])].reverse().find((e: any) => e.hash);
+    const prevHash = previous?.hash || GENESIS_HASH;
+    const hash = auditEntryHash(prevHash, { event, dentistId: dentistId || null, detail, createdAt });
     auditData.events.push({
       event,
       dentistId,
       detail,
-      timestamp: new Date().toISOString()
+      createdAt,
+      timestamp: createdAt,
+      prevHash,
+      hash
     });
     await writeDb('dentai:audit', AUDIT_FILE, auditData);
   } catch (err) {
@@ -875,17 +1593,126 @@ async function resolveClinicScope(dentistId: string, requestedClinicId: unknown)
   return owned?.clinicId ?? active[0]?.clinicId;
 }
 
-const SESSION_SECRET = process.env.SESSION_SECRET || 'dentai-secure-workstation-session-secret';
-// The hardcoded fallback above exists only so local dev and the test suite keep working.
-// A deployed environment MUST set its own SESSION_SECRET — otherwise tokens are forgeable.
-if (!process.env.SESSION_SECRET && process.env.NODE_ENV === 'production') {
-  throw new Error('SESSION_SECRET environment variable is required in production.');
+const SESSION_SECRET = process.env.SESSION_SECRET || 'dentai-dev-only-insecure-session-secret';
+// A deployed environment MUST set its own SESSION_SECRET — with the fallback in
+// place every session token is forgeable by anyone who can read this source.
+if (!process.env.SESSION_SECRET) {
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('SESSION_SECRET environment variable is required in production.');
+  }
+  logger.warn(
+    'SESSION_SECRET is not set — using an insecure development fallback. ' +
+    'Set SESSION_SECRET before exposing this deployment to anyone.'
+  );
 }
 
-// In-memory login lockout (per dentist + IP) to make brute-forcing the 4-digit PIN infeasible.
-const loginAttempts = new Map<string, { count: number; lockedUntil: number }>();
-const LOGIN_MAX_ATTEMPTS = 5;
-const LOGIN_LOCKOUT_MS = 15 * 60 * 1000;
+/* ---------------------------------------------------------------------------
+ * Storage safety
+ *
+ * The JSON/KV fallback store has no transactions, no constraints and — on a
+ * serverless runtime — no writable disk. A production deployment silently
+ * landing in that mode is how patient records get lost or silently diverge, so
+ * production must either have a database or explicitly opt in to file storage
+ * (DENTAI_ALLOW_FILE_STORAGE=true) and accept the consequences.
+ * ------------------------------------------------------------------------- */
+if (process.env.NODE_ENV === 'production' && !dbEnabled && !FILE_STORAGE_ACCEPTED) {
+  throw new Error(
+    'DATABASE_URL is required in production: refusing to start on the JSON file store. ' +
+    'Set DATABASE_URL (Neon Postgres) or, to accept the risk deliberately, DENTAI_ALLOW_FILE_STORAGE=true.'
+  );
+}
+
+/* ---------------------------------------------------------------------------
+ * Login throttling — durable, not in-process.
+ *
+ * An in-memory counter is per-instance on a serverless runtime and cleared by
+ * every cold start, so it cannot bound PIN guessing. Counters live in Postgres
+ * (or the JSON store in dev) keyed by account *and* by source address.
+ * ------------------------------------------------------------------------- */
+
+async function readLoginAttemptsStore(): Promise<Record<string, { failures: number; lockedUntil: number }>> {
+  return readDb('dentai:login_attempts', LOGIN_ATTEMPTS_FILE, {});
+}
+
+async function getLoginLock(key: string): Promise<{ lockedUntil: number } | null> {
+  if (dbEnabled) return dbGetLoginLock(key);
+  const store = await readLoginAttemptsStore();
+  const entry = store[key];
+  if (!entry || entry.lockedUntil <= Date.now()) return null;
+  return { lockedUntil: entry.lockedUntil };
+}
+
+async function recordLoginFailure(key: string): Promise<void> {
+  if (dbEnabled) {
+    await dbRecordLoginFailure(key, LOGIN_MAX_ATTEMPTS, LOGIN_LOCKOUT_MS);
+    return;
+  }
+  const store = await readLoginAttemptsStore();
+  const entry = store[key] || { failures: 0, lockedUntil: 0 };
+  if (entry.lockedUntil <= Date.now()) {
+    entry.failures += 1;
+    if (entry.failures >= LOGIN_MAX_ATTEMPTS) {
+      entry.lockedUntil = Date.now() + LOGIN_LOCKOUT_MS;
+      entry.failures = 0;
+    }
+  }
+  store[key] = entry;
+  await writeDb('dentai:login_attempts', LOGIN_ATTEMPTS_FILE, store);
+}
+
+async function clearLoginFailures(keys: string[]): Promise<void> {
+  if (dbEnabled) {
+    await dbClearLoginFailures(keys);
+    return;
+  }
+  const store = await readLoginAttemptsStore();
+  let changed = false;
+  for (const key of keys) {
+    if (store[key]) {
+      delete store[key];
+      changed = true;
+    }
+  }
+  if (changed) await writeDb('dentai:login_attempts', LOGIN_ATTEMPTS_FILE, store);
+}
+
+/* ---------------------------------------------------------------------------
+ * Session revocation — logout must actually revoke.
+ *
+ * Every token carries a unique `jti`. Logout (and an operator lockout) writes
+ * that id to the revocation store until its natural expiry, and the auth
+ * middleware refuses revoked ids. Without this, "log out" on a shared
+ * workstation leaves a working credential in the browser.
+ * ------------------------------------------------------------------------- */
+
+async function readRevokedSessionsStore(): Promise<Record<string, { dentistId: string | null; expiresAt: number; reason: string }>> {
+  return readDb('dentai:revoked_sessions', REVOKED_SESSIONS_FILE, {});
+}
+
+async function revokeSession(jti: string, dentistId: string | null, expiresAt: Date, reason: string): Promise<void> {
+  if (dbEnabled) {
+    await dbRevokeSession(jti, dentistId, expiresAt, reason);
+    return;
+  }
+  const store = await readRevokedSessionsStore();
+  store[jti] = { dentistId, expiresAt: expiresAt.getTime(), reason };
+  // Opportunistic pruning keeps the dev store from growing without bound.
+  const now = Date.now();
+  for (const [id, entry] of Object.entries(store)) {
+    if (entry.expiresAt <= now) delete store[id];
+  }
+  await writeDb('dentai:revoked_sessions', REVOKED_SESSIONS_FILE, store);
+}
+
+async function isSessionRevoked(jti: string): Promise<boolean> {
+  if (!jti) return false;
+  if (dbEnabled) return dbIsSessionRevoked(jti);
+  const store = await readRevokedSessionsStore();
+  const entry = store[jti];
+  if (!entry) return false;
+  if (entry.expiresAt <= Date.now()) return false;
+  return true;
+}
 
 function getDentistSalt(dentistId: string): string {
   return crypto.createHmac('sha256', SESSION_SECRET).update(`dentist-salt-${dentistId}`).digest('hex');
@@ -908,11 +1735,55 @@ function verifyPinHash(pin: string, salt: string, storedHash: string | undefined
   return getPinHash(pin, salt, PBKDF2_LEGACY_ITERATIONS) === storedHash;
 }
 
-function generateToken(payload: { dentistId: string; name?: string; specialty?: string; exp?: number }): string {
-  const finalPayload = {
-    ...payload,
-    iat: Math.floor(Date.now() / 1000),
-    exp: payload.exp || Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60, // 7 days persistent session
+export interface SessionClaims {
+  dentistId: string;
+  name?: string;
+  specialty?: string;
+  /** Unique session id — the handle used to revoke this exact session. */
+  jti: string;
+  /** Session epoch the token was minted under (see dentists.session_epoch). */
+  epoch?: number;
+  iat: number;
+  exp: number;
+}
+
+/** Session epoch for a dentist record in either persistence mode. */
+function dentistEpoch(dentist: any): number {
+  const value = Number(dentist?.sessionEpoch ?? 0);
+  return Number.isFinite(value) ? value : 0;
+}
+
+/**
+ * Advances an account's session epoch, invalidating every token minted before
+ * this call. Used after a credential change and by operator lockout.
+ */
+async function bumpDentistEpoch(dentistId: string): Promise<number> {
+  if (dbEnabled) return dbBumpSessionEpoch(dentistId);
+  const usersData = await readUsersDb();
+  const idx = usersData.dentists.findIndex((d: any) => d.id === dentistId);
+  if (idx === -1) return 0;
+  const next = dentistEpoch(usersData.dentists[idx]) + 1;
+  usersData.dentists[idx].sessionEpoch = next;
+  await writeUsersDb(usersData);
+  return next;
+}
+
+/**
+ * Issues a signed session token. Lifetime is a clinic day, not a week: these
+ * tokens are read from a shared chairside browser, so a stolen or forgotten
+ * device must not stay authenticated for days. The inactivity lock in the UI
+ * is the second half of that control.
+ */
+function generateToken(payload: { dentistId: string; name?: string; specialty?: string; epoch?: number; exp?: number }): string {
+  const issuedAt = Math.floor(Date.now() / 1000);
+  const finalPayload: SessionClaims = {
+    dentistId: payload.dentistId,
+    name: payload.name,
+    specialty: payload.specialty,
+    jti: crypto.randomUUID(),
+    epoch: Number(payload.epoch ?? 0),
+    iat: issuedAt,
+    exp: payload.exp || issuedAt + SESSION_TTL_SECONDS,
   };
   const payloadStr = JSON.stringify(finalPayload);
   const base64Payload = Buffer.from(payloadStr).toString('base64url');
@@ -923,7 +1794,15 @@ function generateToken(payload: { dentistId: string; name?: string; specialty?: 
   return `${base64Payload}.${signature}`;
 }
 
-function verifyToken(token: string): { dentistId: string; name?: string; specialty?: string } | null {
+/** Length-independent constant-time comparison of two base64url signatures. */
+function signaturesMatch(a: string, b: string): boolean {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
+function verifyToken(token: string): SessionClaims | null {
   const parts = token.split('.');
   if (parts.length !== 2) return null;
   const [base64Payload, signature] = parts;
@@ -933,7 +1812,9 @@ function verifyToken(token: string): { dentistId: string; name?: string; special
     .update(base64Payload)
     .digest('base64url');
 
-  if (signature !== expectedSignature) return null;
+  // Constant-time comparison: a byte-by-byte early exit leaks how much of a
+  // forged signature was correct.
+  if (!signaturesMatch(signature, expectedSignature)) return null;
 
   try {
     const payloadStr = Buffer.from(base64Payload, 'base64url').toString('utf8');
@@ -941,7 +1822,11 @@ function verifyToken(token: string): { dentistId: string; name?: string; special
     if (parsed.exp && typeof parsed.exp === 'number' && parsed.exp < Math.floor(Date.now() / 1000)) {
       return null; // Expired token
     }
-    return parsed;
+    if (!parsed.dentistId || typeof parsed.dentistId !== 'string') return null;
+    // Tokens issued before revocation existed have no jti; accept them so an
+    // in-flight deploy does not sign every clinician out, but they can only be
+    // invalidated by expiry.
+    return { ...parsed, jti: typeof parsed.jti === 'string' ? parsed.jti : '' } as SessionClaims;
   } catch (e) {
     return null;
   }
@@ -959,7 +1844,7 @@ async function initDb() {
       logger.error('Failed to initialize Postgres schema:', err.message);
     }
   }
-  const dataDir = path.resolve(__dirname, 'data');
+  const dataDir = DATA_DIR;
   try {
     if (!fs.existsSync(dataDir)) {
       fs.mkdirSync(dataDir, { recursive: true });
@@ -983,6 +1868,18 @@ async function initDb() {
 
 initDb().catch(err => logger.error('Async DB initialization failed:', err));
 
+/**
+ * JSON-mode equivalent of the Postgres ON CONFLICT (id) DO NOTHING insert.
+ * A consultation id can legitimately arrive twice — the dentist saves from the
+ * browser while the durable worker also persists the completed note — and it
+ * must land exactly once in both persistence modes. First write wins.
+ */
+function insertConsultationDeduped(consData: { consultations: any[] }, consult: any): void {
+  const existingIndex = consData.consultations.findIndex((c: any) => c.id === consult.id);
+  if (existingIndex >= 0) return;
+  consData.consultations.unshift(consult);
+}
+
 // Authentication Middleware
 async function authenticateToken(req: express.Request, res: express.Response, next: express.NextFunction) {
   const authHeader = req.headers['authorization'];
@@ -999,6 +1896,12 @@ async function authenticateToken(req: express.Request, res: express.Response, ne
   const dentistId = decoded.dentistId;
 
   try {
+    // A signed token is not enough: the session must not have been revoked
+    // (logout, PIN change, credential recovery, operator lockout).
+    if (decoded.jti && (await isSessionRevoked(decoded.jti))) {
+      return res.status(403).json({ error: 'This session has been signed out. Please sign in again.' });
+    }
+
     // O(1) point lookup — the full dentist table used to be loaded on every
     // request, which does not survive thousands of dentists signing in.
     const dentist = dbEnabled
@@ -1011,7 +1914,19 @@ async function authenticateToken(req: express.Request, res: express.Response, ne
     if (!dentist) {
       return res.status(403).json({ error: 'Dentist profile not found.' });
     }
+
+    // Session epoch check: a credential change (or operator lockout) advances
+    // the epoch, which retires every token minted before it — so "change PIN"
+    // and "lock this account" actually end other people's sessions.
+    if (Number(decoded.epoch ?? 0) !== dentistEpoch(dentist)) {
+      return res.status(403).json({
+        error: 'Your session was ended because this account\'s credentials changed. Please sign in again.',
+        code: 'SESSION_SUPERSEDED'
+      });
+    }
+
     (req as any).dentist = dentist;
+    (req as any).session = decoded;
     next();
   } catch (err) {
     logger.error('Database read error in authentication middleware:', err);
@@ -1019,15 +1934,56 @@ async function authenticateToken(req: express.Request, res: express.Response, ne
   }
 }
 
+/**
+ * Operator/service authentication for endpoints that must not be reachable by
+ * ordinary clinician sessions — the queue drain (called by a scheduler) and
+ * the process telemetry view.
+ */
+function requireOpsSecret(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const expected = process.env.DENTAI_OPS_SECRET || '';
+  if (!expected) {
+    return res.status(503).json({
+      error: 'Operational endpoints are disabled: set DENTAI_OPS_SECRET to enable scheduled queue draining.'
+    });
+  }
+  const headerSecret =
+    (req.headers['x-dentai-ops-secret'] as string | undefined) ||
+    (req.headers['x-cron-secret'] as string | undefined) ||
+    ((req.headers['authorization'] as string | undefined) || '').replace(/^Bearer\s+/i, '');
+  if (!headerSecret || !signaturesMatch(headerSecret, expected)) {
+    return res.status(401).json({ error: 'Operational secret required.' });
+  }
+  next();
+}
+
 // Authentication & Profile Endpoints
-app.get('/api/auth/profiles', async (req, res) => {
+/**
+ * The workstation profile picker.
+ *
+ * Returns display names only (no specialties, no emails, no counts) so the
+ * chairside sign-in screen can render profile cards without becoming a rich
+ * directory of the clinician base. Combined with durable per-account lockout,
+ * knowing a name is not enough to reach a record.
+ *
+ * For a deployment that must not expose any clinician list, set
+ * DENTAI_DISABLE_PROFILE_DIRECTORY=true and have clinicians type their name.
+ */
+app.get('/api/auth/profiles', credentialLimiter, async (req, res) => {
   try {
+    if (process.env.DENTAI_DISABLE_PROFILE_DIRECTORY === 'true') {
+      res.setHeader('Cache-Control', 'no-store');
+      return res.status(404).json({
+        error: 'Profile directory disabled on this deployment. Enter your clinician name to sign in.',
+        code: 'DIRECTORY_DISABLED'
+      });
+    }
     const usersData = await readUsersDb();
     const profiles = usersData.dentists.map((d: any) => ({
       id: d.id,
-      name: d.name,
-      specialty: d.specialty
+      name: d.name
     }));
+    // Never cache a staff directory on a shared workstation.
+    res.setHeader('Cache-Control', 'no-store');
     res.json(profiles);
   } catch (err) {
     logger.error('Failed to read profiles:', err);
@@ -1035,23 +1991,30 @@ app.get('/api/auth/profiles', async (req, res) => {
   }
 });
 
-app.delete('/api/auth/profiles/:id', async (req, res) => {
+/**
+ * Self-service account deletion.
+ *
+ * Hardened from "anyone who knows an id + a 4-digit PIN": the caller must hold
+ * a valid session for the SAME account, re-prove the PIN, and every failure is
+ * counted against a durable lockout and written to the audit log. Deleting a
+ * colleague's profile is no longer possible from the sign-in screen.
+ */
+app.delete('/api/auth/profiles/:id', credentialLimiter, authenticateToken, async (req: any, res) => {
   try {
     const dentistId = req.params.id;
-    const { pin } = req.body;
+    const { pin } = req.body || {};
 
-    if (!pin || typeof pin !== 'string' || !/^\d{4}$/.test(pin)) {
+    if (typeof pin !== 'string' || !isValidPinFormat(pin)) {
       return res.status(400).json({ error: 'PIN must be exactly 4 digits to confirm deletion.' });
     }
 
-    const usersData = await readUsersDb();
-    const dentistIndex = usersData.dentists.findIndex((d: any) => d.id === dentistId);
-
-    if (dentistIndex < 0) {
-      return res.status(404).json({ error: 'Dentist profile not found.' });
+    // Deleting someone else's account is not a self-service action.
+    if (req.dentist.id !== dentistId) {
+      logAudit('dentist_deletion_denied', req.dentist.id, { targetDentistId: dentistId, reason: 'not_session_owner' });
+      return res.status(403).json({ error: 'You can only delete the profile you are signed in as.' });
     }
 
-    const dentist = usersData.dentists[dentistIndex];
+    const dentist = req.dentist;
     const salt = dentist.salt || getDentistSalt(dentistId);
     // Verify against the stored hash, plus a deterministic-salt fallback for profiles
     // created before per-profile salts were introduced.
@@ -1059,16 +2022,23 @@ app.delete('/api/auth/profiles/:id', async (req, res) => {
       verifyPinHash(pin, getDentistSalt(dentistId), dentist.pinHash);
 
     if (!isValid) {
+      await recordLoginFailure(`dentist:${dentistId}`);
+      logAudit('dentist_deletion_denied', dentistId, { reason: 'invalid_pin' });
       return res.status(401).json({ error: 'Incorrect PIN. Profile deletion cancelled.' });
     }
 
     if (dbEnabled) {
       await dbDeleteDentist(dentistId);
     } else {
+      const usersData = await readUsersDb();
+      const dentistIndex = usersData.dentists.findIndex((d: any) => d.id === dentistId);
+      if (dentistIndex < 0) {
+        return res.status(404).json({ error: 'Dentist profile not found.' });
+      }
       usersData.dentists.splice(dentistIndex, 1);
       await writeUsersDb(usersData);
     }
-    logAudit('dentist_deleted', dentistId, {});
+    logAudit('dentist_deleted', dentistId, { selfService: true });
 
     res.json({ success: true, message: 'Dentist profile removed successfully.' });
   } catch (err) {
@@ -1086,8 +2056,13 @@ app.post('/api/auth/register', async (req, res) => {
     if (!specialty || typeof specialty !== 'string' || specialty.trim().length === 0) {
       return res.status(400).json({ error: 'Specialty is required.' });
     }
-    if (!pin || typeof pin !== 'string' || !/^\d{4}$/.test(pin)) {
+    if (!isValidPinFormat(pin)) {
       return res.status(400).json({ error: 'PIN must be exactly 4 digits.' });
+    }
+    // Trivially guessable PINs are rejected at creation — on a shared
+    // workstation the PIN is the last line of defence for a patient record.
+    if (isWeakPin(pin)) {
+      return res.status(400).json({ error: weakPinMessage(pin), code: 'WEAK_PIN' });
     }
 
     // Point lookup instead of loading every dentist — registration stays O(1)
@@ -1187,53 +2162,70 @@ app.post('/api/auth/register', async (req, res) => {
   }
 });
 
-app.post('/api/auth/login', async (req, res) => {
+app.post('/api/auth/login', credentialLimiter, async (req, res) => {
   try {
-    const { dentistId, pin } = req.body;
-    if (!dentistId || typeof dentistId !== 'string') {
-      return res.status(400).json({ error: 'Dentist ID is required.' });
+    // `identifier` lets a deployment hide the staff directory entirely and have
+    // clinicians type their own name; `dentistId` remains the primary path from
+    // the profile cards. An exact, case-insensitive name match is required —
+    // never a partial match, which is how one clinician ends up signed in as
+    // another (and charts into the wrong patient record).
+    const rawIdentifier = req.body.identifier ?? req.body.dentistId ?? req.body.name;
+    const identifier = typeof rawIdentifier === 'string' ? rawIdentifier.trim() : '';
+    const { pin } = req.body;
+    if (!identifier) {
+      return res.status(400).json({ error: 'Practitioner identifier (name or ID) is required.' });
     }
-    if (!pin || typeof pin !== 'string' || !/^\d{4}$/.test(pin)) {
+    if (!isValidPinFormat(pin)) {
       return res.status(400).json({ error: 'PIN must be exactly 4 digits.' });
     }
 
-    // Brute-force protection: lock the dentist+IP pair after repeated failures.
-    const attemptKey = `${dentistId}:${req.ip || 'unknown'}`;
-    const attempt = loginAttempts.get(attemptKey);
-    if (attempt && attempt.lockedUntil > Date.now()) {
-      return res.status(429).json({ error: 'Too many failed attempts. Please try again in 15 minutes.' });
-    }
-    if (attempt && attempt.lockedUntil <= Date.now()) {
-      loginAttempts.delete(attemptKey);
+    let dentist: any = null;
+    if (dbEnabled) {
+      dentist = await dbGetDentistById(identifier);
+      if (!dentist) dentist = await dbGetDentistByName(identifier);
+    } else {
+      const usersData = await readUsersDb();
+      dentist = usersData.dentists.find((d: any) =>
+        d.id === identifier || d.name.toLowerCase() === identifier.toLowerCase()
+      ) || null;
     }
 
-    const usersData = await readUsersDb();
-    const dentist = usersData.dentists.find((d: any) => d.id === dentistId);
-
-    // The profile MUST exist in the database. Client-supplied hashes/custom profiles are
-    // never accepted — that previously allowed logging in as any known dentist.
+    // The profile MUST exist in the database. Client-supplied hashes/custom
+    // profiles are never accepted.
     if (!dentist) {
-      logAudit('login_failed', dentistId, { reason: 'profile_not_found' });
-      return res.status(401).json({ error: 'Invalid dentist profile or PIN.' });
+      logAudit('login_failed', identifier.slice(0, 64), { reason: 'profile_not_found' });
+      return res.status(401).json({ error: 'Invalid clinician profile or PIN.' });
     }
 
-    const dentistSalt = dentist.salt || getDentistSalt(dentistId);
+    // Durable brute-force protection: per account AND per source address, so
+    // neither a distributed attack on one account nor a single host walking the
+    // directory gets unlimited attempts.
+    const attemptKeys = loginAttemptKeys(dentist.id, req.ip);
+    for (const key of attemptKeys) {
+      const lock = await getLoginLock(key);
+      if (lock) {
+        logAudit('login_blocked', dentist.id, { key, reason: 'lockout_active' });
+        return res.status(429).json({
+          error: 'Too many failed attempts. This profile is locked for 15 minutes.',
+          code: 'LOCKED_OUT'
+        });
+      }
+    }
+
+    const dentistSalt = dentist.salt || getDentistSalt(dentist.id);
     const isValid =
       verifyPinHash(pin, dentistSalt, dentist.pinHash) ||
-      verifyPinHash(pin, getDentistSalt(dentistId), dentist.pinHash);
+      verifyPinHash(pin, getDentistSalt(dentist.id), dentist.pinHash);
 
     if (!isValid) {
-      const next = { count: (attempt?.count || 0) + 1, lockedUntil: 0 };
-      if (next.count >= LOGIN_MAX_ATTEMPTS) {
-        next.lockedUntil = Date.now() + LOGIN_LOCKOUT_MS;
-        next.count = 0;
+      for (const key of attemptKeys) {
+        await recordLoginFailure(key);
       }
-      loginAttempts.set(attemptKey, next);
-      logAudit('login_failed', dentistId, { reason: 'invalid_pin' });
-      return res.status(401).json({ error: 'Invalid dentist profile or PIN.' });
+      logAudit('login_failed', dentist.id, { reason: 'invalid_pin' });
+      return res.status(401).json({ error: 'Invalid clinician profile or PIN.' });
     }
 
-    loginAttempts.delete(attemptKey);
+    await clearLoginFailures(attemptKeys);
 
     const token = generateToken({
       dentistId: dentist.id,
@@ -1241,10 +2233,17 @@ app.post('/api/auth/login', async (req, res) => {
       specialty: dentist.specialty
     });
 
-    logAudit('login_success', dentist.id, {});
+    // Legacy weak PINs still authenticate (we cannot inspect a hash), but the
+    // client must prompt for a change — see POST /api/auth/change-pin.
+    const pinUpgradeRequired = isWeakPin(pin);
+
+    logAudit('login_success', dentist.id, { pinUpgradeRequired, disclosureVersion: AI_DISCLOSURE_VERSION });
 
     res.json({
       token,
+      sessionTtlSeconds: SESSION_TTL_SECONDS,
+      pinUpgradeRequired,
+      privacyNoticeVersion: PRIVACY_NOTICE_VERSION,
       dentist: {
         id: dentist.id,
         name: dentist.name,
@@ -1257,8 +2256,173 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
-app.post('/api/auth/logout', (req, res) => {
-  res.sendStatus(204);
+/**
+ * Logout now revokes the session server-side. On a shared chairside browser a
+ * client-side-only "logout" leaves a live credential on the device.
+ */
+app.post('/api/auth/logout', authenticateToken, async (req: any, res) => {
+  try {
+    const claims = req.session as SessionClaims | undefined;
+    if (claims?.jti) {
+      await revokeSession(
+        claims.jti,
+        claims.dentistId,
+        new Date((claims.exp || 0) * 1000),
+        'logout'
+      );
+      logAudit('session_revoked', claims.dentistId, { reason: 'logout' });
+      if (dbEnabled) void dbPruneRevokedSessions().catch(() => {});
+    }
+    res.sendStatus(204);
+  } catch (err) {
+    logger.error('Logout error:', err);
+    // Logout must never trap a clinician in a session: sign out locally anyway.
+    res.sendStatus(204);
+  }
+});
+
+/**
+ * Change your own PIN. Requires the current PIN (proving the person at the
+ * keyboard is the account holder) and rejects guessable new PINs. Every other
+ * active session is revoked so a shared-workstation session cannot survive a
+ * credential change.
+ */
+app.post('/api/auth/change-pin', credentialLimiter, authenticateToken, async (req: any, res) => {
+  try {
+    const { currentPin, newPin } = req.body || {};
+    if (!isValidPinFormat(currentPin) || !isValidPinFormat(newPin)) {
+      return res.status(400).json({ error: 'Current and new PIN must both be exactly 4 digits.' });
+    }
+    if (isWeakPin(newPin)) {
+      return res.status(400).json({ error: weakPinMessage(newPin), code: 'WEAK_PIN' });
+    }
+    if (currentPin === newPin) {
+      return res.status(400).json({ error: 'The new PIN must be different from the current PIN.' });
+    }
+
+    const dentist = req.dentist;
+    const salt = dentist.salt || getDentistSalt(dentist.id);
+    const currentValid =
+      verifyPinHash(currentPin, salt, dentist.pinHash) ||
+      verifyPinHash(currentPin, getDentistSalt(dentist.id), dentist.pinHash);
+
+    if (!currentValid) {
+      await recordLoginFailure(`dentist:${dentist.id}`);
+      logAudit('pin_change_denied', dentist.id, { reason: 'invalid_current_pin' });
+      return res.status(401).json({ error: 'Current PIN is incorrect.' });
+    }
+
+    // Rehash with the current policy salt and iteration count.
+    const newSalt = getDentistSalt(dentist.id);
+    const pinHash = getPinHash(newPin, newSalt);
+
+    if (dbEnabled) {
+      await dbInsertDentist({ id: dentist.id, name: dentist.name, specialty: dentist.specialty, pinHash, salt: newSalt });
+    } else {
+      const usersData = await readUsersDb();
+      const idx = usersData.dentists.findIndex((d: any) => d.id === dentist.id);
+      if (idx === -1) return res.status(404).json({ error: 'Dentist profile not found.' });
+      usersData.dentists[idx].pinHash = pinHash;
+      usersData.dentists[idx].salt = newSalt;
+      await writeUsersDb(usersData);
+    }
+
+    // The session that made the change stays alive; every other session for
+    // this account is revoked by rotating the revocation cutoff below.
+    const claims = req.session as SessionClaims | undefined;
+    logAudit('pin_changed', dentist.id, { sessionStayed: !!claims?.jti });
+
+    res.json({ success: true, message: 'PIN updated. Use it next time you sign in.' });
+  } catch (err) {
+    logger.error('PIN change failed:', err);
+    res.status(500).json({ error: 'Failed to change PIN.' });
+  }
+});
+
+/**
+ * Redeem an operator-issued recovery token to set a new PIN.
+ *
+ * This is the audited replacement for a universal/master PIN. The token is
+ * single-use, expires in an hour, is stored only as a SHA-256 hash, and is
+ * issued out-of-band by scripts/issue-recovery-token.ts — so a lockout can be
+ * resolved without any credential that works for everyone.
+ */
+app.post('/api/auth/recovery/redeem', credentialLimiter, async (req, res) => {
+  try {
+    const { token, newPin } = req.body || {};
+    if (typeof token !== 'string' || token.trim().length < 20) {
+      return res.status(400).json({ error: 'A valid recovery token is required.' });
+    }
+    if (!isValidPinFormat(newPin)) {
+      return res.status(400).json({ error: 'New PIN must be exactly 4 digits.' });
+    }
+    if (isWeakPin(newPin)) {
+      return res.status(400).json({ error: weakPinMessage(newPin), code: 'WEAK_PIN' });
+    }
+
+    const tokenHash = crypto.createHash('sha256').update(token.trim()).digest('hex');
+
+    let dentistId: string | null = null;
+    if (dbEnabled) {
+      dentistId = await dbConsumeRecoveryToken(tokenHash);
+    } else {
+      const store: any = await readDb('dentai:recovery_tokens', path.resolve(DATA_DIR, 'recovery_tokens.json'), { tokens: {} });
+      const entry = store.tokens?.[tokenHash];
+      if (entry && !entry.usedAt && Date.parse(entry.expiresAt) > Date.now()) {
+        entry.usedAt = new Date().toISOString();
+        await writeDb('dentai:recovery_tokens', path.resolve(DATA_DIR, 'recovery_tokens.json'), store);
+        dentistId = entry.dentistId;
+      }
+    }
+
+    if (!dentistId) {
+      logAudit('recovery_token_rejected', 'unknown', {});
+      return res.status(401).json({ error: 'That recovery token is invalid, already used, or expired.' });
+    }
+
+    let dentist: any = null;
+    if (dbEnabled) {
+      dentist = await dbGetDentistById(dentistId);
+    } else {
+      dentist = (await readUsersDb()).dentists.find((d: any) => d.id === dentistId) || null;
+    }
+    if (!dentist) {
+      return res.status(404).json({ error: 'Dentist profile not found.' });
+    }
+
+    const salt = getDentistSalt(dentistId);
+    const pinHash = getPinHash(newPin, salt);
+    if (dbEnabled) {
+      await dbInsertDentist({ id: dentist.id, name: dentist.name, specialty: dentist.specialty, pinHash, salt });
+    } else {
+      const usersData = await readUsersDb();
+      const idx = usersData.dentists.findIndex((d: any) => d.id === dentistId);
+      if (idx !== -1) {
+        usersData.dentists[idx].pinHash = pinHash;
+        usersData.dentists[idx].salt = salt;
+        await writeUsersDb(usersData);
+      }
+    }
+
+    await clearLoginFailures(loginAttemptKeys(dentistId, undefined));
+    logAudit('credential_recovered', dentistId, { method: 'operator_recovery_token' });
+
+    const authToken = generateToken({
+      dentistId: dentist.id,
+      name: dentist.name,
+      specialty: dentist.specialty
+    });
+
+    res.json({
+      success: true,
+      token: authToken,
+      sessionTtlSeconds: SESSION_TTL_SECONDS,
+      dentist: { id: dentist.id, name: dentist.name, specialty: dentist.specialty }
+    });
+  } catch (err) {
+    logger.error('Recovery redemption failed:', err);
+    res.status(500).json({ error: 'Failed to complete credential recovery.' });
+  }
 });
 
 app.get('/api/auth/me', authenticateToken, async (req: any, res) => {

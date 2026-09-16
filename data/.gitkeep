@@ -1,0 +1,9 @@
+# This directory holds runtime data only (patient records, clinician records,
+# audit log, queue state) and is intentionally NOT tracked by git.
+#
+# Anything in here may contain personal and health information. It must never be
+# committed, copied into documentation, or attached to a support ticket.
+#
+# Production deployments do not use this directory at all: they require
+# DATABASE_URL (Postgres). This is the local development store, and its location
+# can be overridden with DENTAI_DATA_DIR.

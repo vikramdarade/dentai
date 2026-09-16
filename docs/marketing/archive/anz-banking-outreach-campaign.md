@@ -1,3 +1,9 @@
+> **Archived — not this product.** This campaign targets ANZ *banking* executives
+> and belongs to a different venture. It is kept here for its copy templates only,
+> and moved out of the repository root so a practice doing due diligence on a
+> **dental** clinical product does not find it. Delete it if you have no use for
+> the templates.
+
 # LinkedIn Outreach Campaign - ANZ Banking Tech Executives
 
 This document details the outreach campaign copy and templates targeting ANZ banking technology executives (Tech COOs, Heads of Engineering, and Chief Security Officers).
