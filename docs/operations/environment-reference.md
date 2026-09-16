@@ -39,6 +39,27 @@ Values themselves live in the host's environment settings (never in Git, never i
 | `KV_REST_API_URL`, `KV_REST_API_TOKEN` | Legacy Vercel KV fallback store |
 | `PORT`, `NODE_ENV` | Injected by the platform |
 
+## Payments and email (only when you turn them on)
+
+| Variable | Purpose | Notes |
+|---|---|---|
+| `STRIPE_SECRET_KEY` | Charges cards and opens the billing portal | Until it is set, checkout reports that billing is not configured rather than pretending to succeed |
+| `STRIPE_WEBHOOK_SECRET` | Verifies Stripe webhook signatures | **Fails closed**: without it `/api/billing/webhook` returns `503` and will not activate anything. This is the control that stops a hand-crafted POST conferring a free paid tier |
+| `RESEND_API_KEY` | Sends invitations, recovery codes and receipts | Without it, `send()` reports "not configured" — the invite is still recorded, nothing is silently discarded |
+| `DENTAI_EMAIL_FROM` | The From address those emails use | Must be a verified sender domain, e.g. `DentAI <hello@yourdomain.com.au>` |
+
+Emails are sent at the moment the action happens, so a missing key produces a clear operator error. Neither integration charges you anything until it is switched on — activation is a deliberate act, and `/api/ops/billing/activate` exists for the first cohort who pay by invoice.
+
+## Operator and maintenance commands
+
+These are not server variables; they are set on the command line when you run an operator task.
+
+| Variable | Command | Purpose |
+|---|---|---|
+| `DENTAI_MIGRATE_DATABASE_URL` | `bun run db:migrate` | Migrate a *different* database than the app uses — the safe way to rehearse a migration against a scratch branch |
+| `DENTAI_CONFIRM_DESTRUCTIVE` | `bun run db:migrate:down` | Required to roll a migration back, because it drops tables and columns |
+| `DENTAI_MIGRATION_FORCE` | `bun run db:migrate` | Overrides the refusal to run when a shipped migration's checksum changed. Use only on a database you know was never migrated |
+
 ## Platform placement (production is separate from sandbox)
 
 - **Vercel**: set Production and Preview scopes. Cron uses `CRON_SECRET`
