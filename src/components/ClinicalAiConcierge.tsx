@@ -120,62 +120,62 @@ export default function ClinicalAiConcierge({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-y-0 right-0 z-[110] w-full max-w-md bg-slate-900 border-l border-slate-700/80 shadow-2xl flex flex-col animate-in slide-in-from-right duration-200">
+    <div className="fixed inset-y-0 right-0 z-[110] w-full max-w-md bg-white border-l border-slate-200/90 shadow-2xl flex flex-col animate-in slide-in-from-right duration-200">
       
       {/* Drawer Header */}
-      <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800 bg-slate-900/90 backdrop-blur-sm">
+      <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 bg-slate-50/90 backdrop-blur-sm">
         <div className="flex items-center space-x-3">
-          <div className="w-8 h-8 rounded-xl bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
+          <div className="w-8 h-8 rounded-xl bg-cyan-50 border border-cyan-200 flex items-center justify-center text-cyan-700">
             <Bot className="w-4 h-4" />
           </div>
           <div>
             <div className="flex items-center gap-1.5">
-              <h3 className="text-sm font-semibold text-white">Clinical AI Concierge</h3>
-              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+              <h3 className="text-sm font-bold text-slate-900">Clinical AI Concierge</h3>
+              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
                 ADA / AHPRA
               </span>
             </div>
-            <p className="text-[11px] text-slate-400">Instant chairside clinical & PMS answers</p>
+            <p className="text-[11px] text-slate-500">Instant chairside clinical &amp; PMS answers</p>
           </div>
         </div>
         <button
           onClick={onClose}
-          className="rounded-lg p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 transition"
+          className="rounded-lg p-1.5 text-slate-400 hover:text-slate-800 hover:bg-slate-100 transition cursor-pointer"
         >
           <X className="w-4 h-4" />
         </button>
       </div>
 
       {/* Suggested Quick Question Chips */}
-      <div className="px-4 py-2.5 border-b border-slate-800/80 bg-slate-950/40 flex items-center gap-1.5 overflow-x-auto no-scrollbar text-[11px]">
+      <div className="px-4 py-2.5 border-b border-slate-200/80 bg-slate-50 flex items-center gap-1.5 overflow-x-auto no-scrollbar text-[11px]">
         <button
           type="button"
           onClick={() => handleSendMessage('How do I paste into Dental4Windows or EXACT?')}
-          className="whitespace-nowrap px-2.5 py-1 rounded-lg bg-slate-800/70 hover:bg-slate-800 text-slate-300 border border-slate-700/60 hover:border-slate-600 transition flex items-center gap-1"
+          className="whitespace-nowrap px-2.5 py-1 rounded-lg bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 transition flex items-center gap-1 shadow-2xs cursor-pointer"
         >
-          <FileText className="w-3 h-3 text-emerald-400" />
+          <FileText className="w-3 h-3 text-emerald-600" />
           Paste into D4W (F12)
         </button>
         <button
           type="button"
           onClick={() => handleSendMessage('What is the ADA code for 3-surface molar composite?')}
-          className="whitespace-nowrap px-2.5 py-1 rounded-lg bg-slate-800/70 hover:bg-slate-800 text-slate-300 border border-slate-700/60 hover:border-slate-600 transition flex items-center gap-1"
+          className="whitespace-nowrap px-2.5 py-1 rounded-lg bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 transition flex items-center gap-1 shadow-2xs cursor-pointer"
         >
-          <Stethoscope className="w-3 h-3 text-indigo-400" />
+          <Stethoscope className="w-3 h-3 text-indigo-600" />
           ADA 533 Code
         </button>
         <button
           type="button"
           onClick={() => handleSendMessage('What are AHPRA tooth numbering compliance rules?')}
-          className="whitespace-nowrap px-2.5 py-1 rounded-lg bg-slate-800/70 hover:bg-slate-800 text-slate-300 border border-slate-700/60 hover:border-slate-600 transition flex items-center gap-1"
+          className="whitespace-nowrap px-2.5 py-1 rounded-lg bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 transition flex items-center gap-1 shadow-2xs cursor-pointer"
         >
-          <ShieldCheck className="w-3 h-3 text-amber-400" />
+          <ShieldCheck className="w-3 h-3 text-amber-600" />
           AHPRA FDI Rules
         </button>
       </div>
 
       {/* Messages Scroll Area */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50/50">
         {messages.map((m) => {
           const isUser = m.sender === 'user';
           return (
@@ -186,23 +186,23 @@ export default function ClinicalAiConcierge({
               <div
                 className={`relative max-w-[88%] rounded-2xl px-4 py-3 text-xs leading-relaxed ${
                   isUser
-                    ? 'bg-emerald-600 text-white rounded-br-none'
-                    : 'bg-slate-800/80 text-slate-200 border border-slate-700/70 rounded-bl-none shadow-sm'
+                    ? 'bg-[#0071E3] text-white rounded-br-none shadow-xs'
+                    : 'bg-white text-slate-900 border border-slate-200/90 rounded-bl-none shadow-xs'
                 }`}
               >
                 {!isUser && (
-                  <div className="flex items-center justify-between gap-2 mb-1.5 pb-1 border-b border-slate-700/40 text-[10px] text-slate-400">
-                    <span className="font-semibold text-emerald-400 flex items-center gap-1">
-                      <Sparkles className="w-3 h-3" />
+                  <div className="flex items-center justify-between gap-2 mb-1.5 pb-1 border-b border-slate-100 text-[10px] text-slate-500">
+                    <span className="font-semibold text-cyan-700 flex items-center gap-1">
+                      <Sparkles className="w-3 h-3 text-cyan-600" />
                       DentAI Clinical Assistant
                     </span>
                     <button
                       type="button"
                       onClick={() => handleCopyText(m.id, m.text)}
-                      className="hover:text-white transition flex items-center gap-0.5"
+                      className="hover:text-slate-800 transition flex items-center gap-0.5 cursor-pointer"
                     >
                       {copiedId === m.id ? (
-                        <Check className="w-3 h-3 text-emerald-400" />
+                        <Check className="w-3 h-3 text-emerald-600" />
                       ) : (
                         <Copy className="w-3 h-3" />
                       )}
@@ -212,13 +212,13 @@ export default function ClinicalAiConcierge({
                 )}
                 <div className="whitespace-pre-wrap font-sans">{m.text}</div>
               </div>
-              <span className="text-[10px] text-slate-500 mt-1 px-1">{m.timestamp}</span>
+              <span className="text-[10px] text-slate-400 mt-1 px-1">{m.timestamp}</span>
             </div>
           );
         })}
         {isLoading && (
-          <div className="flex items-center gap-2 text-xs text-slate-400 bg-slate-800/50 rounded-xl px-3 py-2 w-fit border border-slate-700/40">
-            <RefreshCw className="w-3 h-3 animate-spin text-emerald-400" />
+          <div className="flex items-center gap-2 text-xs text-slate-600 bg-white rounded-xl px-3 py-2 w-fit border border-slate-200 shadow-2xs">
+            <RefreshCw className="w-3 h-3 animate-spin text-cyan-600" />
             <span>Consulting dental knowledge fabric...</span>
           </div>
         )}
@@ -226,7 +226,7 @@ export default function ClinicalAiConcierge({
       </div>
 
       {/* Input Box Footer */}
-      <div className="p-3 border-t border-slate-800 bg-slate-900/90">
+      <div className="p-3 border-t border-slate-200 bg-white">
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -240,18 +240,18 @@ export default function ClinicalAiConcierge({
             onChange={(e) => setInputText(e.target.value)}
             placeholder="Ask ADA codes, AHPRA rules, or PMS shortcuts..."
             disabled={isLoading}
-            className="flex-1 bg-slate-800/90 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition"
+            className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-[#0071E3] focus:bg-white transition"
           />
           <button
             type="submit"
             disabled={!inputText.trim() || isLoading}
-            className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white rounded-xl p-2.5 transition active:scale-95 shadow-md shadow-emerald-950/30"
+            className="bg-[#0071E3] hover:bg-[#0062C4] disabled:opacity-40 text-white rounded-xl p-2.5 transition active:scale-95 shadow-xs cursor-pointer"
           >
             <Send className="w-4 h-4" />
           </button>
         </form>
-        <p className="text-[10px] text-slate-500 text-center mt-2">
-          Autonomous Clinical AI • Certified with AHPRA Dental Board & ADA Schedule
+        <p className="text-[10px] text-slate-400 text-center mt-2 font-mono">
+          Autonomous Clinical AI • Certified with AHPRA Dental Board &amp; ADA Schedule
         </p>
       </div>
 

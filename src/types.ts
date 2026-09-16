@@ -5,6 +5,7 @@ export type { AppointmentType };
 export interface TranscriptItem {
   sender: 'Dentist' | 'Patient' | 'Dialogue' | 'Clinical Comment';
   text: string;
+  timestamp?: string;
 }
 
 export interface AdaCodeItem {

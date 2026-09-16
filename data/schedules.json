@@ -1,3 +1,700 @@
 {
-  "schedules": {}
+  "schedules": {
+    "ea8e5a3a-d788-45d9-b44b-63faa8db43b3:2026-09-15": {
+      "dentistId": "ea8e5a3a-d788-45d9-b44b-63faa8db43b3",
+      "date": "2026-09-15",
+      "items": [
+        {
+          "id": "sched_demo_1",
+          "time": "08:30",
+          "patientName": "Sarah Connor",
+          "procedureText": "Comprehensive Exam & Bitewings (011, 022)",
+          "appointmentType": "examination",
+          "templateId": "standard",
+          "status": "ready",
+          "source": "snip",
+          "consentObtained": true,
+          "consentCapturedAt": "2026-09-14T21:45:49.425Z",
+          "preOpBrief": "Comprehensive AHPRA check-up. Mucosal screen, BPE score & routine bitewings review.",
+          "adaCodes": [],
+          "consultationId": "18afa595-3b84-4016-9b63-88d5efbadb20",
+          "transcript": [
+            {
+              "sender": "Dentist",
+              "text": "Good morning Sarah Connor, let's begin your appointment for Comprehensive Exam & Bitewings (011, 022)."
+            },
+            {
+              "sender": "Dialogue",
+              "text": "Clinical consultation dialogue for Sarah Connor."
+            },
+            {
+              "sender": "Dentist",
+              "text": "All procedures completed. We will review your recovery and plan the next recall visit."
+            }
+          ],
+          "clinicalNote": "=== DENTAI AMBIENT CLINICAL NOTE ===\nPatient: Sarah Connor\nDate: 2026-09-15 | Time: 08:30\nProcedure: Comprehensive Exam & Bitewings (011, 022)\n\nCHIEF COMPLAINT:\nClinical consultation dialogue for Sarah Connor.\n\nEXAMINATION & FINDINGS:\nSarah Connor, let's begin your appointment for Comprehensive Exam & Bitewings (011, 022).\n\nTREATMENT PERFORMED:\nAll procedures completed.\n\nPOST-OPERATIVE INSTRUCTIONS:\nMaintain regular oral hygiene.\n\nNEXT VISIT / RECALL:\n6 Months Recall",
+          "completedAt": "2026-09-14T22:38:50.911Z",
+          "groundingScore": 100,
+          "isFullyGrounded": true,
+          "unverifiedClaims": [],
+          "aftercareSummary": "Please avoid hot drinks and chewing on the treated side until local anaesthetic numbness fully wears off (approx 2 hours). Contact us if your bite feels high."
+        },
+        {
+          "id": "sched_demo_2",
+          "time": "09:15",
+          "patientName": "David Miller",
+          "procedureText": "Tooth #16 Ceramic Crown Prep (611)",
+          "appointmentType": "prosthodontic",
+          "templateId": "standard",
+          "status": "ready",
+          "source": "snip",
+          "consentObtained": true,
+          "preOpBrief": "Check occlusal clearance, margin prep definition & shade matching. Verify local anaesthesia.",
+          "treatmentOpportunity": {
+            "code": "611",
+            "description": "Full Ceramic / PFM Crown",
+            "estimatedValueAud": 1750,
+            "tooth": "16"
+          },
+          "adaCodes": [],
+          "consentCapturedAt": "2026-09-14T23:05:41.315Z",
+          "consentPractitionerId": "Vik",
+          "consultationId": "2c06b84e-e4c2-4e37-ba73-0d801bab8e8a",
+          "transcript": [
+            {
+              "sender": "Dentist",
+              "text": "Good morning David Miller, let's begin your appointment for Tooth #16 Ceramic Crown Prep (611)."
+            },
+            {
+              "sender": "Dialogue",
+              "text": "Clinical consultation dialogue for David Miller."
+            },
+            {
+              "sender": "Dentist",
+              "text": "All procedures completed. We will review your recovery and plan the next recall visit."
+            }
+          ],
+          "clinicalNote": "=== DENTAI AMBIENT CLINICAL NOTE ===\nPatient: David Miller\nDate: 2026-09-15 | Time: 09:15\nProcedure: Tooth #16 Ceramic Crown Prep (611)\n\nCHIEF COMPLAINT:\nClinical consultation dialogue for David Miller.\n\nEXAMINATION & FINDINGS:\nDavid Miller, let's begin your appointment for Tooth #16 Ceramic Crown Prep (611).\n\nTREATMENT PERFORMED:\nAll procedures completed.\n\nPOST-OPERATIVE INSTRUCTIONS:\nMaintain regular oral hygiene.\n\nNEXT VISIT / RECALL:\n6 Months Recall",
+          "completedAt": "2026-09-14T23:10:12.868Z",
+          "groundingScore": 100,
+          "isFullyGrounded": true,
+          "unverifiedClaims": [],
+          "aftercareSummary": "Avoid chewing sticky or hard foods on this tooth while the temporary is in place. Brush gently around the gumline. Numbness will wear off in 2-3 hours."
+        },
+        {
+          "id": "sched_demo_3",
+          "time": "10:00",
+          "patientName": "Liam O'Connor",
+          "procedureText": "Emergency: Severe Pain & Pulpitis #36",
+          "appointmentType": "emergency",
+          "templateId": "soap",
+          "status": "scheduled",
+          "source": "snip",
+          "consentObtained": false,
+          "preOpBrief": "Assess chief complaint, cold/percussion tenderness & periapical radiograph. Assess pulp vitality.",
+          "adaCodes": []
+        },
+        {
+          "id": "sched_demo_4",
+          "time": "11:00",
+          "patientName": "Emma Watson",
+          "procedureText": "Adult Hygiene Scale & Clean & Fluoride (114, 121)",
+          "appointmentType": "scale_clean",
+          "templateId": "concise",
+          "status": "ready",
+          "source": "snip",
+          "consentObtained": true,
+          "consentCapturedAt": "2026-09-14T21:45:49.425Z",
+          "isFullyGrounded": true,
+          "groundingScore": 100,
+          "unverifiedClaims": [],
+          "adaCodes": [
+            "114",
+            "121"
+          ],
+          "transcript": [
+            {
+              "sender": "Dentist",
+              "text": "Good morning Emma, we will perform your periodic adult hygiene scaling and topical fluoride treatment today."
+            },
+            {
+              "sender": "Patient",
+              "text": "Sounds good doctor, my gums have been feeling a bit sensitive on the lower right."
+            },
+            {
+              "sender": "Dentist",
+              "text": "Supragingival and subgingival calculus removed with ultrasonic scaler and hand curettes. Applied neutral sodium fluoride foam."
+            },
+            {
+              "sender": "Dentist",
+              "text": "All finished. Avoid eating or hot drinks for thirty minutes."
+            }
+          ],
+          "clinicalNote": "=== DENTAI AMBIENT CLINICAL NOTE ===\nPatient: Emma Watson\nDate: 2026-09-15 | Time: 11:00\nProcedure: Adult Hygiene Scale & Clean & Fluoride (114, 121)\n\nCHIEF COMPLAINT:\nRoutine 6-monthly preventive hygiene visit. Mild lower right gingival sensitivity reported.\n\nEXAMINATION & FINDINGS:\nGeneralized mild marginal gingivitis with localised calculus deposits lower anterior lingual surfaces. No deep periodontal pocketing (>3mm).\n\nTREATMENT PERFORMED:\nFull mouth scaling and root debridement using ultrasonic scaler and hand instrumentation (ADA 114). Polishing with fine prophy paste. Topical neutral sodium fluoride gel application for 4 minutes (ADA 121).\n\nPOST-OPERATIVE INSTRUCTIONS:\nPatient advised nil by mouth for 30 minutes. Gentle brushing with soft-bristled brush recommended.\n\nNEXT VISIT / RECALL:\n6 Months Routine Hygiene Recall.\n\nADA ITEM CODES:\n114 (Removal of calculus), 121 (Topical fluoride)",
+          "preOpBrief": "BPE periodontal sextant screening, calculus index & gingival bleeding review.",
+          "aftercareSummary": "Nil by mouth for 30 minutes following fluoride treatment. Continue gentle brushing twice daily with soft-bristled brush and daily interdental flossing."
+        },
+        {
+          "id": "sched_demo_5",
+          "time": "13:30",
+          "patientName": "Michael Chang",
+          "procedureText": "Tooth #24 MO Resin Restoration (532)",
+          "appointmentType": "restorative",
+          "templateId": "standard",
+          "status": "scheduled",
+          "source": "snip",
+          "consentObtained": true,
+          "consentCapturedAt": "2026-09-14T21:45:49.425Z",
+          "preOpBrief": "Verify cavity surfaces (MODBL), check occlusal contacts & rubber dam isolation.",
+          "adaCodes": []
+        },
+        {
+          "time": "22:35",
+          "patientName": "Sarah Jenkins",
+          "procedureText": "Crown prep and impression",
+          "appointmentType": "prosthodontic",
+          "templateId": "standard",
+          "source": "snip",
+          "id": "sched_1789475766206_8vs61",
+          "status": "ready",
+          "preOpBrief": "Check occlusal clearance, margin prep definition & shade matching. Verify local anaesthesia.",
+          "adaCodes": [],
+          "consentObtained": true,
+          "consentCapturedAt": "2026-09-15T12:36:12.396Z",
+          "consentPractitionerId": "Vik",
+          "consultationId": "31eaf457-a789-4116-8ed0-44993fb15cec",
+          "transcript": [
+            {
+              "sender": "Dentist",
+              "text": "Good morning Sarah Jenkins, let's begin your appointment for Crown prep and impression."
+            },
+            {
+              "sender": "Dialogue",
+              "text": "Clinical consultation dialogue for Sarah Jenkins."
+            },
+            {
+              "sender": "Dentist",
+              "text": "All procedures completed. We will review your recovery and plan the next recall visit."
+            }
+          ],
+          "clinicalNote": "=== DENTAI AMBIENT CLINICAL NOTE ===\nPatient: Sarah Jenkins\nDate: 2026-09-15 | Time: 22:35\nProcedure: Crown prep and impression\n\nCHIEF COMPLAINT:\nClinical consultation dialogue for Sarah Jenkins.\n\nEXAMINATION & FINDINGS:\nClinical examination complete.\n\nTREATMENT PERFORMED:\nSarah Jenkins, let's begin your appointment for Crown prep and impression. All procedures completed.\n\nPOST-OPERATIVE INSTRUCTIONS:\nMaintain regular oral hygiene.\n\nNEXT VISIT / RECALL:\n6 Months Recall",
+          "completedAt": "2026-09-15T12:36:39.928Z",
+          "groundingScore": 100,
+          "isFullyGrounded": true,
+          "unverifiedClaims": [],
+          "treatmentOpportunity": {
+            "code": "611",
+            "description": "Full Ceramic / PFM Crown",
+            "estimatedValueAud": 1750
+          },
+          "aftercareSummary": "Avoid chewing sticky or hard foods on this tooth while the temporary is in place. Brush gently around the gumline. Numbness will wear off in 2-3 hours."
+        }
+      ],
+      "updatedAt": "2026-09-16T00:10:54.394Z"
+    },
+    "7b113eb8-e9f7-4e6d-9677-111e645f3b43:2026-09-16": {
+      "dentistId": "7b113eb8-e9f7-4e6d-9677-111e645f3b43",
+      "date": "2026-09-16",
+      "items": [
+        {
+          "id": "sched_demo_1",
+          "time": "08:30",
+          "patientName": "Sarah Connor",
+          "procedureText": "Comprehensive Exam & Bitewings (011, 022)",
+          "appointmentType": "examination",
+          "templateId": "standard",
+          "status": "failed",
+          "source": "snip",
+          "consentObtained": true,
+          "consentCapturedAt": "2026-09-15T21:57:10.630Z",
+          "preOpBrief": "Comprehensive AHPRA check-up. Mucosal screen, BPE score & routine bitewings review.",
+          "adaCodes": [],
+          "consultationId": "449f66ac-d8b2-4e4c-962a-4009a69caa77",
+          "transcript": [
+            {
+              "sender": "Dentist",
+              "text": "Good morning Sarah Connor, let's begin your appointment for Comprehensive Exam & Bitewings (011, 022)."
+            },
+            {
+              "sender": "Dialogue",
+              "text": "Clinical consultation dialogue for Sarah Connor."
+            },
+            {
+              "sender": "Dentist",
+              "text": "All procedures completed. We will review your recovery and plan the next recall visit."
+            }
+          ],
+          "jobId": "449f66ac-d8b2-4e4c-962a-4009a69caa77",
+          "error": "Synthesis timed out in background."
+        },
+        {
+          "time": "08:41",
+          "patientName": "Arthur Dent",
+          "procedureText": "Chipped Incisor Tooth #11",
+          "appointmentType": "emergency",
+          "templateId": "soap",
+          "source": "snip",
+          "id": "sched_1789512065436_1cbzq",
+          "status": "failed",
+          "preOpBrief": "Assess chief complaint, cold/percussion tenderness & periapical radiograph. Assess pulp vitality.",
+          "adaCodes": [],
+          "consentObtained": true,
+          "consentCapturedAt": "2026-09-15T22:43:41.753Z",
+          "consentPractitionerId": "Dr. Sarah Jenkins",
+          "consultationId": "37f47322-ac85-463d-9afd-51575045501e",
+          "transcript": [
+            {
+              "sender": "Dentist",
+              "text": "Good morning Arthur Dent, let's begin your appointment for Chipped Incisor Tooth #11."
+            },
+            {
+              "sender": "Dialogue",
+              "text": "chart correction with also start owner"
+            },
+            {
+              "sender": "Dentist",
+              "text": "All procedures completed. We will review your recovery and plan the next recall visit."
+            }
+          ],
+          "jobId": "37f47322-ac85-463d-9afd-51575045501e",
+          "error": "Synthesis timed out in background."
+        },
+        {
+          "time": "08:42",
+          "patientName": "Arthur Dent",
+          "procedureText": "Chipped Incisor Tooth #11",
+          "appointmentType": "emergency",
+          "templateId": "soap",
+          "source": "snip",
+          "id": "sched_1789512129064_j9xzs",
+          "status": "scheduled",
+          "preOpBrief": "Assess chief complaint, cold/percussion tenderness & periapical radiograph. Assess pulp vitality.",
+          "adaCodes": []
+        },
+        {
+          "time": "08:43",
+          "patientName": "Arthur Dent",
+          "procedureText": "Chipped Incisor Tooth #11",
+          "appointmentType": "emergency",
+          "templateId": "soap",
+          "source": "snip",
+          "id": "sched_1789512218058_mzpms",
+          "status": "scheduled",
+          "preOpBrief": "Assess chief complaint, cold/percussion tenderness & periapical radiograph. Assess pulp vitality.",
+          "adaCodes": []
+        },
+        {
+          "time": "08:44",
+          "patientName": "Arthur Dent",
+          "procedureText": "Chipped Incisor Tooth #11",
+          "appointmentType": "emergency",
+          "templateId": "soap",
+          "source": "snip",
+          "id": "sched_1789512292102_03sb3",
+          "status": "scheduled",
+          "preOpBrief": "Assess chief complaint, cold/percussion tenderness & periapical radiograph. Assess pulp vitality.",
+          "adaCodes": []
+        },
+        {
+          "time": "08:47",
+          "patientName": "Arthur Dent",
+          "procedureText": "Chipped Incisor Tooth #11",
+          "appointmentType": "emergency",
+          "templateId": "soap",
+          "source": "snip",
+          "id": "sched_1789512467613_oc4wd",
+          "status": "scheduled",
+          "preOpBrief": "Assess chief complaint, cold/percussion tenderness & periapical radiograph. Assess pulp vitality.",
+          "adaCodes": []
+        },
+        {
+          "time": "08:49",
+          "patientName": "Arthur Dent",
+          "procedureText": "Chipped Incisor Tooth #11",
+          "appointmentType": "emergency",
+          "templateId": "soap",
+          "source": "snip",
+          "id": "sched_1789512577161_befhl",
+          "status": "scheduled",
+          "preOpBrief": "Assess chief complaint, cold/percussion tenderness & periapical radiograph. Assess pulp vitality.",
+          "adaCodes": []
+        },
+        {
+          "time": "08:54",
+          "patientName": "Arthur Dent",
+          "procedureText": "Chipped Incisor Tooth #11",
+          "appointmentType": "emergency",
+          "templateId": "soap",
+          "source": "snip",
+          "id": "sched_1789512856475_n1irz",
+          "status": "scheduled",
+          "preOpBrief": "Assess chief complaint, cold/percussion tenderness & periapical radiograph. Assess pulp vitality.",
+          "adaCodes": []
+        },
+        {
+          "time": "08:55",
+          "patientName": "Arthur Dent",
+          "procedureText": "Chipped Incisor Tooth #11",
+          "appointmentType": "emergency",
+          "templateId": "soap",
+          "source": "snip",
+          "id": "sched_1789512916799_zcoiw",
+          "status": "scheduled",
+          "preOpBrief": "Assess chief complaint, cold/percussion tenderness & periapical radiograph. Assess pulp vitality.",
+          "adaCodes": []
+        },
+        {
+          "time": "08:59",
+          "patientName": "Arthur Dent",
+          "procedureText": "Chipped Incisor Tooth #11",
+          "appointmentType": "emergency",
+          "templateId": "soap",
+          "source": "snip",
+          "id": "sched_1789513193766_dbg24",
+          "status": "scheduled",
+          "preOpBrief": "Assess chief complaint, cold/percussion tenderness & periapical radiograph. Assess pulp vitality.",
+          "adaCodes": []
+        },
+        {
+          "id": "sched_demo_2",
+          "time": "09:15",
+          "patientName": "David Miller",
+          "procedureText": "Tooth #16 Ceramic Crown Prep (611)",
+          "appointmentType": "prosthodontic",
+          "templateId": "standard",
+          "status": "scheduled",
+          "source": "snip",
+          "consentObtained": true,
+          "preOpBrief": "Check occlusal clearance, margin prep definition & shade matching. Verify local anaesthesia.",
+          "treatmentOpportunity": {
+            "code": "611",
+            "description": "Full Ceramic / PFM Crown",
+            "estimatedValueAud": 1750,
+            "tooth": "16"
+          },
+          "adaCodes": [],
+          "consentCapturedAt": "2026-09-16T11:01:37.342Z",
+          "consentPractitionerId": "Dr. Sarah Jenkins"
+        },
+        {
+          "id": "sched_demo_3",
+          "time": "10:00",
+          "patientName": "Liam O'Connor",
+          "procedureText": "Emergency: Severe Pain & Pulpitis #36",
+          "appointmentType": "emergency",
+          "templateId": "soap",
+          "status": "scheduled",
+          "source": "snip",
+          "consentObtained": false,
+          "preOpBrief": "Assess chief complaint, cold/percussion tenderness & periapical radiograph. Assess pulp vitality.",
+          "adaCodes": []
+        },
+        {
+          "time": "10:04",
+          "patientName": "Arthur Dent",
+          "procedureText": "Chipped Incisor Tooth #11",
+          "appointmentType": "emergency",
+          "templateId": "soap",
+          "source": "snip",
+          "id": "sched_1789517049115_vr1su",
+          "status": "scheduled",
+          "preOpBrief": "Assess chief complaint, cold/percussion tenderness & periapical radiograph. Assess pulp vitality.",
+          "adaCodes": []
+        },
+        {
+          "time": "10:05",
+          "patientName": "Arthur Dent",
+          "procedureText": "Chipped Incisor Tooth #11",
+          "appointmentType": "emergency",
+          "templateId": "soap",
+          "source": "snip",
+          "id": "sched_1789517121068_8jzno",
+          "status": "scheduled",
+          "preOpBrief": "Assess chief complaint, cold/percussion tenderness & periapical radiograph. Assess pulp vitality.",
+          "adaCodes": []
+        },
+        {
+          "time": "10:06",
+          "patientName": "Arthur Dent",
+          "procedureText": "Chipped Incisor Tooth #11",
+          "appointmentType": "emergency",
+          "templateId": "soap",
+          "source": "snip",
+          "id": "sched_1789517194590_9c9yj",
+          "status": "scheduled",
+          "preOpBrief": "Assess chief complaint, cold/percussion tenderness & periapical radiograph. Assess pulp vitality.",
+          "adaCodes": []
+        },
+        {
+          "id": "sched_demo_4",
+          "time": "11:00",
+          "patientName": "Emma Watson",
+          "procedureText": "Adult Hygiene Scale & Clean & Fluoride (114, 121)",
+          "appointmentType": "scale_clean",
+          "templateId": "concise",
+          "status": "ready",
+          "source": "snip",
+          "consentObtained": true,
+          "consentCapturedAt": "2026-09-15T21:57:10.630Z",
+          "isFullyGrounded": true,
+          "groundingScore": 100,
+          "unverifiedClaims": [],
+          "adaCodes": [
+            "114",
+            "121"
+          ],
+          "transcript": [
+            {
+              "sender": "Dentist",
+              "text": "Good morning Emma, we will perform your periodic adult hygiene scaling and topical fluoride treatment today."
+            },
+            {
+              "sender": "Patient",
+              "text": "Sounds good doctor, my gums have been feeling a bit sensitive on the lower right."
+            },
+            {
+              "sender": "Dentist",
+              "text": "Supragingival and subgingival calculus removed with ultrasonic scaler and hand curettes. Applied neutral sodium fluoride foam."
+            },
+            {
+              "sender": "Dentist",
+              "text": "All finished. Avoid eating or hot drinks for thirty minutes."
+            }
+          ],
+          "clinicalNote": "=====================================================\nDENTAI CLINICAL EXAMINATION & PROCEDURE NOTE\nDate: 16/09/2026 09:01 pm | Practitioner: Dr. Sarah Jenkins\nPatient: Emma Watson | Procedure: Comprehensive Exam & Scale/Clean\n=====================================================\n\n[EXTRA INTRA ORAL]\nExtraoral lymph nodes non-tender. TMJ normal without clicking or crepitus. Intraoral soft tissues pink, moist, and free from ulceration or suspicious lesions.\n\n[RADIOGRAPHS]\n2x bitewing radiographs taken (ADA 022). Normal bone levels, no interproximal caries detected.\n\n[CLEAN FLUORIDE]\nUltrasonic scaling of supragingival and subgingival calculus. Prophy paste polish. 5% sodium fluoride varnish applied (ADA 121).\n\n[TREATMENT PLAN]\nAdvised daily interdental flossing. Routine 6-monthly preventative recall recommended.\n\n[ITEMISED ADA BILLING CODES]\nItem 114, Item 121\n\n[CLINICAL SIGN-OFF]\nExamined, verified and signed chairside by Dr. Sarah Jenkins.\n",
+          "preOpBrief": "BPE periodontal sextant screening, calculus index & gingival bleeding review.",
+          "aftercareSummary": "Nil by mouth for 30 minutes following fluoride treatment. Continue gentle brushing twice daily with soft-bristled brush and daily interdental flossing."
+        },
+        {
+          "id": "sched_demo_5",
+          "time": "13:30",
+          "patientName": "Michael Chang",
+          "procedureText": "Tooth #24 MO Resin Restoration (532)",
+          "appointmentType": "restorative",
+          "templateId": "standard",
+          "status": "scheduled",
+          "source": "snip",
+          "consentObtained": true,
+          "consentCapturedAt": "2026-09-15T21:57:10.630Z",
+          "preOpBrief": "Verify cavity surfaces (MODBL), check occlusal contacts & rubber dam isolation.",
+          "adaCodes": []
+        },
+        {
+          "time": "17:56",
+          "patientName": "Arthur Dent",
+          "procedureText": "Chipped Incisor Tooth #11",
+          "appointmentType": "emergency",
+          "templateId": "soap",
+          "source": "snip",
+          "id": "sched_1789545392775_u547q",
+          "status": "scheduled",
+          "preOpBrief": "Assess chief complaint, cold/percussion tenderness & periapical radiograph. Assess pulp vitality.",
+          "adaCodes": []
+        },
+        {
+          "time": "17:58",
+          "patientName": "Arthur Dent",
+          "procedureText": "Chipped Incisor Tooth #11",
+          "appointmentType": "emergency",
+          "templateId": "soap",
+          "source": "snip",
+          "id": "sched_1789545513656_2kkoo",
+          "status": "scheduled",
+          "preOpBrief": "Assess chief complaint, cold/percussion tenderness & periapical radiograph. Assess pulp vitality.",
+          "adaCodes": []
+        },
+        {
+          "time": "20:16",
+          "patientName": "Arthur Dent",
+          "procedureText": "Chipped Incisor Tooth #11",
+          "appointmentType": "emergency",
+          "templateId": "soap",
+          "source": "snip",
+          "id": "sched_1789553766491_l1jn1",
+          "status": "scheduled",
+          "preOpBrief": "Assess chief complaint, cold/percussion tenderness & periapical radiograph. Assess pulp vitality.",
+          "adaCodes": []
+        },
+        {
+          "id": "walkin_1789556303743_qnm0c",
+          "time": "20:58",
+          "patientName": "Walkin Test",
+          "procedureText": "Toothache / Acute Pain Relief",
+          "appointmentType": "emergency",
+          "templateId": "standard",
+          "status": "arrived",
+          "isWalkIn": true,
+          "priority": "emergency",
+          "preOpBrief": "Ad-hoc EMERGENCY: Toothache / Acute Pain Relief. Direct chairside triage.",
+          "source": "snip",
+          "adaCodes": []
+        },
+        {
+          "id": "walkin_1789556358563_ptxbs",
+          "time": "20:59",
+          "patientName": "Walkin Test",
+          "procedureText": "Toothache / Acute Pain Relief",
+          "appointmentType": "emergency",
+          "templateId": "standard",
+          "status": "arrived",
+          "isWalkIn": true,
+          "priority": "emergency",
+          "preOpBrief": "Ad-hoc EMERGENCY: Toothache / Acute Pain Relief. Direct chairside triage.",
+          "source": "snip",
+          "adaCodes": []
+        },
+        {
+          "id": "walkin_1789556476039_4s8p5",
+          "time": "21:01",
+          "patientName": "Walkin Test",
+          "procedureText": "Toothache / Acute Pain Relief",
+          "appointmentType": "emergency",
+          "templateId": "standard",
+          "status": "arrived",
+          "isWalkIn": true,
+          "priority": "emergency",
+          "preOpBrief": "Ad-hoc EMERGENCY: Toothache / Acute Pain Relief. Direct chairside triage.",
+          "source": "snip",
+          "adaCodes": []
+        },
+        {
+          "time": "21:01",
+          "patientName": "Arthur Dent",
+          "procedureText": "Chipped Incisor Tooth #11",
+          "appointmentType": "emergency",
+          "templateId": "soap",
+          "source": "snip",
+          "id": "sched_1789556493155_h84ks",
+          "status": "scheduled",
+          "preOpBrief": "Assess chief complaint, cold/percussion tenderness & periapical radiograph. Assess pulp vitality.",
+          "adaCodes": []
+        }
+      ],
+      "updatedAt": "2026-09-16T11:01:54.086Z"
+    },
+    "ea8e5a3a-d788-45d9-b44b-63faa8db43b3:2026-09-16": {
+      "dentistId": "ea8e5a3a-d788-45d9-b44b-63faa8db43b3",
+      "date": "2026-09-16",
+      "items": [
+        {
+          "id": "sched_demo_1",
+          "time": "08:30",
+          "patientName": "Sarah Connor",
+          "procedureText": "Comprehensive Exam & Bitewings (011, 022)",
+          "appointmentType": "examination",
+          "templateId": "standard",
+          "status": "failed",
+          "source": "snip",
+          "consentObtained": true,
+          "consentCapturedAt": "2026-09-16T08:02:46.044Z",
+          "preOpBrief": "Comprehensive AHPRA check-up. Mucosal screen, BPE score & routine bitewings review.",
+          "adaCodes": [],
+          "consultationId": "c4c4e3e3-0229-433e-8176-d846aac902c9",
+          "transcript": [
+            {
+              "sender": "Dentist",
+              "text": "Good morning Sarah Connor, let's begin your appointment for Comprehensive Exam & Bitewings (011, 022)."
+            },
+            {
+              "sender": "Dialogue",
+              "text": "Clinical consultation dialogue for Sarah Connor."
+            },
+            {
+              "sender": "Dentist",
+              "text": "All procedures completed. We will review your recovery and plan the next recall visit."
+            }
+          ],
+          "jobId": "c4c4e3e3-0229-433e-8176-d846aac902c9",
+          "error": "Synthesis timed out in background."
+        },
+        {
+          "id": "sched_demo_2",
+          "time": "09:15",
+          "patientName": "David Miller",
+          "procedureText": "Tooth #16 Ceramic Crown Prep (611)",
+          "appointmentType": "prosthodontic",
+          "templateId": "standard",
+          "status": "scheduled",
+          "source": "snip",
+          "consentObtained": false,
+          "preOpBrief": "Check occlusal clearance, margin prep definition & shade matching. Verify local anaesthesia.",
+          "treatmentOpportunity": {
+            "code": "611",
+            "description": "Full Ceramic / PFM Crown",
+            "estimatedValueAud": 1750,
+            "tooth": "16"
+          },
+          "adaCodes": []
+        },
+        {
+          "id": "sched_demo_3",
+          "time": "10:00",
+          "patientName": "Liam O'Connor",
+          "procedureText": "Emergency: Severe Pain & Pulpitis #36",
+          "appointmentType": "emergency",
+          "templateId": "soap",
+          "status": "scheduled",
+          "source": "snip",
+          "consentObtained": false,
+          "preOpBrief": "Assess chief complaint, cold/percussion tenderness & periapical radiograph. Assess pulp vitality.",
+          "adaCodes": []
+        },
+        {
+          "id": "sched_demo_4",
+          "time": "11:00",
+          "patientName": "Emma Watson",
+          "procedureText": "Adult Hygiene Scale & Clean & Fluoride (114, 121)",
+          "appointmentType": "scale_clean",
+          "templateId": "concise",
+          "status": "ready",
+          "source": "snip",
+          "consentObtained": true,
+          "consentCapturedAt": "2026-09-16T08:02:46.044Z",
+          "isFullyGrounded": true,
+          "groundingScore": 100,
+          "unverifiedClaims": [],
+          "adaCodes": [
+            "114",
+            "121"
+          ],
+          "transcript": [
+            {
+              "sender": "Dentist",
+              "text": "Good morning Emma, we will perform your periodic adult hygiene scaling and topical fluoride treatment today."
+            },
+            {
+              "sender": "Patient",
+              "text": "Sounds good doctor, my gums have been feeling a bit sensitive on the lower right."
+            },
+            {
+              "sender": "Dentist",
+              "text": "Supragingival and subgingival calculus removed with ultrasonic scaler and hand curettes. Applied neutral sodium fluoride foam."
+            },
+            {
+              "sender": "Dentist",
+              "text": "All finished. Avoid eating or hot drinks for thirty minutes."
+            }
+          ],
+          "clinicalNote": "=== DENTAI AMBIENT CLINICAL NOTE ===\nPatient: Emma Watson\nDate: 2026-09-16 | Time: 11:00\nProcedure: Adult Hygiene Scale & Clean & Fluoride (114, 121)\n\nCHIEF COMPLAINT:\nRoutine 6-monthly preventive hygiene visit. Mild lower right gingival sensitivity reported.\n\nEXAMINATION & FINDINGS:\nGeneralized mild marginal gingivitis with localised calculus deposits lower anterior lingual surfaces. No deep periodontal pocketing (>3mm).\n\nTREATMENT PERFORMED:\nFull mouth scaling and root debridement using ultrasonic scaler and hand instrumentation (ADA 114). Polishing with fine prophy paste. Topical neutral sodium fluoride gel application for 4 minutes (ADA 121).\n\nPOST-OPERATIVE INSTRUCTIONS:\nPatient advised nil by mouth for 30 minutes. Gentle brushing with soft-bristled brush recommended.\n\nNEXT VISIT / RECALL:\n6 Months Routine Hygiene Recall.\n\nADA ITEM CODES:\n114 (Removal of calculus), 121 (Topical fluoride)",
+          "preOpBrief": "BPE periodontal sextant screening, calculus index & gingival bleeding review.",
+          "aftercareSummary": "Nil by mouth for 30 minutes following fluoride treatment. Continue gentle brushing twice daily with soft-bristled brush and daily interdental flossing."
+        },
+        {
+          "id": "sched_demo_5",
+          "time": "13:30",
+          "patientName": "Michael Chang",
+          "procedureText": "Tooth #24 MO Resin Restoration (532)",
+          "appointmentType": "restorative",
+          "templateId": "standard",
+          "status": "scheduled",
+          "source": "snip",
+          "consentObtained": true,
+          "consentCapturedAt": "2026-09-16T08:02:46.044Z",
+          "preOpBrief": "Verify cavity surfaces (MODBL), check occlusal contacts & rubber dam isolation.",
+          "adaCodes": []
+        }
+      ],
+      "updatedAt": "2026-09-16T11:03:01.999Z"
+    }
+  }
 }

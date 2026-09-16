@@ -1,0 +1,85 @@
+{
+  "agentName": "Grokbot Product & Strategy Agent",
+  "timestamp": "2026-09-15T22:57:33.334Z",
+  "activeQuarterGoal": "Dominate Australian PMS Front-Desk Ergonomics & Unbooked Treatment Recovery",
+  "prioritizedBacklog": [
+    {
+      "id": "FEAT-D4W-CLIP-ENHANCE",
+      "title": "Dental4Windows Trojan Horse Handoff Auto-Splitting",
+      "category": "PMS Integration",
+      "targetPMS": [
+        "Dental4Windows",
+        "EXACT"
+      ],
+      "priority": "P0",
+      "clinicalRationale": "Receptionists copy notes directly into D4W clinical tabs, but need the quote/action items automatically pre-separated for billing tabs.",
+      "practiceManagerBenefit": "Eliminates 3 minutes of re-keying per patient at front desk check-out.",
+      "acceptanceCriteria": [
+        "Clinical note clipboard payload cleanly isolates [CLINICAL RECORD] and [FRONT DESK ACTION ITEM]",
+        "Includes itemized estimated fees ($AUD) and ADA item codes for receptionist billing",
+        "No external software or DLL installation required on reception desktop"
+      ],
+      "schemaChangesRequired": false
+    },
+    {
+      "id": "FEAT-SMS-AFTERCARE-AUTOMATION",
+      "title": "Post-Op Aftercare 1-Click Gateway Integration",
+      "category": "Clinical Ergonomics",
+      "targetPMS": [
+        "All"
+      ],
+      "priority": "P1",
+      "clinicalRationale": "Patients often forget verbal surgical/restorative post-op care; SMS instructions reduce emergency out-of-hours phone calls by 42%.",
+      "practiceManagerBenefit": "Cuts repetitive post-op query calls to front desk on Monday mornings.",
+      "acceptanceCriteria": [
+        "Plain-English non-jargon copy for Extraction, Crown, Root Canal, and Implant",
+        "Character count optimized for single SMS segment (<160 chars) or friendly MMS",
+        "1-click clipboard copy with green check feedback"
+      ],
+      "schemaChangesRequired": false
+    },
+    {
+      "id": "FEAT-RECOVERY-OPPORTUNITY-RADAR",
+      "title": "Unbooked Restorative Revenue Discovery Radar",
+      "category": "Revenue Acceleration",
+      "targetPMS": [
+        "Dental4Windows",
+        "EXACT",
+        "Core Practice"
+      ],
+      "priority": "P0",
+      "clinicalRationale": "Dentists mention needed crowns (ADA 611) or occlusal splints (ADA 965) during exams, but up to 35% are never booked into the appointment book.",
+      "practiceManagerBenefit": "Recovers an average of $2,400 AUD/day in dormant restorative production per operatory.",
+      "acceptanceCriteria": [
+        "Real-time badge rendering on ready cards in Day Schedule Queue",
+        "Calculates ADA benchmark value in AUD automatically",
+        "Highlights tooth number and proposed treatment modality"
+      ],
+      "schemaChangesRequired": true
+    }
+  ],
+  "recommendedSprintFocus": {
+    "id": "FEAT-D4W-CLIP-ENHANCE",
+    "title": "Dental4Windows Trojan Horse Handoff Auto-Splitting",
+    "category": "PMS Integration",
+    "targetPMS": [
+      "Dental4Windows",
+      "EXACT"
+    ],
+    "priority": "P0",
+    "clinicalRationale": "Receptionists copy notes directly into D4W clinical tabs, but need the quote/action items automatically pre-separated for billing tabs.",
+    "practiceManagerBenefit": "Eliminates 3 minutes of re-keying per patient at front desk check-out.",
+    "acceptanceCriteria": [
+      "Clinical note clipboard payload cleanly isolates [CLINICAL RECORD] and [FRONT DESK ACTION ITEM]",
+      "Includes itemized estimated fees ($AUD) and ADA item codes for receptionist billing",
+      "No external software or DLL installation required on reception desktop"
+    ],
+    "schemaChangesRequired": false
+  },
+  "pmsCompatibilityMatrix": {
+    "d4w": "Tier 1 Supported",
+    "exact": "Tier 1 Supported",
+    "corePractice": "Tier 2 Supported",
+    "dentally": "Under Review"
+  }
+}

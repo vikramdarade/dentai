@@ -1,6 +1,118 @@
 {
   "consultations": [
     {
+      "id": "5f9e3c57-2b8c-46a2-93a5-6a4eca066d2c",
+      "dentistId": "ea8e5a3a-d788-45d9-b44b-63faa8db43b3",
+      "clinicId": "07447842-139f-4f12-acc0-b34cc9a30888",
+      "firstName": "David",
+      "lastName": "Miller",
+      "dob": "1990-01-01",
+      "appointmentType": "prosthodontic",
+      "date": "Sep 16",
+      "time": "08:50 AM",
+      "status": "In Review",
+      "transcript": [
+        {
+          "sender": "Dentist",
+          "text": "Teresa, you've had that crown on the upper left for a while — what have you noticed?"
+        },
+        {
+          "sender": "Patient",
+          "text": "It feels a bit loose, and I think food's getting underneath it. The gum around it is a bit sore too."
+        },
+        {
+          "sender": "Dentist",
+          "text": "Let's have a look and take an x-ray to check what's happening at the margin and under the crown."
+        },
+        {
+          "sender": "Clinical Comment",
+          "text": "Tooth 26: existing PFM crown loose with recurrent caries at the mesial margin visible on radiograph. Tooth is asymptomatic, responds normally, and has adequate remaining coronal structure. Percussion negative."
+        },
+        {
+          "sender": "Dentist",
+          "text": "The old crown has decay underneath it at the edge, which is why it's loosened. The tooth itself is still healthy, so the plan is to replace it with a new crown."
+        },
+        {
+          "sender": "Patient",
+          "text": "Will I have to go without a tooth?"
+        },
+        {
+          "sender": "Dentist",
+          "text": "No — today I'll take the old crown off, remove the decay, build the tooth up with a composite core, and prepare it for a new crown. I'll take a mould and fit you with a temporary crown so you're never without a tooth. This preparation is item 572."
+        },
+        {
+          "sender": "Dentist",
+          "text": "I've matched the shade to your other teeth — A2 — and taken the final impression in silicone. The temporary crown's cemented with a soft cement and the bite's been checked so it's comfortable."
+        },
+        {
+          "sender": "Dentist",
+          "text": "For the next two weeks, avoid sticky or very hard foods on that side — lollies and crusty bread are the usual culprits — and if the temporary ever comes off, keep it and call us. Your new crown will be ready in about two weeks and we'll cement it in then."
+        }
+      ],
+      "templateId": "standard",
+      "findings": {
+        "chiefComplaint": "The gum around it is a bit sore too. For the next two weeks, avoid sticky or very hard foods on that side — lollies and crusty bread are the usual culprits — and if the temporary ever comes off, keep it and call us.",
+        "history": "Teresa, you've had that crown on the upper left for a while — what have you noticed? I've matched the shade to your other teeth — A2 — and taken the final impression in silicone.",
+        "toothFindings": "Let's have a look and take an x-ray to check what's happening at the margin and under the crown. Tooth 26: existing PFM crown loose with recurrent caries at the mesial margin visible on radiograph. Tooth is asymptomatic, responds normally, and has adequate remaining coronal structure. Percussion negative. The old crown has decay underneath it at the edge, which is why it's loosened. The tooth itself is still healthy, so the plan is to replace it with a new crown. Will I have to go without a tooth? No — today I'll take the old crown off, remove the decay, build the tooth up with a composite core, and prepare it for a new crown. I'll take a mould and fit you with a temporary crown so you're never without a tooth.",
+        "findingsGingival": "The gum around it is a bit sore too.",
+        "diagnosis": "It feels a bit loose, and I think food's getting underneath it. Tooth 26: existing PFM crown loose with recurrent caries at the mesial margin visible on radiograph.",
+        "treatmentPerformed": "I'll take a mould and fit you with a temporary crown so you're never without a tooth. I've matched the shade to your other teeth — A2 — and taken the final impression in silicone. The temporary crown's cemented with a soft cement and the bite's been checked so it's comfortable. For the next two weeks, avoid sticky or very hard foods on that side — lollies and crusty bread are the usual culprits — and if the temporary ever comes off, keep it and call us.",
+        "recommendations": "The temporary crown's cemented with a soft cement and the bite's been checked so it's comfortable. For the next two weeks, avoid sticky or very hard foods on that side — lollies and crusty bread are the usual culprits — and if the temporary ever comes off, keep it and call us.",
+        "recallRequirements": "For the next two weeks, avoid sticky or very hard foods on that side — lollies and crusty bread are the usual culprits — and if the temporary ever comes off, keep it and call us. Your new crown will be ready in about two weeks and we'll cement it in then.",
+        "customSections": {},
+        "adaCodes": [
+          {
+            "code": "572",
+            "description": "Item mentioned"
+          }
+        ],
+        "proposedTreatments": [
+          {
+            "id": "5f9e3c57-2b8c-46a2-93a5-6a4eca066d2c-tx-crown-26",
+            "consultationId": "5f9e3c57-2b8c-46a2-93a5-6a4eca066d2c",
+            "dentistId": "ea8e5a3a-d788-45d9-b44b-63faa8db43b3",
+            "clinicId": "07447842-139f-4f12-acc0-b34cc9a30888",
+            "patientName": "David Miller",
+            "patientPhone": "0412 889 123",
+            "patientEmail": "david.miller@example.com",
+            "tooth": "26",
+            "adaCode": "611",
+            "procedureName": "Full Crown - Ceramic / Porcelain",
+            "estimatedFee": 1650,
+            "clinicalReason": "Tooth 26 cuspal coverage required to prevent fracture",
+            "patientBarrier": "Checking private health insurance rebate",
+            "status": "unscheduled",
+            "createdAt": "2026-09-15T22:56:43.545Z"
+          }
+        ]
+      },
+      "patientSummary": "",
+      "noteOrigin": {
+        "engine": "offline-draft",
+        "needsReview": true,
+        "detail": "Drafted offline from the transcript (no AI available). Review and complete before saving."
+      },
+      "proposedTreatments": [
+        {
+          "id": "5f9e3c57-2b8c-46a2-93a5-6a4eca066d2c-tx-crown-26",
+          "consultationId": "5f9e3c57-2b8c-46a2-93a5-6a4eca066d2c",
+          "dentistId": "ea8e5a3a-d788-45d9-b44b-63faa8db43b3",
+          "clinicId": "07447842-139f-4f12-acc0-b34cc9a30888",
+          "patientName": "David Miller",
+          "patientPhone": "0412 889 123",
+          "patientEmail": "david.miller@example.com",
+          "tooth": "26",
+          "adaCode": "611",
+          "procedureName": "Full Crown - Ceramic / Porcelain",
+          "estimatedFee": 1650,
+          "clinicalReason": "Tooth 26 cuspal coverage required to prevent fracture",
+          "patientBarrier": "Checking private health insurance rebate",
+          "status": "unscheduled",
+          "createdAt": "2026-09-15T22:56:43.545Z"
+        }
+      ]
+    },
+    {
       "id": "c-priya-sharma-1",
       "firstName": "Priya",
       "lastName": "Sharma",
@@ -31,10 +143,116 @@
         "diagnosis": "Cracked tooth syndrome tooth 16; active caries tooth 46; nocturnal attrition/bruxism.",
         "treatmentPerformed": "Comprehensive examination 011, intraoral bite-wing radiographs 022, bite test.",
         "recommendations": "Full ceramic crown on tooth 16 to protect against fracture; 2-surface composite resin on tooth 46; upper Michigan occlusal splint.",
-        "recallRequirements": "Next Available (Urgent)"
+        "recallRequirements": "Next Available (Urgent)",
+        "proposedTreatments": [
+          {
+            "id": "c-priya-sharma-1-tx-crown-16",
+            "consultationId": "c-priya-sharma-1",
+            "dentistId": "ea8e5a3a-d788-45d9-b44b-63faa8db43b3",
+            "clinicId": "07447842-139f-4f12-acc0-b34cc9a30888",
+            "patientName": "Priya Sharma",
+            "patientPhone": "0412 889 123",
+            "patientEmail": "priya.sharma@example.com",
+            "tooth": "16",
+            "adaCode": "611",
+            "procedureName": "Full Crown - Ceramic / Porcelain",
+            "estimatedFee": 1650,
+            "clinicalReason": "Tooth 16 cuspal coverage required to prevent fracture",
+            "patientBarrier": "Checking private health insurance rebate",
+            "status": "unscheduled",
+            "createdAt": "2026-09-15T22:54:42.300Z"
+          },
+          {
+            "id": "c-priya-sharma-1-tx-filling-46",
+            "consultationId": "c-priya-sharma-1",
+            "dentistId": "ea8e5a3a-d788-45d9-b44b-63faa8db43b3",
+            "clinicId": "07447842-139f-4f12-acc0-b34cc9a30888",
+            "patientName": "Priya Sharma",
+            "patientPhone": "0423 456 789",
+            "patientEmail": "priya.sharma@example.com",
+            "tooth": "46",
+            "surfaces": "MO",
+            "adaCode": "532",
+            "procedureName": "Posterior Resin Composite - 2 Surfaces",
+            "estimatedFee": 295,
+            "clinicalReason": "Incipient/active caries on tooth 46 requiring composite restoration",
+            "patientBarrier": "Patient preferred to schedule next week",
+            "status": "unscheduled",
+            "createdAt": "2026-09-15T22:54:42.300Z"
+          },
+          {
+            "id": "c-priya-sharma-1-tx-splint",
+            "consultationId": "c-priya-sharma-1",
+            "dentistId": "ea8e5a3a-d788-45d9-b44b-63faa8db43b3",
+            "clinicId": "07447842-139f-4f12-acc0-b34cc9a30888",
+            "patientName": "Priya Sharma",
+            "patientPhone": "0411 222 333",
+            "patientEmail": "priya.sharma@example.com",
+            "adaCode": "965",
+            "procedureName": "Occlusal Splint / Night Guard",
+            "estimatedFee": 850,
+            "clinicalReason": "Severe nocturnal attrition and wear facets; upper Michigan occlusal splint indicated",
+            "patientBarrier": "Discussing with partner before ordering laboratory appliance",
+            "status": "unscheduled",
+            "createdAt": "2026-09-15T22:54:42.300Z"
+          }
+        ]
       },
       "patientSummary": "Hi Priya,\n\nThank you for coming in today for your comprehensive examination. We evaluated tooth 16 where you have been experiencing biting sensitivity, and identified a structural micro-crack that requires a protective ceramic crown to prevent further splitting. We also noted minor decay on tooth 46 for a filling, and recommend an occlusal night splint to protect your teeth from night-time grinding.\n\nWarm regards,\nDr. Vik",
-      "dentistId": "ea8e5a3a-d788-45d9-b44b-63faa8db43b3"
+      "dentistId": "ea8e5a3a-d788-45d9-b44b-63faa8db43b3",
+      "proposedTreatments": [
+        {
+          "id": "c-priya-sharma-1-tx-crown-16",
+          "consultationId": "c-priya-sharma-1",
+          "dentistId": "ea8e5a3a-d788-45d9-b44b-63faa8db43b3",
+          "clinicId": "07447842-139f-4f12-acc0-b34cc9a30888",
+          "patientName": "Priya Sharma",
+          "patientPhone": "0412 889 123",
+          "patientEmail": "priya.sharma@example.com",
+          "tooth": "16",
+          "adaCode": "611",
+          "procedureName": "Full Crown - Ceramic / Porcelain",
+          "estimatedFee": 1650,
+          "clinicalReason": "Tooth 16 cuspal coverage required to prevent fracture",
+          "patientBarrier": "Checking private health insurance rebate",
+          "status": "unscheduled",
+          "createdAt": "2026-09-15T22:54:42.300Z"
+        },
+        {
+          "id": "c-priya-sharma-1-tx-filling-46",
+          "consultationId": "c-priya-sharma-1",
+          "dentistId": "ea8e5a3a-d788-45d9-b44b-63faa8db43b3",
+          "clinicId": "07447842-139f-4f12-acc0-b34cc9a30888",
+          "patientName": "Priya Sharma",
+          "patientPhone": "0423 456 789",
+          "patientEmail": "priya.sharma@example.com",
+          "tooth": "46",
+          "surfaces": "MO",
+          "adaCode": "532",
+          "procedureName": "Posterior Resin Composite - 2 Surfaces",
+          "estimatedFee": 295,
+          "clinicalReason": "Incipient/active caries on tooth 46 requiring composite restoration",
+          "patientBarrier": "Patient preferred to schedule next week",
+          "status": "unscheduled",
+          "createdAt": "2026-09-15T22:54:42.300Z"
+        },
+        {
+          "id": "c-priya-sharma-1-tx-splint",
+          "consultationId": "c-priya-sharma-1",
+          "dentistId": "ea8e5a3a-d788-45d9-b44b-63faa8db43b3",
+          "clinicId": "07447842-139f-4f12-acc0-b34cc9a30888",
+          "patientName": "Priya Sharma",
+          "patientPhone": "0411 222 333",
+          "patientEmail": "priya.sharma@example.com",
+          "adaCode": "965",
+          "procedureName": "Occlusal Splint / Night Guard",
+          "estimatedFee": 850,
+          "clinicalReason": "Severe nocturnal attrition and wear facets; upper Michigan occlusal splint indicated",
+          "patientBarrier": "Discussing with partner before ordering laboratory appliance",
+          "status": "unscheduled",
+          "createdAt": "2026-09-15T22:54:42.300Z"
+        }
+      ]
     },
     {
       "id": "c-jessica-taylor-1",
@@ -67,10 +285,84 @@
         "diagnosis": "Symptomatic pulpitis on tooth 16 and tooth 33. Localized gingivitis.",
         "treatmentPerformed": "Thermal and percussion diagnostic tests. Initial excavation of decay on tooth 16, emergency pulp extirpation started.",
         "recommendations": "Maintain brushing twice daily. Enhance flossing daily. Complete root canal therapy on tooth 16 and composite filling on tooth 33.",
-        "recallRequirements": "Next Available (Urgent)"
+        "recallRequirements": "Next Available (Urgent)",
+        "proposedTreatments": [
+          {
+            "id": "c-jessica-taylor-1-tx-filling-16",
+            "consultationId": "c-jessica-taylor-1",
+            "dentistId": "ea8e5a3a-d788-45d9-b44b-63faa8db43b3",
+            "clinicId": "07447842-139f-4f12-acc0-b34cc9a30888",
+            "patientName": "Jessica Taylor",
+            "patientPhone": "0423 456 789",
+            "patientEmail": "jessica.taylor@example.com",
+            "tooth": "16",
+            "surfaces": "MO",
+            "adaCode": "532",
+            "procedureName": "Posterior Resin Composite - 2 Surfaces",
+            "estimatedFee": 295,
+            "clinicalReason": "Incipient/active caries on tooth 16 requiring composite restoration",
+            "patientBarrier": "Patient preferred to schedule next week",
+            "status": "unscheduled",
+            "createdAt": "2026-09-15T22:54:42.300Z"
+          },
+          {
+            "id": "c-jessica-taylor-1-tx-endo-16",
+            "consultationId": "c-jessica-taylor-1",
+            "dentistId": "ea8e5a3a-d788-45d9-b44b-63faa8db43b3",
+            "clinicId": "07447842-139f-4f12-acc0-b34cc9a30888",
+            "patientName": "Jessica Taylor",
+            "patientPhone": "0412 555 789",
+            "patientEmail": "jessica.taylor@example.com",
+            "tooth": "16",
+            "adaCode": "417",
+            "procedureName": "Obturation / Root Canal Filling",
+            "estimatedFee": 440,
+            "clinicalReason": "Endodontic therapy (root canal) required for symptomatic pulpitis on tooth 16",
+            "patientBarrier": "Requires multiple-stage appointment scheduling",
+            "status": "unscheduled",
+            "createdAt": "2026-09-15T22:54:42.301Z"
+          }
+        ]
       },
       "patientSummary": "Hi Jessica,\n\nWe successfully completed your emergency examination today. We addressed the throbbing pain in tooth 16 and started root canal therapy to clear the infection. Tooth 33 also requires a composite restoration to repair decay. Please contact us to schedule the completion of these treatments.\n\nWarm regards,\nDr. Vik",
-      "dentistId": "ea8e5a3a-d788-45d9-b44b-63faa8db43b3"
+      "dentistId": "ea8e5a3a-d788-45d9-b44b-63faa8db43b3",
+      "proposedTreatments": [
+        {
+          "id": "c-jessica-taylor-1-tx-filling-16",
+          "consultationId": "c-jessica-taylor-1",
+          "dentistId": "ea8e5a3a-d788-45d9-b44b-63faa8db43b3",
+          "clinicId": "07447842-139f-4f12-acc0-b34cc9a30888",
+          "patientName": "Jessica Taylor",
+          "patientPhone": "0423 456 789",
+          "patientEmail": "jessica.taylor@example.com",
+          "tooth": "16",
+          "surfaces": "MO",
+          "adaCode": "532",
+          "procedureName": "Posterior Resin Composite - 2 Surfaces",
+          "estimatedFee": 295,
+          "clinicalReason": "Incipient/active caries on tooth 16 requiring composite restoration",
+          "patientBarrier": "Patient preferred to schedule next week",
+          "status": "unscheduled",
+          "createdAt": "2026-09-15T22:54:42.300Z"
+        },
+        {
+          "id": "c-jessica-taylor-1-tx-endo-16",
+          "consultationId": "c-jessica-taylor-1",
+          "dentistId": "ea8e5a3a-d788-45d9-b44b-63faa8db43b3",
+          "clinicId": "07447842-139f-4f12-acc0-b34cc9a30888",
+          "patientName": "Jessica Taylor",
+          "patientPhone": "0412 555 789",
+          "patientEmail": "jessica.taylor@example.com",
+          "tooth": "16",
+          "adaCode": "417",
+          "procedureName": "Obturation / Root Canal Filling",
+          "estimatedFee": 440,
+          "clinicalReason": "Endodontic therapy (root canal) required for symptomatic pulpitis on tooth 16",
+          "patientBarrier": "Requires multiple-stage appointment scheduling",
+          "status": "unscheduled",
+          "createdAt": "2026-09-15T22:54:42.301Z"
+        }
+      ]
     },
     {
       "id": "c-david-nguyen-1",
@@ -103,10 +395,46 @@
         "diagnosis": "Generalized moderate periodontitis Stage II Grade B.",
         "treatmentPerformed": "Periodic oral examination 012, 6-point periodontal charting.",
         "recommendations": "Root planing and subgingival debridement across 2 quadrants under local anaesthetic (item 222 x 2); 3-month periodontal maintenance recall.",
-        "recallRequirements": "3 Months"
+        "recallRequirements": "3 Months",
+        "proposedTreatments": [
+          {
+            "id": "c-david-nguyen-1-tx-perio",
+            "consultationId": "c-david-nguyen-1",
+            "dentistId": "ea8e5a3a-d788-45d9-b44b-63faa8db43b3",
+            "clinicId": "07447842-139f-4f12-acc0-b34cc9a30888",
+            "patientName": "David Nguyen",
+            "patientPhone": "0434 567 890",
+            "patientEmail": "david.nguyen@example.com",
+            "adaCode": "222",
+            "procedureName": "Root Planing & Deep Debridement (Per Quad)",
+            "estimatedFee": 680,
+            "clinicalReason": "Active periodontal pockets >4mm requiring quadrant deep scaling under local anaesthesia",
+            "patientBarrier": "Time constraint today; needs 60-minute appointment block",
+            "status": "unscheduled",
+            "createdAt": "2026-09-15T22:54:42.301Z"
+          }
+        ]
       },
       "patientSummary": "Hi David,\n\nThank you for your visit today for your routine dental examination. We identified active gum inflammation with deeper pocketing around your upper right and lower left quadrants. To stop gum disease progression, we recommend scheduling two appointments for quadrant root planing and deep cleaning.\n\nWarm regards,\nDr. Vik",
-      "dentistId": "ea8e5a3a-d788-45d9-b44b-63faa8db43b3"
+      "dentistId": "ea8e5a3a-d788-45d9-b44b-63faa8db43b3",
+      "proposedTreatments": [
+        {
+          "id": "c-david-nguyen-1-tx-perio",
+          "consultationId": "c-david-nguyen-1",
+          "dentistId": "ea8e5a3a-d788-45d9-b44b-63faa8db43b3",
+          "clinicId": "07447842-139f-4f12-acc0-b34cc9a30888",
+          "patientName": "David Nguyen",
+          "patientPhone": "0434 567 890",
+          "patientEmail": "david.nguyen@example.com",
+          "adaCode": "222",
+          "procedureName": "Root Planing & Deep Debridement (Per Quad)",
+          "estimatedFee": 680,
+          "clinicalReason": "Active periodontal pockets >4mm requiring quadrant deep scaling under local anaesthesia",
+          "patientBarrier": "Time constraint today; needs 60-minute appointment block",
+          "status": "unscheduled",
+          "createdAt": "2026-09-15T22:54:42.301Z"
+        }
+      ]
     }
   ]
 }

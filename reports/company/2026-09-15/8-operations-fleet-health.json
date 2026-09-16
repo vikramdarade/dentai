@@ -1,0 +1,42 @@
+{
+  "agentName": "Grokbot Operations & Fleet Health Monitor",
+  "timestamp": "2026-09-15T22:57:33.338Z",
+  "overallHealthScore": 100,
+  "operationalStatus": "OPERATIONAL",
+  "checks": [
+    {
+      "name": "Deterministic Offline Draft Engine",
+      "category": "Offline Fallback",
+      "status": "HEALTHY",
+      "latencyMs": 0,
+      "details": "Passed in 0ms (Synthesized sections: toothFindings, findingsGingival, diagnosis, treatmentPerformed)"
+    },
+    {
+      "name": "PMS Trojan Horse Clipboard Payload Formatting",
+      "category": "Clipboard Ergonomics",
+      "status": "HEALTHY",
+      "latencyMs": 0,
+      "details": "Formatted both clinical record and [FRONT DESK ACTION ITEM] with ADA codes ($1,850 AUD)"
+    },
+    {
+      "name": "Pre-Op Chairside Cue Synthesis",
+      "category": "Clinical Ergonomics",
+      "status": "HEALTHY",
+      "latencyMs": 0,
+      "details": "Generated pre-op brief: \"Verify cavity surfaces (MODBL), check occlusal contacts & rubber dam isolation.\""
+    },
+    {
+      "name": "Stateless Session & APRA/Privacy Invariants",
+      "category": "Compliance",
+      "status": "HEALTHY",
+      "latencyMs": 0,
+      "details": "Complies with ephemeral serverless rules and local browser-based audio processing without cloud audio persistence"
+    }
+  ],
+  "runtimeDiagnostics": {
+    "nodeVersion": "v24.16.0",
+    "platform": "win32",
+    "persistenceMode": "Stateless/JSON with in-memory write-through fallback",
+    "offlineDraftLatencyMs": 0
+  }
+}

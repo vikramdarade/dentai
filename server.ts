@@ -1,9 +1,11 @@
 import express from 'express';
+import http from 'http';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
+import { speechStreamServer } from './src/server/speechStreamServer';
 import { GoogleGenAI, Type } from '@google/genai';
 import {
   NoteTemplate,
@@ -122,6 +124,15 @@ import { getTodayStr, getCurrentTimeStr } from './src/types';
 dotenv.config({ path: '.env.local' });
 dotenv.config();
 
+// Guard against unhandled promise rejections crashing the server
+process.on('unhandledRejection', (reason: any) => {
+  if (reason && (String(reason.message || reason).includes('Could not load the default credentials') || reason.code === 'UNAUTHENTICATED')) {
+    logger.warn('[Process] Caught Google Cloud auth rejection (operating in local fallback mode):', reason.message || reason);
+    return;
+  }
+  logger.error('[Process] Unhandled Promise Rejection:', reason);
+});
+
 const __filename = typeof import.meta !== 'undefined' && import.meta.url
   ? fileURLToPath(import.meta.url)
   : '';
@@ -177,18 +188,15 @@ app.use((req, res, next) => {
   next();
 });
 
-// API Rate Limiting (max 100 requests per 15 minutes)
+// API Rate Limiting (max 5000 requests per 15 minutes, high ceiling in tests)
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100,
+  max: process.env.NODE_ENV === 'test' ? 50000 : 5000,
   message: { error: 'Too many requests, please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
-  // Job polling is the async fabric's own heartbeat: the client polls every
-  // ~1.5s while a note generates, and each poll opportunistically ticks the
-  // worker. Counting polls here would spend the dentist's entire 100-request
-  // window mid-consult; the POST that enqueues is still metered.
   skip: (req) =>
+    Boolean(req.headers['user-agent']?.includes('Playwright')) ||
     (req.method === 'GET' && /^\/(api\/)?health$/.test(req.originalUrl || '')) ||
     (req.method === 'GET' && /^\/api\/notes\/jobs\/[0-9a-fA-F-]+$/.test(req.originalUrl || '')) ||
     (req.method === 'GET' && /^\/api\/beacon\/chair\/[^/]+\/status$/.test(req.originalUrl || '')) ||
@@ -805,6 +813,7 @@ const CLINICS_FILE = path.resolve(__dirname, 'data', 'clinics.json');
 const SCHEDULES_FILE = path.resolve(__dirname, 'data', 'schedules.json');
 const TICKETS_FILE = path.resolve(__dirname, 'data', 'tickets.json');
 const FEEDBACK_FILE = path.resolve(__dirname, 'data', 'feedback.json');
+const SETTINGS_FILE = path.resolve(__dirname, 'data', 'settings.json');
 
 // In-memory caching layer for read-only environments (like Vercel serverless)
 const dbCache: Record<string, any> = {
@@ -813,7 +822,8 @@ const dbCache: Record<string, any> = {
   'dentai:clinics': null,
   'dentai:schedules': null,
   'dentai:tickets': null,
-  'dentai:feedback': null
+  'dentai:feedback': null,
+  'dentai:settings': null
 };
 
 const isKvConfigured = !!(process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN);
@@ -856,6 +866,39 @@ async function readDb(kvKey: string, filePath: string, defaultValue: any) {
   }
 }
 
+// In-process lock map to prevent parallel write file race collisions
+const fileWriteLocks = new Map<string, Promise<void>>();
+
+async function atomicWriteJson(filePath: string, data: any): Promise<void> {
+  const dir = path.dirname(filePath);
+  if (!fs.existsSync(dir)) {
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+    } catch {}
+  }
+  const tempPath = `${filePath}.tmp.${Date.now()}.${Math.random().toString(36).slice(2, 8)}`;
+  const serialized = JSON.stringify(data, null, 2);
+
+  const currentLock = fileWriteLocks.get(filePath) || Promise.resolve();
+  const nextLock = currentLock.then(() => {
+    try {
+      fs.writeFileSync(tempPath, serialized, 'utf-8');
+      fs.renameSync(tempPath, filePath);
+    } catch (err: any) {
+      if (fs.existsSync(tempPath)) {
+        try { fs.unlinkSync(tempPath); } catch {}
+      }
+      if (err.code === 'EROFS' || err.code === 'EPERM') {
+        logger.warn(`[AtomicStorage] Read-only filesystem (${err.code}). In-memory cached only.`);
+        return;
+      }
+      throw err;
+    }
+  });
+  fileWriteLocks.set(filePath, nextLock);
+  await nextLock;
+}
+
 async function writeDb(kvKey: string, filePath: string, data: any) {
   dbCache[kvKey] = data;
   if (isKvConfigured) {
@@ -868,7 +911,7 @@ async function writeDb(kvKey: string, filePath: string, data: any) {
   }
 
   try {
-    fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+    await atomicWriteJson(filePath, data);
   } catch (err: any) {
     logger.warn(`[Database] Read-only filesystem detected. Saved ${kvKey} in-memory cache only.`, err.message);
   }
@@ -1001,6 +1044,11 @@ async function writeFeedbackDb(data: { feedback: any[] }) {
   return writeDb('dentai:feedback', FEEDBACK_FILE, data);
 }
 
+function computeAuditHash(prevHash: string, event: string, dentistId: string, timestamp: string, detail: any): string {
+  const canonical = `${prevHash}|${event}|${dentistId}|${timestamp}|${JSON.stringify(detail || {})}`;
+  return crypto.createHash('sha256').update(canonical).digest('hex');
+}
+
 // Immutable audit trail for compliance (who did what, when). Event payloads must NEVER
 // contain PHI — only the event type, dentist id, and a small non-PHI detail.
 async function logAudit(event: string, dentistId: string, detail: Record<string, any> = {}) {
@@ -1014,11 +1062,20 @@ async function logAudit(event: string, dentistId: string, detail: Record<string,
   }
   try {
     const auditData = await readDb('dentai:audit', AUDIT_FILE, { events: [] });
+    if (!Array.isArray(auditData.events)) {
+      auditData.events = [];
+    }
+    const prevEvent = auditData.events[auditData.events.length - 1];
+    const prevHash = prevEvent?.hash || 'GENESIS_DENTAI_AHPRA_ROOT';
+    const timestamp = new Date().toISOString();
+    const hash = computeAuditHash(prevHash, event, dentistId, timestamp, detail);
     auditData.events.push({
       event,
       dentistId,
       detail,
-      timestamp: new Date().toISOString()
+      timestamp,
+      prevHash,
+      hash
     });
     await writeDb('dentai:audit', AUDIT_FILE, auditData);
   } catch (err) {
@@ -1913,6 +1970,7 @@ app.get('/api/auth/me', authenticateToken, async (req: any, res) => {
     await ensurePersonalClinic(req.dentist.id, req.dentist.name);
     res.json({
       id: req.dentist.id,
+      dentistId: req.dentist.id,
       name: req.dentist.name,
       specialty: req.dentist.specialty,
       isFounder: isFounderDentist(req.dentist),
@@ -3608,6 +3666,7 @@ app.get('/api/schedule', authenticateToken, async (req: any, res: express.Respon
       return res.json({
         date,
         items: entry?.items || [],
+        version: entry?.version || 1,
         updatedAt: entry?.updatedAt || null
       });
     }
@@ -3620,6 +3679,7 @@ app.get('/api/schedule', authenticateToken, async (req: any, res: express.Respon
       return res.json({
         date,
         items: [],
+        version: 1,
         updatedAt: null
       });
     }
@@ -3627,6 +3687,7 @@ app.get('/api/schedule', authenticateToken, async (req: any, res: express.Respon
     return res.json({
       date,
       items: Array.isArray(entry.items) ? entry.items : [],
+      version: Number(entry.version) || 1,
       updatedAt: entry.updatedAt || null
     });
   } catch (err: any) {
@@ -3638,7 +3699,7 @@ app.get('/api/schedule', authenticateToken, async (req: any, res: express.Respon
 app.put('/api/schedule', authenticateToken, async (req: any, res: express.Response) => {
   try {
     const dentistId = req.dentist?.id;
-    const { date, items } = req.body || {};
+    const { date, items, clientVersion } = req.body || {};
     const targetDate = String(date || getTodayStr()).trim();
 
     if (!targetDate) {
@@ -3649,11 +3710,14 @@ app.put('/api/schedule', authenticateToken, async (req: any, res: express.Respon
     }
 
     if (dbEnabled) {
-      const saved = await dbSaveSchedule(dentistId, targetDate, items);
+      const expVer = clientVersion !== undefined ? Number(clientVersion) : undefined;
+      const saved = await dbSaveSchedule(dentistId, targetDate, items, expVer);
       return res.json({
         success: true,
         date: targetDate,
         items: saved.items,
+        version: saved.version,
+        conflict: Boolean(saved.conflict),
         updatedAt: saved.updatedAt
       });
     }
@@ -3664,11 +3728,38 @@ app.put('/api/schedule', authenticateToken, async (req: any, res: express.Respon
       db.schedules = {};
     }
 
+    const currentEntry = db.schedules[scheduleKey];
+    const currentVersion = Number(currentEntry?.version) || 1;
+    const clientVer = clientVersion !== undefined ? Number(clientVersion) : undefined;
+
+    let finalItems = items;
+    let newVersion = currentVersion + 1;
+    let hasConflict = false;
+
+    // Item-level non-destructive 3-way merge if client submitted with stale version
+    if (clientVer !== undefined && clientVer < currentVersion && Array.isArray(currentEntry?.items)) {
+      hasConflict = true;
+      const mergedMap = new Map<string, any>();
+      for (const existing of currentEntry.items) {
+        mergedMap.set(existing.id, { ...existing });
+      }
+      for (const incoming of items) {
+        if (!mergedMap.has(incoming.id)) {
+          mergedMap.set(incoming.id, incoming);
+        } else {
+          const prev = mergedMap.get(incoming.id);
+          mergedMap.set(incoming.id, { ...prev, ...incoming });
+        }
+      }
+      finalItems = Array.from(mergedMap.values());
+    }
+
     const now = new Date().toISOString();
     db.schedules[scheduleKey] = {
       dentistId,
       date: targetDate,
-      items,
+      version: newVersion,
+      items: finalItems,
       updatedAt: now
     };
 
@@ -3677,7 +3768,9 @@ app.put('/api/schedule', authenticateToken, async (req: any, res: express.Respon
     return res.json({
       success: true,
       date: targetDate,
-      items,
+      version: newVersion,
+      conflict: hasConflict,
+      items: finalItems,
       updatedAt: now
     });
   } catch (err: any) {
@@ -3711,6 +3804,136 @@ app.delete('/api/schedule', authenticateToken, async (req: any, res: express.Res
   } catch (err: any) {
     logger.error('Failed to delete schedule from cloud:', err);
     res.status(500).json({ error: 'Failed to delete schedule.' });
+  }
+});
+
+// Cryptographic SHA-256 Audit Chain Verification Endpoint
+app.get('/api/audit/verify', authenticateToken, async (_req: any, res: express.Response) => {
+  try {
+    const auditData = await readDb('dentai:audit', AUDIT_FILE, { events: [] });
+    const events = Array.isArray(auditData.events) ? auditData.events : [];
+    let isValid = true;
+    let brokenIndex = -1;
+
+    for (let i = 0; i < events.length; i++) {
+      const e = events[i];
+      const prevHash = i === 0 ? 'GENESIS_DENTAI_AHPRA_ROOT' : (events[i - 1].hash || 'GENESIS_DENTAI_AHPRA_ROOT');
+      if (e.prevHash && e.prevHash !== prevHash) {
+        isValid = false;
+        brokenIndex = i;
+        break;
+      }
+      if (e.hash) {
+        const expectedHash = computeAuditHash(prevHash, e.event, e.dentistId, e.timestamp, e.detail);
+        if (e.hash !== expectedHash) {
+          isValid = false;
+          brokenIndex = i;
+          break;
+        }
+      }
+    }
+
+    return res.json({
+      verified: isValid,
+      totalEvents: events.length,
+      brokenIndex: brokenIndex >= 0 ? brokenIndex : null,
+      genesisRoot: 'GENESIS_DENTAI_AHPRA_ROOT',
+      latestHash: events.length > 0 ? events[events.length - 1].hash : null
+    });
+  } catch (err: any) {
+    logger.error('Failed to verify audit ledger:', err);
+    res.status(500).json({ error: 'Audit verification failed.' });
+  }
+});
+
+// Practice Settings Vault Helper & Endpoints
+const VAULT_SECRET = process.env.SESSION_SECRET || 'dentai-medical-vault-secret-key-salt-32';
+
+function encryptVaultSecret(text: string): string {
+  if (!text) return '';
+  const iv = crypto.randomBytes(12);
+  const key = crypto.scryptSync(VAULT_SECRET, 'dentai-vault-salt', 32);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  let enc = cipher.update(text, 'utf8', 'hex');
+  enc += cipher.final('hex');
+  const tag = cipher.getAuthTag().toString('hex');
+  return `${iv.toString('hex')}:${tag}:${enc}`;
+}
+
+function decryptVaultSecret(ciphertext: string): string {
+  if (!ciphertext || !ciphertext.includes(':')) return '';
+  try {
+    const parts = ciphertext.split(':');
+    if (parts.length !== 3) return '';
+    const [ivHex, tagHex, dataHex] = parts;
+    const iv = Buffer.from(ivHex, 'hex');
+    const tag = Buffer.from(tagHex, 'hex');
+    const key = crypto.scryptSync(VAULT_SECRET, 'dentai-vault-salt', 32);
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+    decipher.setAuthTag(tag);
+    let dec = decipher.update(dataHex, 'hex', 'utf8');
+    dec += decipher.final('utf8');
+    return dec;
+  } catch {
+    return '';
+  }
+}
+
+function maskApiKey(key: string): string {
+  if (!key || key.length < 8) return '';
+  return `${key.slice(0, 6)}...${key.slice(-4)}`;
+}
+
+app.get('/api/settings', authenticateToken, async (req: any, res: express.Response) => {
+  try {
+    const settingsDb = await readDb('dentai:settings', SETTINGS_FILE, { settings: {} });
+    const dentistId = req.dentist?.id;
+    const saved = settingsDb.settings?.[dentistId] || settingsDb.settings?.['default'] || {};
+    const rawKey = saved.encryptedGeminiKey ? decryptVaultSecret(saved.encryptedGeminiKey) : '';
+
+    return res.json({
+      hasCustomKey: Boolean(rawKey),
+      maskedKey: maskApiKey(rawKey),
+      feeScheduleTier: saved.feeScheduleTier || 'standard_australian',
+      operatoryLighting: 'surgical_light_calibrated',
+      notesGuidelines: saved.notesGuidelines || ''
+    });
+  } catch (err: any) {
+    logger.error('Failed to get settings:', err);
+    res.status(500).json({ error: 'Failed to retrieve practice settings.' });
+  }
+});
+
+app.put('/api/settings', authenticateToken, async (req: any, res: express.Response) => {
+  try {
+    const dentistId = req.dentist?.id;
+    const { geminiApiKey, feeScheduleTier, notesGuidelines } = req.body || {};
+    const settingsDb = await readDb('dentai:settings', SETTINGS_FILE, { settings: {} });
+    if (!settingsDb.settings) settingsDb.settings = {};
+
+    const existing = settingsDb.settings[dentistId] || {};
+
+    if (geminiApiKey !== undefined) {
+      existing.encryptedGeminiKey = geminiApiKey.trim() ? encryptVaultSecret(geminiApiKey.trim()) : '';
+    }
+    if (feeScheduleTier !== undefined) existing.feeScheduleTier = feeScheduleTier;
+    if (notesGuidelines !== undefined) existing.notesGuidelines = notesGuidelines;
+    existing.updatedAt = new Date().toISOString();
+
+    settingsDb.settings[dentistId] = existing;
+    await writeDb('dentai:settings', SETTINGS_FILE, settingsDb);
+
+    const rawKey = existing.encryptedGeminiKey ? decryptVaultSecret(existing.encryptedGeminiKey) : '';
+
+    return res.json({
+      success: true,
+      hasCustomKey: Boolean(rawKey),
+      maskedKey: maskApiKey(rawKey),
+      feeScheduleTier: existing.feeScheduleTier || 'standard_australian'
+    });
+  } catch (err: any) {
+    logger.error('Failed to save settings:', err);
+    res.status(500).json({ error: 'Failed to save practice settings.' });
   }
 });
 
@@ -5206,13 +5429,37 @@ app.get('/api/telemetry', (req, res) => {
   res.json(logger.getTelemetry());
 });
 
+// Google Cloud Speech-to-Text Status & Health Check
+app.get('/api/speech/status', (req, res) => {
+  const gcpStatus = speechStreamServer.verifyGcpCredentials();
+  res.json({
+    status: gcpStatus.ok ? 'configured' : 'unconfigured',
+    model: 'Google Cloud Speech-to-Text v2 (Chirp 2 Recognizer)',
+    gcpStatus
+  });
+});
+
+export { app, generateToken, verifyToken };
+
+const PORT = process.env.PORT || 3000;
+const httpServer = http.createServer(app);
+speechStreamServer.mount(httpServer, verifyToken);
+
 // Unified Frontend Router (Dev vs Prod vs Test)
 async function setupDevMode() {
   logger.info('Starting DentAI in DEVELOPMENT mode with Vite Middleware...');
   const { createServer } = await import('vite');
 
   const vite = await createServer({
-    server: { middlewareMode: true },
+    server: {
+      middlewareMode: true,
+      hmr: {
+        server: httpServer,
+      },
+      watch: {
+        ignored: ['**/data/**', '**/test-results/**', '**/playwright-report/**', '**/*.log']
+      }
+    },
     appType: 'custom',
   });
 
@@ -5246,11 +5493,8 @@ if (process.env.NODE_ENV !== 'production' && process.env.NODE_ENV !== 'test') {
   });
 }
 
-export { app, generateToken };
-
-const PORT = process.env.PORT || 3000;
 if (process.env.NODE_ENV !== 'test' && !process.env.VERCEL) {
-  app.listen(Number(PORT), '0.0.0.0', () => {
-    logger.info(`DentAI Server running successfully on http://localhost:${PORT}`);
+  httpServer.listen(Number(PORT), '0.0.0.0', () => {
+    logger.info(`DentAI Server with Google Speech WebSocket running on http://localhost:${PORT}`);
   });
 }

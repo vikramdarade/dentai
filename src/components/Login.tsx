@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { User, Lock, ArrowLeft, AlertCircle, Sparkles, UserPlus, CirclePlay, ShieldCheck, KeyRound, Check, Sun, Moon } from 'lucide-react';
-import { useTheme } from '../context/ThemeContext';
+import { User, Lock, ArrowLeft, AlertCircle, Sparkles, UserPlus, CirclePlay, ShieldCheck, KeyRound, Check } from 'lucide-react';
 
 interface DentistProfile {
   id: string;
@@ -15,7 +14,6 @@ interface LoginProps {
 }
 
 export default function Login({ onLoginSuccess }: LoginProps) {
-  const { theme, toggleTheme } = useTheme();
   // Private Credentials
   const [identifier, setIdentifier] = useState(() => {
     try {
@@ -322,21 +320,6 @@ export default function Login({ onLoginSuccess }: LoginProps) {
         </div>
       )}
 
-      {/* Floating Theme Toggle */}
-      <div className="absolute top-4 right-4 z-50">
-        <button
-          onClick={toggleTheme}
-          className="p-2.5 rounded-xl text-slate-400 hover:text-amber-300 bg-[#0A1018] border border-[#182638] shadow-md transition-colors cursor-pointer flex items-center justify-center"
-          title={theme === 'dark' ? 'Switch to Clinical Light Mode' : 'Switch to Dark Cockpit Mode'}
-          aria-label="Toggle theme"
-        >
-          {theme === 'dark' ? (
-            <Sun className="w-4 h-4 text-amber-400" />
-          ) : (
-            <Moon className="w-4 h-4 text-cyan-600" />
-          )}
-        </button>
-      </div>
 
       <AnimatePresence mode="wait">
         {/* VIEW 1: STRICT PRIVATE SIGN-IN (Zero profile cards shown) */}
@@ -350,15 +333,24 @@ export default function Login({ onLoginSuccess }: LoginProps) {
             className="w-full max-w-md p-1 bg-gradient-to-b from-[#1E3048] via-[#142030] to-[#0A1018] rounded-[2.5rem] border border-cyan-500/25 shadow-2xl shadow-black/80"
           >
             <div className="bg-[#0A1018] rounded-[calc(2.5rem-4px)] p-7 sm:p-9 border border-[#162436] flex flex-col items-center">
-              {/* Private Pill Badge */}
-              <div className="rounded-full px-3.5 py-1.5 bg-cyan-500/15 border border-cyan-500/30 flex items-center gap-1.5 mb-5 shadow-xs">
+              {/* DentAI Brand & Private Pill Badge */}
+              <div className="flex items-center gap-2 mb-3">
+                <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-cyan-500 to-teal-400 p-0.5 flex items-center justify-center shadow-md">
+                  <div className="w-full h-full rounded-[10px] bg-[#0A1018] flex items-center justify-center">
+                    <Sparkles className="w-4 h-4 text-cyan-400" />
+                  </div>
+                </div>
+                <span className="text-xl font-black text-white tracking-tight">DentAI</span>
+              </div>
+
+              <div className="rounded-full px-3.5 py-1.5 bg-cyan-500/15 border border-cyan-500/30 flex items-center gap-1.5 mb-4 shadow-xs">
                 <Lock className="w-3.5 h-3.5 text-cyan-400" />
                 <span className="text-[10px] text-cyan-300 font-black tracking-[0.15em] uppercase">
                   Private Practice Sign-In
                 </span>
               </div>
 
-              <h2 className="text-2xl font-black text-white tracking-tight text-center">
+              <h2 className="text-2xl font-black text-white tracking-tight text-center" data-testid="clinician-access-title">
                 Clinician Access
               </h2>
               <p className="text-slate-400 text-xs mt-1 text-center max-w-xs leading-relaxed">
@@ -433,7 +425,10 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                       exit={{ opacity: 0 }}
                       className="mt-2 w-full flex flex-col items-center gap-1.5"
                     >
-                      <div className="text-xs font-semibold text-rose-400 flex items-center gap-1.5 text-center px-2">
+                      <div
+                        data-testid="login-error-banner"
+                        className="text-xs font-semibold text-rose-400 flex items-center gap-1.5 text-center px-2"
+                      >
                         <AlertCircle className="w-3.5 h-3.5 shrink-0 text-rose-400" />
                         <span>{loginError}</span>
                       </div>

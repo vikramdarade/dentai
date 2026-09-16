@@ -91,6 +91,7 @@ export default function App() {
     appointmentType: AppointmentType;
     templateId?: string;
     scheduleItemId?: string;
+    appointmentReason?: string;
   } | null>(null);
 
   // Load token and currentUser from persistent storage on mount
@@ -110,7 +111,7 @@ export default function App() {
         headers: { 'Authorization': `Bearer ${token}` }
       })
         .then(async res => {
-          if (res.status === 401) {
+          if (res.status === 401 || res.status === 403) {
             handleLogout();
           } else if (res.ok) {
             const data = await res.json();
@@ -224,7 +225,12 @@ export default function App() {
       if (!res.ok) return;
       const list: ClinicMembership[] = await res.json();
       if (!Array.isArray(list)) return;
-      setClinics(list);
+      setClinics(prev => {
+        if (prev.length === list.length && prev.every((c, i) => c.clinicId === list[i]?.clinicId && c.status === list[i]?.status && c.role === list[i]?.role)) {
+          return prev;
+        }
+        return list;
+      });
       setActiveClinicId(prev => {
         if (prev && list.some(c => c.clinicId === prev && c.status === 'active')) return prev;
         const fallback = list.find(c => c.role === 'owner' && c.status === 'active')
@@ -468,7 +474,8 @@ export default function App() {
       dob: '1990-01-01', // Placeholder per pilot request: DOB not needed
       appointmentType: item.appointmentType,
       templateId: item.templateId || 'standard',
-      scheduleItemId: item.id
+      scheduleItemId: item.id,
+      appointmentReason: item.procedureText || ''
     };
 
     setActiveIntake(intakeData);
@@ -930,6 +937,8 @@ export default function App() {
           dob={activeIntake.dob}
           appointmentType={activeIntake.appointmentType}
           templateId={activeIntake.templateId || ''}
+          appointmentReason={activeIntake.appointmentReason}
+          dentistName={currentUser?.name}
           onBack={() => {
             clearActiveIntake();
             sessionStorage.removeItem('dentai_active_transcript');

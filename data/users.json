@@ -18,6 +18,16 @@
       "mfaEnabled": false,
       "isFounder": true,
       "founderAccessStatus": "approved"
+    },
+    {
+      "id": "7b113eb8-e9f7-4e6d-9677-111e645f3b43",
+      "name": "Dr. Sarah Jenkins",
+      "specialty": "General Dentistry",
+      "pinHash": "7a96d4fcd143098082eac02f684418cf33c2d8075fc1062961c9ce774808422aef2b66b52ecae906da54a6da5669292ff602ddf922449ca6ed86f87418e0a338",
+      "salt": "50d557a766f03038edf170a579e0b30ef0a787649763ee06e7c5d3c29b6f8c69",
+      "mfaEnabled": false,
+      "isFounder": false,
+      "founderAccessStatus": "none"
     }
   ]
 }

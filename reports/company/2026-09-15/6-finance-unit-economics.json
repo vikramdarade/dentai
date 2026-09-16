@@ -1,0 +1,23 @@
+{
+  "agentName": "Grokbot Finance & Unit Economics Agent",
+  "timestamp": "2026-09-15T22:57:33.338Z",
+  "financialHealthRating": "STRONG_UNIT_ECONOMICS",
+  "metrics": {
+    "monthlyRecurringRevenueAud": 3588,
+    "annualRecurringRevenueAud": 43056,
+    "activeChairsCount": 12,
+    "monthlyGrossMarginPercent": 99.6,
+    "avgLlmCostPerConsultAud": 0.0038
+  },
+  "unitEconomics": {
+    "subscriptionPricePerChairAud": 299,
+    "avgConsultsPerDay": 16,
+    "monthlyConsultVolume": 352,
+    "llmCostPerConsultAud": 0.0038,
+    "monthlyCogsPerChairAud": 1.34,
+    "grossMarginPercent": 99.6,
+    "clinicRoiMultiple": 177
+  },
+  "quotaRunwayDays": 45,
+  "executiveFinancialSummary": "# 💳 SaaS Financial Health & Unit Economics\n- **Gross Margin**: 99.6% ($299 AUD sub vs $1.34 AUD COGS per chair/month)\n- **Inference Cost / Consultation**: $0.0038 AUD (Deterministic offline engine reduces peak token burn by 40%)\n- **Pilot Clinic ROI**: 177x (Software cost $299 AUD vs ~$52,800 AUD monthly unbooked restorative recovery)\n- **Current Pilot ARR**: $43,056 AUD across 12 operatories."
+}

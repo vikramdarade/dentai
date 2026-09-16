@@ -20,11 +20,8 @@ import {
   ShieldCheck,
   Plus,
   Trash2,
-  Info,
-  Sun,
-  Moon
+  Info
 } from 'lucide-react';
-import { useTheme } from '../context/ThemeContext';
 import {
   Consultation,
   AdaCodeItem,
@@ -119,7 +116,6 @@ export default function ClinicalSummary({
   onBack,
   dentistName
 }: ClinicalSummaryProps) {
-  const { theme, toggleTheme } = useTheme();
   const [activeTab, setActiveTab] = useState<'clinical' | 'deliverables'>('clinical');
   const templates = getSavedTemplates();
   const initialTemplate = getTemplate(consultation.templateId);
@@ -488,80 +484,68 @@ export default function ClinicalSummary({
 
   return (
     <>
-      <div id="clinical-summary-container" className="min-h-screen bg-[#070B11] pb-24 text-slate-100 no-print">
+      <div id="clinical-summary-container" className="min-h-screen bg-slate-50 pb-24 text-slate-900 no-print">
         {/* Top App Bar */}
-        <header className="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-4 md:px-8 h-16 bg-[#0A1018]/90 backdrop-blur-md border-b border-[#1E3048]">
+        <header className="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-4 md:px-8 h-16 bg-white/95 backdrop-blur-md border-b border-slate-200/90 shadow-xs">
           <div className="flex items-center gap-3">
-            <button onClick={onBack} className="p-2 -ml-2 rounded-xl hover:bg-[#152338] text-slate-400 hover:text-white transition-colors cursor-pointer">
+            <button onClick={onBack} className="p-2 -ml-2 rounded-xl hover:bg-slate-100 text-slate-500 hover:text-slate-900 transition-colors cursor-pointer">
               <Menu className="h-5 w-5" />
             </button>
             <div className="flex items-center gap-2">
-              <h1 className="text-lg font-bold tracking-tight text-white flex items-center gap-1.5">
-                Dent<span className="text-cyan-400">AI</span>
+              <h1 className="text-lg font-bold tracking-tight text-slate-900 flex items-center gap-1.5">
+                Dent<span className="text-cyan-600 font-extrabold">AI</span>
               </h1>
-              <span className="text-[10px] font-mono font-bold uppercase px-2 py-0.5 rounded bg-cyan-950/60 border border-cyan-800/60 text-cyan-300">
+              <span className="text-[10px] font-mono font-bold uppercase px-2 py-0.5 rounded bg-cyan-50 border border-cyan-200 text-cyan-800">
                 Clinical &amp; Growth OS
               </span>
             </div>
           </div>
           <div className="flex items-center gap-4">
             <div className="hidden md:flex flex-col items-end">
-              <span className="font-semibold text-sm text-slate-200">{dentistName || 'Dentist'}</span>
-              <span className="font-mono text-[10px] text-cyan-400 font-bold uppercase tracking-widest leading-none mt-0.5">
+              <span className="font-semibold text-sm text-slate-800">{dentistName || 'Dentist'}</span>
+              <span className="font-mono text-[10px] text-cyan-700 font-bold uppercase tracking-widest leading-none mt-0.5">
                 {getAppointmentTypeLabel(consultation.appointmentType)}
               </span>
             </div>
-            <button
-              onClick={toggleTheme}
-              className="p-2 rounded-xl text-slate-400 hover:text-amber-300 bg-[#0E1724] border border-[#1E3048] transition-colors cursor-pointer flex items-center justify-center"
-              title={theme === 'dark' ? 'Switch to Clinical Light Mode' : 'Switch to Dark Cockpit Mode'}
-              aria-label="Toggle theme"
-            >
-              {theme === 'dark' ? (
-                <Sun className="w-4 h-4 text-amber-400" />
-              ) : (
-                <Moon className="w-4 h-4 text-cyan-600" />
-              )}
-            </button>
-            <button className="p-1 rounded-xl text-slate-400 hover:text-white transition-all">
-              <User className="w-5 h-5 text-cyan-400" />
+            <button className="p-2 rounded-xl text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-all cursor-pointer">
+              <User className="w-5 h-5 text-cyan-600" />
             </button>
           </div>
         </header>
 
         <main className="pt-20 px-4 max-w-[1520px] mx-auto">
           {/* Patient banner */}
-          <div className="bg-[#0A1018] border border-[#1E3048] rounded-2xl p-5 mb-6 shadow-xl flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="bg-white border border-slate-200/90 rounded-2xl p-5 mb-6 shadow-xs flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div className="flex items-center gap-3.5">
-              <div className="w-12 h-12 rounded-xl bg-cyan-950/80 text-cyan-300 flex items-center justify-center font-mono font-bold text-lg border border-cyan-800 shadow-inner">
+              <div className="w-12 h-12 rounded-xl bg-cyan-50 text-cyan-700 flex items-center justify-center font-mono font-bold text-lg border border-cyan-200 shadow-xs">
                 {consultation.firstName[0] || ''}{consultation.lastName[0] || ''}
               </div>
               <div className="flex flex-col">
                 <div className="flex items-center flex-wrap gap-2">
-                  <h2 className="text-lg font-bold text-white leading-tight">
+                  <h2 className="text-lg font-bold text-slate-900 leading-tight">
                     {consultation.firstName} {consultation.lastName}
                   </h2>
-                  <span className="px-2.5 py-0.5 rounded-md text-[10px] font-mono font-bold uppercase tracking-wider bg-[#0E1724] text-cyan-400 border border-[#1E3048]">
+                  <span className="px-2.5 py-0.5 rounded-md text-[10px] font-mono font-bold uppercase tracking-wider bg-slate-100 text-slate-700 border border-slate-200">
                     {getAppointmentTypeLabel(consultation.appointmentType)}
                   </span>
                   {needsReview ? (
-                    <span className="px-2.5 py-0.5 rounded-md text-[10px] font-mono font-bold uppercase tracking-wider bg-amber-950/60 text-amber-300 border border-amber-800/60 flex items-center gap-1">
-                      <ShieldAlert className="w-3 h-3 text-amber-400" /> Draft — verify
+                    <span className="px-2.5 py-0.5 rounded-md text-[10px] font-mono font-bold uppercase tracking-wider bg-amber-50 text-amber-800 border border-amber-200 flex items-center gap-1">
+                      <ShieldAlert className="w-3 h-3 text-amber-600" /> Draft — verify
                     </span>
                   ) : (
-                    <span className="px-2.5 py-0.5 rounded-md text-[10px] font-mono font-bold uppercase tracking-wider bg-emerald-950/60 text-emerald-300 border border-emerald-800/60 flex items-center gap-1">
-                      <CheckCircle className="w-3 h-3 text-emerald-400" /> AHPRA Verified
+                    <span className="px-2.5 py-0.5 rounded-md text-[10px] font-mono font-bold uppercase tracking-wider bg-emerald-50 text-emerald-800 border border-emerald-200 flex items-center gap-1">
+                      <CheckCircle className="w-3 h-3 text-emerald-600" /> AHPRA Verified
                     </span>
                   )}
                   {specialistReferral.required && (
-                     <span className="px-2 py-0.5 rounded-md text-[10px] font-mono font-bold uppercase tracking-wider bg-purple-950/60 text-purple-300 border border-purple-800/60 flex items-center gap-1">
-                       <Send className="w-2.5 h-2.5 text-purple-400" /> Referral Indicated
+                     <span className="px-2 py-0.5 rounded-md text-[10px] font-mono font-bold uppercase tracking-wider bg-purple-50 text-purple-800 border border-purple-200 flex items-center gap-1">
+                       <Send className="w-2.5 h-2.5 text-purple-600" /> Referral Indicated
                      </span>
                   )}
                 </div>
-                <p className="text-xs text-slate-400 font-medium mt-1">
-                  DOB: <span className="font-mono font-semibold text-slate-200">{consultation.dob}</span> &bull; Status:{' '}
-                  <span className={`font-semibold ${consultation.status === 'Completed' ? 'text-emerald-400' : 'text-cyan-400'}`}>{consultation.status}</span>
+                <p className="text-xs text-slate-500 font-medium mt-1">
+                  DOB: <span className="font-mono font-semibold text-slate-800">{consultation.dob}</span> &bull; Status:{' '}
+                  <span className={`font-semibold ${consultation.status === 'Completed' ? 'text-emerald-700' : 'text-cyan-700'}`}>{consultation.status}</span>
                   {originEngine !== 'gemini' && (
                     <> &bull; <span className="text-amber-400 font-mono font-semibold">Generated via {originEngine === 'on-device' ? 'on-device model' : 'offline draft'}</span></>
                   )}

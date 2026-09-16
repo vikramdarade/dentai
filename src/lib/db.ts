@@ -27,6 +27,7 @@ dotenv.config();
 import { neon } from '@neondatabase/serverless';
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import { logger } from '../../logger';
 
@@ -142,11 +143,24 @@ export async function initDbSchema(): Promise<void> {
       dentist_id TEXT NOT NULL,
       date       TEXT NOT NULL,
       items      JSONB NOT NULL,
+      version    INTEGER NOT NULL DEFAULT 1,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       PRIMARY KEY (dentist_id, date)
     )
   `;
+  await sql`ALTER TABLE schedules ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 1`;
   await sql`CREATE INDEX IF NOT EXISTS idx_schedules_dentist_date ON schedules (dentist_id, date)`;
+
+  await sql`ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS prev_hash TEXT`;
+  await sql`ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS hash TEXT`;
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS practice_settings (
+      dentist_id TEXT PRIMARY KEY,
+      settings   JSONB NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `;
 
   await sql`
     CREATE TABLE IF NOT EXISTS subscriptions (
@@ -876,10 +890,26 @@ export async function dbAppendAudit(
   detail: Record<string, any>
 ): Promise<void> {
   if (!sql) return;
-  await sql`
-    INSERT INTO audit_logs (event, dentist_id, detail)
-    VALUES (${event}, ${dentistId}, ${JSON.stringify(detail)}::jsonb)
-  `;
+  try {
+    const lastRows = (await sql`
+      SELECT hash FROM audit_logs ORDER BY id DESC LIMIT 1
+    `) as any[];
+    const prevHash = lastRows[0]?.hash || 'GENESIS_DENTAI_AHPRA_ROOT';
+    const timestamp = new Date().toISOString();
+    const canonical = `${prevHash}|${event}|${dentistId || 'system'}|${timestamp}|${JSON.stringify(detail || {})}`;
+    const hash = crypto.createHash('sha256').update(canonical).digest('hex');
+
+    await sql`
+      INSERT INTO audit_logs (event, dentist_id, detail, prev_hash, hash, created_at)
+      VALUES (${event}, ${dentistId}, ${JSON.stringify(detail)}::jsonb, ${prevHash}, ${hash}, ${timestamp}::timestamptz)
+    `;
+  } catch (err) {
+    logger.warn('[dbAppendAudit] Hash-chain insert fallback:', err);
+    await sql`
+      INSERT INTO audit_logs (event, dentist_id, detail)
+      VALUES (${event}, ${dentistId}, ${JSON.stringify(detail)}::jsonb)
+    `;
+  }
 }
 
 // --- Support Tickets -------------------------------------------------------------
@@ -1186,10 +1216,10 @@ export async function dbApproveFounderRequest(requestId: string, approve: boolea
 export async function dbGetSchedule(
   dentistId: string,
   date: string
-): Promise<{ items: any[]; updatedAt: string | null } | null> {
+): Promise<{ items: any[]; version: number; updatedAt: string | null } | null> {
   if (!sql) return null;
   const rows = (await sql`
-    SELECT items, updated_at
+    SELECT items, version, updated_at
     FROM schedules
     WHERE dentist_id = ${dentistId} AND date = ${date}
     LIMIT 1
@@ -1197,6 +1227,7 @@ export async function dbGetSchedule(
   if (!rows || rows.length === 0) return null;
   return {
     items: Array.isArray(rows[0].items) ? rows[0].items : [],
+    version: Number(rows[0].version) || 1,
     updatedAt: rows[0].updated_at ? new Date(rows[0].updated_at).toISOString() : null
   };
 }
@@ -1204,17 +1235,44 @@ export async function dbGetSchedule(
 export async function dbSaveSchedule(
   dentistId: string,
   date: string,
-  items: any[]
-): Promise<{ items: any[]; updatedAt: string }> {
+  items: any[],
+  expectedVersion?: number
+): Promise<{ items: any[]; version: number; updatedAt: string; conflict?: boolean }> {
   if (!sql) throw new Error('Database is not enabled.');
   const now = new Date().toISOString();
-  await sql`
-    INSERT INTO schedules (dentist_id, date, items, updated_at)
-    VALUES (${dentistId}, ${date}, ${JSON.stringify(items)}, ${now})
+
+  if (expectedVersion !== undefined) {
+    const updatedRows = (await sql`
+      UPDATE schedules
+      SET items = ${JSON.stringify(items)}, version = version + 1, updated_at = ${now}
+      WHERE dentist_id = ${dentistId} AND date = ${date} AND version = ${expectedVersion}
+      RETURNING items, version, updated_at
+    `) as any[];
+    if (updatedRows.length > 0) {
+      return {
+        items: updatedRows[0].items,
+        version: Number(updatedRows[0].version),
+        updatedAt: now
+      };
+    }
+    // Conflict detected: return current state
+    const latest = await dbGetSchedule(dentistId, date);
+    return {
+      items: latest?.items || items,
+      version: latest?.version || 1,
+      updatedAt: latest?.updatedAt || now,
+      conflict: true
+    };
+  }
+
+  const rows = (await sql`
+    INSERT INTO schedules (dentist_id, date, items, version, updated_at)
+    VALUES (${dentistId}, ${date}, ${JSON.stringify(items)}, 1, ${now})
     ON CONFLICT (dentist_id, date)
-    DO UPDATE SET items = EXCLUDED.items, updated_at = EXCLUDED.updated_at
-  `;
-  return { items, updatedAt: now };
+    DO UPDATE SET items = EXCLUDED.items, version = schedules.version + 1, updated_at = EXCLUDED.updated_at
+    RETURNING version
+  `) as any[];
+  return { items, version: Number(rows[0]?.version) || 1, updatedAt: now };
 }
 
 export async function dbDeleteSchedule(dentistId: string, date: string): Promise<boolean> {

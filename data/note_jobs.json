@@ -1,0 +1,430 @@
+{
+  "jobs": [
+    {
+      "id": "552d37f5-4ed6-4e0a-a9d3-a1483d0d06ff",
+      "dentistId": "ea8e5a3a-d788-45d9-b44b-63faa8db43b3",
+      "clinicId": "07447842-139f-4f12-acc0-b34cc9a30888",
+      "priority": "emergency",
+      "status": "failed",
+      "attempts": 3,
+      "payload": {
+        "intakeData": {
+          "firstName": "Liam",
+          "lastName": "O'Connor",
+          "dob": "1990-01-01",
+          "appointmentType": "emergency",
+          "templateId": "soap"
+        },
+        "transcript": [
+          {
+            "sender": "Dentist",
+            "text": "Good morning Liam O'Connor, let's begin your appointment for Emergency: Severe Pain & Pulpitis #36."
+          },
+          {
+            "sender": "Dialogue",
+            "text": "Clinical consultation dialogue for Liam O'Connor."
+          },
+          {
+            "sender": "Dentist",
+            "text": "All procedures completed. We will review your recovery and plan the next recall visit."
+          }
+        ],
+        "consentObtained": false
+      },
+      "createdAt": "2026-09-15T22:55:08.715Z",
+      "nextAttemptAt": null,
+      "error": "Job expired before generation could complete."
+    },
+    {
+      "id": "2206f90f-c29b-439f-a4d3-3e84e90fbcb3",
+      "dentistId": "ea8e5a3a-d788-45d9-b44b-63faa8db43b3",
+      "clinicId": "07447842-139f-4f12-acc0-b34cc9a30888",
+      "priority": "routine",
+      "status": "failed",
+      "attempts": 3,
+      "payload": {
+        "intakeData": {
+          "firstName": "Sarah",
+          "lastName": "Connor",
+          "dob": "1990-01-01",
+          "appointmentType": "examination",
+          "templateId": "standard"
+        },
+        "transcript": [
+          {
+            "sender": "Dentist",
+            "text": "Good morning Sarah Connor, let's begin your appointment for Comprehensive Exam & Bitewings (011, 022)."
+          },
+          {
+            "sender": "Dialogue",
+            "text": "Clinical consultation dialogue for Sarah Connor."
+          },
+          {
+            "sender": "Dentist",
+            "text": "All procedures completed. We will review your recovery and plan the next recall visit."
+          }
+        ],
+        "consentObtained": true,
+        "consentCapturedAt": "2026-09-15T22:04:26.664Z"
+      },
+      "createdAt": "2026-09-15T22:55:20.967Z",
+      "nextAttemptAt": null,
+      "error": "Job expired before generation could complete."
+    },
+    {
+      "id": "57ca4274-e8b5-48d0-9252-6e4672675468",
+      "dentistId": "ea8e5a3a-d788-45d9-b44b-63faa8db43b3",
+      "clinicId": "07447842-139f-4f12-acc0-b34cc9a30888",
+      "priority": "routine",
+      "status": "failed",
+      "attempts": 3,
+      "payload": {
+        "intakeData": {
+          "firstName": "David",
+          "lastName": "Miller",
+          "dob": "1990-01-01",
+          "appointmentType": "prosthodontic",
+          "templateId": "standard"
+        },
+        "transcript": [
+          {
+            "sender": "Dentist",
+            "text": "Good morning David Miller, let's begin your appointment for Tooth #16 Ceramic Crown Prep (611)."
+          },
+          {
+            "sender": "Dialogue",
+            "text": "Clinical consultation dialogue for David Miller."
+          },
+          {
+            "sender": "Dentist",
+            "text": "All procedures completed. We will review your recovery and plan the next recall visit."
+          }
+        ],
+        "consentObtained": false
+      },
+      "createdAt": "2026-09-15T22:55:23.838Z",
+      "nextAttemptAt": null,
+      "error": "Job expired before generation could complete."
+    },
+    {
+      "id": "1c1876af-efe1-47ad-bec9-c9d3fc39e039",
+      "dentistId": "ea8e5a3a-d788-45d9-b44b-63faa8db43b3",
+      "clinicId": "07447842-139f-4f12-acc0-b34cc9a30888",
+      "priority": "routine",
+      "status": "failed",
+      "attempts": 2,
+      "payload": {
+        "intakeData": {
+          "firstName": "Michael",
+          "lastName": "Chang",
+          "dob": "1990-01-01",
+          "appointmentType": "restorative",
+          "templateId": "standard",
+          "scheduleItemId": "sched_demo_5",
+          "appointmentReason": "Tooth #24 MO Resin Restoration (532)"
+        },
+        "transcript": [
+          {
+            "sender": "Dentist",
+            "text": "Chloe, you said something's been catching when you bite on the bottom right?"
+          },
+          {
+            "sender": "Patient",
+            "text": "Yeah, the old filling on that back tooth — it feels like food keeps getting stuck around it."
+          },
+          {
+            "sender": "Dentist",
+            "text": "Any sensitivity to cold or sweet at all?"
+          },
+          {
+            "sender": "Patient",
+            "text": "A tiny bit of cold sensitivity, but it goes away quickly."
+          },
+          {
+            "sender": "Clinical Comment",
+            "text": "Sensibility: tooth 46 responds within normal limits to cold, no lingering response. No tenderness to percussion. Radiograph shows a defective distal margin with caries beneath the existing DO composite."
+          },
+          {
+            "sender": "Dentist",
+            "text": "I can see the old filling on tooth four six has a cracked margin with decay underneath it — that's why things are getting stuck. The nerve is still healthy, so we'll replace the filling today rather than needing a root canal."
+          },
+          {
+            "sender": "Patient",
+            "text": "Good, I'd rather not go through that."
+          },
+          {
+            "sender": "Dentist",
+            "text": "I'll isolate the tooth with a rubber dam, remove the old composite and the decay — the cavity is into dentine but not near the pulp — then place a new composite filling, shade A2, to match your other teeth. That's item 511 for the two-surface filling."
+          },
+          {
+            "sender": "Dentist",
+            "text": "I'll check the bite with articulating paper to make sure there are no high spots, and polish it smooth. While the numbness lasts, be careful chewing on that side for a couple of hours."
+          },
+          {
+            "sender": "Dentist",
+            "text": "A little sensitivity in the first few days is normal; if it lingers beyond that, give us a call. Otherwise I'll see you at your routine recall in six months."
+          }
+        ]
+      },
+      "createdAt": "2026-09-15T22:58:29.349Z",
+      "nextAttemptAt": null,
+      "error": "Job expired before generation could complete."
+    },
+    {
+      "id": "94fcfe33-1469-448f-89ae-b3c470b09f23",
+      "dentistId": "ea8e5a3a-d788-45d9-b44b-63faa8db43b3",
+      "clinicId": "07447842-139f-4f12-acc0-b34cc9a30888",
+      "priority": "routine",
+      "status": "failed",
+      "attempts": 4,
+      "payload": {
+        "intakeData": {
+          "firstName": "Sarah",
+          "lastName": "Connor",
+          "dob": "1990-01-01",
+          "appointmentType": "examination",
+          "templateId": "standard"
+        },
+        "transcript": [
+          {
+            "sender": "Dentist",
+            "text": "Good morning Sarah Connor, let's begin your appointment for Comprehensive Exam & Bitewings (011, 022)."
+          },
+          {
+            "sender": "Dialogue",
+            "text": "Clinical consultation dialogue for Sarah Connor."
+          },
+          {
+            "sender": "Dentist",
+            "text": "All procedures completed. We will review your recovery and plan the next recall visit."
+          }
+        ],
+        "consentObtained": true,
+        "consentCapturedAt": "2026-09-16T00:09:51.496Z"
+      },
+      "createdAt": "2026-09-16T00:10:40.037Z",
+      "nextAttemptAt": null,
+      "error": "Hosted AI is rate-limited (quota or billing exhausted). The job will retry automatically with backoff."
+    },
+    {
+      "id": "0f38a33f-be41-4e83-8a14-bc46ae28556c",
+      "dentistId": "ea8e5a3a-d788-45d9-b44b-63faa8db43b3",
+      "clinicId": "07447842-139f-4f12-acc0-b34cc9a30888",
+      "priority": "routine",
+      "status": "failed",
+      "attempts": 3,
+      "payload": {
+        "intakeData": {
+          "firstName": "David",
+          "lastName": "Miller",
+          "dob": "1990-01-01",
+          "appointmentType": "prosthodontic",
+          "templateId": "standard"
+        },
+        "transcript": [
+          {
+            "sender": "Dentist",
+            "text": "Good morning David Miller, let's begin your appointment for Tooth #16 Ceramic Crown Prep (611)."
+          },
+          {
+            "sender": "Dialogue",
+            "text": "Clinical consultation dialogue for David Miller."
+          },
+          {
+            "sender": "Dentist",
+            "text": "All procedures completed. We will review your recovery and plan the next recall visit."
+          }
+        ],
+        "consentObtained": true,
+        "consentCapturedAt": "2026-09-16T00:11:25.369Z",
+        "consentPractitionerId": "Vik"
+      },
+      "createdAt": "2026-09-16T00:11:35.109Z",
+      "nextAttemptAt": null,
+      "error": "Job expired before generation could complete."
+    },
+    {
+      "id": "ec97a809-3455-4592-8096-58c39873caa3",
+      "dentistId": "ea8e5a3a-d788-45d9-b44b-63faa8db43b3",
+      "clinicId": "07447842-139f-4f12-acc0-b34cc9a30888",
+      "priority": "emergency",
+      "status": "failed",
+      "attempts": 2,
+      "payload": {
+        "intakeData": {
+          "firstName": "Liam",
+          "lastName": "O'Connor",
+          "dob": "1990-01-01",
+          "appointmentType": "emergency",
+          "templateId": "soap"
+        },
+        "transcript": [
+          {
+            "sender": "Dentist",
+            "text": "Good morning Liam O'Connor, let's begin your appointment for Emergency: Severe Pain & Pulpitis #36."
+          },
+          {
+            "sender": "Dialogue",
+            "text": "Clinical consultation dialogue for Liam O'Connor."
+          },
+          {
+            "sender": "Dentist",
+            "text": "All procedures completed. We will review your recovery and plan the next recall visit."
+          }
+        ],
+        "consentObtained": true,
+        "consentCapturedAt": "2026-09-16T00:15:50.119Z",
+        "consentPractitionerId": "Vik"
+      },
+      "createdAt": "2026-09-16T00:16:34.663Z",
+      "nextAttemptAt": null,
+      "error": "Job expired before generation could complete."
+    },
+    {
+      "id": "8a53e3a7-1526-4c2b-9ccc-6fd1714c3f53",
+      "dentistId": "ea8e5a3a-d788-45d9-b44b-63faa8db43b3",
+      "clinicId": "07447842-139f-4f12-acc0-b34cc9a30888",
+      "priority": "emergency",
+      "status": "failed",
+      "attempts": 2,
+      "payload": {
+        "intakeData": {
+          "firstName": "Liam",
+          "lastName": "O'Connor",
+          "dob": "1990-01-01",
+          "appointmentType": "emergency",
+          "templateId": "soap"
+        },
+        "transcript": [
+          {
+            "sender": "Dentist",
+            "text": "Good morning Liam O'Connor, let's begin your appointment for Emergency: Severe Pain & Pulpitis #36."
+          },
+          {
+            "sender": "Dialogue",
+            "text": "Clinical consultation dialogue for Liam O'Connor."
+          },
+          {
+            "sender": "Dentist",
+            "text": "All procedures completed. We will review your recovery and plan the next recall visit."
+          }
+        ],
+        "consentObtained": true,
+        "consentCapturedAt": "2026-09-16T00:15:50.119Z",
+        "consentPractitionerId": "Vik"
+      },
+      "createdAt": "2026-09-16T00:16:44.182Z",
+      "nextAttemptAt": null,
+      "error": "Job expired before generation could complete."
+    },
+    {
+      "id": "c4c4e3e3-0229-433e-8176-d846aac902c9",
+      "dentistId": "ea8e5a3a-d788-45d9-b44b-63faa8db43b3",
+      "clinicId": "07447842-139f-4f12-acc0-b34cc9a30888",
+      "priority": "routine",
+      "status": "failed",
+      "attempts": 2,
+      "payload": {
+        "intakeData": {
+          "firstName": "Sarah",
+          "lastName": "Connor",
+          "dob": "1990-01-01",
+          "appointmentType": "examination",
+          "templateId": "standard"
+        },
+        "transcript": [
+          {
+            "sender": "Dentist",
+            "text": "Good morning Sarah Connor, let's begin your appointment for Comprehensive Exam & Bitewings (011, 022)."
+          },
+          {
+            "sender": "Dialogue",
+            "text": "Clinical consultation dialogue for Sarah Connor."
+          },
+          {
+            "sender": "Dentist",
+            "text": "All procedures completed. We will review your recovery and plan the next recall visit."
+          }
+        ],
+        "consentObtained": true,
+        "consentCapturedAt": "2026-09-16T08:02:46.044Z"
+      },
+      "createdAt": "2026-09-16T08:03:32.516Z",
+      "nextAttemptAt": null,
+      "error": "Job expired before generation could complete."
+    },
+    {
+      "id": "449f66ac-d8b2-4e4c-962a-4009a69caa77",
+      "dentistId": "7b113eb8-e9f7-4e6d-9677-111e645f3b43",
+      "clinicId": "b3dfbfcf-ff97-456b-acdf-2968e4b376de",
+      "priority": "routine",
+      "status": "queued",
+      "attempts": 3,
+      "payload": {
+        "intakeData": {
+          "firstName": "Sarah",
+          "lastName": "Connor",
+          "dob": "1990-01-01",
+          "appointmentType": "examination",
+          "templateId": "standard"
+        },
+        "transcript": [
+          {
+            "sender": "Dentist",
+            "text": "Good morning Sarah Connor, let's begin your appointment for Comprehensive Exam & Bitewings (011, 022)."
+          },
+          {
+            "sender": "Dialogue",
+            "text": "Clinical consultation dialogue for Sarah Connor."
+          },
+          {
+            "sender": "Dentist",
+            "text": "All procedures completed. We will review your recovery and plan the next recall visit."
+          }
+        ],
+        "consentObtained": true,
+        "consentCapturedAt": "2026-09-15T21:57:10.630Z"
+      },
+      "createdAt": "2026-09-16T10:27:06.388Z",
+      "nextAttemptAt": "2026-09-16T10:32:24.112Z",
+      "error": "Hosted AI is rate-limited (quota or billing exhausted). The job will retry automatically with backoff."
+    },
+    {
+      "id": "37f47322-ac85-463d-9afd-51575045501e",
+      "dentistId": "7b113eb8-e9f7-4e6d-9677-111e645f3b43",
+      "clinicId": "b3dfbfcf-ff97-456b-acdf-2968e4b376de",
+      "priority": "emergency",
+      "status": "queued",
+      "attempts": 2,
+      "payload": {
+        "intakeData": {
+          "firstName": "Arthur",
+          "lastName": "Dent",
+          "dob": "1990-01-01",
+          "appointmentType": "emergency",
+          "templateId": "soap"
+        },
+        "transcript": [
+          {
+            "sender": "Dentist",
+            "text": "Good morning Arthur Dent, let's begin your appointment for Chipped Incisor Tooth #11."
+          },
+          {
+            "sender": "Dialogue",
+            "text": "chart correction with also start owner"
+          },
+          {
+            "sender": "Dentist",
+            "text": "All procedures completed. We will review your recovery and plan the next recall visit."
+          }
+        ],
+        "consentObtained": true,
+        "consentCapturedAt": "2026-09-15T22:43:41.753Z",
+        "consentPractitionerId": "Dr. Sarah Jenkins"
+      },
+      "createdAt": "2026-09-16T10:28:47.356Z",
+      "nextAttemptAt": "2026-09-16T10:31:04.066Z",
+      "error": "Hosted AI is rate-limited (quota or billing exhausted). The job will retry automatically with backoff."
+    }
+  ]
+}

@@ -203,8 +203,8 @@ export default function TopSurgeryBar({
             ))}
           </div>
 
-          {/* Elapsed Timer */}
-          <div className="flex items-center gap-1.5 font-mono text-xs font-extrabold text-slate-100 bg-[#070B11] px-2.5 py-1.5 rounded-xl border border-[#182638] shrink-0 relative z-50 shadow-xs">
+          {/* Elapsed Timer with Tabular Numbers */}
+          <div className="flex items-center gap-1.5 font-mono text-xs font-bold tabular-nums text-slate-100 bg-[#070B11] px-2.5 py-1.5 rounded-xl border border-[#182638] shrink-0 relative z-50 shadow-xs">
             <Clock className="w-3.5 h-3.5 text-cyan-400" />
             <span>{formatTimer(seconds)} min</span>
           </div>
@@ -256,9 +256,7 @@ export default function TopSurgeryBar({
           {/* Cancel Safeguard */}
           <button
             onClick={() => {
-              if (confirm('Discard current recording for this appointment?')) {
-                onCancel();
-              }
+              onCancel();
             }}
             className="p-1.5 text-slate-400 hover:text-rose-400 rounded-lg hover:bg-[#162436] transition-colors cursor-pointer shrink-0 relative z-50"
             title="Cancel recording"

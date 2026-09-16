@@ -349,25 +349,25 @@ export default function TreatmentPipeline({
       </AnimatePresence>
 
       {/* Header Banner */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-[#0A1018] rounded-2xl p-6 shadow-lg border border-[#182638]">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white rounded-2xl p-6 shadow-xs border border-slate-200/90">
         <div>
           <div className="flex items-center gap-2 mb-2">
-            <div className="rounded-full px-3 py-1 bg-cyan-500/15 border border-cyan-500/30 flex items-center gap-1.5 shadow-xs">
-              <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
-              <span className="text-[10px] text-cyan-300 font-black tracking-widest uppercase">
+            <div className="rounded-full px-3 py-1 bg-cyan-50 border border-cyan-200/80 flex items-center gap-1.5 shadow-xs">
+              <Sparkles className="w-3.5 h-3.5 text-cyan-700" />
+              <span className="text-[10px] text-cyan-800 font-extrabold tracking-wider uppercase">
                 Practice Revenue & Treatment Pipeline
               </span>
             </div>
             {activeClinic?.role === 'owner' && (
-              <span className="text-[10px] bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 px-2.5 py-0.5 rounded-full font-bold">
+              <span className="text-[10px] bg-emerald-50 text-emerald-800 border border-emerald-200 px-2.5 py-0.5 rounded-full font-bold">
                 Owner Scorecard Active
               </span>
             )}
           </div>
-          <h2 className="text-2xl font-black text-white tracking-tight">
+          <h2 className="text-2xl font-black text-slate-900 tracking-tight">
             Unscheduled Treatment & Recall Engine
           </h2>
-          <p className="text-slate-400 text-xs mt-1 max-w-xl leading-relaxed">
+          <p className="text-slate-600 text-xs mt-1 max-w-xl leading-relaxed">
             Chairside treatment plans and deferred procedures extracted directly from ambient records.
             Equip your coordinator with 1-click patient follow-ups to fill empty chair production.
           </p>
@@ -376,7 +376,7 @@ export default function TreatmentPipeline({
         <div className="flex items-center gap-2.5 self-start md:self-auto flex-wrap">
           <button
             onClick={fetchData}
-            className="px-3.5 py-2 rounded-xl bg-[#121E2E] hover:bg-[#18283D] border border-[#1E3048] text-slate-200 text-xs font-bold transition-all cursor-pointer"
+            className="px-3.5 py-2 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 text-xs font-bold transition-all cursor-pointer shadow-xs"
           >
             Refresh Pipeline
           </button>
@@ -386,15 +386,15 @@ export default function TreatmentPipeline({
       {/* Executive Scorecard Metric Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Card 1: Unscheduled Opportunity Value */}
-        <div className="bg-[#0A1018] rounded-2xl p-5 shadow-md border border-[#182638] flex flex-col justify-between">
+        <div className="bg-white rounded-2xl p-5 shadow-xs border border-slate-200/90 flex flex-col justify-between">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-400">Unscheduled Opportunity</span>
-            <div className="w-9 h-9 rounded-xl bg-amber-500/15 text-amber-400 flex items-center justify-center border border-amber-500/30">
+            <span className="text-xs font-bold text-slate-500">Unscheduled Opportunity</span>
+            <div className="w-9 h-9 rounded-xl bg-amber-50 text-amber-700 flex items-center justify-center border border-amber-200">
               <Clock className="w-4 h-4" />
             </div>
           </div>
           <div className="mt-4">
-            <span className="text-3xl font-black text-amber-400 tracking-tight">
+            <span className="text-3xl font-black text-amber-600 tracking-tight tabular-nums">
               ${totalUnscheduledValue.toLocaleString()}
             </span>
             <div className="flex items-center gap-1.5 mt-1 text-[11px] text-slate-500 font-medium">
@@ -404,15 +404,15 @@ export default function TreatmentPipeline({
         </div>
 
         {/* Card 2: Booked Production (Verified Recovered Revenue) */}
-        <div className="bg-[#0A1018] rounded-2xl p-5 shadow-md border border-[#182638] flex flex-col justify-between">
+        <div className="bg-white rounded-2xl p-5 shadow-xs border border-slate-200/90 flex flex-col justify-between">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-400">Verified Recovered Production</span>
-            <div className="w-9 h-9 rounded-xl bg-emerald-500/15 text-emerald-400 flex items-center justify-center border border-emerald-500/30">
+            <span className="text-xs font-bold text-slate-500">Verified Recovered Production</span>
+            <div className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center border border-emerald-200">
               <TrendingUp className="w-4 h-4" />
             </div>
           </div>
           <div className="mt-4">
-            <span className="text-3xl font-black text-emerald-400 tracking-tight">
+            <span className="text-3xl font-black text-emerald-600 tracking-tight tabular-nums">
               ${(roiSummary?.verifiedBookedValue ?? totalBookedValue).toLocaleString()}
             </span>
             <div className="flex items-center gap-1.5 mt-1 text-[11px] text-slate-500 font-medium">
@@ -422,34 +422,33 @@ export default function TreatmentPipeline({
         </div>
 
         {/* Card 3: Closed-Loop ROI Multiple */}
-        <div className="bg-gradient-to-br from-[#121E2E] to-[#0A1018] text-white rounded-2xl p-5 shadow-md border border-cyan-500/30 flex flex-col justify-between relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-32 h-32 bg-cyan-500/10 rounded-full blur-2xl pointer-events-none" />
+        <div className="bg-gradient-to-br from-cyan-50 to-blue-50/60 text-slate-900 rounded-2xl p-5 shadow-xs border border-cyan-200/80 flex flex-col justify-between relative overflow-hidden">
           <div className="flex items-center justify-between relative z-10">
-            <span className="text-xs font-bold text-cyan-300">Practice ROI Multiple</span>
-            <div className="w-9 h-9 rounded-xl bg-cyan-500/20 text-cyan-300 flex items-center justify-center border border-cyan-500/30">
+            <span className="text-xs font-bold text-cyan-900">Practice ROI Multiple</span>
+            <div className="w-9 h-9 rounded-xl bg-cyan-100/70 text-cyan-800 flex items-center justify-center border border-cyan-300/80">
               <DollarSign className="w-4 h-4" />
             </div>
           </div>
           <div className="mt-4 relative z-10">
-            <span className="text-3xl font-black text-white tracking-tight">
+            <span className="text-3xl font-black text-cyan-950 tracking-tight tabular-nums">
               {Number(roiMultiple) > 0 ? `${roiMultiple}x` : '0x'}
             </span>
-            <div className="flex items-center gap-1.5 mt-1 text-[11px] text-cyan-300/80 font-medium">
+            <div className="flex items-center gap-1.5 mt-1 text-[11px] text-cyan-800 font-medium">
               <span>{roiSummary?.conversionRatePct ?? (totalIdentifiedValue > 0 ? ((totalBookedValue / totalIdentifiedValue) * 100).toFixed(1) : 0)}% conversion rate</span>
             </div>
           </div>
         </div>
 
         {/* Card 4: Total Identified Care */}
-        <div className="bg-[#0A1018] rounded-2xl p-5 shadow-md border border-[#182638] flex flex-col justify-between">
+        <div className="bg-white rounded-2xl p-5 shadow-xs border border-slate-200/90 flex flex-col justify-between">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-400">Total Lifetime Identified</span>
-            <div className="w-9 h-9 rounded-xl bg-cyan-500/15 text-cyan-400 flex items-center justify-center border border-cyan-500/30">
+            <span className="text-xs font-bold text-slate-500">Total Lifetime Identified</span>
+            <div className="w-9 h-9 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center border border-slate-200">
               <ShieldCheck className="w-4 h-4" />
             </div>
           </div>
           <div className="mt-4">
-            <span className="text-3xl font-black text-white tracking-tight">
+            <span className="text-3xl font-black text-slate-900 tracking-tight tabular-nums">
               ${totalIdentifiedValue.toLocaleString()}
             </span>
             <div className="flex items-center gap-1.5 mt-1 text-[11px] text-slate-500 font-medium">
@@ -460,7 +459,7 @@ export default function TreatmentPipeline({
       </div>
 
       {/* Filter and Search Bar */}
-      <div className="bg-[#0A1018] rounded-2xl p-4 shadow-md border border-[#182638] space-y-3">
+      <div className="bg-white rounded-2xl p-4 shadow-xs border border-slate-200/90 space-y-3">
         <div className="flex flex-col md:flex-row gap-3">
           {/* Search Input */}
           <div className="relative flex-1">
@@ -470,7 +469,7 @@ export default function TreatmentPipeline({
               placeholder="Search patient, tooth (e.g. 16), procedure, or ADA code..."
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2.5 bg-[#070B11] border border-[#182638] rounded-xl text-xs font-semibold text-white placeholder:text-slate-600 focus:outline-none focus:border-cyan-400 focus:ring-2 focus:ring-cyan-500/20 transition-all"
+              className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-[#0071E3] focus:bg-white focus:ring-2 focus:ring-[#0071E3]/20 transition-all"
             />
           </div>
 
@@ -488,8 +487,8 @@ export default function TreatmentPipeline({
                 onClick={() => setSelectedStatus(tab.id)}
                 className={`px-3 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
                   selectedStatus === tab.id
-                    ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-xs'
-                    : 'bg-[#070B11] text-slate-400 hover:text-white border border-[#182638]'
+                    ? 'bg-[#0071E3]/10 text-[#0071E3] border border-[#0071E3]/30 shadow-xs'
+                    : 'bg-slate-50 text-slate-600 hover:text-slate-900 border border-slate-200'
                 }`}
               >
                 {tab.label}
@@ -499,7 +498,7 @@ export default function TreatmentPipeline({
         </div>
 
         {/* Category & PMS Verified Filter Pills */}
-        <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-[11px] font-bold text-slate-400">
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-[11px] font-bold text-slate-500">
           <div className="flex items-center gap-2 overflow-x-auto">
             <span>Focus Area:</span>
             {[
@@ -514,8 +513,8 @@ export default function TreatmentPipeline({
                 onClick={() => setSelectedCategory(cat.id)}
                 className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
                   selectedCategory === cat.id
-                    ? 'bg-[#142030] text-cyan-300 border border-cyan-500/30'
-                    : 'bg-[#070B11] text-slate-400 hover:text-white border border-[#182638]'
+                    ? 'bg-slate-200/80 text-slate-900 border border-slate-300 font-bold'
+                    : 'bg-slate-50 text-slate-600 hover:text-slate-900 border border-slate-200'
                 }`}
               >
                 {cat.label}
@@ -528,8 +527,8 @@ export default function TreatmentPipeline({
             onClick={() => setShowVerifiedOnly(prev => !prev)}
             className={`px-3 py-1 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border ${
               showVerifiedOnly
-                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow-sm'
-                : 'bg-[#070B11] text-slate-400 hover:text-emerald-400 border-[#182638]'
+                ? 'bg-emerald-50 text-emerald-800 border-emerald-300 shadow-xs'
+                : 'bg-slate-50 text-slate-600 hover:text-emerald-700 border-slate-200'
             }`}
           >
             <CheckCircle2 className="w-3.5 h-3.5" />
@@ -541,15 +540,15 @@ export default function TreatmentPipeline({
       {/* Actionable Treatment Cards List */}
       <div className="space-y-3">
         {isLoading ? (
-          <div className="bg-[#0A1018] rounded-2xl p-12 text-center text-slate-400 border border-[#182638]">
-            <div className="w-8 h-8 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+          <div className="bg-white rounded-2xl p-12 text-center text-slate-500 border border-slate-200/90 shadow-xs">
+            <div className="w-8 h-8 border-2 border-[#0071E3] border-t-transparent rounded-full animate-spin mx-auto mb-3" />
             <span className="text-xs font-bold">Scanning clinical charts for treatment opportunities...</span>
           </div>
         ) : filtered.length === 0 ? (
-          <div className="bg-[#0A1018] rounded-2xl p-12 text-center text-slate-400 border border-[#182638]">
-            <ShieldCheck className="w-10 h-10 mx-auto mb-2 text-slate-600" />
-            <h4 className="text-sm font-bold text-white">No matching treatment opportunities found</h4>
-            <p className="text-xs mt-1 max-w-sm mx-auto text-slate-400">
+          <div className="bg-white rounded-2xl p-12 text-center text-slate-500 border border-slate-200/90 shadow-xs">
+            <ShieldCheck className="w-10 h-10 mx-auto mb-2 text-slate-400" />
+            <h4 className="text-sm font-bold text-slate-900">No matching treatment opportunities found</h4>
+            <p className="text-xs mt-1 max-w-sm mx-auto text-slate-500">
               Whenever dentists mention proposed procedures (crowns, fillings, perio scaling) during consultations,
               they will automatically populate this revenue pipeline.
             </p>
@@ -560,65 +559,65 @@ export default function TreatmentPipeline({
               key={opp.id}
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
-              className="bg-[#0A1018] hover:bg-[#0E1724] rounded-2xl p-5 shadow-md border border-[#182638] hover:border-cyan-500/40 transition-all flex flex-col md:flex-row md:items-center justify-between gap-4 text-white"
+              className="bg-white hover:bg-slate-50/80 rounded-2xl p-5 shadow-xs border border-slate-200/90 hover:border-slate-300 transition-all flex flex-col md:flex-row md:items-center justify-between gap-4 text-slate-900"
             >
               {/* Left Details */}
               <div className="space-y-2 flex-1 min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-extrabold text-white text-sm">{opp.patientName}</span>
+                  <span className="font-black text-slate-900 text-sm">{opp.patientName}</span>
                   {opp.tooth && (
-                    <span className="px-2.5 py-0.5 bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 rounded-lg text-[10px] font-mono font-extrabold tracking-wider uppercase">
+                    <span className="px-2.5 py-0.5 bg-cyan-50 text-cyan-800 border border-cyan-200 rounded-lg text-[10px] font-mono font-extrabold tracking-wider uppercase tabular-nums">
                       FDI {opp.tooth}
                       {opp.surfaces ? ` (${opp.surfaces})` : ''}
                     </span>
                   )}
-                  <span className="px-2 py-0.5 bg-[#121E2E] text-slate-400 border border-[#1E3048] rounded-lg text-[10px] font-mono font-bold">
+                  <span className="px-2 py-0.5 bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-[10px] font-mono font-bold tabular-nums">
                     ADA {opp.adaCode}
                   </span>
                   <span
                     className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider ${
                       opp.status === 'booked'
-                        ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
+                        ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
                         : opp.status === 'contacted'
-                        ? 'bg-sky-500/15 text-sky-300 border border-sky-500/30'
+                        ? 'bg-sky-50 text-sky-800 border border-sky-200'
                         : opp.status === 'declined'
-                        ? 'bg-rose-500/15 text-rose-300 border border-rose-500/30'
-                        : 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
+                        ? 'bg-rose-50 text-rose-800 border border-rose-200'
+                        : 'bg-amber-50 text-amber-800 border border-amber-200'
                     }`}
                   >
                     {opp.status}
                   </span>
                   {opp.pmsAppointmentId && (
-                    <span className="px-2 py-0.5 bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 rounded-lg text-[10px] font-extrabold flex items-center gap-1 font-mono">
-                      <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                    <span className="px-2 py-0.5 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-lg text-[10px] font-extrabold flex items-center gap-1 font-mono tabular-nums">
+                      <CheckCircle2 className="w-3 h-3 text-emerald-600" />
                       <span>{opp.pmsType ? opp.pmsType.toUpperCase() : 'PMS'} #{opp.pmsAppointmentId}</span>
                     </span>
                   )}
                 </div>
 
                 <div className="flex items-baseline gap-2">
-                  <h4 className="text-base font-extrabold text-white tracking-tight">
+                  <h4 className="text-base font-black text-slate-900 tracking-tight">
                     {opp.procedureName}
                   </h4>
-                  <span className="text-sm font-mono font-black text-emerald-400">
+                  <span className="text-sm font-mono font-black text-emerald-700 tabular-nums">
                     ${(opp.estimatedFee || 0).toLocaleString()}
                   </span>
                 </div>
 
-                <p className="text-xs text-slate-300 font-medium leading-relaxed">
-                  <span className="font-bold text-slate-400">Clinical Indication:</span> {opp.clinicalReason}
+                <p className="text-xs text-slate-600 font-medium leading-relaxed">
+                  <span className="font-bold text-slate-700">Clinical Indication:</span> {opp.clinicalReason}
                 </p>
 
                 {opp.status === 'declined' && opp.patientBarrier && (
-                  <div className="text-[11px] text-rose-300 bg-rose-950/40 border border-rose-800 rounded-xl px-3 py-1.5 flex items-center gap-2 font-semibold">
-                    <XCircle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                  <div className="text-[11px] text-rose-800 bg-rose-50 border border-rose-200 rounded-xl px-3 py-1.5 flex items-center gap-2 font-semibold">
+                    <XCircle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
                     <span><b>Decline Reason:</b> {opp.patientBarrier}</span>
                   </div>
                 )}
 
                 {opp.status !== 'declined' && opp.patientBarrier && (
-                  <div className="text-[11px] text-slate-400 flex items-center gap-1.5">
-                    <span className="font-bold text-slate-500">Patient Note:</span> {opp.patientBarrier}
+                  <div className="text-[11px] text-slate-500 flex items-center gap-1.5">
+                    <span className="font-bold text-slate-700">Patient Note:</span> {opp.patientBarrier}
                   </div>
                 )}
               </div>
@@ -628,7 +627,7 @@ export default function TreatmentPipeline({
                 {opp.status === 'declined' ? (
                   <button
                     onClick={() => handleUpdateStatus(opp.id, 'unscheduled', 'Re-opened into active pipeline')}
-                    className="px-3.5 py-2 rounded-xl bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30 text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm cursor-pointer"
+                    className="px-3.5 py-2 rounded-xl bg-cyan-50 hover:bg-cyan-100 text-cyan-800 border border-cyan-200 text-xs font-bold transition-all flex items-center gap-1.5 shadow-xs cursor-pointer"
                     title="Restore into active treatment pipeline"
                   >
                     <RotateCcw className="w-3.5 h-3.5" />
@@ -641,7 +640,7 @@ export default function TreatmentPipeline({
                         setEstimateModalOpp(opp);
                         setOutreachChannel('sms');
                       }}
-                      className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-cyan-400 to-teal-400 hover:from-cyan-300 hover:to-teal-300 text-slate-950 text-xs font-black shadow-md cursor-pointer transition-all flex items-center gap-1.5"
+                      className="px-3.5 py-2 rounded-xl bg-[#0071E3] hover:bg-[#0077ED] text-white text-xs font-bold shadow-xs cursor-pointer transition-all flex items-center gap-1.5 active:scale-98"
                       title="Generate patient-friendly estimate with ADA item code for health fund rebates"
                     >
                       <Sparkles className="w-3.5 h-3.5" />
@@ -657,12 +656,12 @@ export default function TreatmentPipeline({
                       }}
                       className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border ${
                         opp.pmsAppointmentId
-                          ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
-                          : 'bg-[#121E2E] hover:bg-[#18283D] text-slate-300 border-[#1E3048]'
+                          ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                          : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
                       }`}
                       title="Verify or update PMS Appointment ID"
                     >
-                      <ClipboardCheck className="w-3.5 h-3.5 text-emerald-400" />
+                      <ClipboardCheck className="w-3.5 h-3.5 text-emerald-600" />
                       <span>{opp.pmsAppointmentId ? 'PMS Linked' : 'Verify in PMS'}</span>
                     </button>
 
@@ -672,7 +671,7 @@ export default function TreatmentPipeline({
                         setSelectedDeclineReason('cost');
                         setCustomDeclineNote('');
                       }}
-                      className="px-2.5 py-2 rounded-xl bg-[#121E2E] hover:bg-rose-950/30 text-slate-400 hover:text-rose-400 border border-[#1E3048] hover:border-rose-500/40 text-xs font-bold transition-all flex items-center gap-1 cursor-pointer"
+                      className="px-2.5 py-2 rounded-xl bg-slate-50 hover:bg-rose-50 text-slate-500 hover:text-rose-700 border border-slate-200 hover:border-rose-200 text-xs font-bold transition-all flex items-center gap-1 cursor-pointer"
                       title="Mark treatment as declined by patient"
                     >
                       <XCircle className="w-3.5 h-3.5" />
@@ -728,7 +727,7 @@ export default function TreatmentPipeline({
 
           return (
             <div
-              className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm"
+              className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs"
               onClick={() => setEstimateModalOpp(null)}
             >
               <motion.div
@@ -736,20 +735,20 @@ export default function TreatmentPipeline({
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.95, y: 10 }}
                 onClick={e => e.stopPropagation()}
-                className="bg-[#0E1724] text-white rounded-3xl shadow-2xl border border-[#1E3048] max-w-xl w-full p-6 relative overflow-hidden max-h-[90vh] overflow-y-auto"
+                className="bg-white text-slate-900 rounded-3xl shadow-2xl border border-slate-200/90 max-w-xl w-full p-6 relative overflow-hidden max-h-[90vh] overflow-y-auto"
               >
-                <div className="flex items-center justify-between pb-4 border-b border-[#182638]">
+                <div className="flex items-center justify-between pb-4 border-b border-slate-200">
                   <div>
-                    <div className="flex items-center gap-1.5 text-cyan-400 text-[10px] font-black uppercase tracking-widest">
+                    <div className="flex items-center gap-1.5 text-[#0071E3] text-[10px] font-black uppercase tracking-wider">
                       <Sparkles className="w-3.5 h-3.5" /> High-Conversion Patient Dispatch
                     </div>
-                    <h3 className="text-lg font-black text-white mt-0.5">
+                    <h3 className="text-lg font-black text-slate-900 mt-0.5">
                       Patient Treatment Estimate & Health Fund Breakdown
                     </h3>
                   </div>
                   <button
                     onClick={() => setEstimateModalOpp(null)}
-                    className="w-8 h-8 rounded-full bg-[#121E2E] hover:bg-[#18283D] flex items-center justify-center text-slate-400 hover:text-white transition-colors cursor-pointer"
+                    className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
                   >
                     <X className="w-4 h-4" />
                   </button>
@@ -757,23 +756,23 @@ export default function TreatmentPipeline({
 
                 <div className="mt-4 space-y-4">
                   {/* Summary Banner */}
-                  <div className="p-4 rounded-2xl bg-[#070B11] border border-[#182638] flex items-center justify-between">
+                  <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-between">
                     <div>
-                      <span className="text-sm font-extrabold text-white">{estimateModalOpp.patientName}</span>
-                      <div className="text-xs text-slate-400 flex items-center gap-1.5 mt-0.5">
-                        <span className="font-bold text-slate-200">{estimateModalOpp.procedureName}</span>
+                      <span className="text-sm font-black text-slate-900">{estimateModalOpp.patientName}</span>
+                      <div className="text-xs text-slate-600 flex items-center gap-1.5 mt-0.5">
+                        <span className="font-bold text-slate-800">{estimateModalOpp.procedureName}</span>
                         {estimateModalOpp.tooth && (
-                          <span className="px-2 py-0.5 bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 rounded-md font-mono font-extrabold text-[10px]">
+                          <span className="px-2 py-0.5 bg-cyan-50 text-cyan-800 border border-cyan-200 rounded-md font-mono font-extrabold text-[10px] tabular-nums">
                             Tooth {estimateModalOpp.tooth}
                           </span>
                         )}
-                        <span className="px-2 py-0.5 bg-[#121E2E] text-slate-300 border border-[#1E3048] rounded-md font-mono font-bold text-[10px]">
+                        <span className="px-2 py-0.5 bg-slate-100 text-slate-700 border border-slate-200 rounded-md font-mono font-bold text-[10px] tabular-nums">
                           ADA {estimateModalOpp.adaCode}
                         </span>
                       </div>
                     </div>
                     <div className="text-right">
-                      <span className="text-lg font-mono font-black text-emerald-400 block">
+                      <span className="text-lg font-mono font-black text-emerald-700 block tabular-nums">
                         ${(estimateModalOpp.estimatedFee || 0).toLocaleString()}
                       </span>
                       <span className="text-[10px] text-slate-500 font-medium">Estimated Fee</span>
@@ -781,25 +780,25 @@ export default function TreatmentPipeline({
                   </div>
 
                   {/* Clinical Explanation & Health Fund Rebate Alert */}
-                  <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 space-y-2">
+                  <div className="p-3.5 rounded-2xl bg-amber-50 border border-amber-200 space-y-2">
                     <div className="flex items-start gap-2">
-                      <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-                      <div className="text-xs text-amber-200 leading-relaxed">
-                        <span className="font-bold text-amber-100">Patient Overview: </span>
+                      <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                      <div className="text-xs text-amber-950 leading-relaxed">
+                        <span className="font-bold text-amber-900">Patient Overview: </span>
                         {estimate.plainEnglishDiagnosis}
                       </div>
                     </div>
-                    <div className="text-[11px] text-amber-300 bg-amber-500/15 p-2.5 rounded-xl font-medium border border-amber-500/30">
+                    <div className="text-[11px] text-amber-900 bg-amber-100/60 p-2.5 rounded-xl font-medium border border-amber-200">
                       <b>Health Fund Tip:</b> Patient can quote ADA Item Code <b>{estimateModalOpp.adaCode}</b> in their Bupa, Medibank, or HCF app for immediate rebate estimation.
                     </div>
-                    <div className="text-[11px] text-rose-300 font-semibold flex items-center gap-1.5">
+                    <div className="text-[11px] text-rose-800 font-semibold flex items-center gap-1.5">
                       <span>⚠️ <b>Why timing matters:</b> {estimate.urgencyWarning}</span>
                     </div>
                   </div>
 
                   {/* Channel Selector */}
                   <div>
-                    <label className="block text-[11px] font-bold text-slate-400 mb-1.5">
+                    <label className="block text-[11px] font-bold text-slate-500 mb-1.5">
                       Outreach Channel Template
                     </label>
                     <div className="grid grid-cols-3 gap-2">
@@ -815,8 +814,8 @@ export default function TreatmentPipeline({
                             onClick={() => setOutreachChannel(ch.id as any)}
                             className={`flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
                               outreachChannel === ch.id
-                                ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40 shadow-xs'
-                                : 'bg-[#070B11] text-slate-400 border-[#182638] hover:text-white hover:bg-[#121E2E]'
+                                ? 'bg-[#0071E3]/10 text-[#0071E3] border-[#0071E3]/30 shadow-xs'
+                                : 'bg-slate-50 text-slate-600 border-slate-200 hover:text-slate-900 hover:bg-slate-100'
                             }`}
                           >
                             <Icon className="w-3.5 h-3.5" />
@@ -830,17 +829,17 @@ export default function TreatmentPipeline({
                   {/* Pre-Formatted Contextual Message Box */}
                   <div>
                     <div className="flex items-center justify-between mb-1">
-                      <label className="text-[11px] font-bold text-slate-400">
+                      <label className="text-[11px] font-bold text-slate-500">
                         Personalized Patient Message
                       </label>
                       <button
                         onClick={() => handleCopyOutreach(activeText)}
-                        className="text-[10px] text-cyan-400 font-bold hover:underline flex items-center gap-1 cursor-pointer"
+                        className="text-[10px] text-[#0071E3] font-bold hover:underline flex items-center gap-1 cursor-pointer"
                       >
                         {copiedText ? (
                           <>
-                            <Check className="w-3 h-3 text-emerald-400" />
-                            <span className="text-emerald-400">Copied!</span>
+                            <Check className="w-3 h-3 text-emerald-600" />
+                            <span className="text-emerald-600">Copied!</span>
                           </>
                         ) : (
                           <>
@@ -854,7 +853,7 @@ export default function TreatmentPipeline({
                       rows={outreachChannel === 'email' ? 7 : 5}
                       value={activeText}
                       readOnly
-                      className="w-full p-3.5 bg-[#070B11] border border-[#182638] rounded-2xl text-xs text-slate-200 font-medium focus:outline-none focus:border-cyan-400 leading-relaxed font-sans"
+                      className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs text-slate-800 font-medium focus:outline-none focus:border-[#0071E3] focus:bg-white leading-relaxed font-sans"
                     />
                   </div>
 
@@ -866,7 +865,7 @@ export default function TreatmentPipeline({
                         handleUpdateStatus(estimateModalOpp.id, 'contacted');
                         setEstimateModalOpp(null);
                       }}
-                      className="flex-1 py-3 bg-gradient-to-r from-cyan-400 to-teal-400 hover:from-cyan-300 hover:to-teal-300 text-slate-950 rounded-2xl font-black text-xs shadow-md shadow-cyan-950/50 transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-98"
+                      className="flex-1 py-3 bg-[#0071E3] hover:bg-[#0077ED] text-white rounded-2xl font-bold text-xs shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-98"
                     >
                       <Check className="w-4 h-4" />
                       <span>Copy & Mark Contacted</span>
@@ -881,7 +880,7 @@ export default function TreatmentPipeline({
                           handleUpdateStatus(estimateModalOpp.id, 'contacted');
                           setEstimateModalOpp(null);
                         }}
-                        className="px-4 py-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-2xl font-black text-xs shadow-md shadow-emerald-950/40 transition-all flex items-center gap-1.5 cursor-pointer active:scale-98"
+                        className="px-4 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-2xl font-bold text-xs shadow-xs transition-all flex items-center gap-1.5 cursor-pointer active:scale-98"
                       >
                         <ExternalLink className="w-4 h-4" />
                         <span>Open WhatsApp</span>
@@ -899,7 +898,7 @@ export default function TreatmentPipeline({
       <AnimatePresence>
         {pmsVerifyModalOpp && (
           <div
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm"
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs"
             onClick={() => setPmsVerifyModalOpp(null)}
           >
             <motion.div
@@ -907,23 +906,23 @@ export default function TreatmentPipeline({
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 10 }}
               onClick={e => e.stopPropagation()}
-              className="bg-[#0E1724] text-white rounded-3xl shadow-2xl border border-[#1E3048] max-w-md w-full p-6 relative overflow-hidden"
+              className="bg-white text-slate-900 rounded-3xl shadow-2xl border border-slate-200/90 max-w-md w-full p-6 relative overflow-hidden"
             >
-              <div className="flex items-center justify-between pb-4 border-b border-[#182638]">
+              <div className="flex items-center justify-between pb-4 border-b border-slate-200">
                 <div className="flex items-center gap-2">
-                  <div className="w-9 h-9 rounded-2xl bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex items-center justify-center">
-                    <ClipboardCheck className="w-5 h-5 text-emerald-400" />
+                  <div className="w-9 h-9 rounded-2xl bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center justify-center">
+                    <ClipboardCheck className="w-5 h-5 text-emerald-600" />
                   </div>
                   <div>
-                    <h3 className="text-base font-extrabold text-white">
+                    <h3 className="text-base font-black text-slate-900">
                       PMS Appointment Verification
                     </h3>
-                    <p className="text-[11px] text-slate-400">Lock verified revenue onto practice ledger</p>
+                    <p className="text-[11px] text-slate-500">Lock verified revenue onto practice ledger</p>
                   </div>
                 </div>
                 <button
                   onClick={() => setPmsVerifyModalOpp(null)}
-                  className="w-8 h-8 rounded-full bg-[#121E2E] hover:bg-[#18283D] flex items-center justify-center text-slate-400 hover:text-white transition-colors cursor-pointer"
+                  className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -931,12 +930,12 @@ export default function TreatmentPipeline({
 
               <div className="mt-4 space-y-4">
                 {/* Treatment summary */}
-                <div className="p-3.5 bg-[#070B11] rounded-2xl border border-[#182638] text-xs">
-                  <div className="flex items-center justify-between font-bold text-white">
+                <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 text-xs">
+                  <div className="flex items-center justify-between font-bold text-slate-900">
                     <span>{pmsVerifyModalOpp.patientName}</span>
-                    <span className="text-emerald-400 font-mono font-black">${(pmsVerifyModalOpp.estimatedFee || 0).toLocaleString()}</span>
+                    <span className="text-emerald-700 font-mono font-black tabular-nums">${(pmsVerifyModalOpp.estimatedFee || 0).toLocaleString()}</span>
                   </div>
-                  <div className="text-[11px] text-slate-400 mt-1">
+                  <div className="text-[11px] text-slate-600 mt-1">
                     {pmsVerifyModalOpp.procedureName} {pmsVerifyModalOpp.tooth ? `(Tooth ${pmsVerifyModalOpp.tooth})` : ''} · ADA {pmsVerifyModalOpp.adaCode}
                   </div>
                 </div>
@@ -944,7 +943,7 @@ export default function TreatmentPipeline({
                 {/* 1-Click Copy for Legacy Desktop PMS (D4W / EXACT) */}
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
-                    <label className="text-[11px] font-bold text-slate-400">
+                    <label className="text-[11px] font-bold text-slate-500">
                       Quick Note for PMS Appointment Book
                     </label>
                     <button
@@ -954,12 +953,12 @@ export default function TreatmentPipeline({
                         setPmsCopySuccess(true);
                         setTimeout(() => setPmsCopySuccess(false), 2000);
                       }}
-                      className="text-[10px] text-cyan-400 font-bold hover:underline flex items-center gap-1 cursor-pointer"
+                      className="text-[10px] text-[#0071E3] font-bold hover:underline flex items-center gap-1 cursor-pointer"
                     >
                       {pmsCopySuccess ? (
                         <>
-                          <Check className="w-3 h-3 text-emerald-400" />
-                          <span className="text-emerald-400">Copied to Clipboard!</span>
+                          <Check className="w-3 h-3 text-emerald-600" />
+                          <span className="text-emerald-600">Copied to Clipboard!</span>
                         </>
                       ) : (
                         <>
@@ -969,7 +968,7 @@ export default function TreatmentPipeline({
                       )}
                     </button>
                   </div>
-                  <div className="p-2.5 bg-[#070B11] border border-[#182638] rounded-xl text-[11px] text-slate-300 font-mono select-all">
+                  <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-[11px] text-slate-700 font-mono select-all">
                     {`[DentAI] ${pmsVerifyModalOpp.procedureName} (Tooth ${pmsVerifyModalOpp.tooth || 'N/A'}) · ADA ${pmsVerifyModalOpp.adaCode} · Est: $${pmsVerifyModalOpp.estimatedFee}`}
                   </div>
                 </div>
@@ -977,13 +976,13 @@ export default function TreatmentPipeline({
                 {/* PMS System & Appointment ID inputs */}
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-[11px] font-bold text-slate-400 mb-1">
+                    <label className="block text-[11px] font-bold text-slate-500 mb-1">
                       PMS System
                     </label>
                     <select
                       value={pmsTypeInput}
                       onChange={e => setPmsTypeInput(e.target.value as any)}
-                      className="w-full px-3 py-2 bg-[#070B11] border border-[#182638] rounded-xl text-xs text-white font-semibold focus:outline-none focus:border-cyan-400 cursor-pointer"
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 font-semibold focus:outline-none focus:border-[#0071E3] focus:bg-white cursor-pointer"
                     >
                       <option value="d4w">Dental4Windows (D4W)</option>
                       <option value="exact">EXACT (SoE)</option>
@@ -995,7 +994,7 @@ export default function TreatmentPipeline({
                   </div>
 
                   <div>
-                    <label className="block text-[11px] font-bold text-slate-400 mb-1">
+                    <label className="block text-[11px] font-bold text-slate-500 mb-1">
                       Appointment / Ledger ID
                     </label>
                     <input
@@ -1003,7 +1002,7 @@ export default function TreatmentPipeline({
                       placeholder="e.g. 8491, APP-209"
                       value={pmsAppointmentIdInput}
                       onChange={e => setPmsAppointmentIdInput(e.target.value)}
-                      className="w-full px-3 py-2 bg-[#070B11] border border-[#182638] rounded-xl text-xs text-white font-semibold focus:outline-none focus:border-cyan-400"
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 font-semibold focus:outline-none focus:border-[#0071E3] focus:bg-white"
                     />
                   </div>
                 </div>
@@ -1012,7 +1011,7 @@ export default function TreatmentPipeline({
                 <div className="pt-2 flex items-center justify-end gap-2">
                   <button
                     onClick={() => setPmsVerifyModalOpp(null)}
-                    className="px-4 py-2.5 rounded-xl border border-[#182638] hover:bg-[#121E2E] text-xs font-bold text-slate-400 transition-all cursor-pointer"
+                    className="px-4 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-100 text-xs font-bold text-slate-600 transition-all cursor-pointer"
                   >
                     Cancel
                   </button>
@@ -1024,7 +1023,7 @@ export default function TreatmentPipeline({
                       });
                       setPmsVerifyModalOpp(null);
                     }}
-                    className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-400 to-teal-400 text-slate-950 text-xs font-black shadow-md shadow-emerald-950/40 transition-all flex items-center gap-1.5 cursor-pointer active:scale-98"
+                    className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-xs transition-all flex items-center gap-1.5 cursor-pointer active:scale-98"
                   >
                     <CheckCircle2 className="w-4 h-4" />
                     <span>Confirm & Lock Revenue</span>
@@ -1040,7 +1039,7 @@ export default function TreatmentPipeline({
       <AnimatePresence>
         {declineModalOpp && (
           <div
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm"
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs"
             onClick={() => setDeclineModalOpp(null)}
           >
             <motion.div
@@ -1048,40 +1047,40 @@ export default function TreatmentPipeline({
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 10 }}
               onClick={e => e.stopPropagation()}
-              className="bg-[#0E1724] text-white rounded-3xl shadow-2xl border border-[#1E3048] max-w-md w-full p-6 relative overflow-hidden"
+              className="bg-white text-slate-900 rounded-3xl shadow-2xl border border-slate-200/90 max-w-md w-full p-6 relative overflow-hidden"
             >
-              <div className="flex items-center justify-between pb-4 border-b border-[#182638]">
-                <div className="flex items-center gap-2 text-rose-400">
-                  <div className="w-8 h-8 rounded-xl bg-rose-500/15 border border-rose-500/30 flex items-center justify-center">
-                    <XCircle className="w-4 h-4 text-rose-400" />
+              <div className="flex items-center justify-between pb-4 border-b border-slate-200">
+                <div className="flex items-center gap-2 text-rose-600">
+                  <div className="w-8 h-8 rounded-xl bg-rose-50 border border-rose-200 flex items-center justify-center">
+                    <XCircle className="w-4 h-4 text-rose-600" />
                   </div>
                   <div>
-                    <h3 className="text-sm font-extrabold text-white">Mark Treatment as Declined</h3>
-                    <p className="text-[11px] text-slate-400">Capture reason for practice analytics</p>
+                    <h3 className="text-sm font-black text-slate-900">Mark Treatment as Declined</h3>
+                    <p className="text-[11px] text-slate-500">Capture reason for practice analytics</p>
                   </div>
                 </div>
                 <button
                   onClick={() => setDeclineModalOpp(null)}
-                  className="w-8 h-8 rounded-full bg-[#121E2E] hover:bg-[#18283D] text-slate-400 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+                  className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-800 flex items-center justify-center transition-colors cursor-pointer"
                 >
                   <X className="w-4 h-4" />
                 </button>
               </div>
 
               {/* Treatment summary */}
-              <div className="mt-4 p-3 bg-[#070B11] rounded-2xl border border-[#182638] text-xs">
-                <div className="flex items-center justify-between font-bold text-white">
+              <div className="mt-4 p-3 bg-slate-50 rounded-2xl border border-slate-200 text-xs">
+                <div className="flex items-center justify-between font-bold text-slate-900">
                   <span>{declineModalOpp.patientName}</span>
-                  <span className="text-emerald-400 font-mono font-black">${(declineModalOpp.estimatedFee || 0).toLocaleString()}</span>
+                  <span className="text-emerald-700 font-mono font-black tabular-nums">${(declineModalOpp.estimatedFee || 0).toLocaleString()}</span>
                 </div>
-                <div className="text-[11px] text-slate-400 mt-0.5">
+                <div className="text-[11px] text-slate-600 mt-0.5">
                   {declineModalOpp.procedureName} {declineModalOpp.tooth ? `(Tooth ${declineModalOpp.tooth})` : ''} · ADA {declineModalOpp.adaCode}
                 </div>
               </div>
 
               {/* Reason presets */}
               <div className="mt-4 space-y-2">
-                <label className="block text-[11px] font-bold text-slate-400">
+                <label className="block text-[11px] font-bold text-slate-500">
                   Why is the patient declining or deferring?
                 </label>
                 <div className="space-y-1.5 max-h-52 overflow-y-auto pr-1">
@@ -1091,8 +1090,8 @@ export default function TreatmentPipeline({
                       onClick={() => setSelectedDeclineReason(preset.id)}
                       className={`flex items-start gap-2.5 p-2.5 rounded-xl border cursor-pointer transition-all ${
                         selectedDeclineReason === preset.id
-                          ? 'border-rose-500/50 bg-rose-950/30 text-white shadow-sm'
-                          : 'border-[#182638] bg-[#070B11] hover:bg-[#121E2E] text-slate-300'
+                          ? 'border-rose-300 bg-rose-50/80 text-rose-950 shadow-xs'
+                          : 'border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700'
                       }`}
                     >
                       <input
@@ -1100,11 +1099,11 @@ export default function TreatmentPipeline({
                         name="declineReason"
                         checked={selectedDeclineReason === preset.id}
                         onChange={() => setSelectedDeclineReason(preset.id)}
-                        className="mt-1 text-rose-500 focus:ring-rose-500"
+                        className="mt-1 text-rose-600 focus:ring-rose-500"
                       />
                       <div className="text-xs">
-                        <div className="font-bold text-white">{preset.label}</div>
-                        <div className="text-[10px] text-slate-400">{preset.desc}</div>
+                        <div className="font-bold text-slate-900">{preset.label}</div>
+                        <div className="text-[10px] text-slate-500">{preset.desc}</div>
                       </div>
                     </label>
                   ))}
@@ -1113,7 +1112,7 @@ export default function TreatmentPipeline({
 
               {/* Optional custom note */}
               <div className="mt-3">
-                <label className="block text-[11px] font-bold text-slate-400 mb-1">
+                <label className="block text-[11px] font-bold text-slate-500 mb-1">
                   Additional Notes (Optional)
                 </label>
                 <input
@@ -1121,7 +1120,7 @@ export default function TreatmentPipeline({
                   placeholder={selectedDeclineReason === 'other' ? "e.g. Moving interstate next month..." : "e.g. Waiting for insurance refresh in January..."}
                   value={customDeclineNote}
                   onChange={e => setCustomDeclineNote(e.target.value)}
-                  className="w-full px-3 py-2 bg-[#070B11] border border-[#182638] rounded-xl text-xs text-white focus:outline-none focus:border-rose-400"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:border-rose-500 focus:bg-white"
                 />
               </div>
 
@@ -1129,13 +1128,13 @@ export default function TreatmentPipeline({
               <div className="mt-5 flex items-center justify-end gap-2">
                 <button
                   onClick={() => setDeclineModalOpp(null)}
-                  className="px-4 py-2 rounded-xl border border-[#182638] hover:bg-[#121E2E] text-xs font-bold text-slate-400 transition-all cursor-pointer"
+                  className="px-4 py-2 rounded-xl border border-slate-200 hover:bg-slate-100 text-xs font-bold text-slate-600 transition-all cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleConfirmDecline}
-                  className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-black shadow-md shadow-rose-950/40 transition-all flex items-center gap-1.5 cursor-pointer active:scale-98"
+                  className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-xs transition-all flex items-center gap-1.5 cursor-pointer active:scale-98"
                 >
                   <XCircle className="w-3.5 h-3.5" />
                   <span>Confirm Decline</span>

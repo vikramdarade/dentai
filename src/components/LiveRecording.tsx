@@ -10,6 +10,14 @@ import { normalizedToPayload } from '../lib/normalizeNoteOutput';
 import { normalizeSpokenDentalText } from '../lib/dentalPhoneticLexicon';
 import { OPERATORY_AUDIO_DEFAULTS } from '../lib/operatoryAudioFilter';
 
+import { StreamingSpeechClient, DentalEntityBadge } from '../lib/streamingSpeechClient';
+import SideBySideVerificationModal from './SideBySideVerificationModal';
+import {
+  CLINICAL_TEMPLATES,
+  ClinicalTemplate,
+  matchTemplateFromAppointmentReason
+} from '../lib/clinicalTemplates';
+
 const isQuotaFailure = (msg: string): boolean =>
   msg.toLowerCase().includes('quota') ||
   msg.toLowerCase().includes('billing') ||
@@ -20,6 +28,8 @@ interface LiveRecordingProps {
   dob?: string;
   appointmentType: AppointmentType;
   templateId?: string;
+  appointmentReason?: string;
+  dentistName?: string;
   onBack: () => void;
   onFinish: (
     finalTranscript: TranscriptItem[],
@@ -44,6 +54,8 @@ export default function LiveRecording({
   dob,
   appointmentType,
   templateId,
+  appointmentReason,
+  dentistName,
   onBack,
   onFinish,
   processingHint,
@@ -97,6 +109,13 @@ export default function LiveRecording({
   const [isListening, setIsListening] = useState(false);
   const [interimTranscript, setInterimTranscript] = useState('');
   const [recognitionError, setRecognitionError] = useState<string | null>(null);
+  const [activeTemplate, setActiveTemplate] = useState<ClinicalTemplate>(() => {
+    return matchTemplateFromAppointmentReason(appointmentReason || patientName || appointmentType);
+  });
+  const [dentalBadges, setDentalBadges] = useState<DentalEntityBadge[]>([]);
+  const [showVerificationModal, setShowVerificationModal] = useState(false);
+  const [speechEngineMode, setSpeechEngineMode] = useState<'google_chirp' | 'webspeech'>('google_chirp');
+  const streamingClientRef = useRef<StreamingSpeechClient | null>(null);
 
   const recognitionRef = useRef<any>(null);
 
@@ -439,6 +458,50 @@ export default function LiveRecording({
     };
   }, []);
 
+  // Google Cloud Speech-to-Text Streaming Client initialization
+  useEffect(() => {
+    if (!isRecording) return;
+    const client = new StreamingSpeechClient(`consultation_${Date.now()}`, authToken, {
+      onInterim: (text) => {
+        setInterimTranscript(text);
+      },
+      onFinal: (text) => {
+        if (text && text.trim()) {
+          const normalized = normalizeSpokenDentalText(text.trim());
+          const timeStr = new Date().toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' });
+          setTranscript(prev => [...prev, { sender: 'Dentist', text: normalized, timestamp: timeStr }]);
+          setItemTimes(prev => [...prev, secondsRef.current || 0]);
+          setInterimTranscript('');
+        }
+      },
+      onEntityDetected: (entity) => {
+        setDentalBadges(prev => {
+          if (prev.some(b => b.category === entity.category && b.value === entity.value)) return prev;
+          return [...prev, entity];
+        });
+      },
+      onError: (err) => {
+        console.warn('[StreamingSpeechClient] Error notice:', err);
+      }
+    });
+
+    streamingClientRef.current = client;
+    client.start()
+      .then(() => {
+        setIsListening(true);
+        setSpeechEngineMode('google_chirp');
+      })
+      .catch((err) => {
+        console.info('[LiveRecording] GCP Streaming client unavailable, falling back to Web Speech:', err.message);
+        setSpeechEngineMode('webspeech');
+      });
+
+    return () => {
+      client.stop();
+      streamingClientRef.current = null;
+    };
+  }, [authToken, isRecording]);
+
   // Sync isRecording state with SpeechRecognition
   useEffect(() => {
     if (!isRecording && isListening) {
@@ -463,6 +526,17 @@ export default function LiveRecording({
   }, [isRecording]);
 
   const toggleSpeechRecognition = () => {
+    if (streamingClientRef.current && speechEngineMode === 'google_chirp') {
+      if (isListening) {
+        streamingClientRef.current.pause();
+        setIsListening(false);
+      } else {
+        streamingClientRef.current.resume();
+        setIsListening(true);
+      }
+      return;
+    }
+
     if (!recognitionRef.current) {
       setRecognitionError('Speech recognition is not supported in this browser. Please use Google Chrome or Microsoft Edge.');
       return;
@@ -986,6 +1060,64 @@ export default function LiveRecording({
           </div>
         )}
 
+        {/* Active Template & Speech Engine Status Header */}
+        <div className="flex flex-wrap items-center justify-between gap-2 p-3 bg-[#0E1724]/90 border border-[#1E3048] rounded-xl shadow-sm mb-2">
+          <div className="flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span className="text-xs font-mono font-bold text-slate-300">
+              Active Template: <strong className="text-cyan-400">{activeTemplate.name}</strong>
+            </span>
+            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-950/60 text-cyan-300 border border-cyan-800">
+              {appointmentReason ? `Defaulted from: "${appointmentReason}"` : 'Defaulted from Reason'}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className={`text-[10px] font-mono px-2 py-0.5 rounded border font-bold ${
+              speechEngineMode === 'google_chirp'
+                ? 'bg-emerald-950/60 text-emerald-400 border-emerald-800'
+                : 'bg-amber-950/60 text-amber-400 border-amber-800'
+            }`}>
+              {speechEngineMode === 'google_chirp' ? 'Google Chirp 2 Stream' : 'Browser Web Speech'}
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                const keys = Object.keys(CLINICAL_TEMPLATES);
+                const nextKey = keys[(keys.indexOf(activeTemplate.id) + 1) % keys.length];
+                setActiveTemplate(CLINICAL_TEMPLATES[nextKey]);
+              }}
+              className="text-[10px] font-mono font-bold px-2 py-1 rounded bg-[#152338] hover:bg-[#1E3048] text-slate-300 border border-[#2B4365] cursor-pointer active:scale-95"
+            >
+              Switch Template
+            </button>
+          </div>
+        </div>
+
+        {/* Real-Time Detected Dental Badges HUD */}
+        {dentalBadges.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5 p-3 bg-[#080E17]/90 border border-[#1E2E42] rounded-xl shadow-inner mb-2">
+            <span className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1 mr-1">
+              <Sparkles className="w-3 h-3 text-cyan-400" />
+              <span>Real-Time Tokens:</span>
+            </span>
+            {dentalBadges.map((badge) => (
+              <span
+                key={badge.id}
+                className={`px-2 py-0.5 rounded-md text-[11px] font-mono font-bold border transition-all animate-in zoom-in-95 ${
+                  badge.category === 'tooth'
+                    ? 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30'
+                    : badge.category === 'surface'
+                    ? 'bg-teal-500/10 text-teal-300 border-teal-500/30'
+                    : 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
+                }`}
+              >
+                {badge.label}
+              </span>
+            ))}
+          </div>
+        )}
+
         {/* Connection Started pill */}
         <div className="flex justify-center my-2">
           <span className="font-mono text-[11px] font-semibold text-slate-400 bg-[#0E1724] border border-[#1E3048] px-3.5 py-1.5 rounded-full shadow-sm">
@@ -1376,18 +1508,18 @@ export default function LiveRecording({
               )}
             </button>
 
-            {/* Finish notes trigger */}
+            {/* Review & Finish notes trigger */}
             <button
-              onClick={handleFinishNote}
+              onClick={() => setShowVerificationModal(true)}
               disabled={transcript.length === 0}
               className={`px-7 h-12 rounded-xl font-mono font-bold text-xs uppercase tracking-wider flex items-center gap-2 shadow-lg transition-all cursor-pointer ${
                 transcript.length === 0
                   ? 'bg-[#121E2E] text-slate-600 border border-[#1E3048] cursor-not-allowed shadow-none'
                   : 'bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-400 hover:to-emerald-400 text-slate-950 shadow-[0_0_20px_rgba(34,211,238,0.35)] active:scale-95'
               }`}
-              title={transcript.length === 0 ? "Record or type dialogue first" : "Generate clinical notes"}
+              title={transcript.length === 0 ? "Record or type dialogue first" : "Review exact spoken words and sign clinical note"}
             >
-              <span>Finish Note</span>
+              <span>Review &amp; Sign</span>
               <ArrowRight className="w-4 h-4" />
             </button>
           </div>
@@ -1764,6 +1896,22 @@ export default function LiveRecording({
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Side-by-Side Verbatim vs. Structured Note Verification Modal */}
+      <SideBySideVerificationModal
+        isOpen={showVerificationModal}
+        onClose={() => setShowVerificationModal(false)}
+        onConfirmSign={(_finalFields, _rawText) => {
+          setShowVerificationModal(false);
+          handleFinishNote();
+        }}
+        patientName={patientName}
+        dentistName={dentistName || 'Dr. Practitioner'}
+        template={activeTemplate}
+        transcriptItems={transcript}
+        appointmentReason={appointmentReason}
+        theme={isAmbientMode ? 'dark' : 'dark'}
+      />
 
     </div>
   );

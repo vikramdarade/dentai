@@ -13,6 +13,132 @@
           "status": "active"
         }
       ]
+    },
+    {
+      "id": "07447842-139f-4f12-acc0-b34cc9a30888",
+      "name": "Vik — Solo Practice",
+      "inviteCode": "44HCKC",
+      "ownerDentistId": "ea8e5a3a-d788-45d9-b44b-63faa8db43b3",
+      "members": [
+        {
+          "dentistId": "ea8e5a3a-d788-45d9-b44b-63faa8db43b3",
+          "name": "Vik",
+          "role": "owner",
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "id": "b3dfbfcf-ff97-456b-acdf-2968e4b376de",
+      "name": "Dr. Sarah Jenkins — Solo Practice",
+      "inviteCode": "AUCNQC",
+      "ownerDentistId": "7b113eb8-e9f7-4e6d-9677-111e645f3b43",
+      "members": [
+        {
+          "dentistId": "7b113eb8-e9f7-4e6d-9677-111e645f3b43",
+          "name": "Dr. Sarah Jenkins",
+          "role": "owner",
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "id": "4c3f5dfb-e987-4407-b43b-d6ca4013f953",
+      "name": "Dr. Vault Test szcbgp — Solo Practice",
+      "inviteCode": "SSX3TQ",
+      "ownerDentistId": "08e18bfe-90b1-4198-af77-f7fe93293a1b",
+      "members": [
+        {
+          "dentistId": "08e18bfe-90b1-4198-af77-f7fe93293a1b",
+          "name": "Dr. Vault Test szcbgp",
+          "role": "owner",
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "id": "34a1f0d3-731c-4def-837b-9158ee2d4ab0",
+      "name": "Dr. Vault Test 1il211 — Solo Practice",
+      "inviteCode": "SBN7HW",
+      "ownerDentistId": "8810f68d-6f98-41d5-9305-7477c9a3a18a",
+      "members": [
+        {
+          "dentistId": "8810f68d-6f98-41d5-9305-7477c9a3a18a",
+          "name": "Dr. Vault Test 1il211",
+          "role": "owner",
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "id": "61d315f8-55de-4f54-b48d-b37c14e74502",
+      "name": "Dr. Vault Test vg1ybc — Solo Practice",
+      "inviteCode": "AHGR6E",
+      "ownerDentistId": "7fdafc6a-1957-4f68-95b4-0f413e15aed3",
+      "members": [
+        {
+          "dentistId": "7fdafc6a-1957-4f68-95b4-0f413e15aed3",
+          "name": "Dr. Vault Test vg1ybc",
+          "role": "owner",
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "id": "05b8f557-2981-464e-a2cf-6c514f82b185",
+      "name": "Dr. Vault Test ulbf27 — Solo Practice",
+      "inviteCode": "CPS8YJ",
+      "ownerDentistId": "84f9eb95-8d00-4487-ba0e-c251594510ec",
+      "members": [
+        {
+          "dentistId": "84f9eb95-8d00-4487-ba0e-c251594510ec",
+          "name": "Dr. Vault Test ulbf27",
+          "role": "owner",
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "id": "ea184a9f-8171-48af-bda9-565c4349ed78",
+      "name": "Dr. Vault Test 42x36r — Solo Practice",
+      "inviteCode": "NATPAZ",
+      "ownerDentistId": "91b76a89-a097-480a-99be-911d80b17cc8",
+      "members": [
+        {
+          "dentistId": "91b76a89-a097-480a-99be-911d80b17cc8",
+          "name": "Dr. Vault Test 42x36r",
+          "role": "owner",
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "id": "2af67912-ed76-4760-a963-41ab590aa006",
+      "name": "Dr. Vault Test 5e615k — Solo Practice",
+      "inviteCode": "NGWYGK",
+      "ownerDentistId": "46dacad2-1c3d-4392-ab6b-6e2034f0e983",
+      "members": [
+        {
+          "dentistId": "46dacad2-1c3d-4392-ab6b-6e2034f0e983",
+          "name": "Dr. Vault Test 5e615k",
+          "role": "owner",
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "id": "74108c08-c494-466b-9ed8-9d692afbf256",
+      "name": "Dr. Vault Test 19fv6a — Solo Practice",
+      "inviteCode": "X79VJQ",
+      "ownerDentistId": "3bc4093f-e61d-4658-a81c-1ecb57cf546d",
+      "members": [
+        {
+          "dentistId": "3bc4093f-e61d-4658-a81c-1ecb57cf546d",
+          "name": "Dr. Vault Test 19fv6a",
+          "role": "owner",
+          "status": "active"
+        }
+      ]
     }
   ]
 }

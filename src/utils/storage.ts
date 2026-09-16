@@ -28,9 +28,11 @@ export interface AuthUser {
 export function saveAuth(token: string, user: AuthUser): void {
   try {
     localStorage.setItem(STORAGE_KEYS.TOKEN, token);
+    localStorage.setItem('dentai_auth_token', token);
     localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(user));
     // Also mirror to sessionStorage for multi-tab fallback compatibility
     sessionStorage.setItem(STORAGE_KEYS.TOKEN, token);
+    sessionStorage.setItem('dentai_auth_token', token);
     sessionStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(user));
   } catch (err) {
     console.error('[Storage] Failed to save auth credentials:', err);
@@ -39,7 +41,7 @@ export function saveAuth(token: string, user: AuthUser): void {
 
 export function getAuth(): { token: string | null; user: AuthUser | null } {
   try {
-    const token = localStorage.getItem(STORAGE_KEYS.TOKEN) || sessionStorage.getItem(STORAGE_KEYS.TOKEN);
+    const token = localStorage.getItem(STORAGE_KEYS.TOKEN) || localStorage.getItem('dentai_auth_token') || sessionStorage.getItem(STORAGE_KEYS.TOKEN);
     const userStr = localStorage.getItem(STORAGE_KEYS.USER) || sessionStorage.getItem(STORAGE_KEYS.USER);
     const user = userStr ? JSON.parse(userStr) : null;
     return { token, user };
@@ -56,11 +58,13 @@ export function clearAuth(): void {
     // recording transcript lives in sessionStorage and the intake is restored
     // on the next login so the dentist can resume or finish the consult.
     localStorage.removeItem(STORAGE_KEYS.TOKEN);
+    localStorage.removeItem('dentai_auth_token');
     localStorage.removeItem(STORAGE_KEYS.USER);
     sessionStorage.removeItem(STORAGE_KEYS.TOKEN);
+    sessionStorage.removeItem('dentai_auth_token');
     sessionStorage.removeItem(STORAGE_KEYS.USER);
   } catch (err) {
-    console.error('[Storage] Failed to clear auth:', err);
+    console.error('[Storage] Failed to clear auth credentials:', err);
   }
 }
 

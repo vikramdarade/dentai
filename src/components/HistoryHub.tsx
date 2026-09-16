@@ -141,7 +141,7 @@ function HistoryHubInner({
             else if (tab === 'settings') setShowSettingsModal(true);
           }}
         >
-          <div className="w-full max-w-6xl mx-auto space-y-5 text-slate-100 font-sans pb-16">
+          <div className="w-full max-w-6xl mx-auto space-y-5 text-slate-900 font-sans pb-16">
 
             {hubTab === 'pipeline' ? (
               <TreatmentPipeline
@@ -156,21 +156,21 @@ function HistoryHubInner({
                 {/* Header / Search Row */}
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div>
-                    <h2 className="text-xl font-black text-white tracking-tight">Patient Records Hub</h2>
-                    <p className="text-slate-400 text-xs mt-0.5">
+                    <h2 className="text-xl font-bold text-slate-900 tracking-tight">Patient Records Hub</h2>
+                    <p className="text-slate-500 text-xs mt-0.5">
                       Search and review archived clinical charts, generated SOAP notes, and treatment quotes.
                     </p>
                   </div>
 
                   {/* Search Bar Component */}
                   <div className="relative w-full sm:w-80 group">
-                    <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4 pointer-events-none group-focus-within:text-cyan-400 transition-colors" />
+                    <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4 pointer-events-none group-focus-within:text-cyan-600 transition-colors" />
                     <input
                       type="text"
                       placeholder="Search patient name, tooth, or note..."
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
-                      className="w-full h-10 pl-10 pr-4 bg-[#0A1018] border border-[#182638] rounded-xl focus:border-cyan-400 focus:ring-2 focus:ring-cyan-500/20 outline-none transition-all text-xs font-semibold text-white placeholder:text-slate-600"
+                      className="w-full h-10 pl-10 pr-4 bg-white border border-slate-200 rounded-xl focus:border-[#0071E3] focus:ring-2 focus:ring-blue-500/20 outline-none transition-all text-xs font-semibold text-slate-900 placeholder:text-slate-400 shadow-2xs"
                     />
                   </div>
                 </div>
@@ -190,10 +190,10 @@ function HistoryHubInner({
                     return (
                       <div key={date} className="space-y-3">
                         <div className="flex items-center gap-2 px-1">
-                          <span className="text-xs font-bold uppercase tracking-wider text-cyan-400">
+                          <span className="text-xs font-bold uppercase tracking-wider text-cyan-800">
                             {headerLabel}
                           </span>
-                          <span className="text-[10px] font-mono text-slate-400 font-semibold">
+                          <span className="text-[10px] font-mono text-slate-500 font-semibold">
                             ({dateConsultations.length} {dateConsultations.length === 1 ? 'record' : 'records'})
                           </span>
                         </div>
@@ -210,7 +210,7 @@ function HistoryHubInner({
                                 animate={{ opacity: 1, y: 0 }}
                                 transition={{ duration: 0.2, delay: idx * 0.03 }}
                                 onClick={() => onSelectConsultation(c)}
-                                className="group p-4 bg-[#0A1018] hover:bg-[#0E1724] border border-[#182638] hover:border-cyan-500/40 rounded-2xl transition-all cursor-pointer shadow-md shadow-black/30 hover:shadow-cyan-950/40 flex flex-col justify-between gap-4"
+                                className="group p-4 bg-white hover:bg-slate-50/80 border border-slate-200/90 hover:border-cyan-400/50 rounded-2xl transition-all cursor-pointer shadow-xs hover:shadow-md flex flex-col justify-between gap-4"
                               >
                                 <div className="flex items-start gap-3">
                                   <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black text-xs shrink-0 ${getAvatarBg(initials)}`}>
@@ -218,23 +218,23 @@ function HistoryHubInner({
                                   </div>
 
                                   <div className="flex flex-col min-w-0 flex-1">
-                                    <span className="font-bold text-white text-sm truncate">
+                                    <span className="font-bold text-slate-900 text-sm truncate">
                                       {c.firstName} {c.lastName}
                                     </span>
-                                    <span className="text-slate-400 font-mono text-xs truncate">
+                                    <span className="text-slate-500 font-mono text-xs truncate">
                                       {getProcedureLabel(c.appointmentType)}
                                     </span>
                                   </div>
                                 </div>
 
-                                <div className="flex items-center justify-between md:justify-end gap-3 pt-2 md:pt-0 border-t md:border-t-0 border-[#182638]">
-                                  <span className="text-cyan-400 font-mono text-xs font-bold">
+                                <div className="flex items-center justify-between md:justify-end gap-3 pt-2 md:pt-0 border-t md:border-t-0 border-slate-100">
+                                  <span className="text-cyan-700 font-mono text-xs font-bold">
                                     {c.time}
                                   </span>
-                                  <span className={`px-2.5 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider ${
+                                  <span className={`px-2.5 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider font-mono ${
                                     c.status === 'Completed'
-                                      ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
-                                      : 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
+                                      ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                                      : 'bg-amber-50 text-amber-800 border border-amber-200'
                                   }`}>
                                     {c.status}
                                   </span>
@@ -249,10 +249,10 @@ function HistoryHubInner({
 
                   {/* Empty State */}
                   {filtered.length === 0 && (
-                    <div className="text-center py-12 bg-[#0A1018] rounded-2xl border border-dashed border-[#182638] p-8 flex flex-col items-center gap-3">
-                      <FileText className="text-slate-600 w-12 h-12" />
-                      <div className="text-base font-bold text-white">No Patient Records Found</div>
-                      <p className="text-slate-400 text-xs max-w-sm">No clinical notes match your search query. Verify the spelling or select a patient from the daily roster.</p>
+                    <div className="text-center py-12 bg-white rounded-2xl border border-dashed border-slate-200 p-8 flex flex-col items-center gap-3 shadow-xs">
+                      <FileText className="text-slate-400 w-12 h-12" />
+                      <div className="text-base font-bold text-slate-900">No Patient Records Found</div>
+                      <p className="text-slate-500 text-xs max-w-sm">No clinical notes match your search query. Verify the spelling or select a patient from the daily roster.</p>
                     </div>
                   )}
                 </section>

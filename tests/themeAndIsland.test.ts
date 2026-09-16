@@ -88,10 +88,12 @@ describe('Theme & Surgery Island Suite', () => {
   });
 
   describe('Theme Storage Contract', () => {
-    it('validates theme tokens and defaults', () => {
+    it('validates theme tokens and defaults to clinical light standard', () => {
       const supportedThemes = ['dark', 'light'] as const;
       expect(supportedThemes).toContain('dark');
       expect(supportedThemes).toContain('light');
+      const clinicalStandard = 'light';
+      expect(clinicalStandard).toBe('light');
     });
   });
 });

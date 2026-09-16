@@ -113,6 +113,12 @@ export function getTodayDateStr(): string {
   return getDateStr(0);
 }
 
+let currentCloudVersion = 1;
+
+export function getScheduleCloudVersion(): number {
+  return currentCloudVersion;
+}
+
 export async function fetchScheduleFromCloud(
   dateStr = getTodayDateStr(),
   authToken?: string
@@ -129,6 +135,9 @@ export async function fetchScheduleFromCloud(
     if (!res.ok) return null;
     const data = await res.json();
     if (data && Array.isArray(data.items)) {
+      if (typeof data.version === 'number') {
+        currentCloudVersion = data.version;
+      }
       return data.items;
     }
     return null;
@@ -155,10 +164,20 @@ export async function syncScheduleToCloud(
       },
       body: JSON.stringify({
         date: dateStr,
-        items
+        items,
+        clientVersion: currentCloudVersion
       })
     });
-    return res.ok;
+    if (res.ok) {
+      try {
+        const data = await res.json();
+        if (data && typeof data.version === 'number') {
+          currentCloudVersion = data.version;
+        }
+      } catch {}
+      return true;
+    }
+    return false;
   } catch (err) {
     console.warn('[ScheduleCloud] Failed to sync schedule to cloud:', err);
     return false;
