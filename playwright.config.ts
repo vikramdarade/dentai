@@ -1,5 +1,8 @@
 import { defineConfig, devices } from '@playwright/test';
 
+const targetBaseURL = process.env.PLAYWRIGHT_TEST_BASE_URL || process.env.BASE_URL || 'http://localhost:3000';
+const isRemoteTarget = targetBaseURL !== 'http://localhost:3000' && !targetBaseURL.includes('127.0.0.1');
+
 export default defineConfig({
   testDir: './tests/e2e',
   timeout: 45 * 1000,
@@ -12,7 +15,10 @@ export default defineConfig({
   workers: 1,
   reporter: [['list'], ['html', { open: 'never' }]],
   use: {
-    baseURL: 'http://localhost:3000',
+    baseURL: targetBaseURL,
+    extraHTTPHeaders: process.env.VERCEL_AUTOMATION_BYPASS_SECRET ? {
+      'x-vercel-protection-bypass': process.env.VERCEL_AUTOMATION_BYPASS_SECRET
+    } : undefined,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
@@ -33,7 +39,7 @@ export default defineConfig({
       },
     }
   ],
-  webServer: {
+  webServer: isRemoteTarget ? undefined : {
     command: 'npm.cmd run dev',
     url: 'http://localhost:3000/api/health',
     reuseExistingServer: true,

@@ -12,6 +12,7 @@
     "test": "vitest run --fileParallelism=false --test-timeout=30000",
     "test:integration": "vitest run tests/server.test.ts --run --test-timeout=30000",
     "test:e2e": "playwright test",
+    "test:e2e:prod": "playwright test",
     "eval": "tsx scripts/evals/run-evals.ts --target=offline",
     "eval:cloud": "tsx scripts/evals/run-evals.ts --target=cloud",
     "grokbot": "tsx scripts/company/grokbot.ts",
