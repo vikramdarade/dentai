@@ -40,6 +40,14 @@ import {
   ArrowRight,
   ChevronDown,
   Pencil,
+  TrendingUp,
+  Clock,
+  Share2,
+  DollarSign,
+  Award,
+  Zap,
+  Users,
+  Phone,
 } from 'lucide-react';
 import type { DemoScene } from './demoScript';
 
@@ -225,117 +233,146 @@ function TitleScene({ scene, progress }: SceneProps) {
 }
 
 function LoginScene({ progress }: SceneProps) {
-  const profiles = [
-    { initials: 'EC', name: 'Dr. Emily Carter', specialty: 'Cosmetic Dentistry' },
-    { initials: 'SP', name: 'Dr. Sarah Patel', specialty: 'General Dentistry' },
-    { initials: 'JK', name: 'Dr. James Kim', specialty: 'Oral Surgery' },
-  ];
-  const revealedProfiles = useStagger(progress, profiles.length);
-  const showPinPad = progress > 0.42;
-  const pinFilled = Math.floor(((progress - 0.42) / 0.58) * 4.6);
+  const doctorName = 'Dr. Emily Carter';
+  // Typing simulation: 0.05 -> 0.38
+  const nameChars = Math.max(0, Math.min(doctorName.length, Math.floor(((progress - 0.05) / 0.33) * doctorName.length)));
+  const displayedName = progress < 0.05 ? '' : doctorName.slice(0, nameChars);
+  const nameCompleted = progress >= 0.38;
+
+  // PIN simulation: 0.42 -> 0.78
+  const pinFilled = Math.floor(((progress - 0.42) / 0.36) * 4.6);
   const typedDots = Math.max(0, Math.min(4, pinFilled));
+  const pinCompleted = typedDots === 4;
+
+  // Submitting / Authenticated state: 0.82 -> 1.0
+  const isSubmitting = progress >= 0.82;
 
   return (
     <div className="h-full w-full bg-[#F8F7F5] flex items-center justify-center relative overflow-hidden px-6">
       <div className="absolute top-[-20%] left-[-10%] w-80 h-80 rounded-full bg-indigo-50/50 blur-[90px]" />
-      <AnimatePresence mode="wait">
-        {!showPinPad ? (
-          <motion.div
-            key="profiles"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -16 }}
-            transition={{ duration: 0.35 }}
-            className="w-full max-w-lg bg-white rounded-3xl p-6 shadow-xl border border-slate-200/60"
-          >
-            <div className="flex flex-col items-center">
-              <div className="rounded-full px-3.5 py-1 bg-indigo-50 border border-indigo-100 flex items-center gap-1.5 mb-4">
-                <Sparkles className="w-3 h-3 text-primary" />
-                <span className="text-[9px] text-primary font-extrabold tracking-[0.15em] uppercase">DentAI Practice Hub</span>
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4 }}
+        className="w-full max-w-md bg-white rounded-3xl p-6 shadow-xl border border-slate-200/70 relative z-10 flex flex-col items-center"
+      >
+        <div className="w-12 h-12 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-primary mb-3">
+          <ShieldCheck className="w-6 h-6" />
+        </div>
+
+        <div className="rounded-full px-3 py-0.5 bg-indigo-50/80 border border-indigo-100/80 flex items-center gap-1.5 mb-2">
+          <Sparkles className="w-3 h-3 text-primary" />
+          <span className="text-[9px] text-primary font-extrabold tracking-[0.14em] uppercase">
+            Private Clinician Access
+          </span>
+        </div>
+
+        <h3 className="text-xl font-extrabold text-slate-800 tracking-tight">Clinician Sign In</h3>
+        <p className="text-slate-500 text-xs mt-1 text-center max-w-xs">
+          Enter your registered practitioner name or ID and secure 4-digit PIN.
+        </p>
+
+        <div className="w-full mt-5 space-y-4">
+          {/* Practitioner Name Input */}
+          <div>
+            <label className="block text-[11px] font-bold text-slate-600 mb-1">
+              Practitioner Name or ID
+            </label>
+            <div className="relative">
+              <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                <User className="w-4 h-4" />
               </div>
-              <h3 className="text-xl font-extrabold text-slate-800">Select Your Profile</h3>
-              <p className="text-slate-500 text-xs mt-1 text-center">
-                Access your cases and clinical scribe workflow from any workstation.
-              </p>
-              <div className="w-full mt-5 grid grid-cols-1 gap-3">
-                {profiles.map((p, i) => {
-                  const revealed = revealedProfiles > i;
-                  return (
-                    <motion.div
-                      key={p.initials}
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: revealed ? 1 : 0, y: revealed ? 0 : 10 }}
-                      className={`flex items-center gap-3 p-3.5 rounded-2xl border transition-all ${
-                        revealed ? 'border-slate-200 bg-[#faf9f7]' : 'border-slate-100 bg-white'
-                      }`}
-                    >
-                      <div className="w-10 h-10 rounded-xl bg-indigo-50 text-primary flex items-center justify-center font-bold text-sm border border-indigo-100">
-                        {p.initials}
-                      </div>
-                      <div className="flex flex-col min-w-0 flex-1">
-                        <span className="font-bold text-slate-800 text-sm truncate">{p.name}</span>
-                        <span className="text-slate-400 text-xs truncate">{p.specialty}</span>
-                      </div>
-                      <ChevronDown className="w-4 h-4 text-slate-300 -rotate-90" />
-                    </motion.div>
-                  );
-                })}
-                <div className="flex items-center gap-3 p-3.5 rounded-2xl border-2 border-dashed border-slate-200">
-                  <div className="w-10 h-10 rounded-xl border border-dashed border-slate-300 text-slate-400 flex items-center justify-center">
-                    <Plus className="w-4 h-4" />
-                  </div>
-                  <span className="font-bold text-slate-500 text-sm">Add Profile</span>
-                  <span className="text-slate-400 text-xs">Onboard a dentist</span>
+              <div className="w-full pl-10 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 flex items-center h-10">
+                {displayedName}
+                {progress < 0.38 && (
+                  <span className="w-1.5 h-4 bg-primary ml-0.5 animate-pulse" />
+                )}
+              </div>
+              {nameCompleted && (
+                <div className="absolute inset-y-0 right-0 pr-3 flex items-center text-emerald-600">
+                  <CheckCircle2 className="w-4 h-4" />
                 </div>
-              </div>
+              )}
             </div>
-          </motion.div>
-        ) : (
-          <motion.div
-            key="pinpad"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -16 }}
-            transition={{ duration: 0.35 }}
-            className="w-full max-w-sm bg-white rounded-3xl p-6 shadow-xl border border-slate-200/60 flex flex-col items-center"
-          >
-            <div className="w-14 h-14 rounded-2xl bg-indigo-50 text-primary flex items-center justify-center font-bold text-lg border border-indigo-100 shadow-sm">
-              EC
-            </div>
-            <h3 className="text-lg font-extrabold text-slate-800 mt-3">Dr. Emily Carter</h3>
-            <span className="text-[11px] text-slate-400 font-medium">Cosmetic Dentistry</span>
-            <div className="flex gap-3 my-5">
+          </div>
+
+          {/* PIN Input & Dots */}
+          <div className="flex flex-col items-center pt-1">
+            <label className="text-[11px] font-bold text-slate-600 mb-2">
+              4-Digit Security PIN
+            </label>
+            <div className="flex gap-3 mb-4">
               {[0, 1, 2, 3].map((i) => (
                 <div
                   key={i}
                   className={`w-3.5 h-3.5 rounded-full border-2 transition-all duration-200 ${
                     typedDots > i
-                      ? 'bg-primary border-primary shadow-[0_0_8px_rgba(15,82,186,0.4)]'
+                      ? 'bg-primary border-primary shadow-[0_0_8px_rgba(15,82,186,0.4)] scale-110'
                       : 'border-slate-300'
                   }`}
                 />
               ))}
             </div>
-            <div className="grid grid-cols-3 gap-x-5 gap-y-3 w-full max-w-[220px]">
+
+            {/* Micro Keypad */}
+            <div className="grid grid-cols-3 gap-x-4 gap-y-2 w-full max-w-[200px]">
               {['1', '2', '3', '4', '5', '6', '7', '8', '9', '⌫', '0'].map((k, i) => (
                 <div
                   key={i}
-                  className={`w-11 h-11 mx-auto rounded-full flex items-center justify-center text-sm font-bold border transition-all ${
-                    typedDots >= Math.min(4, i + 1)
-                      ? 'bg-primary text-white border-primary'
+                  className={`w-9 h-9 mx-auto rounded-xl flex items-center justify-center text-xs font-bold border transition-all ${
+                    typedDots >= Math.min(4, i + 1) && typedDots > 0
+                      ? 'bg-primary text-white border-primary shadow-sm'
                       : 'bg-[#faf9f7] text-slate-700 border-slate-200'
                   }`}
                 >
                   {k}
                 </div>
               ))}
-              <div className="w-11 h-11 mx-auto flex items-center justify-center text-slate-300">
-                <Lock className="w-4 h-4" />
+              <div className="w-9 h-9 mx-auto flex items-center justify-center text-slate-300">
+                <Lock className="w-3.5 h-3.5" />
               </div>
             </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+          </div>
+
+          {/* Action button / Status indicator */}
+          <div className="pt-2">
+            <div
+              className={`w-full py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
+                isSubmitting
+                  ? 'bg-emerald-600 text-white shadow-md'
+                  : pinCompleted
+                  ? 'bg-primary text-white shadow-md'
+                  : 'bg-slate-100 text-slate-400 border border-slate-200'
+              }`}
+            >
+              {isSubmitting ? (
+                <>
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>Authenticated · Opening Hub...</span>
+                </>
+              ) : pinCompleted ? (
+                <>
+                  <Lock className="w-3.5 h-3.5" />
+                  <span>Verifying Credentials...</span>
+                </>
+              ) : (
+                <span>Enter Credentials to Sign In</span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Privacy Note */}
+        <div className="mt-4 pt-3 border-t border-slate-100 w-full flex items-center justify-between text-[10px] text-slate-400">
+          <span className="flex items-center gap-1">
+            <ShieldCheck className="w-3 h-3 text-emerald-600" />
+            Confidential Clinician Mode
+          </span>
+          <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full font-medium">
+            MFA Supported
+          </span>
+        </div>
+      </motion.div>
     </div>
   );
 }
@@ -1422,6 +1459,612 @@ function RecapScene({ progress }: SceneProps) {
 }
 
 // ---------------------------------------------------------------------------
+// Chairside ROI & Economic Impact Scene
+// ---------------------------------------------------------------------------
+
+function RoiScene({ progress }: SceneProps) {
+  const showMetrics = progress > 0.15;
+  const showComparison = progress > 0.45;
+
+  return (
+    <div className="h-full flex flex-col bg-slate-50">
+      <AppBar
+        title="Practice ROI & Economics"
+        subtitle="Chairside Time Recovery · Clinic Capacity"
+        right={<Chip tone="emerald"><TrendingUp className="w-3 h-3 text-emerald-600" /> High ROI</Chip>}
+      />
+
+      <div className="flex-1 p-4 md:p-6 flex flex-col gap-4 max-w-4xl mx-auto w-full overflow-hidden justify-center">
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="text-center space-y-1"
+        >
+          <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-600 bg-indigo-50 px-3 py-1 rounded-full border border-indigo-100">
+            Measurable Clinical ROI
+          </span>
+          <h2 className="text-xl md:text-2xl font-bold text-slate-800">
+            Eliminate 100% of After-Hours Charting
+          </h2>
+          <p className="text-xs text-slate-500 max-w-lg mx-auto">
+            Real chairside time saved per dentist transforms practice capacity and work-life balance.
+          </p>
+        </motion.div>
+
+        {/* 3 Metric Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <motion.div
+            initial={{ opacity: 0, y: 14 }}
+            animate={{ opacity: showMetrics ? 1 : 0, y: showMetrics ? 0 : 14 }}
+            transition={{ delay: 0.1 }}
+            className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm flex flex-col justify-between"
+          >
+            <div className="flex items-center justify-between mb-2">
+              <div className="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                <Clock className="w-5 h-5" />
+              </div>
+              <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-full">Per Visit</span>
+            </div>
+            <div>
+              <div className="text-2xl font-black text-slate-800 tracking-tight">15–20 min</div>
+              <div className="text-xs font-semibold text-slate-600 mt-0.5">Saved per complex procedure</div>
+              <div className="text-[11px] text-slate-400 mt-1">Instant notes for crowns, endo & implants</div>
+            </div>
+          </motion.div>
+
+          <motion.div
+            initial={{ opacity: 0, y: 14 }}
+            animate={{ opacity: showMetrics ? 1 : 0, y: showMetrics ? 0 : 14 }}
+            transition={{ delay: 0.2 }}
+            className="bg-gradient-to-br from-indigo-600 to-indigo-700 text-white rounded-2xl p-4 shadow-md flex flex-col justify-between"
+          >
+            <div className="flex items-center justify-between mb-2">
+              <div className="w-9 h-9 rounded-xl bg-white/10 text-white flex items-center justify-center">
+                <Zap className="w-5 h-5 text-amber-300" />
+              </div>
+              <span className="text-[10px] font-bold text-indigo-100 bg-white/15 px-2 py-0.5 rounded-full">Daily Impact</span>
+            </div>
+            <div>
+              <div className="text-2xl font-black text-white tracking-tight">1.5–2 Hours</div>
+              <div className="text-xs font-medium text-indigo-100 mt-0.5">Recovered every single day</div>
+              <div className="text-[11px] text-indigo-200 mt-1">Leave clinic at 5:00 PM with zero backlog</div>
+            </div>
+          </motion.div>
+
+          <motion.div
+            initial={{ opacity: 0, y: 14 }}
+            animate={{ opacity: showMetrics ? 1 : 0, y: showMetrics ? 0 : 14 }}
+            transition={{ delay: 0.3 }}
+            className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm flex flex-col justify-between"
+          >
+            <div className="flex items-center justify-between mb-2">
+              <div className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                <DollarSign className="w-5 h-5" />
+              </div>
+              <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">Practice Revenue</span>
+            </div>
+            <div>
+              <div className="text-2xl font-black text-slate-800 tracking-tight">+$15k–$30k</div>
+              <div className="text-xs font-semibold text-slate-600 mt-0.5">Monthly chair capacity</div>
+              <div className="text-[11px] text-slate-400 mt-1">Room to treat +1 patient/day per chair</div>
+            </div>
+          </motion.div>
+        </div>
+
+        {/* Side-by-Side Comparison */}
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: showComparison ? 1 : 0, y: showComparison ? 0 : 12 }}
+          className="grid grid-cols-1 md:grid-cols-2 gap-3"
+        >
+          <div className="bg-rose-50/60 border border-rose-100 rounded-xl p-3.5 flex flex-col gap-2">
+            <div className="flex items-center gap-1.5 text-rose-700 text-xs font-bold uppercase tracking-wider">
+              <XCircle className="w-4 h-4" /> Traditional Manual Charting
+            </div>
+            <ul className="text-[11px] text-slate-600 space-y-1">
+              <li className="flex items-start gap-1.5">
+                <span className="text-rose-500 font-bold">•</span>
+                <span>Dentist types while patient waits or stays 1 hr late</span>
+              </li>
+              <li className="flex items-start gap-1.5">
+                <span className="text-rose-500 font-bold">•</span>
+                <span>Missed ADA billing codes cost practices thousands</span>
+              </li>
+              <li className="flex items-start gap-1.5">
+                <span className="text-rose-500 font-bold">•</span>
+                <span>Inconsistent formatting between associates and locums</span>
+              </li>
+            </ul>
+          </div>
+
+          <div className="bg-emerald-50/60 border border-emerald-100 rounded-xl p-3.5 flex flex-col gap-2">
+            <div className="flex items-center gap-1.5 text-emerald-700 text-xs font-bold uppercase tracking-wider">
+              <CheckCircle2 className="w-4 h-4" /> With DentAI Ambient Scribing
+            </div>
+            <ul className="text-[11px] text-slate-700 space-y-1">
+              <li className="flex items-start gap-1.5">
+                <span className="text-emerald-600 font-bold">✓</span>
+                <span>Natural dentist-patient talk converts to complete notes instantly</span>
+              </li>
+              <li className="flex items-start gap-1.5">
+                <span className="text-emerald-600 font-bold">✓</span>
+                <span>100% compliant ADA item codes auto-extracted</span>
+              </li>
+              <li className="flex items-start gap-1.5">
+                <span className="text-emerald-600 font-bold">✓</span>
+                <span>1-click smart copy directly into Dental4Windows, Best Practice & EXACT</span>
+              </li>
+            </ul>
+          </div>
+        </motion.div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 1-Click Template & Colleague Sharing Scene (Growth Loop)
+// ---------------------------------------------------------------------------
+
+function ShareTemplateScene({ progress }: SceneProps) {
+  const isCopied = progress > 0.4;
+  const showPeer = progress > 0.65;
+
+  return (
+    <div className="h-full flex flex-col bg-slate-50">
+      <AppBar
+        title="Templates & Peer Network"
+        subtitle="1-Click Share · Organic Growth Loop"
+        right={<Chip tone="indigo"><Share2 className="w-3 h-3 text-indigo-600" /> Shareable</Chip>}
+      />
+
+      <div className="flex-1 p-4 md:p-6 flex flex-col gap-4 max-w-2xl mx-auto w-full overflow-hidden justify-center">
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="text-center space-y-1"
+        >
+          <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-600 bg-indigo-50 px-3 py-1 rounded-full border border-indigo-100">
+            Organic Dentist-to-Dentist Referral
+          </span>
+          <h2 className="text-xl md:text-2xl font-bold text-slate-800">
+            Share Your Note Standards with Colleagues
+          </h2>
+          <p className="text-xs text-slate-500">
+            Pass clinical templates and clinic codes to locums and peer study clubs in one tap.
+          </p>
+        </motion.div>
+
+        {/* Share Template Card */}
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3"
+        >
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold text-xs">
+                CP
+              </div>
+              <div>
+                <h4 className="text-xs font-bold text-slate-800">Crown Prep & Margin Record</h4>
+                <p className="text-[10px] text-slate-400">Dr. Sharma's High-Precision Template · 6 clinical sections</p>
+              </div>
+            </div>
+            <Chip tone="indigo">Custom Standard</Chip>
+          </div>
+
+          <div className="flex items-center justify-between gap-3 bg-slate-50 p-2.5 rounded-xl border border-slate-200/80">
+            <div className="font-mono text-xs text-slate-600 truncate">
+              dentai.app/t/crown-preparations-v2
+            </div>
+            <motion.button
+              whileTap={{ scale: 0.95 }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors shrink-0 ${
+                isCopied
+                  ? 'bg-emerald-600 text-white shadow-sm'
+                  : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm'
+              }`}
+            >
+              {isCopied ? (
+                <>
+                  <Check className="w-3.5 h-3.5" /> Copied Link!
+                </>
+              ) : (
+                <>
+                  <Copy className="w-3.5 h-3.5" /> Copy Share Link
+                </>
+              )}
+            </motion.button>
+          </div>
+        </motion.div>
+
+        {/* Peer Accepted Notification Card */}
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: showPeer ? 1 : 0, scale: showPeer ? 1 : 0.95 }}
+          className="bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200/70 rounded-xl p-3.5 flex items-center gap-3 shadow-sm"
+        >
+          <div className="w-9 h-9 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+            <Users className="w-5 h-5" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-emerald-900">Dr. David Nguyen (Associate / Locum)</span>
+              <span className="text-[9px] font-bold bg-emerald-200/80 text-emerald-800 px-2 py-0.5 rounded-full">Imported</span>
+            </div>
+            <p className="text-[11px] text-emerald-700 mt-0.5">
+              Accepted template and joined clinic with code <span className="font-mono font-bold">SMILE42</span>. Chairside ready.
+            </p>
+          </div>
+        </motion.div>
+
+        {/* Built-in Virality Callout */}
+        <div className="text-center">
+          <span className="text-[11px] text-slate-500 bg-white border border-slate-200 px-3 py-1 rounded-full shadow-2xs">
+            ✨ Colleagues start free &rarr; Practices upgrade together for multi-chair management
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Pricing & Plan Monetization Scene
+// ---------------------------------------------------------------------------
+
+function PricingScene({ progress }: SceneProps) {
+  const pulsePaid = progress > 0.35;
+
+  return (
+    <div className="h-full flex flex-col bg-slate-50">
+      <AppBar
+        title="Practice Plans & Monetization"
+        subtitle="Solo Free · Practice Owner Subscription"
+        right={<Chip tone="indigo"><Award className="w-3 h-3 text-indigo-600" /> Transparent</Chip>}
+      />
+
+      <div className="flex-1 p-4 md:p-6 flex flex-col gap-4 max-w-3xl mx-auto w-full overflow-hidden justify-center">
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="text-center space-y-1"
+        >
+          <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-600 bg-indigo-50 px-3 py-1 rounded-full border border-indigo-100">
+            Simple, Honest Pricing
+          </span>
+          <h2 className="text-xl md:text-2xl font-bold text-slate-800">
+            Free for Clinicians · High-Leverage for Practice Owners
+          </h2>
+          <p className="text-xs text-slate-500">
+            Individual dentists adopt freely; owners unlock centralized governance, multi-chair compliance and audit trails.
+          </p>
+        </motion.div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Solo Tier */}
+          <motion.div
+            initial={{ opacity: 0, x: -12 }}
+            animate={{ opacity: 1, x: 0 }}
+            className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm flex flex-col justify-between"
+          >
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Solo Dentist</span>
+                <span className="text-[10px] font-bold text-slate-600 bg-slate-100 px-2.5 py-0.5 rounded-full">For Clinicians</span>
+              </div>
+              <div className="text-2xl font-black text-slate-800">$0 <span className="text-xs font-normal text-slate-400">/ forever</span></div>
+              <p className="text-xs text-slate-500 mt-1">Full ambient scribing for solo dentists, associates, and locums.</p>
+
+              <div className="mt-4 pt-3 border-t border-slate-100 space-y-2 text-xs text-slate-600">
+                <div className="flex items-center gap-2">
+                  <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                  <span>Ambient audio recording & live transcription</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                  <span>All 8 ADA procedure templates included</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                  <span>Resilient offline draft engine (zero dead-ends)</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                  <span>Personal consultation history hub</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-5">
+              <button className="w-full py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-colors">
+                Start Free Today
+              </button>
+            </div>
+          </motion.div>
+
+          {/* Practice Tier */}
+          <motion.div
+            initial={{ opacity: 0, x: 12 }}
+            animate={{ opacity: 1, x: 0 }}
+            className={`bg-white rounded-2xl p-5 border-2 shadow-md flex flex-col justify-between relative transition-all ${
+              pulsePaid ? 'border-indigo-600 ring-2 ring-indigo-600/20' : 'border-indigo-400'
+            }`}
+          >
+            <div className="absolute -top-3 right-4 bg-indigo-600 text-white text-[10px] font-bold px-3 py-0.5 rounded-full shadow-sm uppercase tracking-wider">
+              Practice Standard
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold text-indigo-600 uppercase tracking-wider">Practice Owner</span>
+                <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-2.5 py-0.5 rounded-full">Multi-Chair</span>
+              </div>
+              <div className="text-2xl font-black text-slate-800">$99–$149 <span className="text-xs font-normal text-slate-400">/ month per clinic</span></div>
+              <p className="text-[10px] text-indigo-600 font-semibold mt-0.5">$99/mo annual · $149 month-to-month</p>
+              <p className="text-xs text-slate-500 mt-1">Practice-wide audit oversight, template lock, and multi-chair sync.</p>
+
+              <div className="mt-4 pt-3 border-t border-slate-100 space-y-2 text-xs text-slate-700">
+                <div className="flex items-center gap-2 font-medium">
+                  <Check className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                  <span>All Solo Clinician capabilities</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Check className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                  <span>Practice-wide notes view across all dentists</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Check className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                  <span>Clinic-wide standardized template management</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Check className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                  <span>Multi-clinic switcher & sayable invite codes</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Check className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                  <span>Immutable audit logging (APRA / Privacy Act)</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-5">
+              <button className="w-full py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-sm transition-colors">
+                Upgrade Practice
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PipelineScene({ progress }: SceneProps) {
+  const showModal = progress > 0.45;
+  const isBooked = progress > 0.65;
+  const card1Val = Math.min(34800, Math.floor(progress * 4 * 34800));
+  const card2Val = progress > 0.25 ? 18400 : 0;
+  const roiVal = progress > 0.25 ? '123.5x' : '0x';
+
+  return (
+    <div className="h-full w-full bg-[#F8F7F5] flex flex-col relative overflow-hidden">
+      <AppBar
+        right={
+          <div className="flex flex-col items-end">
+            <span className="text-[11px] font-bold text-slate-800">Dr. Sarah Chen</span>
+            <span className="text-[8px] text-emerald-600 font-extrabold uppercase tracking-wider">Owner Active</span>
+          </div>
+        }
+      />
+      <div className="flex-1 overflow-y-auto px-5 pt-3 pb-8">
+        <div className="max-w-2xl mx-auto space-y-4">
+          {/* Header & Tabs */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-black text-slate-800">History Hub</span>
+              <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[9px] font-bold border border-emerald-200">
+                Bright Smile Dental
+              </span>
+            </div>
+            {/* Tab switchers mimicking real app */}
+            <div className="flex items-center gap-1 p-1 bg-slate-200/70 rounded-xl">
+              <span className="px-3 py-1 rounded-lg text-[10px] font-bold text-slate-500">
+                Clinical Records
+              </span>
+              <span className="px-3 py-1 rounded-lg text-[10px] font-bold bg-white text-primary shadow-sm flex items-center gap-1">
+                <Sparkles className="w-3 h-3 text-amber-500" />
+                <span>Revenue Engine & PMS Sync</span>
+              </span>
+            </div>
+          </div>
+
+          {/* Subheader with universal PMS bridge indicator */}
+          <div className="flex items-center justify-between text-xs pt-0.5 px-0.5">
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-bold text-slate-700">Closed-Loop Recovery Pipeline</span>
+              <span className="px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 text-[8px] font-bold border border-indigo-200">
+                Universal PMS Bridge
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5 text-[8px] font-semibold text-slate-500 bg-white px-2 py-1 rounded-lg border border-slate-200">
+              <CheckCircle2 className="w-3 h-3 text-emerald-500" />
+              <span>D4W · EXACT · Cliniko Verified</span>
+            </div>
+          </div>
+
+          {/* 4 Executive Metric Cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.1 }}
+              className="bg-white rounded-2xl p-3 border border-slate-200/80 shadow-sm"
+            >
+              <div className="flex items-center justify-between text-slate-400">
+                <span className="text-[10px] font-bold">Unscheduled</span>
+                <Clock className="w-3.5 h-3.5 text-amber-500" />
+              </div>
+              <div className="text-lg font-black text-slate-800 mt-1">
+                ${card1Val.toLocaleString()}
+              </div>
+              <span className="text-[8px] text-slate-400 font-medium">14 pending items</span>
+            </motion.div>
+
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.2 }}
+              className="bg-white rounded-2xl p-3 border border-slate-200/80 shadow-sm"
+            >
+              <div className="flex items-center justify-between text-slate-400">
+                <span className="text-[10px] font-bold">Booked Prod.</span>
+                <TrendingUp className="w-3.5 h-3.5 text-emerald-500" />
+              </div>
+              <div className="text-lg font-black text-emerald-600 mt-1">
+                ${card2Val.toLocaleString()}
+              </div>
+              <span className="text-[8px] text-emerald-600 font-semibold">9 verified in PMS</span>
+            </motion.div>
+
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.3 }}
+              className="bg-gradient-to-br from-indigo-950 to-slate-900 text-white rounded-2xl p-3 shadow-md relative overflow-hidden"
+            >
+              <div className="flex items-center justify-between text-indigo-300">
+                <span className="text-[10px] font-bold">Practice ROI</span>
+                <DollarSign className="w-3.5 h-3.5" />
+              </div>
+              <div className="text-lg font-black text-white mt-1">
+                {roiVal}
+              </div>
+              <span className="text-[8px] text-indigo-200/80 font-medium">vs. $149/mo sub</span>
+            </motion.div>
+
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.4 }}
+              className="bg-white rounded-2xl p-3 border border-slate-200/80 shadow-sm"
+            >
+              <div className="flex items-center justify-between text-slate-400">
+                <span className="text-[10px] font-bold">Total Lifetime</span>
+                <ShieldCheck className="w-3.5 h-3.5 text-primary" />
+              </div>
+              <div className="text-lg font-black text-slate-800 mt-1">
+                $51,600
+              </div>
+              <span className="text-[8px] text-slate-400 font-medium">Captured from notes</span>
+            </motion.div>
+          </div>
+
+          {/* Featured Treatment Card: Priya Sharma */}
+          <motion.div
+            initial={{ opacity: 0, scale: 0.98 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ delay: 0.35 }}
+            className="bg-white rounded-2xl p-4 border border-slate-200/90 shadow-sm space-y-2.5"
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-full bg-primary/10 text-primary font-black text-xs flex items-center justify-center">
+                  PS
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-slate-800">Priya Sharma</span>
+                    <span className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200 text-[9px] font-bold">
+                      FDI Tooth 16
+                    </span>
+                    {isBooked ? (
+                      <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-[9px] font-bold flex items-center gap-1">
+                        <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600" />
+                        <span>✓ D4W #8491 Verified</span>
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 text-[9px] font-bold">
+                        Unscheduled
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-[10px] text-slate-400 font-medium">
+                    Dr. Sarah Chen · Comprehensive Exam (Aug 20)
+                  </div>
+                </div>
+              </div>
+              <div className="text-right">
+                <div className="text-sm font-black text-slate-800">$1,650</div>
+                <div className="text-[9px] font-bold text-primary">ADA 611 Ceramic Crown</div>
+              </div>
+            </div>
+
+            <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-150 text-[10px] text-slate-600 leading-snug">
+              <b>Clinical Reason:</b> Micro-crack across mesio-palatal cusp requiring cuspal protection. Risk of complete fracture into pulp if left unrestored.
+            </div>
+
+            <div className="flex items-center justify-between pt-1">
+              <div className="flex items-center gap-1 text-[9px] text-slate-500 font-medium">
+                <Clock className="w-3 h-3 text-amber-500" />
+                <span>Proposed 4 days ago · Follow-up Ready</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="px-2.5 py-1 rounded-xl bg-primary text-white text-[9px] font-bold flex items-center gap-1 shadow-sm">
+                  <Sparkles className="w-3 h-3" />
+                  <span>1-Click Estimate & Rebate</span>
+                </span>
+                <span
+                  className={`px-2.5 py-1 rounded-xl text-[9px] font-bold ${
+                    isBooked
+                      ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                      : 'bg-slate-100 text-slate-600'
+                  }`}
+                >
+                  {isBooked ? 'Booked in D4W' : 'Mark as Booked'}
+                </span>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      </div>
+
+      {/* Outreach Drawer Preview */}
+      {showModal && (
+        <motion.div
+          initial={{ opacity: 0, y: 40 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="absolute inset-x-4 bottom-4 z-30 max-w-lg mx-auto bg-white rounded-3xl p-4 shadow-2xl border border-slate-300"
+        >
+          <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+            <div className="flex items-center gap-1.5 text-primary text-[10px] font-black uppercase tracking-wider">
+              <Sparkles className="w-3 h-3 text-amber-500" /> Patient Treatment Estimate & Rebate Info
+            </div>
+            <span className="text-[9px] text-emerald-700 font-bold bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
+              Bupa · Medibank · HCF Quote Ready
+            </span>
+          </div>
+          <div className="mt-2 p-2.5 rounded-xl bg-[#F8F7F5] border border-slate-200 text-[10px] text-slate-700 leading-relaxed font-sans">
+            "Hi Priya, following up on your consultation with Dr. Sarah Chen. Dr. Chen recommended a protective porcelain ceramic crown (Item ADA 611) for tooth 16 to prevent structural cracking. Estimated investment is $1,650. Quote item 611 to your health fund for your rebate. Would next Tuesday morning suit you?"
+          </div>
+          <div className="mt-2.5 flex items-center gap-2">
+            <div className="flex-1 py-1.5 rounded-xl bg-primary text-white text-center text-[10px] font-bold shadow-sm flex items-center justify-center gap-1">
+              <Copy className="w-3 h-3" />
+              <span>Copy SMS / WhatsApp</span>
+            </div>
+            <div className="py-1.5 px-3 rounded-xl bg-slate-800 text-white text-[10px] font-bold shadow-sm flex items-center gap-1">
+              <ShieldCheck className="w-3 h-3 text-emerald-400" />
+              <span>Sync to D4W</span>
+            </div>
+          </div>
+        </motion.div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Dispatch
 // ---------------------------------------------------------------------------
 
@@ -1435,6 +2078,8 @@ export default function SceneStage({ scene, progress }: SceneProps) {
       case 'history':
       case 'owner-history':
         return <HistoryScene scene={scene} progress={progress} />;
+      case 'pipeline':
+        return <PipelineScene scene={scene} progress={progress} />;
       case 'intake':
         return <IntakeScene scene={scene} progress={progress} />;
       case 'record':
@@ -1443,6 +2088,10 @@ export default function SceneStage({ scene, progress }: SceneProps) {
         return <ProcessingScene scene={scene} progress={progress} />;
       case 'summary':
         return <SummaryScene scene={scene} progress={progress} />;
+      case 'roi':
+        return <RoiScene scene={scene} progress={progress} />;
+      case 'share-template':
+        return <ShareTemplateScene scene={scene} progress={progress} />;
       case 'fallback':
         return <FallbackScene scene={scene} progress={progress} />;
       case 'switcher':
@@ -1451,6 +2100,8 @@ export default function SceneStage({ scene, progress }: SceneProps) {
         return <ClinicManageScene scene={scene} progress={progress} />;
       case 'usage':
         return <UsageScene scene={scene} progress={progress} />;
+      case 'pricing':
+        return <PricingScene scene={scene} progress={progress} />;
       case 'recap':
         return <RecapScene scene={scene} progress={progress} />;
       default:

@@ -12,9 +12,28 @@ import {
   Tag,
   Undo2,
   Quote,
-  ListChecks
+  ListChecks,
+  Stethoscope,
+  Sparkles,
+  Send,
+  AlertCircle,
+  DollarSign,
+  ChevronRight,
+  Printer,
+  ShieldCheck,
+  Plus,
+  Trash2,
+  Info
 } from 'lucide-react';
-import { Consultation, AdaCodeItem, ClinicalFindings } from '../types';
+import {
+  Consultation,
+  AdaCodeItem,
+  ClinicalFindings,
+  SpecialistReferral,
+  PatientConsentAndCare,
+  TreatmentQuoteData,
+  TreatmentQuoteItem
+} from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   NoteTemplate,
@@ -25,6 +44,12 @@ import {
 } from '../lib/dentalLibrary';
 import { getSavedTemplates, getTemplate } from '../utils/templates';
 import { sectionEvidence } from '../lib/draftEngine';
+import { buildTreatmentQuoteData } from '../lib/adaFees';
+import {
+  getVisualCasePresentation,
+  detectVisualCaseCategory,
+  VisualCaseCategory
+} from '../lib/visualCaseLibrary';
 
 interface ClinicalSummaryProps {
   consultation: Consultation;
@@ -44,9 +69,6 @@ const ACCENTS = [
   { card: 'bg-teal-500/5 hover:bg-teal-500/10 border-teal-200/40', label: 'text-teal-600', chip: 'bg-teal-100 text-teal-800' }
 ];
 
-/** Legacy data rescue: older records stored SOAP/Restorative text inside the 8
- *  canonical AHPRA fields. Map those back onto the new template's sections so
- *  history records still render. */
 const LEGACY_FIELD_COMPOSE: Record<string, Record<string, string[]>> = {
   soap: {
     subjective: ['chiefComplaint', 'history'],
@@ -111,19 +133,175 @@ export default function ClinicalSummary({
   /** Sections the dentist has touched since opening — powers the review scan strip. */
   const [editedKeys, setEditedKeys] = useState<Set<string>>(new Set());
 
+  // Deliverables Hub Tab State
+  const [activeHubTab, setActiveHubTab] = useState<'patient-care' | 'specialist-referral' | 'treatment-quote'>('patient-care');
+
+  // Document States
   const [patientLetter, setPatientLetter] = useState(consultation.patientSummary || '');
   const [adaCodes, setAdaCodes] = useState<AdaCodeItem[]>(consultation.findings.adaCodes || []);
+
+  // Specialist Referral State
+  const [specialistReferral, setSpecialistReferral] = useState<SpecialistReferral>(() => {
+    if (consultation.specialistReferral) return consultation.specialistReferral;
+    const isEndo = consultation.appointmentType === 'endodontic' || Boolean(consultation.findings?.diagnosis?.toLowerCase().includes('pulpitis'));
+    const isSurg = consultation.appointmentType === 'surgical' || Boolean(consultation.findings?.diagnosis?.toLowerCase().includes('impacted'));
+    const isPerio = Boolean(consultation.findings?.findingsGingival?.toLowerCase().includes('pocket') || consultation.findings?.diagnosis?.toLowerCase().includes('periodont'));
+
+    const required = isEndo || isSurg || isPerio;
+    const specialty = isEndo ? 'Endodontics' : isSurg ? 'Oral & Maxillofacial Surgery' : isPerio ? 'Periodontics' : 'General Referral';
+
+    return {
+      required,
+      specialty: specialty as any,
+      specialistName: '',
+      recipientClinic: '',
+      teethInvolved: consultation.findings.toothFindings?.match(/\b[1-4][1-8]\b/g) || [],
+      urgency: isEndo ? 'Urgent' : 'Routine',
+      clinicalQuestion: `Specialist assessment and management for ${consultation.firstName} ${consultation.lastName}`,
+      backgroundAndFindings: consultation.findings.diagnosis || consultation.findings.toothFindings || '',
+      provisionalDiagnosis: consultation.findings.diagnosis || '',
+      interimTreatmentProvided: consultation.findings.treatmentPerformed || '',
+      medicalAlerts: consultation.findings.history || 'No significant medical alerts reported',
+      letterText: `Dr. Colleague,\n\nRe: ${consultation.firstName} ${consultation.lastName} (DOB: ${consultation.dob})\n\nThank you for seeing this patient regarding specialist assessment. ${consultation.findings.diagnosis ? `Clinical diagnosis: ${consultation.findings.diagnosis}.` : ''} ${consultation.findings.treatmentPerformed ? `Interim therapy provided: ${consultation.findings.treatmentPerformed}.` : ''}\n\nKind regards,\n${dentistName || 'Dentist'} (AHPRA Reg)`
+    };
+  });
+
+  // Patient Consent & Care State
+  const [patientConsent, setPatientConsent] = useState<PatientConsentAndCare>(() => {
+    if (consultation.patientConsent) return consultation.patientConsent;
+    return {
+      plainSummary: consultation.patientSummary || '',
+      optionsDiscussed: [],
+      risksOfNoTreatment: 'Untreated tooth pathology can spread bacteria into the nerve or jawbone, causing severe pain, infection, or tooth loss requiring extraction.',
+      postOpCareInstructions: 'Maintain gentle oral hygiene with a soft brush. Avoid chewing hard or hot foods on the treated side until numbness has completely resolved.',
+      redFlagsWarning: 'Contact the clinic immediately if you experience worsening swelling, persistent bleeding, high fever, or severe throbbing pain not relieved by analgesia.',
+      consentStatus: 'discussed_pending_signature'
+    };
+  });
+
+  // Treatment Quote & Visual Pack State
+  const [treatmentQuote, setTreatmentQuote] = useState<TreatmentQuoteData>(() => {
+    if (consultation.treatmentQuote) return consultation.treatmentQuote;
+    const clinicalText = Object.values(consultation.findings || {}).filter((v) => typeof v === 'string').join(' ');
+    return buildTreatmentQuoteData(consultation.findings.adaCodes || [], consultation.proposedTreatments || [], clinicalText);
+  });
+
+  const [selectedVisualCategory, setSelectedVisualCategory] = useState<VisualCaseCategory>(() => {
+    return treatmentQuote.visualCaseCategory || detectVisualCaseCategory(consultation.findings.adaCodes || []);
+  });
+
+  // Copy & Action Feedback States
   const [copied, setCopied] = useState(false);
+  const [referralCopied, setReferralCopied] = useState(false);
+  const [quoteCopied, setQuoteCopied] = useState(false);
   const [pmsCopied, setPmsCopied] = useState(false);
+  const [adaCopied, setAdaCopied] = useState(false);
   const [showSavedOverlay, setShowSavedOverlay] = useState(false);
+
+  const [rebateMode, setRebateMode] = useState<'practice_fees_only' | 'show_rebate_estimate'>(() => {
+    return treatmentQuote.rebateMode || 'practice_fees_only';
+  });
+
+  const formatItemTitle = (item: { description: string; tooth?: string }) =>
+    `${item.description}${item.tooth ? ` (Tooth ${item.tooth})` : ''}`;
+
+  const sumFees = (items: TreatmentQuoteItem[]) =>
+    items.reduce((sum, it) => sum + (Number(it.fee) || 0), 0);
+
+  const recalculateQuote = (
+    items: TreatmentQuoteItem[],
+    mode: 'practice_fees_only' | 'show_rebate_estimate' = rebateMode
+  ) => {
+    const totalFee = sumFees(items);
+    const estimatedRebate = mode === 'practice_fees_only'
+      ? 0
+      : items.reduce((sum, it) => sum + (Number(it.healthFundEstimatedRebate) || 0), 0);
+    const netGap = Math.max(0, totalFee - estimatedRebate);
+
+    const urgent = items.filter((i) => i.category === 'Endodontics' || i.category === 'Surgery');
+    const restorative = items.filter(
+      (i) => i.category === 'Crown & Bridge' || i.category === 'Restorative' || i.category === 'Periodontics'
+    );
+    const preventive = items.filter(
+      (i) => i.category === 'Diagnostic' || i.category === 'Preventive' || i.category === 'Orthodontics'
+    );
+
+    const phasedMilestones: NonNullable<TreatmentQuoteData['phasedMilestones']> = [];
+    let phaseNum = 1;
+
+    const addMilestone = (title: string, phaseItems: TreatmentQuoteItem[]) => {
+      phasedMilestones.push({
+        phaseNumber: phaseNum++,
+        phaseTitle: title,
+        items: phaseItems.map(formatItemTitle),
+        totalPhaseFee: sumFees(phaseItems)
+      });
+    };
+
+    if (urgent.length > 0) {
+      addMilestone('Phase 1: Urgent Relief & Stabilisation', urgent);
+    }
+
+    if (restorative.length > 0) {
+      addMilestone(`Phase ${phaseNum}: Restorative Reconstruction & Longevity`, restorative);
+    }
+
+    if (preventive.length > 0 || phasedMilestones.length === 0) {
+      addMilestone(`Phase ${phaseNum}: Prevention & Maintenance`, preventive.length > 0 ? preventive : items);
+    }
+
+    const updated: TreatmentQuoteData = {
+      ...treatmentQuote,
+      items,
+      totalFee,
+      estimatedRebate,
+      netGap,
+      rebateMode: mode,
+      phasedMilestones
+    };
+    setTreatmentQuote(updated);
+    return updated;
+  };
+
+  const handleUpdateQuoteItem = (index: number, patch: Partial<TreatmentQuoteItem>) => {
+    const nextItems = treatmentQuote.items.map((item, idx) => {
+      if (idx !== index) return item;
+      const updated = { ...item, ...patch };
+      const fee = Number(updated.fee) || 0;
+      const rebate = Number(updated.healthFundEstimatedRebate) || 0;
+      updated.gapEstimate = Math.max(0, fee - rebate);
+      return updated;
+    });
+    recalculateQuote(nextItems);
+  };
+
+  const handleAddQuoteItem = () => {
+    const newItem: TreatmentQuoteItem = {
+      adaCode: '022',
+      description: 'Intraoral periapical radiograph',
+      tooth: '',
+      fee: 45,
+      healthFundEstimatedRebate: 35,
+      gapEstimate: 10,
+      category: 'Diagnostic'
+    };
+    recalculateQuote([...treatmentQuote.items, newItem]);
+  };
+
+  const handleDeleteQuoteItem = (index: number) => {
+    if (treatmentQuote.items.length <= 1) {
+      alert('A quote must contain at least one procedure item.');
+      return;
+    }
+    const nextItems = treatmentQuote.items.filter((_, idx) => idx !== index);
+    recalculateQuote(nextItems);
+  };
 
   const needsReview = !!consultation.noteOrigin?.needsReview;
   const originEngine = consultation.noteOrigin?.engine || 'gemini';
 
   const switchTemplate = (templateId: string) => {
     const next = templates.find((t) => t.id === templateId) || getTemplateById(templateId);
-    // Carry over any keys that already exist in the current edits; fields not
-    // present are re-seeded from the stored record (keeps edits safe).
     const currentKeys = new Set(Object.keys(edits));
     setEdits((prev) => {
       const nextEdits: Record<string, string> = {};
@@ -200,11 +378,52 @@ export default function ClinicalSummary({
   });
 
   const handleCopySummary = () => {
-    navigator.clipboard.writeText(patientLetter);
+    const textToCopy = patientConsent.plainSummary || patientLetter;
+    navigator.clipboard.writeText(textToCopy);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const handleCopyReferral = () => {
+    navigator.clipboard.writeText(specialistReferral.letterText);
+    setReferralCopied(true);
+    setTimeout(() => setReferralCopied(false), 2000);
+  };
+
+  const handleCopyAdaCodesOnly = () => {
+    const lines = adaCodes.map(
+      (code) => `[${code.code}] ${code.description}${code.tooth ? ` (Tooth FDI ${code.tooth})` : ''}`
+    );
+    navigator.clipboard.writeText(lines.join('\n'));
+    setAdaCopied(true);
+    setTimeout(() => setAdaCopied(false), 2000);
+  };
+
+  const handleCopyQuote = () => {
+    const isFeesOnly = rebateMode === 'practice_fees_only';
+    const lines = [
+      `=== TREATMENT ESTIMATE & ITEMISED QUOTE ===`,
+      `PATIENT: ${consultation.firstName} ${consultation.lastName}`,
+      `DATE: ${consultation.date}`,
+      ``,
+      ...treatmentQuote.items.map((it) => {
+        const itemHeader = `ADA [${it.adaCode}] ${formatItemTitle(it)}`;
+        return isFeesOnly
+          ? `${itemHeader} - Practice Fee: $${it.fee} | Rebate: Check with health fund`
+          : `${itemHeader} - Fee: $${it.fee} | Est. Rebate: $${it.healthFundEstimatedRebate} | Net Gap: $${it.gapEstimate}`;
+      }),
+      ``,
+      `Total Practice Fee: $${treatmentQuote.totalFee}`,
+      isFeesOnly
+        ? `Health Fund Coverage: Private health insurance rebates depend on your individual fund table, waiting periods, and annual limits already used this year. Quote item numbers above to your insurer for your exact benefit.`
+        : `Estimated Health Fund Coverage: $${treatmentQuote.estimatedRebate}\nNet Out-of-Pocket Gap: $${treatmentQuote.netGap}\n*Note: Rebate amounts are estimates only and depend on your health fund table, waiting periods, and remaining annual limits.`
+    ];
+    navigator.clipboard.writeText(lines.join('\n'));
+    setQuoteCopied(true);
+    setTimeout(() => setQuoteCopied(false), 2000);
+  };
+
+  // One-click copy for PMS: Progress notes ONLY (ADA codes excluded per Australian practice workflow)
   const handleCopyPmsNote = () => {
     const lines: string[] = [
       `=== CLINICAL NOTE (${activeTemplate.name.toUpperCase()}) ===`,
@@ -216,13 +435,6 @@ export default function ClinicalSummary({
     for (const section of activeTemplate.sections) {
       lines.push(`${section.label.toUpperCase()}:`);
       lines.push(getSectionValue(section.key) || '(not recorded)');
-      lines.push(``);
-    }
-    if (adaCodes.length > 0) {
-      lines.push(`--- ADA BILLING ITEM CODES ---`);
-      adaCodes.forEach((code) => {
-        lines.push(`[${code.code}] ${code.description}${code.tooth ? ` (Tooth FDI ${code.tooth})` : ''}`);
-      });
       lines.push(``);
     }
     lines.push(`Clinician: ${dentistName || 'Dentist'} (AHPRA Reg)`);
@@ -262,7 +474,14 @@ export default function ClinicalSummary({
       status: 'Completed',
       templateId: activeTemplate.id,
       findings,
-      patientSummary: patientLetter
+      patientSummary: patientLetter,
+      specialistReferral,
+      patientConsent,
+      treatmentQuote: {
+        ...treatmentQuote,
+        visualCaseCategory: selectedVisualCategory,
+        rebateMode
+      }
     };
 
     onSave(updatedConsultation);
@@ -279,6 +498,9 @@ export default function ClinicalSummary({
     }
     return map;
   }, [activeTemplate, consultation.transcript]);
+
+  const activeVisualPresentation = getVisualCasePresentation(selectedVisualCategory);
+
   const sectionRows = activeTemplate.sections.map((section, idx) => {
     const accent = ACCENTS[idx % ACCENTS.length];
     const isRecall = section.key === 'recallRequirements';
@@ -390,7 +612,12 @@ export default function ClinicalSummary({
             <button onClick={onBack} className="p-2 -ml-2 rounded-full hover:bg-slate-50 transition-colors cursor-pointer">
               <Menu className="text-primary h-6 w-6" />
             </button>
-            <h1 className="font-headline-md text-headline-md font-bold text-primary">DentAI</h1>
+            <div className="flex items-center gap-2">
+              <h1 className="font-headline-md text-headline-md font-bold text-primary">DentAI</h1>
+              <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-blue-50 text-[#004ac6] border border-blue-200">
+                Clinical & Growth OS
+              </span>
+            </div>
           </div>
           <div className="flex items-center gap-4">
             <div className="hidden md:flex flex-col items-end">
@@ -405,7 +632,7 @@ export default function ClinicalSummary({
           </div>
         </header>
 
-        <main className="pt-20 px-4 max-w-[1440px] mx-auto">
+        <main className="pt-20 px-4 max-w-[1520px] mx-auto">
           {/* Patient banner */}
           <div className="bg-white border border-outline-variant rounded-2xl p-5 mb-6 shadow-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div className="flex items-center gap-3.5">
@@ -426,7 +653,12 @@ export default function ClinicalSummary({
                     </span>
                   ) : (
                     <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center gap-1">
-                      <CheckCircle className="w-3 h-3" /> AI Verified
+                      <CheckCircle className="w-3 h-3" /> AHPRA Verified
+                    </span>
+                  )}
+                  {specialistReferral.required && (
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-purple-50 text-purple-700 border border-purple-200 flex items-center gap-1">
+                      <Send className="w-2.5 h-2.5" /> Referral Indicated
                     </span>
                   )}
                 </div>
@@ -444,22 +676,12 @@ export default function ClinicalSummary({
             </div>
           </div>
 
-          {consultation.noteOrigin?.detail && (
-            <div className="mb-6 p-4 bg-amber-50 border border-amber-200 text-amber-800 rounded-2xl text-xs leading-relaxed flex items-start gap-2.5">
-              <ShieldAlert className="w-4 h-4 flex-shrink-0 mt-0.5 text-amber-600" />
-              <div>
-                <span className="font-bold uppercase tracking-wider text-[10px] block mb-1">Review required before this becomes a clinical record</span>
-                {consultation.noteOrigin.detail}
-              </div>
-            </div>
-          )}
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-            {/* BLOCK A: Clinical findings */}
-            <section className="flex flex-col gap-4">
+          <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
+            {/* BLOCK A: Clinical Findings & Notes (Left Column - 5 Cols) */}
+            <section className="xl:col-span-5 flex flex-col gap-4">
               <div className="flex items-center justify-between py-2 flex-wrap gap-2">
                 <div className="flex items-center gap-2">
-                  <h2 className="font-headline-sm text-lg font-bold text-slate-800">Clinical Findings</h2>
+                  <h2 className="font-headline-sm text-lg font-bold text-slate-800">Clinical Record</h2>
                   <span className="px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 font-semibold text-[11px]">
                     {activeTemplate.name}
                   </span>
@@ -491,7 +713,7 @@ export default function ClinicalSummary({
                 )}
                 <button
                   onClick={handleCopyPmsNote}
-                  title="Copy the note formatted for your PMS"
+                  title="Copy the note formatted for Dental4Windows, Core Practice, or Exact"
                   className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl font-bold text-xs transition-all active:scale-95 shadow-sm cursor-pointer ${
                     pmsCopied ? 'bg-emerald-600 text-white' : 'bg-[#004ac6] text-white hover:bg-blue-700'
                   }`}
@@ -509,9 +731,20 @@ export default function ClinicalSummary({
                       <Tag className="w-4 h-4 text-emerald-400" />
                       <span className="text-xs font-bold uppercase tracking-wider text-slate-200">ADA Billing Codes</span>
                     </div>
-                    <span className="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full font-mono font-semibold">
-                      {adaCodes.length} {adaCodes.length === 1 ? 'Item' : 'Items'}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleCopyAdaCodesOnly}
+                        title="Copy item numbers for PMS ledger / invoice entry"
+                        className="flex items-center gap-1 text-[10px] text-emerald-400 hover:text-emerald-300 font-bold bg-slate-800 hover:bg-slate-700/80 px-2.5 py-1 rounded-lg border border-slate-700 transition-all cursor-pointer"
+                      >
+                        {adaCopied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                        <span>{adaCopied ? 'Codes Copied!' : 'Copy Billing Codes'}</span>
+                      </button>
+                      <span className="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full font-mono font-semibold">
+                        {adaCodes.length} {adaCodes.length === 1 ? 'Item' : 'Items'}
+                      </span>
+                    </div>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {adaCodes.map((item, idx) => (
@@ -551,74 +784,624 @@ export default function ClinicalSummary({
               <div className="space-y-4 pb-8">{sectionRows}</div>
             </section>
 
-            {/* BLOCK B: Communication hub */}
-            <section className="flex flex-col h-full lg:sticky lg:top-20">
-              <div className="flex items-center justify-between py-2">
-                <h2 className="font-headline-sm text-lg font-bold text-slate-800">Communication Hub</h2>
-              </div>
-              <div className="flex-grow bg-indigo-500/5 border border-indigo-100/50 rounded-2xl p-6 flex flex-col relative overflow-hidden shadow-sm">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-3">
-                    <div className="bg-[#2563eb] p-2 rounded-xl text-white shadow-sm">
-                      <ClipboardList className="w-5 h-5" />
-                    </div>
-                    <h3 className="font-bold text-slate-800 text-base">Patient Care Summary</h3>
-                    {patientSummaryEmpty && !needsReview && (
-                      <span className="text-[10px] text-amber-600 font-bold uppercase tracking-wider bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
-                        Add letter or regenerate
-                      </span>
-                    )}
+            {/* BLOCK B: Clinical & Patient Deliverables Suite (Right Column - 7 Cols) */}
+            <section className="xl:col-span-7 flex flex-col gap-4">
+              {/* Deliverables Suite Header & Tab Navigator */}
+              <div className="bg-white border border-outline-variant/80 rounded-2xl p-3 shadow-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <div className="p-2 rounded-xl bg-blue-50 text-[#004ac6]">
+                    <Sparkles className="w-5 h-5" />
                   </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={handleCopySummary}
-                      className={`flex items-center gap-2 border px-4 h-9 rounded-full font-bold text-xs transition-all active:scale-95 cursor-pointer ${
-                        copied ? 'bg-emerald-600 border-transparent text-white' : 'bg-white border-outline-variant hover:shadow-md text-primary'
-                      }`}
-                    >
-                      {copied ? <Check className="w-3.5 h-3.5 stroke-[3]" /> : <Copy className="w-3.5 h-3.5" />}
-                      <span>{copied ? 'Copied!' : 'Copy Letter'}</span>
-                    </button>
-                    <button
-                      onClick={() => window.print()}
-                      className="flex items-center gap-2 border border-outline-variant bg-white hover:shadow-md text-primary px-4 h-9 rounded-full font-bold text-xs transition-all active:scale-95 cursor-pointer"
-                    >
-                      <FileText className="w-3.5 h-3.5" />
-                      <span>Export PDF</span>
-                    </button>
+                  <div>
+                    <h2 className="text-sm font-bold text-slate-800">Chairside Deliverables Suite</h2>
+                    <p className="text-[11px] text-slate-400">Zero-edit clinical outputs generated from audio</p>
                   </div>
                 </div>
 
-                <div className="bg-white rounded-xl p-5 border border-outline-variant/60 shadow-inner flex flex-col flex-grow min-h-[250px] lg:min-h-[350px]">
-                  <textarea
-                    value={patientLetter}
-                    onChange={(e) => setPatientLetter(e.target.value)}
-                    className="w-full h-full border-none p-0 focus:ring-0 text-slate-700 text-sm leading-relaxed resize-none bg-transparent outline-none focus:outline-none"
-                    placeholder={needsReview
-                      ? 'Write the patient letter here (the offline draft could not safely auto-write one).'
-                      : 'Drafting care instructions letter...'}
-                  />
-                </div>
-
-                {needsReview && (
-                  <p className="text-[10px] text-amber-700 font-semibold mt-3 leading-relaxed">
-                    This note was produced by a fallback path. No ADA codes were auto-inferred and no letter was auto-written — verify every field and add missing content before saving.
-                  </p>
-                )}
-
-                <div className="mt-5">
+                {/* 3 Core Output Tabs */}
+                <div className="flex items-center p-1 bg-slate-100/90 rounded-xl border border-slate-200/70 overflow-x-auto">
                   <button
-                    onClick={handleSaveToRecord}
                     type="button"
-                    className="w-full bg-[#004ac6] hover:bg-opacity-95 text-white h-14 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all cursor-pointer text-sm"
+                    onClick={() => setActiveHubTab('patient-care')}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                      activeHubTab === 'patient-care'
+                        ? 'bg-white text-primary shadow-sm'
+                        : 'text-slate-500 hover:text-slate-800'
+                    }`}
                   >
-                    <Save className="w-5 h-5 fill-white" />
-                    <span>
-                      {needsReview ? 'Review Complete — Save to Record' : 'Save to Practice Record'}
-                      <span className="ml-2 text-[10px] font-semibold text-blue-200 hidden md:inline">⌘↵</span>
-                    </span>
+                    <ClipboardList className="w-3.5 h-3.5 text-blue-600" />
+                    <span>Patient Care & Consent</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setActiveHubTab('specialist-referral')}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                      activeHubTab === 'specialist-referral'
+                        ? 'bg-white text-primary shadow-sm'
+                        : 'text-slate-500 hover:text-slate-800'
+                    }`}
+                  >
+                    <Stethoscope className="w-3.5 h-3.5 text-purple-600" />
+                    <span>Specialist Referral</span>
+                    {specialistReferral.required && (
+                      <span className="w-2 h-2 rounded-full bg-purple-500 animate-pulse"></span>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setActiveHubTab('treatment-quote')}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                      activeHubTab === 'treatment-quote'
+                        ? 'bg-white text-primary shadow-sm'
+                        : 'text-slate-500 hover:text-slate-800'
+                    }`}
+                  >
+                    <DollarSign className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Case Pack & Quote</span>
                   </button>
                 </div>
+              </div>
+
+              {/* TAB 1: Patient Care Summary & Informed Consent */}
+              {activeHubTab === 'patient-care' && (
+                <div className="bg-white border border-indigo-100/70 rounded-2xl p-6 flex flex-col gap-5 shadow-sm">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <div>
+                      <h3 className="font-bold text-slate-800 text-base flex items-center gap-2">
+                        <span>Patient Care Summary & Informed Consent</span>
+                        <span className="text-[10px] font-bold uppercase tracking-wider bg-blue-50 text-[#004ac6] border border-blue-200 px-2 py-0.5 rounded-full">
+                          en-AU
+                        </span>
+                      </h3>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        Plain-English visit review with AHPRA Section 133 informed consent breakdown.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={handleCopySummary}
+                        className={`flex items-center gap-2 border px-4 h-9 rounded-full font-bold text-xs transition-all active:scale-95 cursor-pointer ${
+                          copied ? 'bg-emerald-600 border-transparent text-white' : 'bg-white border-outline-variant hover:shadow-md text-primary'
+                        }`}
+                      >
+                        {copied ? <Check className="w-3.5 h-3.5 stroke-[3]" /> : <Copy className="w-3.5 h-3.5" />}
+                        <span>{copied ? 'Copied!' : 'Copy Letter'}</span>
+                      </button>
+                      <button
+                        onClick={() => window.print()}
+                        className="flex items-center gap-2 border border-outline-variant bg-white hover:shadow-md text-primary px-4 h-9 rounded-full font-bold text-xs transition-all active:scale-95 cursor-pointer"
+                      >
+                        <FileText className="w-3.5 h-3.5" />
+                        <span>Export PDF</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Visit Summary Box */}
+                  <div className="bg-slate-50 rounded-xl p-4 border border-slate-200/80">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1">
+                      Clinical Visit Explanation
+                    </label>
+                    <textarea
+                      rows={4}
+                      value={patientLetter}
+                      onChange={(e) => {
+                        setPatientLetter(e.target.value);
+                        setPatientConsent((prev) => ({ ...prev, plainSummary: e.target.value }));
+                      }}
+                      className="w-full border-none p-0 focus:ring-0 text-slate-700 text-sm leading-relaxed resize-none bg-transparent outline-none"
+                      placeholder="Plain-English explanation of today's visit and recommendations..."
+                    />
+                  </div>
+
+                  {/* Informed Consent Guardrails */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="p-4 rounded-xl bg-amber-500/5 border border-amber-200/50">
+                      <div className="flex items-center gap-1.5 mb-1.5">
+                        <AlertCircle className="w-3.5 h-3.5 text-amber-600" />
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-amber-700">Risks of No Treatment</span>
+                      </div>
+                      <textarea
+                        rows={3}
+                        value={patientConsent.risksOfNoTreatment}
+                        onChange={(e) => setPatientConsent((prev) => ({ ...prev, risksOfNoTreatment: e.target.value }))}
+                        className="w-full text-xs text-slate-700 bg-transparent border-none p-0 outline-none resize-none leading-relaxed"
+                      />
+                    </div>
+
+                    <div className="p-4 rounded-xl bg-emerald-500/5 border border-emerald-200/50">
+                      <div className="flex items-center gap-1.5 mb-1.5">
+                        <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-700">Post-Op Care Instructions</span>
+                      </div>
+                      <textarea
+                        rows={3}
+                        value={patientConsent.postOpCareInstructions}
+                        onChange={(e) => setPatientConsent((prev) => ({ ...prev, postOpCareInstructions: e.target.value }))}
+                        className="w-full text-xs text-slate-700 bg-transparent border-none p-0 outline-none resize-none leading-relaxed"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Red-Flag Warning Box */}
+                  <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 flex items-start gap-2.5">
+                    <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0 mt-0.5" />
+                    <div className="flex-grow">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-rose-800 block mb-0.5">
+                        Red-Flag Warning Signs (Call Practice Immediately)
+                      </span>
+                      <textarea
+                        rows={2}
+                        value={patientConsent.redFlagsWarning}
+                        onChange={(e) => setPatientConsent((prev) => ({ ...prev, redFlagsWarning: e.target.value }))}
+                        className="w-full text-xs text-rose-900 bg-transparent border-none p-0 outline-none resize-none leading-relaxed"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 2: Specialist Referral Letter */}
+              {activeHubTab === 'specialist-referral' && (
+                <div className="bg-white border border-purple-100 rounded-2xl p-6 flex flex-col gap-5 shadow-sm">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-bold text-slate-800 text-base">Specialist Referral Letter</h3>
+                        <span className="text-[10px] font-bold uppercase tracking-wider bg-purple-50 text-purple-700 border border-purple-200 px-2 py-0.5 rounded-full">
+                          {specialistReferral.specialty}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        Formal peer-to-peer referral letter ready for specialist dispatch.
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={handleCopyReferral}
+                        className={`flex items-center gap-2 border px-4 h-9 rounded-full font-bold text-xs transition-all active:scale-95 cursor-pointer ${
+                          referralCopied ? 'bg-emerald-600 border-transparent text-white' : 'bg-white border-outline-variant hover:shadow-md text-primary'
+                        }`}
+                      >
+                        {referralCopied ? <Check className="w-3.5 h-3.5 stroke-[3]" /> : <Copy className="w-3.5 h-3.5" />}
+                        <span>{referralCopied ? 'Copied!' : 'Copy Referral'}</span>
+                      </button>
+                      <button
+                        onClick={() => window.print()}
+                        className="flex items-center gap-2 border border-outline-variant bg-white hover:shadow-md text-primary px-4 h-9 rounded-full font-bold text-xs transition-all active:scale-95 cursor-pointer"
+                      >
+                        <Printer className="w-3.5 h-3.5" />
+                        <span>Print Referral</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Referral Metadata Controls */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+                    <div>
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                        Specialty
+                      </label>
+                      <select
+                        value={specialistReferral.specialty}
+                        onChange={(e) => setSpecialistReferral((prev) => ({ ...prev, specialty: e.target.value as any }))}
+                        className="w-full bg-white border border-slate-200 text-xs font-semibold rounded-lg px-2.5 py-1.5 text-slate-700"
+                      >
+                        <option value="Endodontics">Endodontics</option>
+                        <option value="Periodontics">Periodontics</option>
+                        <option value="Oral & Maxillofacial Surgery">Oral & Maxillofacial Surgery</option>
+                        <option value="Orthodontics">Orthodontics</option>
+                        <option value="Prosthodontics">Prosthodontics</option>
+                        <option value="Paediatric Dentistry">Paediatric Dentistry</option>
+                        <option value="General Referral">General Referral</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                        Urgency Level
+                      </label>
+                      <select
+                        value={specialistReferral.urgency}
+                        onChange={(e) => setSpecialistReferral((prev) => ({ ...prev, urgency: e.target.value as any }))}
+                        className="w-full bg-white border border-slate-200 text-xs font-semibold rounded-lg px-2.5 py-1.5 text-slate-700"
+                      >
+                        <option value="Routine">Routine (Within 4-6 weeks)</option>
+                        <option value="Urgent">Urgent (Within 1-2 weeks)</option>
+                        <option value="Immediate (Emergency)">Immediate (Emergency / 24-48h)</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                        Teeth (FDI)
+                      </label>
+                      <input
+                        type="text"
+                        value={specialistReferral.teethInvolved?.join(', ') || ''}
+                        onChange={(e) =>
+                          setSpecialistReferral((prev) => ({
+                            ...prev,
+                            teethInvolved: e.target.value.split(',').map((s) => s.trim()).filter(Boolean)
+                          }))
+                        }
+                        placeholder="e.g. 16, 46"
+                        className="w-full bg-white border border-slate-200 text-xs font-semibold rounded-lg px-2.5 py-1.5 text-slate-700"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Formal Letterhead Preview */}
+                  <div className="p-5 rounded-xl border border-purple-200 bg-purple-50/20 font-mono text-xs text-slate-800 leading-relaxed shadow-inner">
+                    <textarea
+                      rows={12}
+                      value={specialistReferral.letterText}
+                      onChange={(e) => setSpecialistReferral((prev) => ({ ...prev, letterText: e.target.value }))}
+                      className="w-full bg-transparent border-none p-0 outline-none resize-none font-sans text-xs text-slate-800 leading-relaxed"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 3: Visual Case Pack & Treatment Quote ("CoTreat Pack" Equivalent) */}
+              {activeHubTab === 'treatment-quote' && (
+                <div className="bg-white border border-emerald-100 rounded-2xl p-6 flex flex-col gap-6 shadow-sm">
+                  {/* Header & Visual Category Selector */}
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-bold text-slate-800 text-base">Visual Case Pack & Quote</h3>
+                        <span className="text-[10px] font-extrabold uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-full">
+                          Patient Acceptance Deck
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        High-impact anatomical visualizer and itemized health fund gap breakdown.
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={handleCopyQuote}
+                        className={`flex items-center gap-2 border px-4 h-9 rounded-full font-bold text-xs transition-all active:scale-95 cursor-pointer ${
+                          quoteCopied ? 'bg-emerald-600 border-transparent text-white' : 'bg-white border-outline-variant hover:shadow-md text-primary'
+                        }`}
+                      >
+                        {quoteCopied ? <Check className="w-3.5 h-3.5 stroke-[3]" /> : <Copy className="w-3.5 h-3.5" />}
+                        <span>{quoteCopied ? 'Copied!' : 'Copy Quote'}</span>
+                      </button>
+                      <button
+                        onClick={() => window.print()}
+                        className="flex items-center gap-2 border border-outline-variant bg-white hover:shadow-md text-primary px-4 h-9 rounded-full font-bold text-xs transition-all active:scale-95 cursor-pointer"
+                      >
+                        <Printer className="w-3.5 h-3.5" />
+                        <span>Print Case Pack</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Procedure Visual Mode Selector */}
+                  <div className="flex items-center gap-1.5 p-1 bg-slate-100/90 rounded-xl w-full overflow-x-auto border border-slate-200/80 shadow-inner">
+                    {[
+                      { id: 'crown', label: 'Ceramic Crown' },
+                      { id: 'implant', label: 'Dental Implant' },
+                      { id: 'endo', label: 'Root Canal' },
+                      { id: 'veneer', label: 'Porcelain Veneers' },
+                      { id: 'aligner', label: 'Clear Aligners' },
+                      { id: 'perio', label: 'Deep Gum Therapy' },
+                      { id: 'general', label: 'General / Preventive' }
+                    ].map((cat) => (
+                      <button
+                        key={cat.id}
+                        type="button"
+                        onClick={() => setSelectedVisualCategory(cat.id as VisualCaseCategory)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap active:scale-[0.98] ${
+                          selectedVisualCategory === cat.id
+                            ? 'bg-[#004ac6] text-white shadow-sm ring-1 ring-blue-700/20'
+                            : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+                        }`}
+                      >
+                        {cat.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Visual 3-Stage Case Cards (The Visualizer that wows patients) */}
+                  <div className="bg-gradient-to-b from-blue-50/40 via-indigo-50/20 to-white border border-blue-100/80 rounded-2xl p-5 flex flex-col gap-4 shadow-sm">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h4 className="font-bold text-sm text-slate-800">{activeVisualPresentation.treatmentName}</h4>
+                        <p className="text-xs text-slate-500">{activeVisualPresentation.tagline}</p>
+                      </div>
+                      <span className="text-[10px] font-mono font-bold bg-white text-blue-700 border border-blue-200/80 px-2.5 py-1 rounded-full shadow-xs">
+                        ADA {activeVisualPresentation.typicalAdaCodes.join(', ')}
+                      </span>
+                    </div>
+
+                    {/* 3-Stage Visual Progression Grid */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
+                      {activeVisualPresentation.stages.map((stage) => {
+                        const stageBadgeStyle =
+                          stage.step === 1
+                            ? 'bg-blue-50 text-blue-700 border-blue-200/80'
+                            : stage.step === 2
+                            ? 'bg-indigo-50 text-indigo-700 border-indigo-200/80'
+                            : 'bg-emerald-50 text-emerald-700 border-emerald-200/80';
+
+                        return (
+                          <div
+                            key={stage.step}
+                            className="group relative bg-white rounded-2xl border border-slate-200/80 p-4 flex flex-col shadow-xs hover:shadow-md hover:border-blue-200 transition-all duration-200"
+                          >
+                            <div className="flex items-center justify-between mb-2.5">
+                              <span className={`text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full border ${stageBadgeStyle}`}>
+                                Stage {stage.step}: {stage.badge}
+                              </span>
+                            </div>
+                            {/* SVG Visual Graphic */}
+                            <div
+                              className="w-full h-32 mb-3 rounded-xl overflow-hidden flex items-center justify-center bg-slate-50/80 border border-slate-100 group-hover:scale-[1.02] transition-transform duration-300"
+                              dangerouslySetInnerHTML={{ __html: stage.illustrationSvg }}
+                            />
+                            <h5 className="font-bold text-xs text-slate-800">{stage.title}</h5>
+                            <p className="text-[11px] text-slate-500 leading-relaxed mt-1 flex-grow">
+                              {stage.description}
+                            </p>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Value Proposition & Anatomy Highlights */}
+                    <div className="p-3.5 bg-white/90 rounded-xl border border-blue-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                      <div className="text-slate-600">
+                        <strong className="text-slate-800">Patient Outcome:</strong> {activeVisualPresentation.patientValueProposition}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Health Fund Presentation Mode & Risk Disclaimer */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
+                    <div className="flex items-center gap-2.5">
+                      <ShieldCheck className="w-5 h-5 text-emerald-600 flex-shrink-0" />
+                      <div>
+                        <span className="text-xs font-bold text-slate-800">Health Fund Rebate Mode</span>
+                        <p className="text-[11px] text-slate-500">
+                          {rebateMode === 'practice_fees_only'
+                            ? 'Displaying practice fees only. Advises patient to verify rebates with their insurer.'
+                            : 'Displaying estimated rebates. Subject to patient annual policy limits.'}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1 p-1 bg-slate-100/90 rounded-xl border border-slate-200/80 shadow-inner self-start sm:self-auto">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setRebateMode('practice_fees_only');
+                          recalculateQuote(treatmentQuote.items, 'practice_fees_only');
+                        }}
+                        className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer active:scale-[0.98] ${
+                          rebateMode === 'practice_fees_only'
+                            ? 'bg-white text-slate-900 shadow-sm ring-1 ring-slate-200/70'
+                            : 'text-slate-500 hover:text-slate-800'
+                        }`}
+                      >
+                        Practice Fees Only (Safe)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setRebateMode('show_rebate_estimate');
+                          recalculateQuote(treatmentQuote.items, 'show_rebate_estimate');
+                        }}
+                        className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer active:scale-[0.98] ${
+                          rebateMode === 'show_rebate_estimate'
+                            ? 'bg-emerald-600 text-white shadow-sm'
+                            : 'text-slate-500 hover:text-slate-800'
+                        }`}
+                      >
+                        Show Est. Rebate
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Patient Advisory Notice for Insurance Limits */}
+                  <div className="flex items-start gap-2.5 p-3.5 rounded-2xl bg-amber-50/80 border border-amber-200 text-amber-900 text-xs shadow-sm">
+                    <Info className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                    <div className="leading-relaxed">
+                      <strong className="font-semibold text-amber-950">Private Health Insurance Notice:</strong> Rebate amounts depend on your private health fund table of cover, waiting periods, and any annual limits you have already used this year (especially on Major Dental). Please quote the ADA item numbers below directly to your health fund to verify your exact rebate and out-of-pocket gap prior to treatment.
+                    </div>
+                  </div>
+
+                  {/* Financial Overview Metrics Cards */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+                    <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm text-center">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Total Treatment Fee</span>
+                      <span className="font-mono text-2xl font-black text-slate-900 mt-1 block">${treatmentQuote.totalFee}</span>
+                    </div>
+                    <div className="bg-emerald-50/70 p-4 rounded-2xl border border-emerald-200/80 shadow-sm text-center">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 block">
+                        {rebateMode === 'practice_fees_only' ? 'Health Fund Rebate' : 'Est. Health Fund Rebate'}
+                      </span>
+                      <span className="font-mono text-base font-extrabold text-emerald-700 mt-1.5 block">
+                        {rebateMode === 'practice_fees_only'
+                          ? 'Claim Directly with Fund'
+                          : `-$${treatmentQuote.estimatedRebate}`}
+                      </span>
+                    </div>
+                    <div className="bg-blue-50/70 p-4 rounded-2xl border border-blue-200/80 shadow-sm text-center">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-[#004ac6] block">
+                        {rebateMode === 'practice_fees_only' ? 'Out-of-Pocket Gap' : 'Est. Patient Gap'}
+                      </span>
+                      <span className="font-mono text-2xl font-black text-[#004ac6] mt-1 block">
+                        {rebateMode === 'practice_fees_only'
+                          ? `$${treatmentQuote.totalFee} (Less Rebate)`
+                          : `$${treatmentQuote.netGap}`}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Editable Itemized ADA Fee Schedule Table */}
+                  <div className="border border-slate-200 rounded-xl overflow-hidden shadow-sm bg-white">
+                    <div className="p-3 bg-slate-100/80 border-b border-slate-200 flex items-center justify-between">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-600">
+                        Itemized Procedure Quote (Clinician Editable)
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleAddQuoteItem}
+                        className="flex items-center gap-1 text-[11px] font-bold text-primary hover:text-blue-700 bg-white hover:bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-lg transition-all cursor-pointer shadow-sm"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Add Procedure Item</span>
+                      </button>
+                    </div>
+
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs border-collapse">
+                        <thead>
+                          <tr className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200 text-[10px] uppercase tracking-wider">
+                            <th className="p-2.5 w-24">ADA Code</th>
+                            <th className="p-2.5">Procedure Description</th>
+                            <th className="p-2.5 w-20 text-center">Tooth</th>
+                            <th className="p-2.5 w-28 text-right">Fee ($)</th>
+                            <th className="p-2.5 w-36 text-right">
+                              {rebateMode === 'practice_fees_only' ? 'Rebate Status' : 'Est. Rebate ($)'}
+                            </th>
+                            <th className="p-2.5 w-28 text-right">Net Gap</th>
+                            <th className="p-2.5 w-12 text-center"></th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {treatmentQuote.items.map((item, idx) => (
+                            <tr key={idx} className="hover:bg-slate-50/80 transition-colors">
+                              <td className="p-2.5 font-mono">
+                                <input
+                                  type="text"
+                                  value={item.adaCode}
+                                  onChange={(e) => handleUpdateQuoteItem(idx, { adaCode: e.target.value })}
+                                  placeholder="ADA"
+                                  className="w-20 px-2 py-1 bg-white border border-slate-200 rounded font-mono font-bold text-xs text-slate-800 focus:ring-1 focus:ring-primary outline-none"
+                                />
+                              </td>
+                              <td className="p-2.5">
+                                <input
+                                  type="text"
+                                  value={item.description}
+                                  onChange={(e) => handleUpdateQuoteItem(idx, { description: e.target.value })}
+                                  placeholder="Procedure description..."
+                                  className="w-full px-2 py-1 bg-white border border-slate-200 rounded text-xs text-slate-800 font-medium focus:ring-1 focus:ring-primary outline-none"
+                                />
+                              </td>
+                              <td className="p-2.5 text-center">
+                                <input
+                                  type="text"
+                                  value={item.tooth || ''}
+                                  onChange={(e) => handleUpdateQuoteItem(idx, { tooth: e.target.value })}
+                                  placeholder="—"
+                                  className="w-14 px-1.5 py-1 bg-white border border-slate-200 rounded text-xs text-center font-bold text-amber-700 focus:ring-1 focus:ring-primary outline-none"
+                                />
+                              </td>
+                              <td className="p-2.5 text-right">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="5"
+                                  value={item.fee}
+                                  onChange={(e) => handleUpdateQuoteItem(idx, { fee: Math.max(0, Number(e.target.value) || 0) })}
+                                  className="w-24 px-2 py-1 bg-white border border-slate-200 rounded text-xs font-semibold text-slate-800 text-right focus:ring-1 focus:ring-primary outline-none"
+                                />
+                              </td>
+                              <td className="p-2.5 text-right">
+                                {rebateMode === 'practice_fees_only' ? (
+                                  <span className="text-[11px] text-slate-500 font-medium italic">
+                                    Check with fund
+                                  </span>
+                                ) : (
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step="5"
+                                    value={item.healthFundEstimatedRebate}
+                                    onChange={(e) => handleUpdateQuoteItem(idx, { healthFundEstimatedRebate: Math.max(0, Number(e.target.value) || 0) })}
+                                    className="w-24 px-2 py-1 bg-white border border-slate-200 rounded text-xs font-semibold text-emerald-700 text-right focus:ring-1 focus:ring-primary outline-none"
+                                  />
+                                )}
+                              </td>
+                              <td className="p-2.5 text-right font-bold text-[#004ac6]">
+                                {rebateMode === 'practice_fees_only'
+                                  ? `$${item.fee}`
+                                  : `$${item.gapEstimate}`}
+                              </td>
+                              <td className="p-2.5 text-center">
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteQuoteItem(idx)}
+                                  title="Remove procedure line"
+                                  className="p-1 text-slate-400 hover:text-red-600 rounded transition-colors cursor-pointer"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Phased Care Roadmap Timeline */}
+                  {treatmentQuote.phasedMilestones && treatmentQuote.phasedMilestones.length > 0 && (
+                    <div className="p-5 bg-slate-50/80 rounded-2xl border border-slate-200/90 flex flex-col gap-3.5 shadow-sm">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-extrabold uppercase tracking-widest text-slate-500">
+                          Phased Care Roadmap (Bite-Sized Chapters)
+                        </span>
+                        <span className="text-[11px] font-semibold text-primary font-mono">
+                          {treatmentQuote.phasedMilestones.length} Strategic Care Phases
+                        </span>
+                      </div>
+                      <div className="space-y-3">
+                        {treatmentQuote.phasedMilestones.map((milestone) => (
+                          <div
+                            key={milestone.phaseNumber}
+                            className="flex items-start gap-3.5 bg-white p-4 rounded-xl border border-slate-200/80 shadow-sm hover:border-primary/20 transition-all"
+                          >
+                            <div className="w-7 h-7 rounded-full bg-primary/10 text-primary font-mono font-bold text-xs flex items-center justify-center flex-shrink-0 mt-0.5 ring-1 ring-primary/20">
+                              {milestone.phaseNumber}
+                            </div>
+                            <div className="flex-grow">
+                              <div className="flex items-center justify-between">
+                                <span className="font-extrabold text-xs text-slate-900">{milestone.phaseTitle}</span>
+                                <span className="font-mono font-bold text-xs text-slate-800 bg-slate-100/90 px-2 py-0.5 rounded-md border border-slate-200/60">
+                                  ${milestone.totalPhaseFee}
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                                {milestone.items.join(' • ')}
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Master Save to Practice Record Button */}
+              <div className="mt-2">
+                <button
+                  onClick={handleSaveToRecord}
+                  type="button"
+                  className="w-full bg-[#004ac6] hover:bg-opacity-95 text-white h-14 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all cursor-pointer text-sm"
+                >
+                  <Save className="w-5 h-5 fill-white" />
+                  <span>Save All Clinical & Patient Records</span>
+                </button>
               </div>
             </section>
           </div>
@@ -632,7 +1415,7 @@ export default function ClinicalSummary({
           </button>
           <button onClick={handleSaveToRecord} className="flex flex-col items-center justify-center text-primary font-bold transition-all p-2 rounded-xl">
             <Save className="w-6 h-6" />
-            <span className="font-label-sm text-[11px] mt-1">{needsReview ? 'Save after review' : 'Save'}</span>
+            <span className="font-label-sm text-[11px] mt-1">{needsReview ? 'Save review' : 'Save'}</span>
           </button>
         </nav>
 
@@ -656,7 +1439,7 @@ export default function ClinicalSummary({
                 </div>
                 <h3 className="font-headline-lg text-xl font-bold text-slate-800 mb-1.5 leading-tight">Saved Successfully</h3>
                 <p className="text-slate-500 text-sm mb-6 leading-relaxed">
-                  Clinical findings and correspondence letter saved to the patient record.
+                  Clinical record, patient consent document, specialist referral, and treatment quote saved to patient record.
                 </p>
                 <button
                   type="button"
@@ -676,17 +1459,18 @@ export default function ClinicalSummary({
         <div className="flex justify-between items-start border-b-2 border-[#004ac6] pb-4 mb-6">
           <div>
             <h1 className="text-3xl font-extrabold tracking-tight text-[#004ac6]">DentAI</h1>
-            <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold mt-0.5">Clinical & Patient Care Copilot</p>
+            <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold mt-0.5">Clinical & Practice Growth OS</p>
           </div>
           <div className="text-right">
-            <h2 className="text-sm font-bold text-slate-800">Dental Practice Record</h2>
+            <h2 className="text-sm font-bold text-slate-800">Complete Consultation Dossier</h2>
             <p className="text-[10px] text-slate-400">Record ID: DENTAI-CONS-{consultation.id}</p>
-            <p className="text-[10px] text-slate-400 mt-0.5">Provider: {dentistName || 'Dentist'}</p>
+            <p className="text-[10px] text-slate-400 mt-0.5">Provider: {dentistName || 'Dentist'} (AHPRA Reg)</p>
           </div>
         </div>
 
+        {/* Patient header */}
         <div className="mb-6">
-          <h3 className="text-[10px] font-extrabold uppercase text-slate-400 tracking-wider mb-2 border-b border-slate-100 pb-1">Patient Details</h3>
+          <h3 className="text-[10px] font-extrabold uppercase text-slate-400 tracking-wider mb-2 border-b border-slate-100 pb-1">Patient Record</h3>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
             <div>
               <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block">Full Name</span>
@@ -707,11 +1491,12 @@ export default function ClinicalSummary({
           </div>
         </div>
 
+        {/* Clinical Notes Section */}
         <div className="mb-6">
           <h3 className="text-[10px] font-extrabold uppercase text-slate-400 tracking-wider mb-3 border-b border-slate-100 pb-1">
             Clinical Record — {activeTemplate.name}
           </h3>
-          <div className="space-y-4">
+          <div className="space-y-3">
             {activeTemplate.sections.map((section) => (
               <div key={section.key} className="border-l-4 border-[#004ac6] pl-3 py-0.5">
                 <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block">{section.label}</span>
@@ -729,18 +1514,105 @@ export default function ClinicalSummary({
           </div>
         </div>
 
-        <div className="mb-8 font-sans" style={{ pageBreakBefore: 'always' }}>
-          <h3 className="text-[10px] font-extrabold uppercase text-slate-400 tracking-wider mb-2 border-b border-slate-100 pb-1">Patient Care Summary Letter (en-AU)</h3>
-          <div className="bg-slate-50 p-5 rounded-xl border border-slate-200">
+        {/* Patient Care & Consent Document */}
+        <div className="mb-6" style={{ pageBreakBefore: 'always' }}>
+          <h3 className="text-[10px] font-extrabold uppercase text-slate-400 tracking-wider mb-2 border-b border-slate-100 pb-1">
+            Patient Care Summary & Informed Consent (en-AU)
+          </h3>
+          <div className="bg-slate-50 p-5 rounded-xl border border-slate-200 space-y-3">
             <p className="text-xs text-slate-800 whitespace-pre-wrap leading-relaxed">{patientLetter || 'No letter prepared for this record.'}</p>
+            <div className="border-t border-slate-200 pt-3 grid grid-cols-2 gap-3 text-[11px]">
+              <div>
+                <strong className="text-slate-700 block">Risks of No Treatment:</strong>
+                <span className="text-slate-600">{patientConsent.risksOfNoTreatment}</span>
+              </div>
+              <div>
+                <strong className="text-slate-700 block">Post-Operative Instructions:</strong>
+                <span className="text-slate-600">{patientConsent.postOpCareInstructions}</span>
+              </div>
+            </div>
           </div>
         </div>
+
+        {/* Specialist Referral Letter (if present) */}
+        {specialistReferral.letterText && (
+          <div className="mb-6" style={{ pageBreakBefore: 'always' }}>
+            <h3 className="text-[10px] font-extrabold uppercase text-slate-400 tracking-wider mb-2 border-b border-slate-100 pb-1">
+              Specialist Referral Letter — {specialistReferral.specialty}
+            </h3>
+            <div className="bg-slate-50 p-5 rounded-xl border border-slate-200 font-mono text-xs text-slate-800 whitespace-pre-wrap leading-relaxed">
+              {specialistReferral.letterText}
+            </div>
+          </div>
+        )}
+
+        {/* Treatment Estimate & Quote */}
+        {treatmentQuote.items.length > 0 && (
+          <div className="mb-8 font-sans" style={{ pageBreakBefore: 'always' }}>
+            <h3 className="text-[10px] font-extrabold uppercase text-slate-400 tracking-wider mb-2 border-b border-slate-100 pb-1">
+              Treatment Estimate & Itemized Practice Fee Schedule
+            </h3>
+
+            {/* Health Fund Notice for Printed Report */}
+            <div className="mb-3 p-3 bg-slate-50 border border-slate-200 rounded-lg text-[10px] text-slate-600 leading-relaxed">
+              <strong className="text-slate-800">Notice Regarding Private Health Insurance Rebates:</strong> Private health fund rebates depend on your individual fund table of cover, waiting periods, and remaining annual limits (which may have been drawn upon earlier this year). Please quote the ADA item numbers below directly to your private health insurer to verify your exact rebate and out-of-pocket gap prior to booking chair time.
+            </div>
+
+            <div className="border border-slate-200 rounded-xl overflow-hidden mb-4">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="bg-slate-100 text-slate-600 font-bold border-b border-slate-200 text-[10px] uppercase">
+                    <th className="p-2.5">Item</th>
+                    <th className="p-2.5">Description</th>
+                    <th className="p-2.5 text-right">Practice Fee</th>
+                    <th className="p-2.5 text-right">
+                      {rebateMode === 'practice_fees_only' ? 'Health Fund Rebate' : 'Est. Rebate'}
+                    </th>
+                    <th className="p-2.5 text-right">Net Gap</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {treatmentQuote.items.map((it, idx) => (
+                    <tr key={idx}>
+                      <td className="p-2.5 font-mono">{it.adaCode}</td>
+                      <td className="p-2.5">{formatItemTitle(it)}</td>
+                      <td className="p-2.5 text-right font-semibold">${it.fee}</td>
+                      <td className="p-2.5 text-right text-emerald-700">
+                        {rebateMode === 'practice_fees_only'
+                          ? 'Check with fund'
+                          : `$${it.healthFundEstimatedRebate}`}
+                      </td>
+                      <td className="p-2.5 text-right font-bold text-[#004ac6]">
+                        {rebateMode === 'practice_fees_only'
+                          ? `$${it.fee}`
+                          : `$${it.gapEstimate}`}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="flex justify-end gap-6 text-xs font-bold bg-slate-50 p-3 rounded-xl border border-slate-200">
+              <span>Total Practice Fee: ${treatmentQuote.totalFee}</span>
+              {rebateMode === 'show_rebate_estimate' ? (
+                <>
+                  <span className="text-emerald-700">Total Est. Rebate: ${treatmentQuote.estimatedRebate}</span>
+                  <span className="text-[#004ac6]">Estimated Patient Gap: ${treatmentQuote.netGap}</span>
+                </>
+              ) : (
+                <span className="text-slate-500 font-medium italic">
+                  Health fund rebate claimable directly with insurer
+                </span>
+              )}
+            </div>
+          </div>
+        )}
 
         <div className="mt-12 flex justify-between items-center border-t border-slate-200 pt-6">
           <div className="flex items-center gap-2">
             <span className={`w-2.5 h-2.5 rounded-full ${needsReview ? 'bg-amber-500' : 'bg-emerald-600'}`}></span>
             <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">
-              {needsReview ? 'Clinician-reviewed draft' : 'AI Verified Compliance Record'}
+              {needsReview ? 'Clinician-reviewed draft' : 'AHPRA Section 133 Compliant Dossier'}
             </span>
           </div>
           <div className="text-right">

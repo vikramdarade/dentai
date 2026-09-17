@@ -13,6 +13,112 @@ export interface AdaCodeItem {
   tooth?: string;
 }
 
+export type TreatmentStatus = 'unscheduled' | 'contacted' | 'booked' | 'completed' | 'declined';
+
+export type PmsType = 'cliniko' | 'corepractice' | 'd4w' | 'exact' | 'dentrix' | 'other';
+
+export interface TreatmentOpportunity {
+  id: string;
+  consultationId: string;
+  dentistId: string;
+  clinicId?: string;
+  patientName: string;
+  patientPhone?: string;
+  patientEmail?: string;
+  tooth?: string; // FDI notation e.g. "16"
+  surfaces?: string; // e.g. "MOD"
+  adaCode: string; // e.g. "611"
+  procedureName: string; // e.g. "Full Crown - Ceramic"
+  estimatedFee: number; // e.g. 1650
+  clinicalReason: string;
+  patientBarrier?: string;
+  status: TreatmentStatus;
+  lastContactedAt?: string;
+  bookedAt?: string;
+  createdAt: string;
+  // Closed-loop PMS verification fields
+  pmsType?: PmsType;
+  pmsAppointmentId?: string;
+  pmsBookingRef?: string;
+  pmsSyncStatus?: 'unlinked' | 'verified' | 'auto_synced';
+}
+
+export interface PracticeRoiSummary {
+  clinicId: string;
+  month: string;
+  totalIdentifiedValue: number;
+  totalBookedValue: number;
+  totalCompletedValue: number;
+  unscheduledCount: number;
+  bookedCount: number;
+  declinedCount?: number;
+  declinedValue?: number;
+  subscriptionCost: number;
+  netRoiMultiple: number;
+  // Closed-loop verified metrics
+  verifiedBookedValue?: number;
+  verifiedBookedCount?: number;
+  conversionRatePct?: number;
+  averageDaysToBook?: number;
+}
+
+export interface SpecialistReferral {
+  required: boolean;
+  specialty?: 'Endodontics' | 'Periodontics' | 'Oral & Maxillofacial Surgery' | 'Orthodontics' | 'Prosthodontics' | 'Paediatric Dentistry' | 'General Referral';
+  specialistName?: string;
+  recipientClinic?: string;
+  teethInvolved?: string[]; // FDI notation e.g. ["16"]
+  urgency?: 'Routine' | 'Urgent' | 'Immediate (Emergency)';
+  clinicalQuestion: string; // e.g. "Assessment and root canal therapy for tooth 16"
+  backgroundAndFindings: string; // concise clinical summary, pulp vitality, radiographic signs
+  provisionalDiagnosis: string;
+  interimTreatmentProvided?: string; // e.g. "Pulp extirpation under rubber dam, ledermix dressing placed"
+  medicalAlerts?: string;
+  letterText: string; // ready-to-send formal referral letter
+}
+
+export interface PatientConsentOption {
+  optionName: string;
+  benefits: string;
+  risks: string;
+  estimatedCost?: string;
+}
+
+export interface PatientConsentAndCare {
+  plainSummary: string;
+  optionsDiscussed: PatientConsentOption[];
+  risksOfNoTreatment: string;
+  postOpCareInstructions: string;
+  redFlagsWarning: string;
+  consentStatus?: 'discussed_pending_signature' | 'verbally_consented' | 'written_consent_signed';
+}
+
+export interface TreatmentQuoteItem {
+  adaCode: string;
+  description: string;
+  tooth?: string;
+  fee: number;
+  healthFundEstimatedRebate: number;
+  gapEstimate: number;
+  category: 'Diagnostic' | 'Preventive' | 'Periodontics' | 'Endodontics' | 'Restorative' | 'Crown & Bridge' | 'Surgery' | 'Orthodontics';
+}
+
+export interface TreatmentQuoteData {
+  items: TreatmentQuoteItem[];
+  totalFee: number;
+  estimatedRebate: number;
+  netGap: number;
+  visualCaseCategory?: 'crown' | 'implant' | 'endo' | 'veneer' | 'aligner' | 'perio' | 'general';
+  rebateMode?: 'practice_fees_only' | 'show_rebate_estimate';
+  rebateDisclaimer?: string;
+  phasedMilestones?: Array<{
+    phaseNumber: number;
+    phaseTitle: string;
+    items: string[];
+    totalPhaseFee: number;
+  }>;
+}
+
 export interface ClinicalFindings {
   chiefComplaint: string;
   history: string;
@@ -24,6 +130,7 @@ export interface ClinicalFindings {
   recallRequirements: string;
   customSections?: Record<string, string>;
   adaCodes?: AdaCodeItem[];
+  proposedTreatments?: TreatmentOpportunity[];
 }
 
 /** How the note content in this record was produced — surfaced transparently in the UI. */
@@ -83,6 +190,10 @@ export interface GeneratedNotePayload {
   customSections: Record<string, string>;
   patientSummary: string;
   adaCodes: AdaCodeItem[];
+  proposedTreatments?: TreatmentOpportunity[];
+  specialistReferral?: SpecialistReferral;
+  patientConsent?: PatientConsentAndCare;
+  treatmentQuote?: TreatmentQuoteData;
 }
 
 export interface Consultation {
@@ -106,6 +217,11 @@ export interface Consultation {
   consent?: ConsultationConsent;
   /** Append-only revision trail (server-maintained). */
   revisions?: ConsultationRevision[];
+  // Treatment-revenue surface (revenue engine, quote and referral pipeline).
+  proposedTreatments?: TreatmentOpportunity[];
+  specialistReferral?: SpecialistReferral;
+  patientConsent?: PatientConsentAndCare;
+  treatmentQuote?: TreatmentQuoteData;
 }
 
 export const getTodayStr = (when: Date = new Date()) => {

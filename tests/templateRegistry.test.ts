@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   APPOINTMENT_TYPES,
   BUILT_IN_TEMPLATES,
+  CORE_FORMAT_TEMPLATES,
   getDefaultTemplateIdForType,
   getTemplateById,
   TEMPLATE_BY_ID,
@@ -14,6 +15,12 @@ describe('dental template library invariants', () => {
     expect(APPOINTMENT_TYPES).toHaveLength(8);
     const ids = APPOINTMENT_TYPES.map((t) => t.defaultTemplateId);
     expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it('exposes exactly 3 core format templates for patient intake', () => {
+    expect(CORE_FORMAT_TEMPLATES).toHaveLength(3);
+    const coreIds = CORE_FORMAT_TEMPLATES.map((t) => t.id);
+    expect(coreIds).toEqual(['standard', 'soap', 'concise']);
   });
 
   it('maps every appointment type to a template that declares it', () => {
@@ -37,11 +44,20 @@ describe('dental template library invariants', () => {
     }
   });
 
-  it('legacy ids still resolve (standard, soap, restorative)', () => {
+  it('resolves core format templates (standard, soap, concise) and legacy ids', () => {
     expect(getTemplateById('standard').id).toBe('standard');
     expect(getTemplateById('soap').id).toBe('soap');
+    expect(getTemplateById('concise').id).toBe('concise');
     expect(getTemplateById('restorative').id).toBe('restorative');
     expect(getTemplateById('unknown-template').id).toBe('standard');
+  });
+
+  it('concise template uses canonical fields for seamless recall extraction', () => {
+    const concise = getTemplateById('concise');
+    expect(concise.sections).toHaveLength(4);
+    for (const sec of concise.sections) {
+      expect(isCanonicalField(sec.key)).toBe(true);
+    }
   });
 
   it('all appointment types are persisted under the documented union', () => {

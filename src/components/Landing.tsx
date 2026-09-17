@@ -4,15 +4,20 @@ import {
   ArrowRight,
   BadgeCheck,
   CalendarClock,
+  CheckCircle2,
   ClipboardCheck,
   Clock,
+  DollarSign,
   FileText,
   Languages,
   LayoutTemplate,
   Lock,
+  MessageSquare,
   Mic,
+  Phone,
   ShieldCheck,
   Sparkles,
+  TrendingUp,
   WifiOff
 } from 'lucide-react';
 
@@ -22,9 +27,11 @@ interface LandingProps {
 
 const NAV_LINKS = [
   { href: '#how-it-works', label: 'How it works' },
+  { href: '#revenue-engine', label: 'Revenue Engine' },
   { href: '#features', label: 'Features' },
   { href: '#formats', label: 'Formats' },
-  { href: '#trust', label: 'Privacy & AI' }
+  { href: '#trust', label: 'Privacy & AI' },
+  { href: '#/demo', label: 'Watch 3-Min Demo' }
 ];
 
 /**
@@ -151,7 +158,7 @@ export default function Landing({ onGetStarted }: LandingProps) {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, ease: [0.32, 0.72, 0, 1] }}
           >
-            <SectionEyebrow>Ambient clinical documentation</SectionEyebrow>
+            <SectionEyebrow>Ambient clinical scribe & practice revenue recovery</SectionEyebrow>
 
             <h1 className="mt-6 text-4xl font-extrabold leading-[1.05] tracking-tight text-slate-900 md:text-6xl">
               Your clinical notes,{' '}
@@ -160,25 +167,24 @@ export default function Landing({ onGetStarted }: LandingProps) {
               </span>
             </h1>
 
-            <p className="mt-6 max-w-xl text-base leading-relaxed text-slate-500 md:text-lg">
-              DentAI turns the dentist–patient conversation into structured, compliance-aligned
-              clinical notes — with ADA billing codes and a plain-language patient care letter —
-              in seconds, not evenings.
+            <p className="mt-6 max-w-xl text-base leading-relaxed text-slate-600 md:text-lg">
+              DentAI listens chairside, generating structured AHPRA notes, ADA billing codes,
+              and patient treatment estimates directly into your practice workflow.
             </p>
 
             <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">
               <button
                 onClick={onGetStarted}
-                className="group flex h-12 items-center justify-center gap-2 rounded-xl bg-primary px-7 text-sm font-bold text-white shadow-lg shadow-primary/25 transition-all hover:bg-primary-dark cursor-pointer"
+                className="group flex h-12 items-center justify-center gap-2 rounded-xl bg-primary px-7 text-sm font-bold text-white shadow-lg shadow-primary/25 transition-all hover:bg-primary-dark active:scale-[0.98] cursor-pointer"
               >
                 Try DentAI free
                 <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
               </button>
               <a
-                href="#how-it-works"
-                className="flex h-12 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-7 text-sm font-bold text-slate-700 shadow-sm transition-all hover:border-indigo-200 hover:text-primary"
+                href="#revenue-engine"
+                className="flex h-12 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-7 text-sm font-bold text-slate-700 shadow-sm transition-all hover:border-indigo-200 hover:text-primary active:scale-[0.98]"
               >
-                See how it works
+                See Revenue Engine
               </a>
             </div>
 
@@ -187,7 +193,7 @@ export default function Landing({ onGetStarted }: LandingProps) {
                 <BadgeCheck className="h-4 w-4 text-emerald-500" /> No credit card
               </span>
               <span className="flex items-center gap-1.5">
-                <BadgeCheck className="h-4 w-4 text-emerald-500" /> No setup fee
+                <BadgeCheck className="h-4 w-4 text-emerald-500" /> 100x+ practice ROI
               </span>
               <span className="flex items-center gap-1.5">
                 <BadgeCheck className="h-4 w-4 text-emerald-500" /> First note in minutes
@@ -219,6 +225,15 @@ export default function Landing({ onGetStarted }: LandingProps) {
               <div className="flex flex-col">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">ADA codes</span>
                 <span className="text-xs font-bold text-slate-800">011 · 111 · 511</span>
+              </div>
+            </div>
+            <div className="glass-panel absolute -right-6 -bottom-4 z-20 hidden items-center gap-2 rounded-2xl border-emerald-200 bg-white/95 px-4 py-2.5 shadow-xl sm:flex">
+              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500 text-white">
+                <TrendingUp className="h-4 w-4" />
+              </span>
+              <div className="flex flex-col">
+                <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-600">Revenue Engine</span>
+                <span className="text-xs font-extrabold text-slate-900">ADA 611 Crown · $1,650</span>
               </div>
             </div>
 
@@ -358,6 +373,169 @@ export default function Landing({ onGetStarted }: LandingProps) {
         </div>
       </section>
 
+      {/* ---------- Revenue Recovery Engine ---------- */}
+      <section id="revenue-engine" className="relative overflow-hidden bg-[#0A1628] py-20 text-white md:py-28">
+        {/* Glow backdrop */}
+        <div className="pointer-events-none absolute -left-20 top-1/4 h-96 w-96 rounded-full bg-primary/20 blur-[130px]" />
+        <div className="pointer-events-none absolute -right-20 bottom-1/4 h-96 w-96 rounded-full bg-emerald-500/15 blur-[130px]" />
+        <div
+          className="pointer-events-none absolute inset-0 opacity-[0.25] bg-[linear-gradient(to_right,rgba(255,255,255,0.05)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.05)_1px,transparent_1px)] bg-[size:48px_48px]"
+        />
+
+        <div className="relative mx-auto max-w-7xl px-5 md:px-8">
+          <div className="mx-auto flex max-w-3xl flex-col items-center text-center">
+            <div className="inline-flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-4 py-1.5 backdrop-blur-md">
+              <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="text-[11px] font-extrabold uppercase tracking-[0.18em] text-emerald-300">
+                Closed-Loop Revenue Recovery Engine
+              </span>
+            </div>
+            <h2 className="mt-6 text-3xl font-extrabold tracking-tight text-white md:text-5xl">
+              Turn unbooked chairside treatment into{' '}
+              <span className="bg-gradient-to-r from-emerald-400 to-teal-200 bg-clip-text text-transparent">
+                verified practice revenue.
+              </span>
+            </h2>
+            <p className="mt-4 text-base leading-relaxed text-slate-300 md:text-lg">
+              Over $30,000+ in proposed crowns, fillings, and endodontics is discussed in operatory chairs
+              every month, only to be lost to patient hesitation and forgotten follow-ups. DentAI extracts
+              unbooked treatment plans, generates patient estimates with private health fund rebate codes,
+              and verifies confirmed bookings directly in your PMS appointment book.
+            </p>
+          </div>
+
+          {/* Executive Scorecards */}
+          <div className="mt-14 grid grid-cols-2 gap-4 lg:grid-cols-4">
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur-md">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Unscheduled Pipeline</span>
+              <p className="mt-2 text-3xl font-black text-white">$34,800</p>
+              <span className="mt-1 inline-block text-xs font-semibold text-amber-400">24 active treatment plans</span>
+            </div>
+            <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-6 backdrop-blur-md">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-300">Verified Recovered Production</span>
+              <p className="mt-2 text-3xl font-black text-emerald-400">$18,400</p>
+              <span className="mt-1 inline-block text-xs font-semibold text-emerald-300">12 PMS-verified bookings</span>
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur-md">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Practice ROI Multiple</span>
+              <p className="mt-2 text-3xl font-black text-white">123.5x</p>
+              <span className="mt-1 inline-block text-xs font-semibold text-indigo-300">Verified on $149/mo plan</span>
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur-md">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Recapture Rate</span>
+              <p className="mt-2 text-3xl font-black text-white">52.8%</p>
+              <span className="mt-1 inline-block text-xs font-semibold text-slate-300">Avg booking velocity &lt; 48 hrs</span>
+            </div>
+          </div>
+
+          {/* 2-Column Feature Breakdown & Live Card Comp */}
+          <div className="mt-12 grid grid-cols-1 items-center gap-10 lg:grid-cols-12">
+            {/* Interactive Opportunity Mock */}
+            <div className="lg:col-span-7">
+              <div className="rounded-3xl border border-white/15 bg-white/10 p-6 backdrop-blur-xl shadow-2xl">
+                <div className="flex items-center justify-between border-b border-white/10 pb-4">
+                  <div className="flex items-center gap-3">
+                    <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/20 text-emerald-400 font-extrabold text-sm">
+                      PS
+                    </span>
+                    <div>
+                      <h4 className="text-base font-extrabold text-white">Priya Sharma</h4>
+                      <p className="text-xs text-slate-400">Comprehensive Exam · Operatory 2</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="rounded-full bg-emerald-500/20 px-3 py-1 text-[11px] font-extrabold uppercase tracking-wider text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                      D4W #8491 Verified
+                    </span>
+                  </div>
+                </div>
+
+                <div className="mt-5 space-y-3">
+                  <div className="flex items-center justify-between rounded-xl bg-white/5 p-3.5 border border-white/5">
+                    <div>
+                      <span className="text-xs font-bold text-slate-300">Tooth 16 · Full Ceramic Crown</span>
+                      <p className="text-[11px] text-slate-400">Hairline crack under mesial amalgam · High risk of vertical root fracture</p>
+                    </div>
+                    <div className="text-right">
+                      <span className="rounded bg-indigo-500/20 px-2 py-0.5 font-mono text-xs font-bold text-indigo-300">ADA 611</span>
+                      <p className="mt-1 text-sm font-black text-emerald-400">$1,650</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Patient Estimate & Health Fund Rebate preview */}
+                <div className="mt-5 rounded-2xl border border-emerald-500/30 bg-emerald-950/40 p-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-emerald-300 flex items-center gap-1.5">
+                      <Sparkles className="h-3.5 w-3.5 text-emerald-400" />
+                      Patient Treatment Estimate & Health Fund Rebates
+                    </span>
+                    <span className="text-[10px] font-bold text-slate-400 bg-white/5 px-2 py-0.5 rounded">
+                      Bupa · Medibank · HCF Ready
+                    </span>
+                  </div>
+                  <div className="mt-2.5 p-2.5 rounded-xl bg-white/5 border border-white/10 text-xs text-slate-300 leading-relaxed font-sans">
+                    <span className="text-amber-300 font-bold block mb-1">Plain-English Clinical Risk:</span>
+                    "Tooth 16 has structural crack damage requiring crown reinforcement. Delaying care risks complete root split requiring extraction."
+                  </div>
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <span className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-extrabold text-slate-950 shadow-sm">
+                      <Phone className="h-3.5 w-3.5" /> 1-Click WhatsApp
+                    </span>
+                    <span className="inline-flex items-center gap-1.5 rounded-lg border border-white/20 bg-white/5 px-3 py-1.5 text-xs font-bold text-white">
+                      <MessageSquare className="h-3.5 w-3.5" /> SMS Estimate
+                    </span>
+                    <span className="ml-auto inline-flex items-center gap-1 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-bold text-white">
+                      <ClipboardCheck className="h-3.5 w-3.5" /> Copy for PMS ($1,650)
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Feature Bullets */}
+            <div className="space-y-6 lg:col-span-5">
+              <div className="flex items-start gap-4">
+                <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-emerald-500/20 text-emerald-400">
+                  <Sparkles className="h-5 w-5" />
+                </span>
+                <div>
+                  <h4 className="text-base font-extrabold text-white">Patient Estimates with ADA Health Fund Codes</h4>
+                  <p className="mt-1 text-sm text-slate-400 leading-relaxed">
+                    Overcomes the #1 barrier to treatment acceptance: cost anxiety. Pre-formats clinical urgency and itemized ADA codes (611, 532) so patients can instantly check private health rebates in their fund app.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-4">
+                <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-emerald-500/20 text-emerald-400">
+                  <ClipboardCheck className="h-5 w-5" />
+                </span>
+                <div>
+                  <h4 className="text-base font-extrabold text-white">Universal PMS Bridge (D4W, EXACT, Cliniko)</h4>
+                  <p className="mt-1 text-sm text-slate-400 leading-relaxed">
+                    Zero risky database installs. Front-desk teams copy perfectly formatted appointment notes with 1 click into legacy desktop systems, while cloud PMS webhooks automatically update booking status.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-4">
+                <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-emerald-500/20 text-emerald-400">
+                  <TrendingUp className="h-5 w-5" />
+                </span>
+                <div>
+                  <h4 className="text-base font-extrabold text-white">Verified Owner ROI Scorecard</h4>
+                  <p className="mt-1 text-sm text-slate-400 leading-relaxed">
+                    Proves exact dollar yield recovered on the practice appointment ledger. Clinic owners see verified recovered production and net ROI multiples (40x–100x+) every single month.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* ---------- Features ---------- */}
       <section id="features" className="bg-white py-20 md:py-24">
         <div className="mx-auto max-w-7xl px-5 md:px-8">
@@ -366,54 +544,126 @@ export default function Landing({ onGetStarted }: LandingProps) {
             sub="Every feature exists to get one thing done: a complete, compliant clinical note with zero typing during the appointment."
           />
 
-          <div className="mt-14 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
-            {[
-              {
-                icon: FileText,
-                title: 'Structured clinical notes',
-                body: 'Chief complaint, history, tooth findings in FDI notation, gingival state, diagnosis, treatment, recommendations and recall — every time.'
-              },
-              {
-                icon: ClipboardCheck,
-                title: 'ADA billing codes extracted',
-                body: 'Item codes like 011, 111 and 511 are pulled straight from the conversation, so billing capture stops being guesswork.'
-              },
-              {
-                icon: Sparkles,
-                title: 'Patient care letter',
-                body: 'A warm, jargon-free summary the patient can read, print or take home — building trust and follow-through on every plan.'
-              },
-              {
-                icon: LayoutTemplate,
-                title: 'Your clinic’s template',
-                body: 'Match AHPRA 8-point, SOAP or restorative formats — or define custom section headings that mirror your practice macros.'
-              },
-              {
-                icon: Languages,
-                title: 'Accent-resilient parsing',
-                body: 'Phonetic variants of tooth numbers and clinical terms are resolved to correct FDI notation — “dirty tree” becomes 33, every time.'
-              },
-              {
-                icon: ShieldCheck,
-                title: 'Offline-safe & secure',
-                body: 'PIN-protected profiles, an audit log and session lock. Notes queue locally when the network drops and sync when it returns.'
-              }
-            ].map((feat, i) => (
-              <motion.div
-                key={feat.title}
-                initial={{ opacity: 0, y: 20 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true, margin: '-40px' }}
-                transition={{ duration: 0.45, delay: (i % 3) * 0.08 }}
-                className="group rounded-2xl border border-slate-200/70 bg-[#F8F7F5] p-6 transition-all hover:-translate-y-0.5 hover:border-indigo-100 hover:bg-white hover:shadow-lg hover:shadow-primary/5"
-              >
-                <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-white text-primary shadow-sm ring-1 ring-slate-200/70 transition-colors group-hover:bg-primary group-hover:text-white">
-                  <feat.icon className="h-5 w-5" />
+          <div className="mt-14 grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
+            {/* Bento Card 1: Accent Resilience (Wide) */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, margin: '-40px' }}
+              transition={{ duration: 0.45 }}
+              className="group relative rounded-3xl border border-slate-200/80 bg-white p-7 shadow-sm transition-all hover:border-primary/30 hover:shadow-xl md:col-span-2 flex flex-col justify-between"
+            >
+              <div>
+                <div className="flex items-center justify-between mb-4">
+                  <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-50 text-primary shadow-sm ring-1 ring-indigo-100">
+                    <Languages className="h-5 w-5" />
+                  </span>
+                  <span className="rounded-full bg-emerald-50 px-3 py-1 font-mono text-[10px] font-extrabold uppercase tracking-wider text-emerald-700 border border-emerald-100">
+                    Phonetic Engine Active
+                  </span>
+                </div>
+                <h3 className="text-xl font-extrabold tracking-tight text-slate-900">
+                  Accent-Resilient Australian Dental Lexicon
+                </h3>
+                <p className="mt-2 text-sm leading-relaxed text-slate-500 max-w-xl">
+                  Trained on multi-cultural Australian dental clinics. Resolves mumbled speech, suction noise, and phonetic variations of tooth numbers directly into standardized FDI notation.
+                </p>
+              </div>
+              <div className="mt-6 flex flex-wrap items-center gap-2 pt-4 border-t border-slate-100">
+                <span className="px-2.5 py-1 rounded-lg bg-slate-100 font-mono text-xs font-bold text-slate-700">
+                  “dirty tree” → FDI 33
                 </span>
-                <h3 className="mt-4 text-base font-extrabold tracking-tight text-slate-900">{feat.title}</h3>
-                <p className="mt-2 text-sm leading-relaxed text-slate-500">{feat.body}</p>
-              </motion.div>
-            ))}
+                <span className="px-2.5 py-1 rounded-lg bg-slate-100 font-mono text-xs font-bold text-slate-700">
+                  “upper right six” → FDI 16
+                </span>
+                <span className="px-2.5 py-1 rounded-lg bg-slate-100 font-mono text-xs font-bold text-slate-700">
+                  “MOD resin” → ADA 533
+                </span>
+              </div>
+            </motion.div>
+
+            {/* Bento Card 2: ADA Billing Extraction */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, margin: '-40px' }}
+              transition={{ duration: 0.45, delay: 0.1 }}
+              className="group relative rounded-3xl border border-slate-200/80 bg-white p-7 shadow-sm transition-all hover:border-primary/30 hover:shadow-xl flex flex-col justify-between"
+            >
+              <div>
+                <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-50 text-primary shadow-sm ring-1 ring-indigo-100 mb-4">
+                  <ClipboardCheck className="h-5 w-5" />
+                </span>
+                <h3 className="text-xl font-extrabold tracking-tight text-slate-900">
+                  ADA Billing Item Capture
+                </h3>
+                <p className="mt-2 text-sm leading-relaxed text-slate-500">
+                  Item codes are parsed continuously from operatory dialogue, ensuring high-value procedures are never missed at checkout.
+                </p>
+              </div>
+              <div className="mt-6 flex gap-1.5 pt-4 border-t border-slate-100">
+                {['011', '111', '532', '611'].map((code) => (
+                  <span key={code} className="px-2 py-0.5 rounded bg-primary/10 text-primary font-mono font-bold text-xs">
+                    {code}
+                  </span>
+                ))}
+              </div>
+            </motion.div>
+
+            {/* Bento Card 3: AHPRA Standards */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, margin: '-40px' }}
+              transition={{ duration: 0.45, delay: 0.15 }}
+              className="group relative rounded-3xl border border-slate-200/80 bg-white p-7 shadow-sm transition-all hover:border-primary/30 hover:shadow-xl flex flex-col justify-between"
+            >
+              <div>
+                <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-50 text-primary shadow-sm ring-1 ring-indigo-100 mb-4">
+                  <ShieldCheck className="h-5 w-5" />
+                </span>
+                <h3 className="text-xl font-extrabold tracking-tight text-slate-900">
+                  AHPRA 8-Point Compliance
+                </h3>
+                <p className="mt-2 text-sm leading-relaxed text-slate-500">
+                  Formatted specifically for the Dental Board of Australia’s record-keeping standards, including chief complaint, tooth charting, and clinical consent.
+                </p>
+              </div>
+              <div className="mt-6 flex items-center gap-2 pt-4 border-t border-slate-100 text-xs font-bold text-emerald-700">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                <span>Audit-ready clinical notes</span>
+              </div>
+            </motion.div>
+
+            {/* Bento Card 4: Patient Deliverables & Case Pack (Wide) */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, margin: '-40px' }}
+              transition={{ duration: 0.45, delay: 0.2 }}
+              className="group relative rounded-3xl border border-slate-200/80 bg-white p-7 shadow-sm transition-all hover:border-primary/30 hover:shadow-xl md:col-span-2 flex flex-col justify-between"
+            >
+              <div>
+                <div className="flex items-center justify-between mb-4">
+                  <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-50 text-primary shadow-sm ring-1 ring-indigo-100">
+                    <Sparkles className="h-5 w-5" />
+                  </span>
+                  <span className="rounded-full bg-blue-50 px-3 py-1 font-mono text-[10px] font-extrabold uppercase tracking-wider text-primary border border-blue-100">
+                    Visual Case Pack Ready
+                  </span>
+                </div>
+                <h3 className="text-xl font-extrabold tracking-tight text-slate-900">
+                  Itemized Treatment Quotes & Patient Deliverables
+                </h3>
+                <p className="mt-2 text-sm leading-relaxed text-slate-500 max-w-xl">
+                  Eliminates patient cost anxiety. Automatically computes fee schedules, safe private health fund verification reminders, and warm plain-English care summaries ready for chairside presentation.
+                </p>
+              </div>
+              <div className="mt-6 flex items-center justify-between pt-4 border-t border-slate-100 text-xs text-slate-500 font-medium">
+                <span>Printable Case Packs • Phased Roadmaps • 1-Click WhatsApp Delivery</span>
+                <span className="font-bold text-primary">Explore Case Pack →</span>
+              </div>
+            </motion.div>
           </div>
         </div>
       </section>

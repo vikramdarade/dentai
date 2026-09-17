@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, UserRound, Pause, Play, ArrowRight, Sparkles, ArrowUpDown, CornerDownLeft, AlertCircle, X, Mic, MicOff, RotateCcw, RefreshCw, WifiOff, Bot } from 'lucide-react';
+import { ArrowLeft, UserRound, Pause, Play, ArrowRight, Sparkles, ArrowUpDown, CornerDownLeft, AlertCircle, X, Mic, MicOff, RotateCcw, RefreshCw, WifiOff, Bot, Check, CheckCircle, Smartphone } from 'lucide-react';
+import ChairBeaconModal from './ChairBeaconModal';
 import { TranscriptItem, GeneratedNotePayload } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { AppointmentType, getTemplateById, getAppointmentTypeLabel } from '../lib/dentalLibrary';
@@ -7,6 +8,8 @@ import { SAMPLE_TRANSCRIPTS, getSampleForType } from '../lib/sampleTranscripts';
 import { generateOfflineDraft } from '../lib/draftEngine';
 import { generateWithOnDeviceModel, type OnDeviceResult } from '../lib/onDeviceModel';
 import { normalizedToPayload } from '../lib/normalizeNoteOutput';
+import { normalizeSpokenDentalText } from '../lib/dentalPhoneticLexicon';
+import { OPERATORY_AUDIO_DEFAULTS } from '../lib/operatoryAudioFilter';
 
 const isQuotaFailure = (msg: string): boolean =>
   msg.toLowerCase().includes('quota') ||
@@ -90,6 +93,7 @@ export default function LiveRecording({
   // Ambient Mode & Reset states
   const [isAmbientMode, setIsAmbientMode] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [showBeaconModal, setShowBeaconModal] = useState(false);
 
   // Voice transcription state
   const [isListening, setIsListening] = useState(false);
@@ -213,15 +217,17 @@ export default function LiveRecording({
       analyserRef.current = analyser;
 
       if (vocalBridgeActive) {
-        // High-pass filter to block low frequency hums (<150Hz)
+        // High-pass filter to block low frequency motor, HVAC, compressor hums (<120Hz)
         const hpFilter = audioContextRef.current.createBiquadFilter();
         hpFilter.type = 'highpass';
-        hpFilter.frequency.value = 150;
+        hpFilter.frequency.value = OPERATORY_AUDIO_DEFAULTS.highPassFreq;
+        hpFilter.Q.value = OPERATORY_AUDIO_DEFAULTS.q;
 
-        // Low-pass filter to block high frequency drill shrieks (>3400Hz)
+        // Low-pass filter to block high frequency ultrasonic scaler whine & suction hiss (>4200Hz)
         const lpFilter = audioContextRef.current.createBiquadFilter();
         lpFilter.type = 'lowpass';
-        lpFilter.frequency.value = 3400;
+        lpFilter.frequency.value = OPERATORY_AUDIO_DEFAULTS.lowPassFreq;
+        lpFilter.Q.value = OPERATORY_AUDIO_DEFAULTS.q;
 
         source.connect(hpFilter);
         hpFilter.connect(lpFilter);
@@ -338,7 +344,8 @@ export default function LiveRecording({
         for (let i = event.resultIndex; i < event.results.length; ++i) {
           const result = event.results[i];
           if (result.isFinal) {
-            const text = result[0].transcript.trim();
+            const rawText = result[0].transcript.trim();
+            const text = normalizeSpokenDentalText(rawText);
             if (text) {
               setTranscript((prev) => [...prev, { sender: 'Dialogue', text }]);
               setItemTimes((prev) => [...prev, secondsRef.current]);
@@ -347,7 +354,7 @@ export default function LiveRecording({
             interim += result[0].transcript;
           }
         }
-        setInterimTranscript(interim);
+        setInterimTranscript(normalizeSpokenDentalText(interim));
       };
 
       recognitionRef.current = rec;
@@ -466,6 +473,28 @@ export default function LiveRecording({
     };
   }, [isRecording]);
 
+  // Operatory keyboard trigger: Spacebar toggles recording hands-free (when not focused on text fields)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.code === 'Space') {
+        const target = e.target as HTMLElement;
+        const isInputField = target && (
+          target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
+          target.isContentEditable
+        );
+        if (!isInputField && !showBeaconModal && !isProcessing) {
+          e.preventDefault();
+          setIsRecording((prev) => !prev);
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showBeaconModal, isProcessing]);
+
+
   // Keep refs in sync for use inside long-lived callbacks (SpeechRecognition handlers).
   useEffect(() => {
     isRecordingRef.current = isRecording;
@@ -517,7 +546,8 @@ export default function LiveRecording({
 
   const handleAppendPhrase = (sender: 'Dentist' | 'Patient' | 'Dialogue' | 'Clinical Comment', text: string) => {
     if (!text.trim()) return;
-    setTranscript((prev) => [...prev, { sender, text }]);
+    const normalizedText = normalizeSpokenDentalText(text);
+    setTranscript((prev) => [...prev, { sender, text: normalizedText }]);
     setItemTimes((prev) => [...prev, secondsRef.current]);
   };
 
@@ -570,45 +600,50 @@ export default function LiveRecording({
   };
 
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const processingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const [processingSeconds, setProcessingSeconds] = useState(0);
+  const processingTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Only claim AI detection when clinical terminology is actually present in the transcript.
   const hasClinicalTerms = transcript.some((t) =>
     /(percussion|sensitivity|pulp|decay|caries|bleeding|mobility|root canal|filling|tooth\s*\d{1,2})/i.test(t.text)
   );
 
+  const getProcessingStageDescription = (seconds: number, baseState: string): string => {
+    if (baseState && baseState !== 'Formatting consultation dialogue...') {
+      return baseState;
+    }
+    if (seconds >= 22) return 'Synthesizing complex multi-tooth examination findings...';
+    if (seconds >= 15) return 'Structuring medical-legal clinical record & recommendations...';
+    if (seconds >= 9) return 'Analyzing tooth chart, periodontal findings & clinical dialogue...';
+    if (seconds >= 5) return 'Connecting to Dental AI clinical extractor...';
+    if (seconds >= 2) return 'Transcribing consultation & mapping FDI tooth numbers...';
+    return baseState || 'Formatting consultation dialogue...';
+  };
+
   const stopProcessingTicker = () => {
-    if (processingIntervalRef.current) {
-      clearInterval(processingIntervalRef.current);
-      processingIntervalRef.current = null;
+    if (processingTimerRef.current) {
+      clearInterval(processingTimerRef.current);
+      processingTimerRef.current = null;
     }
     setIsProcessing(false);
   };
 
-  const startProcessingTicker = (states: string[]) => {
+  const startProcessingSession = (initialState: string) => {
     setIsRecording(false);
     setIsProcessing(true);
     setErrorMsg(null);
-    let current = 0;
-    setProcessingState(states[0]);
-    processingIntervalRef.current = setInterval(() => {
-      current++;
-      if (current < states.length) {
-        setProcessingState(states[current]);
-      }
-    }, 1300);
+    setProcessingSeconds(0);
+    setProcessingState(initialState);
+
+    if (processingTimerRef.current) clearInterval(processingTimerRef.current);
+    processingTimerRef.current = setInterval(() => {
+      setProcessingSeconds((prev) => prev + 1);
+    }, 1000);
   };
 
   // Tier 1 — hosted AI (Gemini primary + secondary key failover on the server).
   const handleFinishNote = async () => {
-    startProcessingTicker([
-      'Transcribed live voice feed...',
-      'Running AI clinical extractor model (secure)...',
-      'Synthesizing clinical findings & tooth map...',
-      'Extracting ADA billing item codes...',
-      'Drafting friendly patient-narrative care letter...',
-      'Notes complete! Opening health communication hub...'
-    ]);
+    startProcessingSession('Formatting consultation dialogue...');
 
     try {
       await onFinish(transcript);
@@ -621,12 +656,7 @@ export default function LiveRecording({
 
   // Tier 3a — rule-based offline draft (works with no network / no GPU).
   const handleDraftOffline = async () => {
-    startProcessingTicker([
-      'Preparing a secure offline draft...',
-      'Matching the transcript to the treatment template...',
-      'Filling note sections only from what was said...',
-      'Offline draft complete — verify before saving!'
-    ]);
+    startProcessingSession('Generating instant deterministic offline note from transcript...');
 
     try {
       const template = getTemplateById(templateId);
@@ -648,12 +678,7 @@ export default function LiveRecording({
 
   // Tier 3b — on-device WebLLM model (beta; requires WebGPU, first use downloads weights).
   const handleOnDeviceModel = async () => {
-    startProcessingTicker([
-      'Starting the on-device model (WebGPU)...',
-      'Downloading/loading the local model — first use ~1 GB...',
-      'Generating the clinical note on this device...',
-      'Notes drafted on-device — verify before saving!'
-    ]);
+    startProcessingSession('Starting the on-device model (WebGPU)...');
 
     try {
       const template = getTemplateById(templateId);
@@ -726,6 +751,15 @@ export default function LiveRecording({
               {clinicUsage.used}/{clinicUsage.limit} AI notes today
             </span>
           )}
+          <button
+            type="button"
+            onClick={() => setShowBeaconModal(true)}
+            title="Pair chairside smartphone as hands-free beacon microphone"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 transition-all cursor-pointer shadow-sm hover:shadow-md"
+          >
+            <Smartphone className="w-3.5 h-3.5 text-indigo-600" />
+            <span className="text-[10px] font-bold uppercase tracking-wider">Phone Beacon</span>
+          </button>
           <button
             onClick={() => setIsAmbientMode(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-outline-variant bg-white hover:bg-slate-50 text-primary transition-all cursor-pointer mr-2 shadow-sm hover:shadow-md"
@@ -1052,7 +1086,7 @@ export default function LiveRecording({
                         : 'bg-slate-50 border-slate-200 text-slate-650'
                     }`}
                   >
-                    {vocalBridgeActive ? 'ACTIVE (150Hz - 3.4kHz)' : 'INACTIVE'}
+                    {vocalBridgeActive ? 'ACTIVE (120Hz - 4.2kHz Operatory Filter)' : 'INACTIVE'}
                   </button>
                 </div>
 
@@ -1234,8 +1268,14 @@ export default function LiveRecording({
             className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-indigo-950/95 backdrop-blur-md text-white p-6"
           >
             <div className="flex flex-col items-center max-w-sm text-center">
+              {/* Active Elapsed Seconds Counter Badge */}
+              <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-white/10 border border-white/15 text-indigo-200 text-xs font-mono font-bold mb-6">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                <span>Elapsed: {formatTime(processingSeconds)}</span>
+              </div>
+
               {/* Spinning sparkling indicator orb */}
-              <div className="relative mb-8">
+              <div className="relative mb-6">
                 <div className="w-20 h-20 rounded-full bg-primary-container/20 border border-primary-container flex items-center justify-center animate-spin duration-[3000s]">
                   <Sparkles className="w-10 h-10 text-primary-fixed" />
                 </div>
@@ -1244,29 +1284,61 @@ export default function LiveRecording({
               </div>
 
               <h3 className="font-headline-lg text-2xl font-bold tracking-tight mb-2">
-                Processing Clinical Record
+                Compiling Clinical Record
               </h3>
-              <p className="text-indigo-200 text-sm mb-6 leading-relaxed">
-                DentAI's specialized dental LLM is structuring oral examination findings...
+              <p className="text-indigo-200 text-xs mb-4 leading-relaxed">
+                DentAI is synthesizing dental charting, periodontal health, and restorative requirements.
               </p>
 
-              {/* Live job status from the async fabric (server backoff, attempt count). */}
-              {processingHint && (
-                <div className="text-[11px] font-mono text-amber-300 tracking-wide animate-fade-in mb-3 max-w-xs leading-relaxed">
-                  {processingHint}
-                </div>
-              )}
-
-              {/* Dynamic Status bar loading text ticker */}
+              {/* Dynamic Status bar loading pulse bar */}
               <div className="w-64 bg-indigo-900 h-1.5 rounded-full overflow-hidden mb-3">
                 <div className="h-full bg-[#6ffbbe] animate-pulse w-full"></div>
               </div>
+
+              {/* Live job status & stage description */}
               <div
-                key={processingState}
-                className="text-xs font-mono text-[#6ffbbe] tracking-wide animate-fade-in"
+                key={processingHint || getProcessingStageDescription(processingSeconds, processingState)}
+                className="text-xs font-mono text-[#6ffbbe] tracking-wide animate-fade-in max-w-xs leading-relaxed"
               >
-                {processingState}
+                {processingHint || getProcessingStageDescription(processingSeconds, processingState)}
               </div>
+
+              {/* Proactive Zero-Wait Instant Offline Fallback (Appears if AI exceeds 8s or reports delay) */}
+              {(processingSeconds >= 8 || Boolean(processingHint)) && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="w-full max-w-sm mt-5 p-3.5 rounded-2xl bg-amber-500/15 border border-amber-400/30 text-amber-200 flex flex-col items-center gap-2 text-center"
+                >
+                  <div className="flex items-center gap-2 text-xs font-bold text-amber-300">
+                    <Sparkles className="w-4 h-4 text-amber-400 animate-pulse" />
+                    <span>{processingHint ? 'Cloud AI High Load / Rate-Limited' : 'Cloud AI Responding Slower Than Usual'}</span>
+                  </div>
+                  <p className="text-[11px] text-amber-100/80 leading-relaxed">
+                    Don't lose chair time waiting. Generate a complete clinical note immediately from your spoken dialogue.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      stopProcessingTicker();
+                      handleDraftOffline();
+                    }}
+                    className="w-full py-2.5 px-3 rounded-xl bg-gradient-to-r from-amber-400 to-emerald-400 hover:from-amber-500 hover:to-emerald-500 text-slate-950 font-extrabold text-xs flex items-center justify-center gap-2 shadow-lg transition-all cursor-pointer active:scale-95"
+                  >
+                    <Check className="w-4 h-4 text-slate-950 stroke-[3]" />
+                    <span>Generate Instant Offline Note (0s Wait)</span>
+                  </button>
+                </motion.div>
+              )}
+
+              {/* Cancel Button */}
+              <button
+                type="button"
+                onClick={stopProcessingTicker}
+                className="mt-4 text-xs font-semibold text-indigo-300 hover:text-white underline cursor-pointer transition-colors"
+              >
+                Cancel & Return to Dialogue
+              </button>
             </div>
           </motion.div>
         )}
@@ -1484,6 +1556,87 @@ export default function LiveRecording({
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* High-Priority Universal Error & Instant Fallback Modal (Visible in both normal and Ambient mode) */}
+      <AnimatePresence>
+        {errorMsg && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/75 backdrop-blur-sm px-4"
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 15 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 15 }}
+              className="bg-white rounded-2xl p-6 flex flex-col items-center text-center max-w-md w-full mx-auto shadow-2xl border border-slate-100 font-sans text-slate-900"
+            >
+              <div className="w-12 h-12 rounded-full bg-red-100 text-red-600 flex items-center justify-center mb-3.5 shadow-sm">
+                <AlertCircle className="w-6 h-6" />
+              </div>
+              <h3 className="text-base font-bold text-slate-900 mb-1">
+                Note Generation Delay / Status Alert
+              </h3>
+              <p className="text-xs text-slate-600 mb-3.5 leading-relaxed">
+                {errorMsg}
+              </p>
+              <div className="w-full p-3 bg-emerald-50 border border-emerald-200 rounded-xl mb-4 text-left">
+                <div className="flex items-center gap-2 text-emerald-800 font-bold text-xs mb-1">
+                  <CheckCircle className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                  <span>Your Transcript is 100% Preserved</span>
+                </div>
+                <p className="text-[11px] text-emerald-700 leading-relaxed">
+                  No consultation data was lost. You can instantly generate a complete, structured clinical record offline right now.
+                </p>
+              </div>
+              <div className="flex flex-col gap-2 w-full">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setErrorMsg(null);
+                    handleDraftOffline();
+                  }}
+                  className="w-full h-11 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-2 shadow-md transition-all active:scale-95 cursor-pointer"
+                >
+                  <Sparkles className="w-4 h-4" />
+                  <span>Generate Note Offline Instantly (0s Wait)</span>
+                </button>
+                <div className="flex gap-2 w-full">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setErrorMsg(null);
+                      handleFinishNote();
+                    }}
+                    className="flex-1 h-9 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-lg transition-all cursor-pointer"
+                  >
+                    Retry Hosted AI
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setErrorMsg(null)}
+                    className="flex-1 h-9 border border-slate-200 hover:bg-slate-50 text-slate-500 font-bold text-xs rounded-lg transition-all cursor-pointer"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Operatory Phone Beacon Pairing & Remote Control Modal */}
+      <ChairBeaconModal
+        isOpen={showBeaconModal}
+        onClose={() => setShowBeaconModal(false)}
+        roomName="Operatory Chair 1"
+        clinicId={activeClinicId || undefined}
+        onStartRecordingFromDesktop={() => setIsRecording(true)}
+        onStopRecordingFromDesktop={() => setIsRecording(false)}
+        isRecordingActive={isRecording}
+      />
     </div>
   );
 }

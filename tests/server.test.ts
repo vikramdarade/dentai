@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { totpAt } from '../src/lib/totp';
 
 // Load environment variables (such as from .env.local)
 dotenv.config({ path: '.env.local' });
@@ -65,19 +66,23 @@ vi.mock('@google/genai', () => {
   };
 });
 
+// Every store path is derived from the throwaway directory configured above, so
+// neither this suite nor the live suite below can read or write the developer's
+// working data directory — that directory holds real patient records and
+// clinician PIN hashes.
+const testDataDir = process.env.DENTAI_DATA_DIR as string;
+const dbPath = path.join(testDataDir, 'consultations.json');
+const usersDbPath = path.join(testDataDir, 'users.json');
+const clinicsDbPath = path.join(testDataDir, 'clinics.json');
+const auditDbPath = path.join(testDataDir, 'audit.json');
+const jobsDbPath = path.join(testDataDir, 'note_jobs.json');
+const usageDbPath = path.join(testDataDir, 'usage_events.json');
+let clinicsDbBackup: string | null = null;
+
 describe('DentAI Server - Mocked Unit Tests', () => {
   let authToken = '';
-  // The store lives in the throwaway directory configured above.
-  const testDataDir = process.env.DENTAI_DATA_DIR as string;
-  const dbPath = path.join(testDataDir, 'consultations.json');
-  const usersDbPath = path.join(testDataDir, 'users.json');
-  const clinicsDbPath = path.join(testDataDir, 'clinics.json');
-  const auditDbPath = path.join(testDataDir, 'audit.json');
-  const jobsDbPath = path.join(testDataDir, 'note_jobs.json');
-  const usageDbPath = path.join(testDataDir, 'usage_events.json');
   let dbBackup: string | null = null;
   let usersDbBackup: string | null = null;
-  let clinicsDbBackup: string | null = null;
   let auditDbBackup: string | null = null;
   let jobsDbBackup: string | null = null;
   let usageDbBackup: string | null = null;
@@ -125,6 +130,20 @@ describe('DentAI Server - Mocked Unit Tests', () => {
     vi.clearAllMocks();
     process.env.GEMINI_API_KEY = 'TEST_API_KEY';
     process.env.NODE_ENV = 'test';
+  });
+
+  it('should return 200 OK with healthy status and metadata on GET /api/health', async () => {
+    // The authoritative /api/health is registered by registerOpsRoutes
+    // (src/server/opsRoutes.ts): status 'ok'|'degraded', storage + database
+    // probe, schemaVersion. It is the contract the README, ROLLOUT_PLAYBOOK
+    // and the healthSuite tests all assert on. The older inline handler in
+    // server.ts is shadowed by it and must not drift the contract.
+    const res = await request(app).get('/api/health');
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('ok');
+    expect(res.body.database).toBe('not-configured');
+    expect(res.body.storage).toBe('file-fallback');
+    expect(typeof res.body.uptimeSeconds).toBe('number');
   });
 
   it('should return 400 Bad Request if intakeData is missing', async () => {
@@ -749,6 +768,94 @@ describe('DentAI Server - Mocked Unit Tests', () => {
     }
   });
 
+  it('signs in by practitioner name (case-insensitive) without leaking the staff directory', async () => {
+    const testName = `Dr. Privacy Test ${Math.random().toString(36).substring(7)}`;
+    const regRes = await request(app)
+      .post('/api/auth/register')
+      .send({ name: testName, specialty: 'Endodontics', pin: '5842' });
+    expect(regRes.status).toBe(201);
+
+    // 1) Case-insensitive sign-in with the full name.
+    const loginRes = await request(app)
+      .post('/api/auth/login')
+      .send({ identifier: testName.toLowerCase(), pin: '5842' });
+    expect(loginRes.status).toBe(200);
+    expect(loginRes.body.token).toBeDefined();
+    expect(loginRes.body.dentist.name).toBe(testName);
+
+    // 2) A wrong PIN is refused.
+    const failPinRes = await request(app)
+      .post('/api/auth/login')
+      .send({ identifier: testName, pin: '1057' });
+    expect(failPinRes.status).toBe(401);
+
+    // 3) An unknown practitioner is refused with the SAME status and message as
+    //    a wrong PIN, so sign-in cannot be used to enumerate the practice's
+    //    clinicians.
+    const failNameRes = await request(app)
+      .post('/api/auth/login')
+      .send({ identifier: 'Dr. Nonexistent Practitioner', pin: '5842' });
+    expect(failNameRes.status).toBe(failPinRes.status);
+    expect(failNameRes.body.error).toBe(failPinRes.body.error);
+  });
+
+  it('withholds a session until the account\u2019s own TOTP code is supplied', async () => {
+    const name = `Dr. Totp ${Math.random().toString(36).substring(7)}`;
+    const reg = await request(app)
+      .post('/api/auth/register')
+      .send({ name, specialty: 'Testing', pin: '7361' });
+    expect(reg.status).toBe(201);
+    const sessionToken = reg.body.token;
+    expect(sessionToken).toBeTruthy();
+
+    // Enrolment happens while signed in and completes only once the code from
+    // the account's own secret is verified. There is no client-supplied
+    // "mfaEnabled" flag to set at registration any more.
+    const enrol = await request(app)
+      .post('/api/auth/mfa/enroll')
+      .set('Authorization', `Bearer ${sessionToken}`);
+    expect(enrol.status).toBe(200);
+    const secret = enrol.body.secret;
+    expect(secret).toBeTruthy();
+
+    const confirm = await request(app)
+      .post('/api/auth/mfa/confirm')
+      .set('Authorization', `Bearer ${sessionToken}`)
+      .send({ code: totpAt(secret) });
+    expect(confirm.status).toBe(200);
+    expect(confirm.body.success).toBe(true);
+    expect(confirm.body.recoveryCodes.length).toBeGreaterThan(0);
+
+    // Sign-in now stops at the second factor: no session token is minted, and
+    // the response says so in a machine-readable way for the sign-in screen.
+    const noCode = await request(app)
+      .post('/api/auth/login')
+      .send({ identifier: name, pin: '7361' });
+    expect(noCode.status).toBe(401);
+    expect(noCode.body.code).toBe('MFA_REQUIRED');
+    expect(noCode.body.token).toBeUndefined();
+
+    // A challenge token is no longer a credential: the verifier needs a session,
+    // and the login body reads only mfaCode/recoveryCode.
+    const legacy = await request(app)
+      .post('/api/auth/mfa/verify')
+      .send({ mfaToken: 'anything', code: '123456' });
+    expect(legacy.status).toBe(401);
+
+    // A code from this account's own secret completes the sign-in.
+    const withCode = await request(app)
+      .post('/api/auth/login')
+      .send({ identifier: name, pin: '7361', mfaCode: totpAt(secret) });
+    expect(withCode.status).toBe(200);
+    expect(withCode.body.token).toBeDefined();
+
+    const me = await request(app)
+      .get('/api/auth/me')
+      .set('Authorization', `Bearer ${withCode.body.token}`);
+    expect(me.status).toBe(200);
+    expect(me.body.name).toBe(name);
+  });
+
   /** Polls a note job until it reaches a terminal state (or times out). */
   const pollJob = async (jobId: string, token: string, timeoutMs = 8000) => {
     const deadline = Date.now() + timeoutMs;
@@ -896,6 +1003,8 @@ describe('DentAI Server - Mocked Unit Tests', () => {
     }
     if (clinicsDbBackup !== null) {
       fs.writeFileSync(clinicsDbPath, clinicsDbBackup);
+    } else if (fs.existsSync(clinicsDbPath)) {
+      fs.unlinkSync(clinicsDbPath);
     }
     if (auditDbBackup !== null) {
       fs.writeFileSync(auditDbPath, auditDbBackup);
@@ -920,7 +1029,12 @@ describe.runIf(hasRealKey)('DentAI Server - Live LLM Integration & Accent Resili
   let realGoogleGenAIClass: any;
   let authToken = '';
 
+  let liveAuditBackup: string | null = null;
+
   beforeAll(async () => {
+    if (fs.existsSync(auditDbPath)) {
+      liveAuditBackup = fs.readFileSync(auditDbPath, 'utf-8');
+    }
     const profilesRes = await request(app).get('/api/auth/profiles');
     expect(profilesRes.status).toBe(200);
     const sarah = profilesRes.body.find((p: any) => p.name === 'Dr. Sarah Jenkins');
@@ -931,6 +1045,17 @@ describe.runIf(hasRealKey)('DentAI Server - Live LLM Integration & Accent Resili
       .send({ dentistId: sarah.id, pin: '4826' });
     expect(loginRes.status).toBe(200);
     authToken = loginRes.body.token;
+  });
+
+  afterAll(() => {
+    if (liveAuditBackup !== null) {
+      fs.writeFileSync(auditDbPath, liveAuditBackup);
+    }
+    if (clinicsDbBackup !== null) {
+      fs.writeFileSync(clinicsDbPath, clinicsDbBackup);
+    } else if (fs.existsSync(clinicsDbPath)) {
+      fs.unlinkSync(clinicsDbPath);
+    }
   });
 
   beforeEach(async () => {
@@ -987,7 +1112,7 @@ describe.runIf(hasRealKey)('DentAI Server - Live LLM Integration & Accent Resili
     expect(bodyText).toMatch(/filling|restoration|composite/);
     // Check periodontal findings
     expect(res.body.findingsGingival).toContain('3-2-3');
-  });
+  }, 30000);
 
   it('Integration Test Case B: should resolve Broad Australian Accent & check en-AU spelling', async () => {
     const res = await makeNotesRequest({
@@ -1021,7 +1146,7 @@ describe.runIf(hasRealKey)('DentAI Server - Live LLM Integration & Accent Resili
     // Standard checks for en-AU spelling patterns
     const containsEnAuSpelling = /colour|minimise|programme|haem|anaesth/i.test(patientLetter);
     expect(containsEnAuSpelling).toBe(true);
-  });
+  }, 30000);
 
   it('Integration Test Case C: should resolve mumbled speech and pulpitis diagnosis on tooth 16', async () => {
     const res = await makeNotesRequest({
@@ -1049,7 +1174,7 @@ describe.runIf(hasRealKey)('DentAI Server - Live LLM Integration & Accent Resili
     expect(res.body.diagnosis.toLowerCase()).toContain('pulpitis');
     const combinedTreatmentAndRecs = (res.body.treatmentPerformed + ' ' + res.body.recommendations).toLowerCase();
     expect(combinedTreatmentAndRecs).toContain('root canal');
-  });
+  }, 30000);
 });
 
 /**
