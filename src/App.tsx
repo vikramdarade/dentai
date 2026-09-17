@@ -4,6 +4,7 @@ import { Consultation, TranscriptItem, ClinicalFindings, GeneratedNotePayload, N
 import { ClinicMembership } from './lib/clinics';
 import { getTemplateById, getDefaultTemplateIdForType, AppointmentType } from './lib/dentalLibrary';
 import { normalizedToPayload } from './lib/normalizeNoteOutput';
+import type { GroundingReport } from './lib/transcriptGrounding';
 import HistoryHub from './components/HistoryHub';
 import PatientIntake from './components/PatientIntake';
 import LiveRecording from './components/LiveRecording';
@@ -517,6 +518,11 @@ export default function App() {
     try {
       let payload: GeneratedNotePayload;
       let noteOrigin: NoteOrigin;
+      // The server verifies every generated note against the transcript and
+      // returns the verdict with the job. It used to be dropped on the floor
+      // here, so a note containing teeth or procedures nobody said was shown as
+      // fully verified. Carried through to the record and the summary screen.
+      let grounding: GroundingReport | undefined;
       // One id per consultation across every engine: the hosted-AI path sends
       // it with the job so the server's durable completion lands on the same
       // record the client saves; fallback paths use it for the local record.
@@ -589,6 +595,7 @@ export default function App() {
               const jobState = await pollRes.json();
               if (jobState.status === 'done') {
                 jobPayload = normalizedToPayload(template, jobState.result);
+                grounding = jobState.result?.groundingReport;
                 break;
               }
               if (jobState.status === 'failed') break;
@@ -623,7 +630,12 @@ export default function App() {
                 templateId: template.id,
                 findings,
                 patientSummary: jobPayload.patientSummary || '',
-                noteOrigin: { engine: 'gemini', needsReview: false }
+                noteOrigin: {
+                  engine: 'gemini',
+                  needsReview: !(grounding?.isFullyGrounded ?? false),
+                  detail: grounding && !grounding.isFullyGrounded ? grounding.summary : undefined
+                },
+                grounding
               };
 
               setConsultations((prev) => [newConsult, ...prev]);
@@ -733,6 +745,7 @@ export default function App() {
 
           if (jobState.status === 'done') {
             jobPayload = normalizedToPayload(template, jobState.result);
+            grounding = jobState.result?.groundingReport;
             break;
           }
           if (jobState.status === 'failed') {
@@ -751,7 +764,15 @@ export default function App() {
         }
         payload = jobPayload;
         setProcessingHint(null);
-        noteOrigin = { engine: 'gemini', needsReview: false };
+        // A hosted note is NOT automatically "needs no review": the server's
+        // grounding verdict decides. Unverified claims (a tooth, material, drug
+        // or ADA code that was never spoken) flip the record into needsReview so
+        // the clinician is shown what to check rather than trusting it.
+        noteOrigin = {
+          engine: 'gemini',
+          needsReview: !(grounding?.isFullyGrounded ?? false),
+          detail: grounding && !grounding.isFullyGrounded ? grounding.summary : undefined
+        };
       }
 
       const findings: ClinicalFindings = {
@@ -783,6 +804,7 @@ export default function App() {
         findings,
         patientSummary: payload.patientSummary || '',
         noteOrigin,
+        grounding,
         // Patient consent travels with the record: what they were told, when,
         // and under which disclosure version (APP 3/5 evidence).
         consent: activeIntake.consent

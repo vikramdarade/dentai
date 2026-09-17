@@ -299,6 +299,14 @@ export default function ClinicalSummary({
 
   const needsReview = !!consultation.noteOrigin?.needsReview;
   const originEngine = consultation.noteOrigin?.engine || 'gemini';
+  /**
+   * Deterministic grounding verdict, computed on the server against the spoken
+   * transcript. Surfaced because a pilot dentist cannot be expected to catch a
+   * hallucinated tooth number, material or ADA code by reading clinical prose —
+   * the check exists, so its result has to reach the person signing the record.
+   */
+  const grounding = consultation.grounding;
+  const unverifiedClaims = grounding?.unverifiedClaims ?? [];
 
   const switchTemplate = (templateId: string) => {
     const next = templates.find((t) => t.id === templateId) || getTemplateById(templateId);
@@ -675,6 +683,39 @@ export default function ClinicalSummary({
               <div>Consultation: <span className="font-semibold text-slate-600">{consultation.date} · {consultation.time}</span></div>
             </div>
           </div>
+
+          {/* Transcript grounding: what the AI wrote versus what was actually
+              said. Rendered only when the server verified the note, so a record
+              with no verdict is never mistaken for a record that passed. */}
+          {grounding && (
+            <div
+              className={`mb-6 rounded-2xl border p-4 flex items-start gap-3 ${
+                unverifiedClaims.length === 0 ? 'bg-emerald-50/60 border-emerald-200' : 'bg-amber-50/70 border-amber-200'
+              }`}
+            >
+              {unverifiedClaims.length === 0 ? (
+                <CheckCircle className="w-4 h-4 text-emerald-700 mt-0.5 shrink-0" />
+              ) : (
+                <ShieldAlert className="w-4 h-4 text-amber-700 mt-0.5 shrink-0" />
+              )}
+              <div className="flex flex-col gap-1">
+                <p className={`text-xs font-bold ${unverifiedClaims.length === 0 ? 'text-emerald-800' : 'text-amber-800'}`}>
+                  {unverifiedClaims.length === 0
+                    ? `Every clinical claim traced back to the recording (${grounding.groundingScore}% grounded).`
+                    : `${unverifiedClaims.length} item${unverifiedClaims.length === 1 ? '' : 's'} in this note ${unverifiedClaims.length === 1 ? 'was' : 'were'} not spoken in the recording — check before signing.`}
+                </p>
+                {unverifiedClaims.length > 0 && (
+                  <p className="text-[11px] text-amber-800/90 font-medium">
+                    Not found in transcript: {unverifiedClaims.join(' · ')}
+                  </p>
+                )}
+                <p className="text-[10px] text-slate-500 leading-relaxed">
+                  Verified automatically against the consultation transcript. This checks that wording is supported by
+                  what was said — it is not a clinical review. The treating practitioner remains responsible for the record.
+                </p>
+              </div>
+            </div>
+          )}
 
           <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
             {/* BLOCK A: Clinical Findings & Notes (Left Column - 5 Cols) */}

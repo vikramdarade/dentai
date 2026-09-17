@@ -37,9 +37,17 @@ process.env.DENTAI_DAILY_TOKEN_LIMIT = '5000000';
 // Dynamically import the app to ensure environment variables are evaluated first
 const { app } = await import('../server.ts');
 
-// Mock the GoogleGenAI library globally for unit tests
-vi.mock('@google/genai', () => {
+// Mock the GoogleGenAI library globally for unit tests.
+//
+// The real module is spread in first so that every export the server imports
+// exists here: a hand-written mock that lists only the members it happens to
+// know about breaks the suite the moment production code imports anything else
+// (which is exactly what happened when note generation started using the SDK's
+// ThinkingLevel enum).
+vi.mock('@google/genai', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@google/genai')>();
   return {
+    ...actual,
     GoogleGenAI: vi.fn().mockImplementation(function () {
       return {
         models: {

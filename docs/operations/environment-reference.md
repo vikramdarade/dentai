@@ -33,6 +33,7 @@ Values themselves live in the host's environment settings (never in Git, never i
 |---|---|
 | `GEMINI_FALLBACK_API_KEY` | Second key on a separate quota pool, used when the primary is rate-limited |
 | `GEMINI_MODEL`, `GEMINI_FALLBACK_MODEL` | Model overrides |
+| `DENTAI_THINKING_LEVEL` | `minimal` (default), `low`, `medium` or `high` — reasoning effort for note generation | Leave at `minimal`. The Gemini 3 Flash family runs thinking on by default ("On (medium)" for `gemini-3.6-flash`), and that was the dominant cause of slow note generation in the pilot. Raising it adds seconds per note with no accuracy benefit, because the clinical rules are supplied explicitly in the prompt and the accuracy gate is `bun run eval:notes`. An invalid value safely falls back to `minimal` rather than taking generation down |
 | `GCP_PROJECT_ID`, `GCP_SERVICE_ACCOUNT_KEY` | Vertex AI path, tried before the API-key path when both are set |
 | `DENTAI_QUEUE_INTERVAL_MS` | In-process drain timer for long-running hosts (`node server.js`). Minimum 10000; unnecessary on serverless |
 | `DENTAI_DATA_DIR` | Location of the JSON fallback store (development only) |

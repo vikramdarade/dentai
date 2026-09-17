@@ -39,6 +39,13 @@ export interface OpsRouteDeps {
   configuration?: () => { readiness: string; blocking: number; advisories: number };
   /** Migration label read from the ledger, e.g. "v2". */
   migrationLabel?: () => string;
+  /**
+   * Effective note-generation model settings (model id, thinking level,
+   * latency budgets). Operator-only, and the first thing to check when a
+   * practice reports that notes are slow: thinking left on at a higher level
+   * than intended is invisible in the model name but costs seconds per note.
+   */
+  generation?: () => Record<string, any>;
 }
 
 const STARTED_AT = Date.now();
@@ -132,6 +139,7 @@ export function registerOpsRoutes(app: any, deps: OpsRouteDeps): void {
       ...deps.logger.getTelemetry(),
       storage: deps.dbEnabled ? 'postgres' : 'file-fallback',
       openNoteJobs,
+      generation: deps.generation ? deps.generation() : undefined,
       uptimeSeconds: Math.round((Date.now() - STARTED_AT) / 1000),
     });
   });

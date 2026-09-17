@@ -16,6 +16,7 @@ import {
 } from './src/lib/dentalLibrary';
 import { normalizeTemplateOutput } from './src/lib/normalizeNoteOutput';
 import { verifyTranscriptGrounding } from './src/lib/transcriptGrounding';
+import { applyNoteThinking, NOTE_TIMEOUTS, resolveNoteThinkingLevel } from './src/lib/noteModelConfig';
 import {
   compactTranscriptForGeneration,
   getTranscriptStats
@@ -376,6 +377,17 @@ registerOpsRoutes(app, {
     advisories: configuration.advisories.length,
   }),
   migrationLabel: () => migrationLabel,
+  // Effective note-generation settings, operator-only. Reported because the
+  // model id alone does not tell you how slow a note will be: the Gemini 3
+  // Flash family runs thinking on by default, and the thinking level — not the
+  // model name — is what dominated pilot latency.
+  generation: () => ({
+    model: process.env.GEMINI_MODEL || 'gemini-3.6-flash',
+    fallbackModel: process.env.GEMINI_FALLBACK_MODEL || undefined,
+    thinkingLevel: resolveNoteThinkingLevel(),
+    timeoutsMs: NOTE_TIMEOUTS,
+    processor: process.env.GCP_PROJECT_ID ? 'vertex' : 'developer-api',
+  }),
 });
 // Registration is gated before the signup handler runs: a closed flag and a
 // per-address account-creation limit, because each new account brings its own
@@ -870,7 +882,20 @@ async function getTokensUsedToday(scopeId: string): Promise<number> {
     .reduce((sum: number, e: any) => sum + (Number(e.tokens) || 0), 0);
 }
 
-/** Formats the generation prompt for an intake + (already compacted) transcript with strict zero-hallucination operatory constraints. */
+/**
+ * Formats the patient data and transcript for a generation request.
+ *
+ * Deliberately data-only. The clinical rules live in ONE place — the template's
+ * system instruction (TEMPLATE_DRIVEN_SYSTEM_INSTRUCTION via
+ * buildTemplateAIConfig). This function previously carried a second, parallel
+ * rule block that contradicted the system instruction on toothFindings format
+ * and restated the anti-fabrication rule four times: duplicated rules cost
+ * latency on every request and let the model satisfy one rule set while
+ * breaking the other. One rule set, one place.
+ *
+ * The two grounding sentences below are the only exception, kept here because
+ * they must also hold on the legacy CLINICAL_AI_CONFIG path.
+ */
 function buildNotePrompt(intakeData: any, templateName: string, transcript: any[]): string {
   return `
 === PATIENT INTAKE DATA ===
@@ -880,12 +905,20 @@ Date of Birth: ${intakeData.dob}
 Appointment Type: ${intakeData.appointmentType}
 Note Template: ${templateName}
 
-=== ZERO-HALLUCINATION OPERATORY CONSTRAINT (CRITICAL CLINICAL SAFETY) ===
-You are an expert dental scribe generating a medicolegal clinical progress note. You must adhere strictly to these constraints:
-1. STRICT TRANSCRIPT GROUNDING: Document ONLY the tooth numbers (FDI 11-48), surfaces (MODBL), diagnostic tests, and treatments that were explicitly spoken in the operatory transcript or provided in the intake data.
-2. NO INVENTED TEETH: If a tooth number was not explicitly stated, do NOT invent or guess one.
-3. NO INFERRED LOCAL ANAESTHETICS: Never list local anaesthesia (e.g. Lignocaine, Scandonest, Articaine) unless specifically mentioned by the clinician or patient in the audio transcript.
-4. ABSOLUTE ZERO FABRICATION: If any section or clinical detail was not discussed during the visit, leave that field empty (""). Inventing unperformed treatments or unobserved pathology is strictly forbidden.
+=== HOW TO READ THIS TRANSCRIPT ===
+Single-microphone operatory capture, transcribed automatically. Lines are usually
+labelled 'Dialogue'; a line carries 'Dentist', 'Patient' or 'Clinical Comment' only
+when a person labelled it. Do NOT infer who spoke from the label alone — see the
+speaker-attribution rule in your instructions. Expect speech-to-text errors in tooth
+numbers, drug names and materials; correct them contextually, but never invent
+content to fill a gap.
+
+=== ABSOLUTE GROUNDING RULE ===
+Document only teeth (FDI 11-48), surfaces, tests, materials, drugs and treatments
+that appear in the transcript or intake data below — never an unspoken tooth
+number, material, local anaesthetic or radiograph. Omission is also a
+documentation error: capture everything that WAS said. Leave a section empty only
+when the encounter genuinely does not support it.
 
 === CLINICAL SESSION TRANSCRIPT ===
 ${transcript.map((t: any) => `${t.sender}: ${t.text}`).join('\n')}
@@ -957,10 +990,10 @@ async function runHostedGeneration(payload: {
           ai.models.generateContent({
             model: process.env.GEMINI_MODEL || 'gemini-3.6-flash',
             contents: promptContext,
-            config: noteAIConfig
+            config: applyNoteThinking(noteAIConfig)
           }),
-          35000,
-          'Cloud AI request timed out after 35 seconds. Please use instant offline draft.'
+          NOTE_TIMEOUTS.primaryMs,
+          `Cloud AI request timed out after ${NOTE_TIMEOUTS.primaryMs / 1000} seconds. Please use instant offline draft.`
         );
         if (response.text) output = JSON.parse(response.text);
       } catch (vertexErr: any) {
@@ -981,10 +1014,10 @@ async function runHostedGeneration(payload: {
         ai.models.generateContent({
           model: process.env.GEMINI_MODEL || 'gemini-3.6-flash',
           contents: promptContext,
-          config: noteAIConfig
+          config: applyNoteThinking(noteAIConfig)
         }),
-        35000,
-        'Cloud AI request timed out after 35 seconds. Please use instant offline draft.'
+        NOTE_TIMEOUTS.primaryMs,
+        `Cloud AI request timed out after ${NOTE_TIMEOUTS.primaryMs / 1000} seconds. Please use instant offline draft.`
       );
       if (!response.text) throw new Error('Gemini API returned an empty text field.');
       output = JSON.parse(response.text);
@@ -1002,9 +1035,9 @@ async function runHostedGeneration(payload: {
             fallbackAi.models.generateContent({
               model: process.env.GEMINI_FALLBACK_MODEL || process.env.GEMINI_MODEL || 'gemini-3.6-flash',
               contents: promptContext,
-              config: noteAIConfig
+              config: applyNoteThinking(noteAIConfig)
             }),
-            25000,
+            NOTE_TIMEOUTS.secondaryMs,
             'Secondary AI request timed out.'
           );
           if (fallbackResponse.text) {
@@ -3596,7 +3629,10 @@ const RESERVED_NOTE_KEYS = new Set([
   'treatmentQuote'
 ]);
 
-const TEMPLATE_DRIVEN_SYSTEM_INSTRUCTION = `You are an elite dental transcription assistant and clinical charting AI for Australian dental practice. You receive a patient intake form and a clinical session transcript (speaker roles: 'Dentist', 'Patient', 'Dialogue', 'Clinical Comment' — infer who actually spoke from context). Return: (1) structured clinical notes whose sections are defined by the supplied note template, (2) a warm patient summary letter, (3) specialist referral details if indicated, and (4) patient informed consent & care guidance.
+const TEMPLATE_DRIVEN_SYSTEM_INSTRUCTION = `You are an elite dental transcription assistant and clinical charting AI for Australian dental practice. You receive a patient intake form and a clinical session transcript.
+
+SPEAKER ATTRIBUTION (READ FIRST): the transcript is a single-microphone operatory recording, transcribed automatically. Most lines arrive labelled 'Dialogue'; a line carries 'Dentist', 'Patient' or 'Clinical Comment' only when a person labelled it by hand. Never decide who spoke from the label alone — decide from the content: a clinician states examination findings, tooth numbers, surfaces, materials, diagnostic test results and treatment plans; a patient reports symptoms, history, concerns and consent. Where attribution is genuinely ambiguous, use neutral phrasing rather than guessing: a finding attributed to the wrong speaker is a documentation error that can misrepresent what the patient reported.
+Return: (1) structured clinical notes whose sections are defined by the supplied note template, (2) a warm patient summary letter, (3) specialist referral details if indicated, and (4) patient informed consent & care guidance.
 
 Your output must comply with Dental Board of Australia record-keeping guidelines and AHPRA Section 133 medicolegal standards.
 
@@ -3612,7 +3648,7 @@ MANDATORY CLINICAL RULES:
 3. ACCENT & PHONETIC RESILIENCY: Correct phonetic errors contextually (e.g. "tooth category"/"feeling" -> filling/composite restoration; "tooth dirty tree" -> tooth 33; "root can all" -> root canal treatment; "pulp it is" -> pulpitis; "pocket depths tree two tree" -> 3-2-3 mm pocket depths).
 4. SECTIONAL BOUNDARIES: Keep toothFindings strictly for teeth. Periodontal findings (BPE scores, pocket depths, bleeding on probing, calculus) must sit in findingsGingival / objective. Oral cancer soft tissue screening (lips, tongue, floor of mouth, palate) must sit in examination / history.
 5. SPELLING: Use Australian/British English (en-AU): colour, anaesthetic, minimise, programme, haemorrhage.
-6. NO FABRICATION (CRITICAL CLINICAL SAFETY): Extract ONLY what the intake form and transcript support. NEVER invent a diagnosis, treatment, drug, radiograph, test result, or recall interval that was not stated, and never guess a tooth number. If a section has no supporting evidence, return an empty string for it.
+6. NO FABRICATION, AND NO OMISSION (CRITICAL CLINICAL SAFETY): Extract ONLY what the intake form and transcript support. NEVER invent a diagnosis, treatment, drug, radiograph, test result or recall interval that was not stated, and never guess a tooth number. But omission is equally a documentation failure: record EVERY finding, tooth, surface, test, material and instruction that WAS stated, however briefly or informally, in the section the template defines for it. Leave a section empty only when the encounter genuinely does not support it — never because the wording was casual, the detail seemed minor, or the surrounding speech was unclear. When speech is unclear, record it neutrally and precisely as stated rather than dropping it.
 7. FREEFORM PROCEDURAL NARRATIVE: For treatmentPerformed (when treatment was done today), write a natural, fluid clinical narrative recording: Informed consent confirmed, Local Anaesthesia (drug, volume, adrenaline, technique e.g. IANB/infiltration, aspiration negative, profound anaesthesia achieved), Moisture control/isolation (rubber dam placed, clamp number, stable seal), Cavity prep & caries excavation under magnification, Materials used & incremental placement, Occlusion checked with articulating paper & polished, and patient disposition.
 8. INTEGRATED AHPRA SECTION 133 INFORMED CONSENT: In recommendations / plan, whenever future treatment is diagnosed or procedure performed, automatically include a concise, legally robust consent clause:
    "Informed Consent: Discussed diagnosis, procedural stages, risks (post-op sensitivity, irreversible pulpitis, restoration failure), alternative options (extraction, monitoring), and itemized ADA schedule fees. Patient understood and provided informed consent to proceed."
@@ -3854,14 +3890,27 @@ app.post('/api/generate-notes', authenticateToken, async (req: express.Request, 
       ai = new GoogleGenAI({ apiKey });
     }
 
-    // Format the inputs cleanly into the prompt context using strict zero-hallucination operatory prompt
-    promptContext = buildNotePrompt(intakeData, noteTemplate.name, transcript);
+    // Compact exactly as the async worker does, so the same consultation yields
+    // the same note whichever route serves it. This endpoint used to send the
+    // raw transcript while the worker sent a trimmed one, so an identical
+    // recording could produce two different notes.
+    const compactedForSync = compactTranscriptForGeneration(transcript);
+    if (compactedForSync.compacted) {
+      logger.warn('Transcript compacted before synchronous generation', { summary: compactedForSync.summary });
+    }
+    promptContext = buildNotePrompt(intakeData, noteTemplate.name, compactedForSync.transcript);
 
-    const response = await ai.models.generateContent({
-      model: process.env.GEMINI_MODEL || 'gemini-3.6-flash',
-      contents: promptContext,
-      config: noteAIConfig || CLINICAL_AI_CONFIG
-    });
+    // Latency budget: a synchronous request must not hold the dentist's screen
+    // open indefinitely. Exceeding it surfaces the offline draft instead.
+    const response = await withTimeout(
+      ai.models.generateContent({
+        model: process.env.GEMINI_MODEL || 'gemini-3.6-flash',
+        contents: promptContext,
+        config: applyNoteThinking(noteAIConfig || CLINICAL_AI_CONFIG)
+      }),
+      NOTE_TIMEOUTS.primaryMs,
+      `Cloud AI request timed out after ${NOTE_TIMEOUTS.primaryMs / 1000} seconds. Please use instant offline draft.`
+    );
 
     const responseText = response.text;
     if (!responseText) {
@@ -3896,11 +3945,15 @@ app.post('/api/generate-notes', authenticateToken, async (req: express.Request, 
       logger.warn('[Vertex AI] Credentials error detected. Retrying dynamically with Gemini Developer API Studio Key...');
       try {
         const fallbackAi = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-        const response = await fallbackAi.models.generateContent({
-          model: process.env.GEMINI_MODEL || 'gemini-3.6-flash',
-          contents: promptContext,
-          config: noteAIConfig || CLINICAL_AI_CONFIG
-        });
+        const response = await withTimeout(
+          fallbackAi.models.generateContent({
+            model: process.env.GEMINI_MODEL || 'gemini-3.6-flash',
+            contents: promptContext,
+            config: applyNoteThinking(noteAIConfig || CLINICAL_AI_CONFIG)
+          }),
+          NOTE_TIMEOUTS.primaryMs,
+          `Cloud AI request timed out after ${NOTE_TIMEOUTS.primaryMs / 1000} seconds. Please use instant offline draft.`
+        );
 
         const responseText = response.text;
         if (responseText) {
@@ -3946,11 +3999,15 @@ app.post('/api/generate-notes', authenticateToken, async (req: express.Request, 
         try {
           logger.warn('[Gemini API] Primary route exhausted. Retrying once with secondary Gemini key (GEMINI_FALLBACK_API_KEY)...');
           const fallbackAi = new GoogleGenAI({ apiKey: fallbackKey });
-          const fallbackResponse = await fallbackAi.models.generateContent({
-            model: process.env.GEMINI_FALLBACK_MODEL || process.env.GEMINI_MODEL || 'gemini-3.6-flash',
-            contents: promptContext,
-            config: noteAIConfig
-          });
+          const fallbackResponse = await withTimeout(
+            fallbackAi.models.generateContent({
+              model: process.env.GEMINI_FALLBACK_MODEL || process.env.GEMINI_MODEL || 'gemini-3.6-flash',
+              contents: promptContext,
+              config: applyNoteThinking(noteAIConfig)
+            }),
+            NOTE_TIMEOUTS.secondaryMs,
+            'Secondary AI request timed out.'
+          );
           const fallbackText = fallbackResponse.text;
           if (fallbackText) {
             logAudit('notes_generation_secondary_key', (req as any).dentist?.id || 'unknown', {});

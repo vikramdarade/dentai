@@ -1,4 +1,5 @@
 import type { AppointmentType } from './lib/dentalLibrary';
+import type { GroundingReport } from './lib/transcriptGrounding';
 
 export type { AppointmentType };
 
@@ -213,6 +214,13 @@ export interface Consultation {
   patientSummary: string;
   templateId?: string;
   noteOrigin?: NoteOrigin;
+  /**
+   * Deterministic verification of the generated note against the spoken
+   * transcript (every tooth, surface, material, drug and ADA code cross-checked).
+   * Stored with the record so the clinician can see which claims in an
+   * AI-drafted note were not actually spoken — and so a later reviewer can.
+   */
+  grounding?: GroundingReport;
   /** AI-assist consent captured at intake (required for new records). */
   consent?: ConsultationConsent;
   /** Append-only revision trail (server-maintained). */
