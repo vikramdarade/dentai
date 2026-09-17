@@ -32,12 +32,12 @@ durable queue" and "we have a durable queue as long as someone is looking".
 `/api/ops/drain` (POST) does the same work authenticated with
 `DENTAI_OPS_SECRET`, for you to trigger by hand while debugging.
 
-## Option 1 — Vercel Cron (if you deploy on Vercel)
+## Option 1 — Vercel Cron (daily fallback on Hobby; minute-level on Pro)
 
-`vercel.json` already contains:
+`vercel.json` currently carries a once-a-day sweep:
 
 ```json
-"crons": [{ "path": "/api/cron/drain", "schedule": "*/1 * * * *" }]
+"crons": [{ "path": "/api/cron/drain", "schedule": "0 2 * * *" }]
 ```
 
 Setup:
@@ -50,11 +50,20 @@ Setup:
    `curl -s -H "Authorization: Bearer $CRON_SECRET" https://<app>/api/cron/drain`
    → `{"ok":true,"openNoteJobs":N}`.
 
-**Plan gotcha:** Vercel's Hobby plan only permits daily cron invocations, so a
-`*/1` schedule will not run every minute there. Either upgrade to Pro or use
-Option 2 — a queue that drains once a day is not durable enough to sell.
+**Plan gotcha (harder than it looks):** Vercel's Hobby plan permits cron jobs
+**once per day** — and a more frequent expression does not merely run less
+often, it **fails the deployment outright** ("Hobby accounts are limited to
+daily cron jobs. This cron expression would run more than once per day."). A
+`*/1 * * * *` schedule committed on 16 Sep 2026 silently stopped every Vercel
+deploy until it was replaced. The daily `0 2 * * *` entry (2am UTC, timing
+±1h on Hobby) is therefore only a fallback sweep; minute-level durability on
+Hobby comes from Option 2. On Vercel Pro, restore `*/1 * * * *` and retire the
+pinger.
 
-## Option 2 — Any external pinger (plan-independent)
+## Option 2 — Any external pinger (plan-independent; the Hobby default)
+
+This is the primary scheduler on the Hobby plan: it keeps note completion
+durable between the once-a-day Vercel sweep and the browser ticks.
 
 Works on any host, including Freebuff-managed hosting and a plain VM.
 
