@@ -426,7 +426,14 @@ export async function runMigrations(
   const result: MigrateResult = { applied: [], skipped: [] };
   for (const migration of MIGRATIONS) {
     if (migration.version > target) break;
-    if (active.has(migration.version)) {
+    // Under `force`, only a migration whose recorded checksum has drifted is
+    // re-run (all statements are idempotent by design) and its record
+    // rewritten, so a tampered history is repaired instead of refusing
+    // forever. Unchanged migrations stay skipped, and without force an applied
+    // migration is always skipped.
+    const drifted =
+      options.force && active.get(migration.version)?.checksum !== migration.checksum;
+    if (active.has(migration.version) && !drifted) {
       result.skipped.push(migration.version);
       continue;
     }
