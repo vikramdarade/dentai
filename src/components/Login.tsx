@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { User, Lock, Plus, ArrowLeft, AlertCircle, Sparkles, UserPlus, CirclePlay, ShieldCheck, KeyRound, Check } from 'lucide-react';
+import { User, Lock, Plus, ArrowLeft, AlertCircle, Sparkles, UserPlus, CirclePlay, ShieldCheck, KeyRound, Check, HelpCircle, Send, CheckCircle2, LifeBuoy, X, ExternalLink } from 'lucide-react';
 
 interface DentistProfile {
   id: string;
@@ -42,6 +42,56 @@ export default function Login({ onLoginSuccess }: LoginProps) {
   const [regPin, setRegPin] = useState('');
   const [regConfirmPin, setRegConfirmPin] = useState('');
   const [regError, setRegError] = useState<string | null>(null);
+
+  // Clinician Access Help & Direct GitHub Dispatch
+  const [showAccessGuide, setShowAccessGuide] = useState(false);
+  const [guideTab, setGuideTab] = useState<'signin' | 'register' | 'recover' | 'github'>('signin');
+  const [ghTitle, setGhTitle] = useState('');
+  const [ghCategory, setGhCategory] = useState('feature-request');
+  const [ghDescription, setGhDescription] = useState('');
+  const [ghPriority, setGhPriority] = useState('normal');
+  const [ghCustomToken, setGhCustomToken] = useState('');
+  const [ghSubmitting, setGhSubmitting] = useState(false);
+  const [ghResult, setGhResult] = useState<{ ok: boolean; issueNumber?: number; issueUrl?: string; error?: string } | null>(null);
+
+  const handleSubmitGitHubIssue = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!ghTitle.trim() || !ghDescription.trim()) return;
+    setGhSubmitting(true);
+    setGhResult(null);
+    try {
+      const res = await fetch('/api/support/github-issue', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(ghCustomToken.trim() ? { 'x-github-token': ghCustomToken.trim() } : {})
+        },
+        body: JSON.stringify({
+          title: ghTitle,
+          description: ghDescription,
+          category: ghCategory,
+          priority: ghPriority,
+          customToken: ghCustomToken.trim() || undefined,
+          telemetry: {
+            appVersion: '2.4.0',
+            screen: 'Login & Access'
+          }
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        setGhResult({ ok: true, issueNumber: data.issueNumber, issueUrl: data.issueUrl });
+        setGhTitle('');
+        setGhDescription('');
+      } else {
+        setGhResult({ ok: false, error: data.message || data.error || 'Failed to create GitHub issue' });
+      }
+    } catch (err: any) {
+      setGhResult({ ok: false, error: err.message || 'Network error connecting to support endpoint' });
+    } finally {
+      setGhSubmitting(false);
+    }
+  };
 
   const identifierInputRef = useRef<HTMLInputElement>(null);
   const mfaInputRef = useRef<HTMLInputElement>(null);
@@ -616,7 +666,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
         for every record.
       </p>
 
-      {/* Public Footer Pills: Product overview & narrated demo */}
+      {/* Public Footer Pills: Product overview, narrated demo & Access Guide */}
       <div className="relative mt-7 mx-auto flex flex-wrap items-center justify-center gap-2.5">
         <button
           type="button"
@@ -639,7 +689,276 @@ export default function Login({ onLoginSuccess }: LoginProps) {
           <span>Watch narrated demo</span>
           <span className="text-[9px] text-slate-400 font-semibold uppercase tracking-wider">3 min</span>
         </button>
+        <button
+          type="button"
+          onClick={() => setShowAccessGuide(true)}
+          className="flex items-center gap-2 px-4 py-2 rounded-full bg-teal-50 hover:bg-teal-100/70 border border-teal-200 text-teal-800 text-xs font-bold shadow-sm transition-all cursor-pointer"
+        >
+          <HelpCircle className="w-3.5 h-3.5 text-teal-700" />
+          <span>Clinician Guide & Support</span>
+        </button>
       </div>
+
+      {/* Clinician Access Guide & GitHub Issue Modal */}
+      <AnimatePresence>
+        {showAccessGuide && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 overflow-y-auto">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.96 }}
+              className="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-xl w-full p-6 sm:p-8 text-left relative my-8"
+            >
+              <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-teal-50 text-teal-700 flex items-center justify-center">
+                    <LifeBuoy className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900">Clinician Support & Guidance</h3>
+                    <p className="text-xs text-slate-500">Practitioner access, PIN security & direct GitHub feature requests</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowAccessGuide(false)}
+                  className="w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-600 transition cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Tabs */}
+              <div className="flex items-center gap-2 mt-4 pb-2 border-b border-slate-100 overflow-x-auto text-xs font-bold">
+                <button
+                  type="button"
+                  onClick={() => setGuideTab('signin')}
+                  className={`px-3 py-1.5 rounded-xl transition ${guideTab === 'signin' ? 'bg-primary text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+                >
+                  Sign-In Help
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setGuideTab('register')}
+                  className={`px-3 py-1.5 rounded-xl transition ${guideTab === 'register' ? 'bg-primary text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+                >
+                  New Profile
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setGuideTab('recover')}
+                  className={`px-3 py-1.5 rounded-xl transition ${guideTab === 'recover' ? 'bg-primary text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+                >
+                  PIN Reset
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setGuideTab('github')}
+                  className={`px-3 py-1.5 rounded-xl transition flex items-center gap-1.5 ${guideTab === 'github' ? 'bg-teal-700 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+                >
+                  <Send className="w-3 h-3" />
+                  <span>Request Feature</span>
+                </button>
+              </div>
+
+              {/* Content Panels */}
+              <div className="mt-4 text-xs text-slate-600 space-y-4">
+                {guideTab === 'signin' && (
+                  <div className="space-y-3 leading-relaxed">
+                    <div className="p-3.5 bg-indigo-50/50 rounded-2xl border border-indigo-100">
+                      <h4 className="font-bold text-slate-900 mb-1 flex items-center gap-1.5">
+                        <Lock className="w-3.5 h-3.5 text-primary" />
+                        Practitioner Identity Isolation
+                      </h4>
+                      <p className="text-slate-600">
+                        To satisfy HIPAA, AHPRA, and Privacy Act governance, DentAI enforces strict per-clinician data boundaries. Enter your registered name (e.g. <span className="font-mono font-bold text-slate-800">Dr. Sarah Jenkins</span>) or Clinician ID.
+                      </p>
+                    </div>
+                    <div className="space-y-1.5">
+                      <h5 className="font-bold text-slate-800">Keypad & Physical Numpad</h5>
+                      <p>You can tap the on-screen tactile keypad or use your physical keyboard numpad to type your 4-digit PIN. Press <kbd className="px-1 py-0.5 bg-slate-100 border rounded font-mono text-[10px]">Enter</kbd> to submit.</p>
+                    </div>
+                    <div className="space-y-1.5">
+                      <h5 className="font-bold text-slate-800">Account Lockout Protection</h5>
+                      <p>For safety against brute-force attacks on operatory workstations, entering 5 consecutive incorrect PINs locks the profile for 15 minutes.</p>
+                    </div>
+                  </div>
+                )}
+
+                {guideTab === 'register' && (
+                  <div className="space-y-3 leading-relaxed">
+                    <div className="p-3.5 bg-teal-50/50 rounded-2xl border border-teal-100">
+                      <h4 className="font-bold text-slate-900 mb-1 flex items-center gap-1.5">
+                        <UserPlus className="w-3.5 h-3.5 text-teal-700" />
+                        Joining an Existing Dental Practice
+                      </h4>
+                      <p className="text-slate-600">
+                        If joining an established clinic, ask your Practice Principal or Practice Manager for the clinic's 6-character Invite Code (e.g. <span className="font-mono font-bold text-slate-800">BRIGHT-1</span>).
+                      </p>
+                    </div>
+                    <div className="space-y-1.5">
+                      <h5 className="font-bold text-slate-800">Registration Steps:</h5>
+                      <ol className="list-decimal list-inside space-y-1 text-slate-600">
+                        <li>Click <strong>Register Profile</strong> on the sign-in screen.</li>
+                        <li>Enter your full professional title & name (e.g., <em>Dr. Marcus Vance</em>).</li>
+                        <li>Select your primary clinical specialty.</li>
+                        <li>Choose a secure 4-digit PIN (avoid repeated digits like 1111 or sequential 1234).</li>
+                      </ol>
+                    </div>
+                  </div>
+                )}
+
+                {guideTab === 'recover' && (
+                  <div className="space-y-3 leading-relaxed">
+                    <div className="p-3.5 bg-amber-50/50 rounded-2xl border border-amber-100">
+                      <h4 className="font-bold text-slate-900 mb-1 flex items-center gap-1.5">
+                        <KeyRound className="w-3.5 h-3.5 text-amber-700" />
+                        Forgotten PIN or Locked Profile
+                      </h4>
+                      <p className="text-slate-600">
+                        Universal master PINs are banned to protect patient medical confidentiality. If you forget your PIN, you can redeem a secure single-use recovery token issued by your clinic administrator.
+                      </p>
+                    </div>
+                    <div className="flex gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowAccessGuide(false);
+                          window.location.hash = '#/credential';
+                        }}
+                        className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold transition flex items-center gap-1.5 cursor-pointer shadow-sm"
+                      >
+                        <KeyRound className="w-3.5 h-3.5" />
+                        <span>Open Credential Recovery (#/recover)</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {guideTab === 'github' && (
+                  <form onSubmit={handleSubmitGitHubIssue} className="space-y-3">
+                    <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200">
+                      <h4 className="font-bold text-slate-900 flex items-center gap-1.5 text-xs">
+                        <Send className="w-3.5 h-3.5 text-teal-600" />
+                        Direct GitHub Issue Creation
+                      </h4>
+                      <p className="text-[11px] text-slate-500 mt-0.5">
+                        Submitting this form directly creates an issue in the repository (<span className="font-mono text-slate-700">vikramdarade/dentai</span>) without opening external links.
+                      </p>
+                    </div>
+
+                    {ghResult && (
+                      <div className={`p-3 rounded-xl text-xs font-semibold flex items-center justify-between gap-2 ${
+                        ghResult.ok ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-rose-50 text-rose-800 border border-rose-200'
+                      }`}>
+                        <div className="flex items-center gap-2">
+                          {ghResult.ok ? <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" /> : <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />}
+                          <span>{ghResult.ok ? `Issue #${ghResult.issueNumber} created directly in GitHub!` : ghResult.error}</span>
+                        </div>
+                        {ghResult.issueUrl && (
+                          <a
+                            href={ghResult.issueUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-emerald-700 underline flex items-center gap-1 shrink-0"
+                          >
+                            <span>View</span>
+                            <ExternalLink className="w-3 h-3" />
+                          </a>
+                        )}
+                      </div>
+                    )}
+
+                    <div>
+                      <label className="text-[10px] font-bold uppercase text-slate-500 block mb-1">Issue Title</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Request support for new FDI paediatric tooth codes"
+                        value={ghTitle}
+                        onChange={(e) => setGhTitle(e.target.value)}
+                        required
+                        className="w-full h-9 px-3 bg-white border border-slate-200 rounded-xl text-xs font-medium focus:border-teal-600 outline-none"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-[10px] font-bold uppercase text-slate-500 block mb-1">Category</label>
+                        <select
+                          value={ghCategory}
+                          onChange={(e) => setGhCategory(e.target.value)}
+                          className="w-full h-9 px-2 bg-white border border-slate-200 rounded-xl text-xs font-medium focus:border-teal-600 outline-none"
+                        >
+                          <option value="feature-request">Feature Request</option>
+                          <option value="clinical-audio">Operatory Audio & DSP</option>
+                          <option value="dental-lexicon">Dental Lexicon & Codes</option>
+                          <option value="pms-clipboard">PMS Clipboard & Export</option>
+                          <option value="login-security">Login & Security</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-bold uppercase text-slate-500 block mb-1">Priority</label>
+                        <select
+                          value={ghPriority}
+                          onChange={(e) => setGhPriority(e.target.value)}
+                          className="w-full h-9 px-2 bg-white border border-slate-200 rounded-xl text-xs font-medium focus:border-teal-600 outline-none"
+                        >
+                          <option value="normal">Normal</option>
+                          <option value="high">High (Affects operatory)</option>
+                          <option value="urgent">Urgent</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] font-bold uppercase text-slate-500 block mb-1">Clinical Context & Description</label>
+                      <textarea
+                        rows={3}
+                        placeholder="Describe the clinical workflow need, operatory observation, or feature idea..."
+                        value={ghDescription}
+                        onChange={(e) => setGhDescription(e.target.value)}
+                        required
+                        className="w-full p-2.5 bg-white border border-slate-200 rounded-xl text-xs font-medium focus:border-teal-600 outline-none resize-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] font-bold uppercase text-slate-400 block mb-0.5">
+                        GitHub Token (Optional override if not set in server .env)
+                      </label>
+                      <input
+                        type="password"
+                        placeholder="ghp_..."
+                        value={ghCustomToken}
+                        onChange={(e) => setGhCustomToken(e.target.value)}
+                        className="w-full h-8 px-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono outline-none"
+                      />
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={ghSubmitting || !ghTitle.trim() || !ghDescription.trim()}
+                      className="w-full h-10 rounded-xl bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer shadow-sm"
+                    >
+                      {ghSubmitting ? (
+                        <>
+                          <div className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                          <span>Creating issue in GitHub API…</span>
+                        </>
+                      ) : (
+                        <>
+                          <Send className="w-3.5 h-3.5" />
+                          <span>Submit Directly to GitHub</span>
+                        </>
+                      )}
+                    </button>
+                  </form>
+                )}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

@@ -2806,6 +2806,94 @@ app.post('/api/clinics/:id/rotate-code', authenticateToken, async (req: any, res
   }
 });
 
+/**
+ * Direct GitHub Issue Dispatcher for Clinical Feedback & Feature Requests.
+ * Directly creates an issue via the GitHub REST API on vikramdarade/dentai
+ * without opening browser links or requiring client-side tokens.
+ */
+app.post('/api/support/github-issue', async (req: any, res) => {
+  try {
+    const { title, description, category, priority, telemetry, customToken } = req.body || {};
+
+    if (!title || typeof title !== 'string' || !title.trim()) {
+      return res.status(400).json({ error: 'Title is required for GitHub issue creation.' });
+    }
+    if (!description || typeof description !== 'string' || !description.trim()) {
+      return res.status(400).json({ error: 'Description is required for GitHub issue creation.' });
+    }
+
+    const token =
+      customToken?.trim() ||
+      req.headers['x-github-token'] ||
+      process.env.GITHUB_TOKEN ||
+      process.env.GH_TOKEN;
+
+    if (!token) {
+      return res.status(400).json({
+        error: 'MISSING_GITHUB_TOKEN',
+        message: 'Direct GitHub creation requires a GITHUB_TOKEN configured in server environment or provided by the practice administrator.'
+      });
+    }
+
+    const cleanCategory = (category || 'feature-request').toLowerCase();
+    const cleanTitle = `[${cleanCategory.toUpperCase()}] ${title.trim()}`;
+
+    const formattedBody = `### Clinical Context & Request
+${description.trim()}
+
+### Metadata & Telemetry
+- **Category:** \`${cleanCategory}\`
+- **Priority:** \`${priority || 'normal'}\`
+- **DentAI Version:** 2.4.0 (Apple Medical Grade Architecture)
+- **Browser/User Agent:** ${req.headers['user-agent'] || 'DentAI Operatory WebApp'}
+- **DSP Acoustic Squelch:** ${telemetry?.audioDsp || 'Active (120Hz/3400Hz/4200Hz)'}
+- **Timestamp:** ${new Date().toISOString()}
+
+---
+*Directly submitted via DentAI Chairside Operatory Clinical Support Assistant.*`;
+
+    const labels = ['clinical-feedback', cleanCategory, 'dentai-chairside'];
+
+    const ghRes = await fetch('https://api.github.com/repos/vikramdarade/dentai/issues', {
+      method: 'POST',
+      headers: {
+        'Authorization': `token ${token}`,
+        'Accept': 'application/vnd.github.v3+json',
+        'Content-Type': 'application/json',
+        'User-Agent': 'DentAI-Clinical-App'
+      },
+      body: JSON.stringify({
+        title: cleanTitle,
+        body: formattedBody,
+        labels
+      })
+    });
+
+    const data = await ghRes.json().catch(() => ({}));
+
+    if (!ghRes.ok) {
+      logger.warn(`[Support] GitHub API issue creation failed (${ghRes.status})`, data);
+      return res.status(ghRes.status >= 500 ? 502 : ghRes.status).json({
+        error: data.message || `GitHub API error (${ghRes.status})`,
+        details: data
+      });
+    }
+
+    logger.info(`[Support] Created GitHub Issue #${data.number}: ${data.title}`);
+
+    return res.status(201).json({
+      ok: true,
+      issueNumber: data.number,
+      issueUrl: data.html_url,
+      title: data.title
+    });
+  } catch (err: any) {
+    logger.error('[Support] Error creating GitHub issue:', err);
+    return res.status(500).json({ error: err?.message || 'Failed to dispatch issue to GitHub.' });
+  }
+});
+
+
 app.post('/api/clinics/:id/rename', authenticateToken, async (req: any, res) => {
   try {
     const clinicId = req.params.id;
