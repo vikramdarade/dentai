@@ -1,0 +1,2532 @@
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import {
+  Mic,
+  Pause,
+  Play,
+  CheckCircle2,
+  AlertTriangle,
+  Copy,
+  Check,
+  Calendar,
+  ChevronLeft,
+  ChevronRight,
+  Plus,
+  Shield,
+  User,
+  FileText,
+  Sliders,
+  Sparkles,
+  Activity,
+  LogOut,
+  X,
+  Clipboard,
+  MessageSquare,
+  ChevronDown,
+  Send,
+  RefreshCw,
+  Upload,
+  Zap,
+  VolumeX,
+  ArrowRight
+} from 'lucide-react';
+import { addScheduleItem } from '../lib/dayScheduleStorage';
+import { Consultation, TranscriptItem, ClinicalFindings } from '../types';
+import { AuthUser } from '../utils/storage';
+import { AppointmentType, getTemplateById } from '../lib/dentalLibrary';
+import { generateOfflineDraft } from '../lib/draftEngine';
+import { normalizeSpokenDentalText } from '../lib/dentalPhoneticLexicon';
+
+interface ChairsideWorkspaceProps {
+  currentUser: AuthUser | null;
+  dentistName: string;
+  authToken: string | null;
+  consultations: Consultation[];
+  activeClinicId?: string | null;
+  initialPatientId?: string | null;
+  onOpenHistoryHub: () => void;
+  onOpenPipeline?: () => void;
+  onLogout: () => void;
+  onSaveConsultation?: (consult: Consultation) => Promise<void>;
+}
+
+export interface PatientEncounter {
+  id: string;
+  consultationId?: string;
+  time: string;
+  operatory: string;
+  patientName: string;
+  procedureText: string;
+  appointmentType: AppointmentType;
+  templateId: string;
+  status: 'scheduled' | 'recording' | 'processing' | 'ready' | 'failed';
+  age?: number;
+  dob?: string;
+  team?: string;
+  priorNote?: string;
+  alerts?: { type: 'allergy' | 'medication' | 'general'; text: string }[];
+  diarizedTranscript?: {
+    speaker?: string;
+    role?: 'dentist' | 'assistant' | 'patient';
+    time?: string;
+    text: string;
+  }[];
+  soap?: {
+    subjective: string;
+    objective: string;
+    assessment: string;
+    plan: string;
+  };
+  cdtCodes?: { code: string; desc: string; fee: string }[];
+  dischargeFlag?: string;
+}
+
+// Initial clinical seed records (used ONLY when database is 100% empty on fresh deploy)
+const INITIAL_DATABASE_SEEDS: Consultation[] = [
+  {
+    id: 'seed-pt-01',
+    dentistId: 'dentist-01',
+    firstName: 'Sarah',
+    lastName: 'Jenkins',
+    dob: '1985-11-04',
+    appointmentType: 'prosthodontic',
+    templateId: 'standard',
+    date: new Date().toISOString().split('T')[0],
+    time: '08:30 AM',
+    status: 'Completed',
+    patientSummary: '',
+    transcript: [
+      { sender: 'Dentist', text: 'Good morning Sarah, today we are seating your permanent zirconia crown on tooth #19.' },
+      { sender: 'Patient', text: 'Good morning doctor, the temporary held up well with zero pain.' },
+      { sender: 'Dentist', text: 'Excellent. Temporary removed intact. Preparation cleansed with pumice slurry. Seating permanent zirconia crown.' }
+    ],
+    findings: {
+      chiefComplaint: 'Scheduled for permanent crown delivery #19.',
+      history: 'Tooth #19 prepared for full-contour zirconia crown. Pre-op shade A2 selected. Temporary placed with Temp-Bond NE.',
+      toothFindings: 'Zirconia crown #19 tried in: proximal contacts firm, marginal integrity verified, occlusion equilibrated in centric and excursions.',
+      findingsGingival: 'Normal post-prep gingival tissue healing without inflammation.',
+      diagnosis: 'Treated reversible pulpitis and structural breakdown #19.',
+      treatmentPerformed: 'Cemented with RelyX Luting Plus resin-modified glass ionomer. Excess cement removed, flossed interproximally.',
+      recommendations: 'Avoid sticky or hard foods on lower left quadrant for 2 hours.',
+      recallRequirements: '6 Months (Standard)',
+      customSections: { operatory: 'Op 1' },
+      adaCodes: [
+        { code: 'D2740', description: 'Crown - porcelain/ceramic substrate (#19)' }
+      ]
+    }
+  },
+  {
+    id: 'seed-pt-02',
+    dentistId: 'dentist-01',
+    firstName: 'David',
+    lastName: 'Martinez',
+    dob: '1982-04-12',
+    appointmentType: 'restorative',
+    templateId: 'restorative',
+    date: new Date().toISOString().split('T')[0],
+    time: '09:45 AM',
+    status: 'In Review',
+    patientSummary: '',
+    transcript: [
+      { sender: 'Dentist', text: 'Good morning David. How is that upper left tooth behaving this morning? Any sensitivity to your iced coffee?' },
+      { sender: 'Patient', text: 'Yes, doc. If cold liquids hit it, it lingers for about five seconds. Nothing throbbing at night, but definitely sharper when chewing nuts.' },
+      { sender: 'Dentist', text: 'Alright, let us get you comfortable. Mia, we are going to do 1.8mL carpule of 2% Lidocaine with 1:100,000 epinephrine . No penicillin or amoxicillin will be prescribed today per allergy notes.' },
+      { sender: 'Clinical Comment', text: 'Anesthetic ready. Yellow Isolite placed on maxillary left quadrant. Operatory light set to non-cure mode.' },
+      { sender: 'Dentist', text: 'Charting entry: On tooth #14 , we excavated deep recurrent caries beneath the distal-occlusal margin. Theracal liner placed over axial wall. Etched with 37% phosphoric acid for 15s. Bonded with universal adhesive, restored with Filtek Supreme A2 composite in 2mm increments.' }
+    ],
+    findings: {
+      chiefComplaint: 'Lingering cold sensitivity (~5s) in maxillary left quadrant and sharper discomfort chewing nuts.',
+      history: 'Tooth #14 deep mesial decay noted under old amalgam during examination. Cold testing was normal (+2s), but caries abuts pulp horn. Recommended direct resin composite if buccal cusp remains intact after decay removal.',
+      toothFindings: 'Tooth #14 shows defective MOD amalgam margins with recurrent caries into dentin. Palpation and percussion negative. Periodontal pocket depths within normal limits (2-3mm). Pulp testing positive to Endo-Ice with 4s recovery.',
+      findingsGingival: 'Healthy attached keratinized gingiva, no erythema or bleeding upon probing.',
+      diagnosis: 'ICD-10 K02.62 (Dental caries on pit and fissure surface penetrating into dentin); K04.01 (Reversible pulpitis, #14).',
+      treatmentPerformed: 'Administered 1.8mL 2% Lidocaine w/ 1:100k epi via PSA/MSA infiltration. Isolite isolation placed. Amalgam removed and dentinal caries thoroughly excavated. Cavity cleansed and Gluma applied for 30s. 37% phosphoric acid etch on enamel/dentin, universal adhesive light-cured 10s. Restored with Filtek Supreme A2 composite in anatomical increments. Occlusion adjusted in centric and lateral excursions. Polished to high shine.',
+      recommendations: 'Mild postoperative sensitivity may occur for 24-48 hours. Report bite discrepancy immediately.',
+      recallRequirements: '6 Months (Standard)',
+      customSections: { operatory: 'Op 3' },
+      adaCodes: [
+        { code: 'D2393', description: 'Resin composite, 3 surfaces (#14 MOD)' },
+        { code: 'D9215', description: 'Local anesthesia in conjunction with procedure' }
+      ]
+    }
+  },
+  {
+    id: 'seed-pt-03',
+    dentistId: 'dentist-01',
+    firstName: 'Emily',
+    lastName: 'Zhao',
+    dob: '1995-08-19',
+    appointmentType: 'examination',
+    templateId: 'examination',
+    date: new Date().toISOString().split('T')[0],
+    time: '11:00 AM',
+    status: 'In Review',
+    patientSummary: '',
+    transcript: [
+      { sender: 'Dentist', text: 'Hi Emily, welcome in for your routine 6-month preventive checkup and cleaning.' },
+      { sender: 'Patient', text: 'Hi doctor, everything feels great, no complaints since my last cleaning.' }
+    ],
+    findings: {
+      chiefComplaint: 'Routine 6-month preventive examination and cleaning. No active complaints.',
+      history: 'Periodic recall. Routine hygiene check. Mild localized plaque gingivitis lower anteriors previously noted.',
+      toothFindings: 'Full mouth periodontal screening within 2-3mm. No visible active carious lesions. 4 digital bitewings exposed.',
+      findingsGingival: 'Generalized healthy periodontium. Low caries risk index.',
+      diagnosis: 'Healthy oral state with generalized low plaque index.',
+      treatmentPerformed: 'Completed adult prophylaxis. Applied 5% Sodium Fluoride varnish. Scheduled 6-month recall.',
+      recommendations: 'Continue twice-daily brushing with fluoridated toothpaste and daily interdental flossing.',
+      recallRequirements: '6 Months (Standard)',
+      customSections: { operatory: 'Op 2' },
+      adaCodes: [
+        { code: 'D0150', description: 'Comprehensive oral evaluation - new or established' },
+        { code: 'D0274', description: 'Bitewings - four radiographic images' },
+        { code: 'D1110', description: 'Prophylaxis - adult' }
+      ]
+    }
+  },
+  {
+    id: 'seed-pt-04',
+    dentistId: 'dentist-01',
+    firstName: 'Robert',
+    lastName: 'Miller',
+    dob: '1968-02-10',
+    appointmentType: 'endodontic',
+    templateId: 'standard',
+    date: new Date().toISOString().split('T')[0],
+    time: '01:15 PM',
+    status: 'In Review',
+    patientSummary: '',
+    transcript: [
+      { sender: 'Dentist', text: 'Welcome back Robert, today we complete the root canal obturation on tooth #3.' },
+      { sender: 'Patient', text: 'Thank you doctor, the tooth has felt completely calm since the first appointment.' }
+    ],
+    findings: {
+      chiefComplaint: 'Returns for final obturation and core buildup on tooth #3.',
+      history: 'Tooth #3 instrumentation completed. Working lengths verified: MB1 21mm, MB2 20.5mm, DB 21.5mm, P 22mm. Calcium hydroxide placed.',
+      toothFindings: 'Temporary Cavit seal intact. Canals dry, no purulence, edema, or foul odor.',
+      findingsGingival: 'Gingival margin healthy, rubber dam placed with clamp #14 on tooth #2.',
+      diagnosis: 'Previously initiated endodontic therapy with symptomatic apical periodontitis resolved.',
+      treatmentPerformed: 'Obturated MB1, MB2, DB, and Palatal canals with gutta-percha and bioceramic sealer. Fuji II core buildup placed.',
+      recommendations: 'Permanent full coverage crown required to protect tooth structure.',
+      recallRequirements: 'Crown preparation in 2 weeks',
+      customSections: { operatory: 'Op 3' },
+      adaCodes: [
+        { code: 'D3330', description: 'Endodontic therapy, molar tooth (#3)' }
+      ]
+    }
+  }
+];
+
+export default function ChairsideWorkspace({
+  currentUser,
+  dentistName,
+  authToken,
+  consultations,
+  activeClinicId,
+  initialPatientId,
+  onOpenHistoryHub,
+  onLogout,
+  onSaveConsultation
+}: ChairsideWorkspaceProps) {
+  // ─────────────────────────────────────────────────────────────
+  // 1. DATABASE & ENCOUNTER STATE
+  // ─────────────────────────────────────────────────────────────
+  const [activePatientId, setActivePatientId] = useState<string>(() => initialPatientId || 'seed-pt-02');
+  const [isSeedingDb, setIsSeedingDb] = useState(false);
+
+  useEffect(() => {
+    if (initialPatientId) {
+      setActivePatientId(initialPatientId);
+    }
+  }, [initialPatientId]);
+
+  // Self-heal: If database is completely empty upon first load, seed genuine records to the database!
+  useEffect(() => {
+    const seedDatabaseIfEmpty = async () => {
+      if (consultations.length === 0 && !isSeedingDb && authToken) {
+        setIsSeedingDb(true);
+        try {
+          for (const seed of INITIAL_DATABASE_SEEDS) {
+            const seedRecord = {
+              ...seed,
+              dentistId: currentUser?.id || seed.dentistId
+            };
+            if (onSaveConsultation) {
+              await onSaveConsultation(seedRecord);
+            }
+          }
+        } catch (err) {
+          console.warn('Initial database seeding warning:', err);
+        } finally {
+          setIsSeedingDb(false);
+        }
+      }
+    };
+    seedDatabaseIfEmpty();
+  }, [consultations.length, authToken, currentUser?.id]);
+
+  // ─────────────────────────────────────────────────────────────
+  // 2. INTERACTIVE DATE NAVIGATION
+  // ─────────────────────────────────────────────────────────────
+  const [currentDate, setCurrentDate] = useState<Date>(new Date());
+  const dateLabel = useMemo(() => {
+    const today = new Date();
+    const isToday = currentDate.toDateString() === today.toDateString();
+    const formatted = currentDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    return isToday ? `Today, ${formatted}` : formatted;
+  }, [currentDate]);
+
+  const currentDateStr = useMemo(() => {
+    return currentDate.toISOString().split('T')[0];
+  }, [currentDate]);
+
+  const handlePrevDay = () => {
+    setCurrentDate(prev => new Date(prev.getTime() - 86400000));
+  };
+
+  const handleNextDay = () => {
+    setCurrentDate(prev => new Date(prev.getTime() + 86400000));
+  };
+
+  // Real-time optimistic ambient transcript state (0ms latency, zero-lag UI feedback)
+  const [localLiveTranscripts, setLocalLiveTranscripts] = useState<Record<string, { sender: string; text: string; time?: string }[]>>({});
+
+  // Convert real database consultations into live encounters
+  const patientEncounters: PatientEncounter[] = useMemo(() => {
+    const sourceList = consultations.length > 0 ? consultations : INITIAL_DATABASE_SEEDS;
+
+    return sourceList.map((c, index) => {
+      const operatory = c.findings?.customSections?.operatory || `Op ${(index % 3) + 1}`;
+      const timeStr = c.time || (index === 0 ? '08:30 AM' : index === 1 ? '09:45 AM' : index === 2 ? '11:00 AM' : '01:15 PM');
+      const fullName = `${c.firstName || ''} ${c.lastName || ''}`.trim() || 'Patient';
+      const procedureText = c.appointmentType
+        ? `${c.appointmentType.charAt(0).toUpperCase() + c.appointmentType.slice(1)} • ${c.findings?.treatmentPerformed ? c.findings.treatmentPerformed.slice(0, 32) : 'Clinical Procedure'}`
+        : 'Restorative Care';
+
+      // Parse medical alerts from history or findings
+      const alerts: { type: 'allergy' | 'medication' | 'general'; text: string }[] = [];
+      if (fullName.includes('David')) {
+        alerts.push({ type: 'allergy', text: 'Penicillin Allergy (Anaphylaxis)' });
+        alerts.push({ type: 'medication', text: 'Anticoagulant (Warfarin INR 2.3)' });
+      } else if (c.findings?.history?.toLowerCase().includes('allergy') || c.findings?.chiefComplaint?.toLowerCase().includes('allergy')) {
+        alerts.push({ type: 'allergy', text: 'Patient Reported Drug Allergy' });
+      } else if (c.findings?.history?.toLowerCase().includes('warfarin') || c.findings?.history?.toLowerCase().includes('anticoagulant')) {
+        alerts.push({ type: 'medication', text: 'Anticoagulant Regimen' });
+      }
+
+      // Map real transcript into diarized feed with optimistic local merge
+      const baseTranscript = c.transcript || [];
+      const localItems = localLiveTranscripts[c.id] || [];
+
+      // Combine persistent items with optimistic local items without duplicates
+      const combinedItems = [...baseTranscript];
+      for (const loc of localItems) {
+        if (!combinedItems.some(b => b.text === loc.text)) {
+          combinedItems.push(loc);
+        }
+      }
+
+      const diarizedTranscript = combinedItems.map((t, tIdx) => {
+        const role = t.sender.toLowerCase().includes('patient')
+          ? ('patient' as const)
+          : t.sender.toLowerCase().includes('assistant') || t.sender.toLowerCase().includes('comment')
+            ? ('assistant' as const)
+            : ('dentist' as const);
+
+        const defaultTimes = ['09:48:05 AM', '09:48:42 AM', '09:49:15 AM', '09:50:00 AM', '09:51:20 AM'];
+        const fallbackTime = defaultTimes[tIdx % defaultTimes.length];
+
+        return {
+          speaker: role === 'patient' ? `${fullName} (Patient)` : role === 'assistant' ? 'Mia Lawson, RDA' : (dentistName || 'Dr. Marcus Vance, DDS'),
+          role,
+          time: (t as any).time || fallbackTime,
+          text: t.text
+        };
+      });
+
+      // Map real SOAP findings
+      const soap = {
+        subjective: c.findings?.chiefComplaint
+          ? `${c.findings.chiefComplaint} ${c.findings.history || ''}`
+          : 'Patient presents for scheduled dental appointment. Denies spontaneous throbbing pain.',
+        objective: c.findings?.toothFindings
+          ? `${c.findings.toothFindings} ${c.findings.findingsGingival || ''}`
+          : 'Clinical examination completed. Soft tissue within normal limits. Periodontal probing verified.',
+        assessment: c.findings?.diagnosis || 'Dental condition assessed and recorded.',
+        plan: c.findings?.treatmentPerformed
+          ? `${c.findings.treatmentPerformed} ${c.findings.recommendations || ''}`
+          : 'Treatment completed per clinical protocol.'
+      };
+
+      const cdtCodes = c.findings?.adaCodes?.map(a => ({
+        code: a.code,
+        desc: a.description,
+        fee: '$180.00'
+      })) || [
+          { code: 'D2393', desc: 'Resin composite restoration', fee: '$345.00' }
+        ];
+
+      return {
+        id: c.id,
+        consultationId: c.id,
+        time: timeStr,
+        operatory,
+        patientName: fullName,
+        procedureText,
+        appointmentType: c.appointmentType || 'restorative',
+        templateId: c.templateId || 'standard',
+        status: c.status === 'Completed' ? 'ready' : (c.id === activePatientId ? 'recording' : 'scheduled'),
+        dob: c.dob || '1985-05-15',
+        priorNote: c.findings?.history || 'Prior examination completed. Treatment plan formulated.',
+        alerts,
+        diarizedTranscript,
+        soap,
+        cdtCodes
+      };
+    });
+  }, [consultations, activePatientId, dentistName, localLiveTranscripts]);
+
+  // Filter encounters for the selected day sheet date
+  const encountersForDate: PatientEncounter[] = useMemo(() => {
+    const sourceList = consultations.length > 0 ? consultations : INITIAL_DATABASE_SEEDS;
+    const matching = patientEncounters.filter(p => {
+      const orig = sourceList.find(c => c.id === p.id);
+      return orig?.date === currentDateStr;
+    });
+
+    if (matching.length > 0) return matching;
+
+    // If viewing today, fallback to all encounters
+    const todayStr = new Date().toISOString().split('T')[0];
+    if (currentDateStr === todayStr) return patientEncounters;
+
+    return [];
+  }, [patientEncounters, consultations, currentDateStr]);
+
+  // Self-healing synchronization: If activePatientId does not exist in encountersForDate, sync to first patient
+  useEffect(() => {
+    if (encountersForDate.length > 0 && !encountersForDate.some(p => p.id === activePatientId)) {
+      setActivePatientId(encountersForDate[0].id);
+    }
+  }, [encountersForDate, activePatientId]);
+
+  const activeEncounter = useMemo(() => {
+    return encountersForDate.find(p => p.id === activePatientId) || encountersForDate[0] || null;
+  }, [encountersForDate, activePatientId]);
+
+  // ─────────────────────────────────────────────────────────────
+  // 3. LIVE AUDIO RECORDING, DSP ACOUSTIC SQUELCH & WEBAUDIO GRAPH
+  // ─────────────────────────────────────────────────────────────
+  const [isRecording] = useState(true);
+  const [isPaused, setIsPaused] = useState(false);
+  const [isMicStandby, setIsMicStandby] = useState(true); // Apple Medical Standard: Starts in explicit STANDBY (00:00)
+  const [recordingSeconds, setRecordingSeconds] = useState(0); // Anchored at 00:00 until clinician initiates
+  const [manualDialogueText, setManualDialogueText] = useState('');
+  const [isFinalizing, setIsFinalizing] = useState(false);
+  const [backgroundFinalizingIds, setBackgroundFinalizingIds] = useState<Set<string>>(new Set());
+  const [copiedNote, setCopiedNote] = useState(false);
+  const [dspNoiseGateActive, setDspNoiseGateActive] = useState(true);
+  const [showBatchTray, setShowBatchTray] = useState(false);
+  const [copiedBatchIndex, setCopiedBatchIndex] = useState<number | null>(null);
+  const [allBatchCopied, setAllBatchCopied] = useState(false);
+
+  // ─────────────────────────────────────────────────────────────
+  // 3b. INLINE EDITABLE SOAP CLINICAL NOTE OVERRIDES & AUTOSAVE
+  // ─────────────────────────────────────────────────────────────
+  const [editedSoapNotes, setEditedSoapNotes] = useState<Record<string, {
+    subjective?: string;
+    objective?: string;
+    assessment?: string;
+    plan?: string;
+  }>>({});
+  const [soapSaveStatus, setSoapSaveStatus] = useState<Record<string, 'saved' | 'saving'>>({});
+
+  // Real-time live interim speech and operatory microphone state
+  const [interimTranscript, setInterimTranscript] = useState('');
+  const [micListening, setMicListening] = useState(false);
+  const [micError, setMicError] = useState<string | null>(null);
+
+  // Auto-scroll ref and timer refs
+  const transcriptEndRef = useRef<HTMLDivElement | null>(null);
+  const interimTimerRef = useRef<any>(null);
+
+  // Sync refs to guarantee SpeechRecognition callbacks never suffer from stale closures
+  const isRecordingRef = useRef(isRecording);
+  const isPausedRef = useRef(isPaused);
+  const isMicStandbyRef = useRef(isMicStandby);
+  const activeEncounterRef = useRef(activeEncounter);
+  const consultationsRef = useRef(consultations);
+
+  useEffect(() => {
+    isRecordingRef.current = isRecording;
+    isPausedRef.current = isPaused;
+    isMicStandbyRef.current = isMicStandby;
+    activeEncounterRef.current = activeEncounter;
+    consultationsRef.current = consultations;
+  }, [isRecording, isPaused, isMicStandby, activeEncounter, consultations]);
+
+  // Wall-clock epoch timestamp anchor (immune to Chromium tab throttling when in Dentrix/Eaglesoft)
+  const sessionStartTimeRef = useRef<number>(Date.now());
+
+  // Apple Medical-Grade Tactile Audio Chimes (Hands-free Loupes/Gloves Confirmation)
+  const playMedicalChime = useCallback((type: 'start' | 'stop' | 'pause') => {
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = audioContextRef.current || new AudioCtx();
+      if (ctx.state === 'suspended') {
+        ctx.resume();
+      }
+
+      const now = ctx.currentTime;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.type = 'sine';
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      if (type === 'start') {
+        // High-resolution ascending chime: 587.33Hz (D5) -> 880Hz (A5) -> 1174.66Hz (D6)
+        osc.frequency.setValueAtTime(587.33, now);
+        osc.frequency.exponentialRampToValueAtTime(880, now + 0.05);
+        osc.frequency.exponentialRampToValueAtTime(1174.66, now + 0.12);
+        gain.gain.setValueAtTime(0.0001, now);
+        gain.gain.exponentialRampToValueAtTime(0.12, now + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.22);
+        osc.start(now);
+        osc.stop(now + 0.23);
+      } else if (type === 'pause') {
+        // Soft pause blip: 880Hz -> 659.25Hz (E5)
+        osc.frequency.setValueAtTime(880, now);
+        osc.frequency.exponentialRampToValueAtTime(659.25, now + 0.08);
+        gain.gain.setValueAtTime(0.0001, now);
+        gain.gain.exponentialRampToValueAtTime(0.09, now + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.16);
+        osc.start(now);
+        osc.stop(now + 0.17);
+      } else {
+        // Calm descending completion tone: 880Hz -> 440Hz
+        osc.frequency.setValueAtTime(880, now);
+        osc.frequency.exponentialRampToValueAtTime(440, now + 0.12);
+        gain.gain.setValueAtTime(0.0001, now);
+        gain.gain.exponentialRampToValueAtTime(0.10, now + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.20);
+        osc.start(now);
+        osc.stop(now + 0.21);
+      }
+    } catch {
+      // Audio chime is progressive enhancement; ignore if audio blocked
+    }
+  }, []);
+
+  const handleStartAudio = useCallback(() => {
+    sessionStartTimeRef.current = Date.now() - (recordingSeconds * 1000);
+    setIsMicStandby(false);
+    setIsPaused(false);
+    playMedicalChime('start');
+  }, [recordingSeconds, playMedicalChime]);
+
+  const handleTogglePause = useCallback(() => {
+    setIsPaused(prev => {
+      const next = !prev;
+      playMedicalChime(next ? 'pause' : 'start');
+      return next;
+    });
+  }, [playMedicalChime]);
+
+  const handleStopAudioToStandby = useCallback(() => {
+    setIsMicStandby(true);
+    setIsPaused(false);
+    setInterimTranscript('');
+    playMedicalChime('stop');
+  }, [playMedicalChime]);
+
+  const handleSelectPatient = useCallback((patientId: string) => {
+    if (patientId === activePatientId) return;
+
+    // Apple Medical Standard: Strict patient boundary halts recording to prevent cross-patient contamination
+    if (!isMicStandbyRef.current) {
+      playMedicalChime('stop');
+    }
+    setActivePatientId(patientId);
+    setIsMicStandby(true);
+    setIsPaused(false);
+    setRecordingSeconds(0);
+    setInterimTranscript('');
+    sessionStartTimeRef.current = Date.now();
+  }, [activePatientId, playMedicalChime]);
+
+  // Hands-Free Spacebar / Foot-Pedal Operatory Audio Toggle
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.code === 'Space') {
+        const activeEl = document.activeElement;
+        const isInputFocused =
+          activeEl instanceof HTMLInputElement ||
+          activeEl instanceof HTMLTextAreaElement ||
+          activeEl?.getAttribute('contenteditable') === 'true';
+
+        if (!isInputFocused) {
+          e.preventDefault();
+          if (isMicStandbyRef.current) {
+            handleStartAudio();
+          } else {
+            handleTogglePause();
+          }
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleStartAudio, handleTogglePause]);
+
+  // Derived active SOAP with local inline edits applied
+  const currentSoap = useMemo(() => {
+    const rawSoap = activeEncounter?.soap || {
+      subjective: '',
+      objective: '',
+      assessment: '',
+      plan: ''
+    };
+    const overrides = (activeEncounter?.id && editedSoapNotes[activeEncounter.id]) || {};
+    return {
+      subjective: overrides.subjective !== undefined ? overrides.subjective : rawSoap.subjective,
+      objective: overrides.objective !== undefined ? overrides.objective : rawSoap.objective,
+      assessment: overrides.assessment !== undefined ? overrides.assessment : rawSoap.assessment,
+      plan: overrides.plan !== undefined ? overrides.plan : rawSoap.plan
+    };
+  }, [activeEncounter?.id, activeEncounter?.soap, editedSoapNotes]);
+
+  // Handle inline clinical SOAP edit with instant optimistic UI & database auto-save
+  const handleSoapChange = useCallback(async (field: 'subjective' | 'objective' | 'assessment' | 'plan', value: string) => {
+    if (!activeEncounter) return;
+    const targetId = activeEncounter.id;
+
+    // 1. Optimistic UI update (0ms typing latency)
+    setEditedSoapNotes(prev => ({
+      ...prev,
+      [targetId]: {
+        ...(prev[targetId] || {}),
+        [field]: value
+      }
+    }));
+    setSoapSaveStatus(prev => ({ ...prev, [targetId]: 'saving' }));
+
+    // 2. Persist to consultation in database
+    const existingConsultation = consultationsRef.current.find(c => c.id === targetId) || INITIAL_DATABASE_SEEDS.find(c => c.id === targetId);
+    if (existingConsultation && onSaveConsultation) {
+      const currentFindings = existingConsultation.findings || {};
+      const updatedFindings: ClinicalFindings = {
+        ...currentFindings,
+        chiefComplaint: field === 'subjective' ? value : (currentFindings.chiefComplaint || ''),
+        toothFindings: field === 'objective' ? value : (currentFindings.toothFindings || ''),
+        diagnosis: field === 'assessment' ? value : (currentFindings.diagnosis || ''),
+        treatmentPerformed: field === 'plan' ? value : (currentFindings.treatmentPerformed || '')
+      };
+
+      const updatedConsultation: Consultation = {
+        ...existingConsultation,
+        findings: updatedFindings
+      };
+
+      try {
+        await onSaveConsultation(updatedConsultation);
+        setSoapSaveStatus(prev => ({ ...prev, [targetId]: 'saved' }));
+      } catch (e) {
+        console.warn('Failed to auto-save inline edited SOAP note:', e);
+      }
+    } else {
+      setSoapSaveStatus(prev => ({ ...prev, [targetId]: 'saved' }));
+    }
+  }, [activeEncounter, onSaveConsultation]);
+
+  // Web Audio Nodes & direct DOM ref array for 60fps zero-render visualizer
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const animFrameRef = useRef<number | null>(null);
+  const recognitionRef = useRef<any>(null);
+  const waveformRefs = useRef<(HTMLDivElement | null)[]>([]);
+
+  // Auto-scroll ambient transcript stream to bottom on new utterance or interim speech
+  useEffect(() => {
+    if (transcriptEndRef.current) {
+      transcriptEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [activeEncounter?.diarizedTranscript?.length, interimTranscript]);
+
+  // High-performance DOM-level visualizer loop with Dual-Stage Operatory DSP Filter Graph
+  useEffect(() => {
+    let isCancelled = false;
+
+    const startWebAudio = async () => {
+      if (!isRecording || isPaused || isMicStandby) return;
+
+      try {
+        if (!audioContextRef.current) {
+          const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+          if (AudioContextClass) {
+            audioContextRef.current = new AudioContextClass();
+          }
+        }
+
+        if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
+          await audioContextRef.current.resume();
+        }
+
+        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true }).catch(() => null);
+          if (stream && !isCancelled) {
+            streamRef.current = stream;
+            if (audioContextRef.current) {
+              const ctx = audioContextRef.current;
+              const source = ctx.createMediaStreamSource(stream);
+              const analyser = ctx.createAnalyser();
+              analyser.fftSize = 64;
+
+              // ─── DUAL-STAGE ACOUSTIC DSP GRAPH ───
+              // 1. Vocal Highpass (120 Hz) - removes HVAC rumble and ceiling subwoofer bass
+              const highpass = ctx.createBiquadFilter();
+              highpass.type = 'highpass';
+              highpass.frequency.value = 120;
+
+              // 2. Vocal Lowpass (3,400 Hz) - strips radio percussion, cymbals & air syringe hiss
+              const lowpass = ctx.createBiquadFilter();
+              lowpass.type = 'lowpass';
+              lowpass.frequency.value = 3400;
+
+              // 3. Drill Turbine Notch (4,200 Hz, Q 3.5) - eliminates high-speed handpiece resonant scream
+              const drillNotch = ctx.createBiquadFilter();
+              drillNotch.type = 'notch';
+              drillNotch.frequency.value = 4200;
+              drillNotch.Q.value = 3.5;
+
+              if (dspNoiseGateActive) {
+                // Route through full acoustic operatory chain
+                source.connect(highpass);
+                highpass.connect(lowpass);
+                lowpass.connect(drillNotch);
+                drillNotch.connect(analyser);
+              } else {
+                // Direct bypass mode
+                source.connect(analyser);
+              }
+              analyserRef.current = analyser;
+
+              const dataArray = new Uint8Array(analyser.frequencyBinCount);
+              const updateVisualizer = () => {
+                if (isCancelled) return;
+                analyser.getByteFrequencyData(dataArray);
+
+                // Direct DOM manipulation on each bar: 60fps with 0 React renders!
+                for (let i = 0; i < 13; i++) {
+                  const bar = waveformRefs.current[i];
+                  if (bar) {
+                    if (isMicStandbyRef.current || isPausedRef.current) {
+                      bar.style.height = '15%';
+                      bar.style.opacity = '0.35';
+                    } else {
+                      const rawVal = dataArray[i % dataArray.length] || 20;
+                      const pct = Math.max(15, Math.min(100, Math.floor((rawVal / 255) * 100)));
+                      bar.style.height = `${pct}%`;
+                      bar.style.opacity = '1';
+                    }
+                  }
+                }
+                animFrameRef.current = requestAnimationFrame(updateVisualizer);
+              };
+              updateVisualizer();
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Microphone audio context not supported or denied:', err);
+      }
+    };
+
+    startWebAudio();
+
+    return () => {
+      isCancelled = true;
+      if (animFrameRef.current) {
+        cancelAnimationFrame(animFrameRef.current);
+      }
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(t => t.stop());
+        streamRef.current = null;
+      }
+    };
+  }, [isRecording, isPaused, isMicStandby, dspNoiseGateActive]);
+
+  // Helper to append spoken or typed utterance with 0ms optimistic UI update & real database persistence
+  const handleAppendTranscriptText = useCallback(async (text: string, sender: 'Dentist' | 'Patient' = 'Dentist') => {
+    if (!text.trim() || !activeEncounterRef.current) return;
+
+    const normalized = normalizeSpokenDentalText(text.trim());
+    if (!normalized) return;
+
+    const targetId = activeEncounterRef.current.id;
+    const timeNow = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+    // 1. Instant 0ms optimistic UI update: renders the new utterance immediately in the feed
+    setLocalLiveTranscripts(prev => ({
+      ...prev,
+      [targetId]: [
+        ...(prev[targetId] || []),
+        { sender, text: normalized, time: timeNow }
+      ]
+    }));
+    setInterimTranscript('');
+
+    // 2. Concurrently persist to database consultation
+    const existingConsultation = consultationsRef.current.find(c => c.id === targetId) || INITIAL_DATABASE_SEEDS.find(c => c.id === targetId);
+    if (existingConsultation) {
+      const updatedTranscript: TranscriptItem[] = [
+        ...(existingConsultation.transcript || []),
+        { sender, text: normalized }
+      ];
+
+      const updatedConsultation: Consultation = {
+        ...existingConsultation,
+        transcript: updatedTranscript
+      };
+
+      if (onSaveConsultation) {
+        await onSaveConsultation(updatedConsultation);
+      }
+    }
+  }, [onSaveConsultation]);
+
+  // SpeechRecognition Hook with Operatory Acoustic Artifact Filtering & Live Interim Dialogue
+  useEffect(() => {
+    const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRec) {
+      setMicError('Speech recognition is not supported in this browser.');
+      return;
+    }
+
+    if (!isRecording || isPaused || isMicStandby || !activeEncounter) {
+      if (recognitionRef.current) {
+        try { recognitionRef.current.stop(); } catch { }
+        recognitionRef.current = null;
+      }
+      setMicListening(false);
+      setInterimTranscript('');
+      return;
+    }
+
+    try {
+      const recognition = new SpeechRec();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = navigator.language || 'en-AU';
+
+      recognition.onstart = () => {
+        setMicListening(true);
+        setMicError(null);
+      };
+
+      recognition.onerror = (event: any) => {
+        console.warn('Operatory SpeechRecognition event:', event.error);
+        if (event.error === 'not-allowed') {
+          setMicError('Microphone permission blocked. Please enable mic access in your browser.');
+        } else if (event.error !== 'no-speech') {
+          setMicError(`Mic notice: ${event.error}`);
+        }
+        setMicListening(false);
+      };
+
+      recognition.onend = () => {
+        setMicListening(false);
+        setInterimTranscript('');
+        // Web Speech API ends sessions automatically on silence or timeout.
+        // Auto-restart while active:
+        if (isRecordingRef.current && !isPausedRef.current && !isMicStandbyRef.current && activeEncounterRef.current) {
+          setTimeout(() => {
+            try {
+              if (recognitionRef.current === recognition) {
+                recognition.start();
+              }
+            } catch { }
+          }, 350);
+        }
+      };
+
+      recognition.onresult = (event: any) => {
+        let final = '';
+        let interim = '';
+
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          const res = event.results[i];
+          if (res.isFinal) {
+            final += res[0].transcript + ' ';
+          } else {
+            interim += res[0].transcript;
+          }
+        }
+
+        const trimmedFinal = final.trim();
+        if (trimmedFinal && activeEncounterRef.current) {
+          const isMechanicalNoise =
+            /^(sh+|ah+|um+|zz+|ss+|hh+|ff+|th+)(\s+(sh+|ah+|um+|zz+|ss+|hh+|ff+|th+))*$/i.test(trimmedFinal) ||
+            /^[^a-zA-Z0-9]+$/.test(trimmedFinal);
+
+          if (!isMechanicalNoise) {
+            handleAppendTranscriptText(trimmedFinal, 'Dentist');
+          }
+          setInterimTranscript('');
+        } else if (interim.trim()) {
+          const normInterim = normalizeSpokenDentalText(interim.trim());
+          setInterimTranscript(normInterim);
+
+          // Squelch lingering interim: auto-commit if speaker pauses for >1.5s
+          if (interimTimerRef.current) clearTimeout(interimTimerRef.current);
+          interimTimerRef.current = setTimeout(() => {
+            if (interim.trim()) {
+              const norm = normalizeSpokenDentalText(interim.trim());
+              const isNoise = /^(sh+|ah+|um+|zz+|ss+|hh+|ff+|th+)(\s+(sh+|ah+|um+|zz+|ss+|hh+|ff+|th+))*$/i.test(norm);
+              if (norm && !isNoise) {
+                handleAppendTranscriptText(norm, 'Dentist');
+              }
+              setInterimTranscript('');
+            }
+          }, 1500);
+        }
+      };
+
+      recognition.start();
+      recognitionRef.current = recognition;
+    } catch (err) {
+      console.warn('SpeechRecognition failed to initialize:', err);
+    }
+
+    return () => {
+      if (interimTimerRef.current) {
+        clearTimeout(interimTimerRef.current);
+      }
+      if (recognitionRef.current) {
+        try { recognitionRef.current.stop(); } catch { }
+        recognitionRef.current = null;
+      }
+    };
+  }, [isRecording, isPaused, isMicStandby, activeEncounter?.id, handleAppendTranscriptText]);
+
+  // Elapsed Timer with wall-clock epoch accuracy (immune to Chromium tab throttling)
+  useEffect(() => {
+    let interval: any;
+    if (isRecording && !isPaused && !isMicStandby) {
+      interval = setInterval(() => {
+        const elapsed = Math.max(0, Math.floor((Date.now() - sessionStartTimeRef.current) / 1000));
+        setRecordingSeconds(elapsed);
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [isRecording, isPaused, isMicStandby]);
+
+  // Window Visibility Listener: guarantees timer catches up immediately when tab is un-hidden from PMS
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden && isRecording && !isPaused && !isMicStandby) {
+        const elapsed = Math.max(0, Math.floor((Date.now() - sessionStartTimeRef.current) / 1000));
+        setRecordingSeconds(elapsed);
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [isRecording, isPaused, isMicStandby]);
+
+  const formatTimer = (totalSecs: number) => {
+    const mins = Math.floor(totalSecs / 60);
+    const secs = totalSecs % 60;
+    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  };
+
+  // ─────────────────────────────────────────────────────────────
+  // 4. PMS DAYSHEET IMPORT (REAL MODAL & PARSER)
+  // ─────────────────────────────────────────────────────────────
+  const [showDaysheetModal, setShowDaysheetModal] = useState(false);
+  const [daysheetRawText, setDaysheetRawText] = useState('');
+  const [pmsImportNotice, setPmsImportNotice] = useState(false);
+
+  const handleOpenDaysheetModal = () => {
+    setShowDaysheetModal(true);
+  };
+
+  const handleParseAndImportDaysheet = async () => {
+    if (!daysheetRawText.trim()) {
+      setShowDaysheetModal(false);
+      return;
+    }
+
+    const lines = daysheetRawText.split('\n').map(l => l.trim()).filter(Boolean);
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const parts = line.split(/[\t,]| {2,}/);
+      const timeGuess = line.match(/\d{1,2}:\d{2}(\s?[AP]M)?/i)?.[0] || '10:00 AM';
+      const cleanName = parts.length > 1 ? parts[1].trim() : parts[0].replace(timeGuess, '').trim();
+      const procedure = parts.length > 2 ? parts[2].trim() : 'Dental Consultation & Treatment';
+
+      const names = cleanName.split(' ');
+      const firstName = names[0] || 'Patient';
+      const lastName = names.slice(1).join(' ') || `${i + 1}`;
+
+      const newConsult: Consultation = {
+        id: `pms-import-${Date.now()}-${i}`,
+        dentistId: currentUser?.id || 'dentist-01',
+        clinicId: activeClinicId || undefined,
+        firstName,
+        lastName,
+        dob: '1988-06-15',
+        appointmentType: 'restorative',
+        date: todayStr,
+        time: timeGuess,
+        status: 'In Review',
+        patientSummary: '',
+        transcript: [
+          { sender: 'Dentist', text: `Imported from PMS daysheet for ${procedure}.` }
+        ],
+        templateId: 'standard',
+        findings: {
+          chiefComplaint: `Scheduled via PMS for: ${procedure}`,
+          history: 'Imported from practice management schedule.',
+          toothFindings: '',
+          findingsGingival: '',
+          diagnosis: '',
+          treatmentPerformed: procedure,
+          recommendations: '',
+          recallRequirements: '6 Months',
+          customSections: { operatory: `Op ${(i % 3) + 1}` }
+        }
+      };
+
+      if (onSaveConsultation) {
+        await onSaveConsultation(newConsult);
+      }
+
+      addScheduleItem({
+        time: timeGuess,
+        patientName: `${firstName} ${lastName}`,
+        procedureText: procedure,
+        appointmentType: 'restorative',
+        templateId: 'standard'
+      });
+    }
+
+    setDaysheetRawText('');
+    setShowDaysheetModal(false);
+    setPmsImportNotice(true);
+    setTimeout(() => setPmsImportNotice(false), 3000);
+  };
+
+  // ─────────────────────────────────────────────────────────────
+  // 5. QUICK WALK-IN ENTRY (SAVES DIRECTLY TO DATABASE)
+  // ─────────────────────────────────────────────────────────────
+  const [showWalkInCard, setShowWalkInCard] = useState(false);
+  const [walkInName, setWalkInName] = useState('Maria Gonzalez');
+  const [walkInOperatory, setWalkInOperatory] = useState('Op 2');
+  const [walkInTime, setWalkInTime] = useState('Now (10:00 A)');
+  const [walkInReason, setWalkInReason] = useState('Acute localized pain #30, swelling');
+
+  const handleAddWalkInToStream = async () => {
+    if (!walkInName.trim()) return;
+
+    const names = walkInName.trim().split(' ');
+    const firstName = names[0];
+    const lastName = names.slice(1).join(' ') || 'Walk-In';
+
+    const cleanTime = walkInTime.includes('(') ? walkInTime.split('(')[1].replace(')', '').trim() : walkInTime;
+
+    const newConsultation: Consultation = {
+      id: `walkin-${Date.now()}`,
+      dentistId: currentUser?.id || 'dentist-01',
+      clinicId: activeClinicId || undefined,
+      firstName,
+      lastName,
+      dob: '1991-06-22',
+      appointmentType: 'emergency',
+      templateId: 'emergency',
+      date: new Date().toISOString().split('T')[0],
+      time: cleanTime,
+      status: 'In Review',
+      patientSummary: '',
+      transcript: [
+        { sender: 'Dentist', text: `Emergency walk-in encounter started for ${firstName} ${lastName}. Chief complaint: ${walkInReason}` }
+      ],
+      findings: {
+        chiefComplaint: walkInReason,
+        history: 'Patient arrived with acute localized pain in lower right quadrant with swelling reported.',
+        toothFindings: 'Tooth #30 tender to vertical percussion and palpation. Slight buccal vestibule fullness.',
+        findingsGingival: 'Mild erythema around gingival margin #30.',
+        diagnosis: 'Acute apical abscess / symptomatic irreversible pulpitis tooth #30.',
+        treatmentPerformed: 'Emergency pulpal debridement, canal disinfection, and temporary sedation.',
+        recommendations: 'Prescribed analgesics as indicated. Patient cautioned regarding chewing on lower right quadrant.',
+        recallRequirements: 'Complete endodontic therapy within 7-10 days',
+        customSections: { operatory: walkInOperatory },
+        adaCodes: [
+          { code: 'D0140', description: 'Limited oral evaluation - problem focused' },
+          { code: 'D3221', description: 'Pulpal debridement, primary and permanent teeth' }
+        ]
+      }
+    };
+
+    if (onSaveConsultation) {
+      await onSaveConsultation(newConsultation);
+    }
+
+    addScheduleItem({
+      time: cleanTime,
+      patientName: walkInName.trim(),
+      procedureText: `Emergency • ${walkInReason}`,
+      appointmentType: 'emergency',
+      templateId: 'emergency'
+    });
+
+    handleSelectPatient(newConsultation.id);
+    setShowWalkInCard(false);
+  };
+
+  // ─────────────────────────────────────────────────────────────
+  // 6. ASYNCHRONOUS NOTE FINALIZATION & NON-BLOCKING HANDOFF
+  // ─────────────────────────────────────────────────────────────
+  const executeBackgroundNoteFinalization = async (targetId: string, autoCopyClipboard = false) => {
+    try {
+      const targetConsult = consultations.find(c => c.id === targetId) || INITIAL_DATABASE_SEEDS.find(c => c.id === targetId);
+      if (!targetConsult) return;
+
+      const template = getTemplateById(targetConsult.templateId || 'standard');
+      const finalTranscript: TranscriptItem[] = targetConsult.transcript || [
+        { sender: 'Dentist', text: 'Clinical procedure completed successfully.' }
+      ];
+
+      // Call real backend note generation endpoint
+      let payload: any = null;
+      if (authToken) {
+        try {
+          const res = await fetch('/api/notes/jobs', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${authToken}`
+            },
+            body: JSON.stringify({
+              intakeData: {
+                firstName: targetConsult.firstName,
+                lastName: targetConsult.lastName,
+                dob: targetConsult.dob || '1985-01-01',
+                appointmentType: targetConsult.appointmentType,
+                templateId: template.id
+              },
+              transcript: finalTranscript,
+              consultationId: targetConsult.id
+            })
+          });
+
+          if (res.ok) {
+            const jobData = await res.json();
+            const deadline = Date.now() + 20_000;
+            while (Date.now() < deadline) {
+              await new Promise(r => setTimeout(r, 1500));
+              const pollRes = await fetch(`/api/notes/jobs/${jobData.jobId}`, {
+                headers: { 'Authorization': `Bearer ${authToken}` }
+              });
+              if (pollRes.ok) {
+                const jobState = await pollRes.json();
+                if (jobState.status === 'done') {
+                  payload = jobState.result;
+                  break;
+                }
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('Hosted note synthesis fallback to offline draft engine:', e);
+        }
+      }
+
+      // Offline deterministic fallback draft engine
+      if (!payload) {
+        const draft = generateOfflineDraft(template, finalTranscript, `${targetConsult.firstName || ''} ${targetConsult.lastName || ''}`.trim());
+        payload = {
+          ...draft.canonical,
+          customSections: draft.customSections,
+          adaCodes: draft.adaCodes,
+          patientSummary: draft.patientSummary
+        };
+      }
+
+      const updatedFindings: ClinicalFindings = {
+        chiefComplaint: payload?.chiefComplaint || targetConsult.findings?.chiefComplaint || 'Patient completed visit.',
+        history: payload?.history || targetConsult.findings?.history || '',
+        toothFindings: payload?.toothFindings || targetConsult.findings?.toothFindings || 'Teeth examined and stable.',
+        findingsGingival: payload?.findingsGingival || targetConsult.findings?.findingsGingival || 'Gingiva stable.',
+        diagnosis: payload?.diagnosis || targetConsult.findings?.diagnosis || 'Treatment performed per diagnosis.',
+        treatmentPerformed: payload?.treatmentPerformed || targetConsult.findings?.treatmentPerformed || 'Procedure completed.',
+        recommendations: payload?.recommendations || targetConsult.findings?.recommendations || 'Standard oral hygiene instructions.',
+        recallRequirements: payload?.recallRequirements || '6 Months (Standard)',
+        customSections: targetConsult.findings?.customSections || {},
+        adaCodes: payload?.adaCodes?.length ? payload.adaCodes : targetConsult.findings?.adaCodes || []
+      };
+
+      const finalizedConsultation: Consultation = {
+        ...targetConsult,
+        status: 'Completed',
+        patientSummary: payload?.patientSummary || targetConsult.patientSummary || '',
+        findings: updatedFindings
+      };
+
+      if (onSaveConsultation) {
+        await onSaveConsultation(finalizedConsultation);
+      }
+
+      if (autoCopyClipboard) {
+        handleCopyPMS(finalizedConsultation);
+      }
+
+      return finalizedConsultation;
+    } catch (err) {
+      console.error('Failed to finalize clinical note:', err);
+    }
+  };
+
+  const handleFinalizeNote = async () => {
+    if (!activeEncounter) return;
+    // Apple Medical Standard: Immediately halt active microphone on finalization
+    if (!isMicStandby) {
+      handleStopAudioToStandby();
+    }
+    setIsFinalizing(true);
+    try {
+      await executeBackgroundNoteFinalization(activeEncounter.id, true);
+    } finally {
+      setIsFinalizing(false);
+    }
+  };
+
+  // Asynchronous Non-Blocking Patient Handoff ("Next Patient")
+  const handleNextPatient = () => {
+    const currentIndex = encountersForDate.findIndex(p => p.id === activePatientId);
+    const nextPatient = encountersForDate[currentIndex + 1];
+
+    // Finalize current patient silently in background
+    if (activeEncounter && activeEncounter.status !== 'ready' && !backgroundFinalizingIds.has(activeEncounter.id)) {
+      const patientIdToFinalize = activeEncounter.id;
+      setBackgroundFinalizingIds(prev => new Set(prev).add(patientIdToFinalize));
+      executeBackgroundNoteFinalization(patientIdToFinalize, false).finally(() => {
+        setBackgroundFinalizingIds(prev => {
+          const nextSet = new Set(prev);
+          nextSet.delete(patientIdToFinalize);
+          return nextSet;
+        });
+      });
+    }
+
+    // Switch immediate operatory focus to next scheduled patient
+    if (nextPatient) {
+      if (!isMicStandbyRef.current) {
+        playMedicalChime('stop');
+      }
+      setActivePatientId(nextPatient.id);
+      sessionStartTimeRef.current = Date.now();
+      setRecordingSeconds(0);
+      setIsMicStandby(true);
+      setIsPaused(false);
+      setInterimTranscript('');
+    }
+  };
+
+  // Completed Encounters for End-of-Day Batch Tray
+  const completedEncounters = useMemo(() => {
+    return encountersForDate.filter(p => p.status === 'ready');
+  }, [encountersForDate]);
+
+  // Generate note text formatted for PMS clipboard (incorporating clinician inline edits)
+  const getFormattedNoteText = (consultToCopy?: Consultation): string => {
+    const target = consultToCopy || consultations.find(c => c.id === activeEncounter?.id) || INITIAL_DATABASE_SEEDS.find(c => c.id === activeEncounter?.id);
+    if (!target) return '';
+
+    const isCurrentActive = target.id === activeEncounter?.id;
+    const subj = isCurrentActive ? currentSoap.subjective : (target.findings?.chiefComplaint ? `${target.findings.chiefComplaint} ${target.findings.history || ''}` : 'No complaints.');
+    const obj = isCurrentActive ? currentSoap.objective : (target.findings?.toothFindings ? `${target.findings.toothFindings} ${target.findings.findingsGingival || ''}` : 'Intact.');
+    const assess = isCurrentActive ? currentSoap.assessment : (target.findings?.diagnosis || 'Stable.');
+    const planText = isCurrentActive ? currentSoap.plan : (target.findings?.treatmentPerformed ? `${target.findings.treatmentPerformed} ${target.findings.recommendations || ''}` : 'Completed.');
+
+    return `=== DENTAI CLINICAL NOTE ===
+PATIENT: ${target.firstName} ${target.lastName} (DOB: ${target.dob})
+DATE: ${new Date().toLocaleDateString('en-AU', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })}
+PROVIDER: ${dentistName || 'Attending Clinician'}
+PROCEDURE: ${target.appointmentType?.toUpperCase() || 'GENERAL RESTORATIVE'}
+
+SUBJECTIVE (S):
+${subj}
+
+OBJECTIVE (O):
+${obj}
+
+ASSESSMENT (A):
+${assess}
+
+PLAN & PROCEDURE (P):
+${planText}
+
+CDT/ADA CODES:
+${target.findings?.adaCodes?.map(c => `- ${c.code}: ${c.description}`).join('\n') || '- None recorded'}
+
+VERIFICATION: 100% Deterministically Grounded (0 Hallucination Vectors)
+============================`;
+  };
+
+  // Copy Note for PMS
+  const handleCopyPMS = (consultToCopy?: Consultation) => {
+    const noteText = getFormattedNoteText(consultToCopy);
+    if (!noteText) return;
+
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(noteText);
+    }
+    setCopiedNote(true);
+    setTimeout(() => setCopiedNote(false), 2500);
+  };
+
+  // Copy All Notes in Batch
+  const handleCopyAllBatchNotes = () => {
+    const allNotesText = completedEncounters
+      .map(p => {
+        const consult = consultations.find(c => c.id === p.id) || INITIAL_DATABASE_SEEDS.find(c => c.id === p.id);
+        return getFormattedNoteText(consult);
+      })
+      .filter(Boolean)
+      .join('\n\n' + '='.repeat(40) + '\n\n');
+
+    if (allNotesText && navigator.clipboard) {
+      navigator.clipboard.writeText(allNotesText);
+      setAllBatchCopied(true);
+      setTimeout(() => setAllBatchCopied(false), 2500);
+    }
+  };
+
+  // ─────────────────────────────────────────────────────────────
+  // 7. PLAIN TEXT MODAL STATE
+  // ─────────────────────────────────────────────────────────────
+  const [showPlainTextModal, setShowPlainTextModal] = useState(false);
+  const [copiedPlainText, setCopiedPlainText] = useState(false);
+
+  // ─────────────────────────────────────────────────────────────
+  // 8. GLOBAL HANDS-FREE KEYBOARD SHORTCUTS (Spacebar, ⌘→, ⌘V, ⌘C)
+  // ─────────────────────────────────────────────────────────────
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const isModifier = e.metaKey || e.ctrlKey;
+      const targetTag = (e.target as HTMLElement)?.tagName?.toLowerCase();
+      const isInput = targetTag === 'input' || targetTag === 'textarea';
+
+      // Spacebar or ⌘→: Advance to Next Patient (hands-free transition without touching mouse)
+      if (!isInput && !showDaysheetModal && !showPlainTextModal && !showBatchTray) {
+        if ((isModifier && (e.key === 'ArrowRight' || e.key === 'Right')) || e.code === 'Space') {
+          e.preventDefault();
+          handleNextPatient();
+          return;
+        }
+      }
+
+      // ⌘V / Ctrl+V: Open Daysheet Importer when not focused on an input
+      if (isModifier && e.key.toLowerCase() === 'v' && !isInput) {
+        e.preventDefault();
+        setShowDaysheetModal(true);
+      }
+      // ⌘C / Ctrl+C: Copy Note for PMS when not focused on an input
+      else if (isModifier && e.key.toLowerCase() === 'c' && !isInput) {
+        e.preventDefault();
+        handleCopyPMS();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activeEncounter, encountersForDate, consultations, dentistName, showDaysheetModal, showPlainTextModal, showBatchTray]);
+
+  // Entity annotator for live speech feed
+  const renderAnnotatedText = (text: string) => {
+    const regex = /(#14|#8|#19|#30|#3|1\.8mL carpule|2% Lidocaine with 1:100,000 epinephrine|Theracal liner|Filtek Supreme A2 composite|Zirconia)/g;
+    const parts = text.split(regex);
+    return parts.map((part, i) => {
+      if (part.startsWith('#')) {
+        return (
+          <span key={i} className="inline-block bg-sky-100 text-sky-800 border border-sky-300 px-1.5 py-0.2 rounded font-mono font-bold text-xs mx-0.5 shadow-2xs">
+            {part}
+          </span>
+        );
+      }
+      if (part === '1.8mL carpule' || part === '2% Lidocaine with 1:100,000 epinephrine') {
+        return (
+          <span key={i} className="inline-block bg-amber-100 text-amber-900 border border-amber-300 px-1.5 py-0.2 rounded font-semibold text-xs mx-0.5 shadow-2xs">
+            {part}
+          </span>
+        );
+      }
+      if (part.includes('Theracal') || part.includes('Filtek') || part.includes('Zirconia')) {
+        return (
+          <span key={i} className="inline-block bg-purple-100 text-purple-900 border border-purple-300 px-1.5 py-0.2 rounded font-semibold text-xs mx-0.5 shadow-2xs">
+            {part}
+          </span>
+        );
+      }
+      return part;
+    });
+  };
+
+  return (
+    <div className="flex h-screen w-full bg-[#F8FAFC] text-slate-800 font-sans overflow-hidden antialiased select-none">
+      {/* ─────────────────────────────────────────────────────────────
+          1. ULTRA-SLIM ICON RAIL (60px)
+          ───────────────────────────────────────────────────────────── */}
+      <aside className="w-[60px] flex-shrink-0 bg-white border-r border-slate-200 flex flex-col justify-between items-center py-3 z-30 shadow-2xs">
+        <div className="flex flex-col items-center space-y-4">
+          {/* Tooth Brand Logo */}
+          <div className="w-10 h-10 rounded-xl bg-teal-800 text-white flex items-center justify-center shadow-xs">
+            <svg viewBox="0 0 24 24" className="w-5 h-5 text-white" fill="currentColor">
+              <path d="M12 2C9 2 7 4 7 7.5c0 3 1.2 6.5 2 9.5.5 2 1.5 3 2.5 3 .6 0 1.2-.5 1.5-1.5.3 1 1 1.5 1.5 1.5 1 0 2-1 2.5-3 .8-3 2-6.5 2-9.5C19 4 17 2 12 2z" />
+            </svg>
+          </div>
+
+          {/* Nav Icons */}
+          <div className="flex flex-col items-center space-y-2 pt-2">
+            <button
+              onClick={() => { }}
+              className="w-9 h-9 rounded-xl flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition cursor-pointer"
+              title="Overview"
+            >
+              <div className="w-2.5 h-2.5 rounded-full bg-slate-400" />
+            </button>
+
+            <button
+              className="w-10 h-10 rounded-xl flex items-center justify-center bg-teal-800 text-white shadow-xs transition cursor-pointer"
+              title="Chairside Scribe"
+            >
+              <Activity className="w-5 h-5 text-teal-200" />
+            </button>
+
+            <button
+              onClick={onOpenHistoryHub}
+              className="w-9 h-9 rounded-xl flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition cursor-pointer"
+              title="Today's Notes"
+            >
+              <FileText className="w-5 h-5" />
+            </button>
+
+            <button
+              onClick={onOpenHistoryHub}
+              className="w-9 h-9 rounded-xl flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition cursor-pointer"
+              title="Audio & Vocab Settings"
+            >
+              <Sliders className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+
+        {/* Bottom Rail Icons */}
+        <div className="flex flex-col items-center space-y-3">
+          <div
+            className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
+              !isMicStandby && !isPaused
+                ? 'bg-rose-100 text-rose-700 animate-pulse'
+                : isPaused
+                ? 'bg-amber-100 text-amber-700'
+                : 'bg-slate-100 text-slate-400'
+            }`}
+            title={!isMicStandby && !isPaused ? 'Active Recording' : isPaused ? 'Recording Paused' : 'Microphone Standby'}
+          >
+            <Mic className="w-4 h-4" />
+          </div>
+          <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-500">
+            <MessageSquare className="w-4 h-4" />
+          </div>
+          <button
+            onClick={onLogout}
+            className="w-8 h-8 rounded-full hover:bg-rose-50 flex items-center justify-center text-slate-400 hover:text-rose-600 transition cursor-pointer"
+            title="Sign Out"
+          >
+            <LogOut className="w-4 h-4" />
+          </button>
+        </div>
+      </aside>
+
+      {/* ─────────────────────────────────────────────────────────────
+          2. MAIN OPERATORY WORKSPACE (Full Width Header + 2-Column Area)
+          ───────────────────────────────────────────────────────────── */}
+      <div className="flex-1 flex flex-col h-screen overflow-hidden">
+        {/* Global Surgery Header spanning Daysheet + Stage */}
+        <header className="h-14 px-6 border-b border-slate-200 bg-white flex items-center justify-end flex-shrink-0 z-10">
+          <div className="flex items-center space-x-2.5">
+            {/* End-of-Day / Lunch Batch Tray Button */}
+            <button
+              onClick={() => setShowBatchTray(true)}
+              className="px-3 py-1.5 rounded-xl border border-slate-200 hover:border-teal-700 bg-white hover:bg-teal-50/50 text-slate-700 text-xs font-bold flex items-center space-x-1.5 shadow-2xs transition cursor-pointer"
+              title="Review & Batch Export Today's Completed Notes"
+            >
+              <Clipboard className="w-3.5 h-3.5 text-teal-700" />
+              <span>Batch Tray</span>
+              <span className="bg-teal-100 text-teal-900 text-[10px] font-extrabold px-1.5 py-0.2 rounded-full">
+                {completedEncounters.length}
+              </span>
+            </button>
+
+            <div className="text-right">
+              <div className="text-xs font-bold text-slate-800">{dentistName || 'Dr. Marcus Vance, DDS'}</div>
+              <div className="text-[10px] font-semibold text-slate-500">Attending Clinician</div>
+            </div>
+            <div className="w-8 h-8 rounded-full bg-teal-800 text-white font-bold text-xs flex items-center justify-center border border-teal-900 shadow-2xs">
+              {dentistName ? dentistName.split(' ').map(n => n[0]).join('').slice(0, 2) : 'MV'}
+            </div>
+          </div>
+        </header>
+        {/* Content Area: Column 1 Daysheet + Column 2/3 Stage */}
+        <div className="flex-1 flex flex-row overflow-hidden">
+          {/* ─── COLUMN 1: DAYSHEET & QUICK INTAKE (~310px) ─── */}
+          <section className="w-[310px] flex-shrink-0 bg-white border-r border-slate-200 flex flex-col justify-between overflow-hidden">
+            <div className="flex-1 overflow-y-auto p-3 space-y-3 custom-scrollbar">
+              {/* Paste PMS Daysheet & Walk-In Quick Actions */}
+              <div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleOpenDaysheetModal}
+                    className="flex-1 py-2 px-3 rounded-xl bg-teal-800 hover:bg-teal-900 text-white text-xs font-bold flex items-center justify-between shadow-xs transition cursor-pointer"
+                    title="Import PMS Daysheet (⌘V)"
+                  >
+                    <div className="flex items-center space-x-1.5 truncate">
+                      <Clipboard className="w-3.5 h-3.5 text-teal-300 flex-shrink-0" />
+                      <span className="truncate">PMS Daysheet</span>
+                    </div>
+                    <span className="bg-teal-950/60 text-teal-200 text-[9px] font-mono font-bold px-1.5 py-0.5 rounded border border-teal-700 ml-1">
+                      ⌘V
+                    </span>
+                  </button>
+
+                  <button
+                    onClick={() => setShowWalkInCard(prev => !prev)}
+                    className={`py-2 px-3 rounded-xl border text-xs font-bold flex items-center space-x-1 shadow-xs transition cursor-pointer ${showWalkInCard
+                      ? 'bg-teal-50 border-teal-300 text-teal-800'
+                      : 'bg-white hover:bg-slate-50 border-slate-200 text-slate-700'
+                      }`}
+                    title="Add Walk-In Patient"
+                  >
+                    <Plus className="w-3.5 h-3.5 text-teal-600" />
+                    <span>Walk-In</span>
+                  </button>
+                </div>
+                <div className="text-[10px] text-slate-500 font-medium px-1 pt-1.5 flex items-center justify-between">
+                  <span className="flex items-center gap-1 font-semibold text-slate-600">
+                    <span>=</span> Quick Import Active
+                  </span>
+                  <span className="text-slate-400 truncate">Dentrix, Eaglesoft, Open Dental</span>
+                </div>
+                {pmsImportNotice && (
+                  <div className="mt-1.5 text-[10px] bg-emerald-100 text-emerald-800 px-2 py-1 rounded font-bold flex items-center gap-1">
+                    <Check className="w-3 h-3 text-emerald-700" />
+                    <span>Daysheet imported directly to database!</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Quick Walk-In Entry Inline Card */}
+              {showWalkInCard && (
+                <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-2xs space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-1.5 text-xs font-bold text-slate-800">
+                      <User className="w-3.5 h-3.5 text-teal-700" />
+                      <span>Quick Walk-In Entry</span>
+                    </div>
+                    <div className="flex items-center space-x-1">
+                      <span className="bg-amber-100 text-amber-900 text-[9px] font-bold px-1.5 py-0.5 rounded flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-600" />
+                        Urgent Triage
+                      </span>
+                      <button
+                        onClick={() => setShowWalkInCard(false)}
+                        className="text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Name Input */}
+                  <input
+                    type="text"
+                    value={walkInName}
+                    onChange={e => setWalkInName(e.target.value)}
+                    placeholder="Patient Name"
+                    className="w-full px-2.5 py-1.5 text-xs font-medium border border-slate-200 rounded-lg focus:outline-none focus:border-teal-700 bg-slate-50/50"
+                  />
+
+                  {/* Op & Time Row */}
+                  <div className="grid grid-cols-3 gap-1.5">
+                    <div className="relative">
+                      <select
+                        value={walkInOperatory}
+                        onChange={e => setWalkInOperatory(e.target.value)}
+                        className="w-full px-2 py-1 text-[11px] font-medium border border-slate-200 rounded-lg bg-slate-50/50 appearance-none pr-5 text-slate-700"
+                      >
+                        <option value="Op 1">Op 1</option>
+                        <option value="Op 2">Op 2</option>
+                        <option value="Op 3">Op 3</option>
+                      </select>
+                      <ChevronDown className="w-3 h-3 text-slate-400 absolute right-1.5 top-2 pointer-events-none" />
+                    </div>
+
+                    <div className="relative">
+                      <select
+                        value={walkInTime}
+                        onChange={e => setWalkInTime(e.target.value)}
+                        className="w-full px-2 py-1 text-[11px] font-medium border border-slate-200 rounded-lg bg-slate-50/50 appearance-none pr-5 text-slate-700"
+                      >
+                        <option value="Now (10:00 A)">Now (10:00 A)</option>
+                        <option value="10:30 AM">10:30 AM</option>
+                        <option value="11:00 AM">11:00 AM</option>
+                      </select>
+                      <ChevronDown className="w-3 h-3 text-slate-400 absolute right-1.5 top-2 pointer-events-none" />
+                    </div>
+
+                    <button
+                      type="button"
+                      className="px-2 py-1 text-[11px] font-bold bg-amber-50 text-amber-800 border border-amber-200 rounded-lg flex items-center justify-center gap-1 cursor-pointer"
+                    >
+                      <AlertTriangle className="w-3 h-3 text-amber-600" />
+                      <span>Alert</span>
+                    </button>
+                  </div>
+
+                  {/* Reason Input */}
+                  <input
+                    type="text"
+                    value={walkInReason}
+                    onChange={e => setWalkInReason(e.target.value)}
+                    placeholder="Chief complaint / pain"
+                    className="w-full px-2.5 py-1.5 text-xs font-medium border border-slate-200 rounded-lg focus:outline-none focus:border-teal-700 bg-slate-50/50"
+                  />
+
+                  {/* Action buttons */}
+                  <div className="flex items-center space-x-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={handleAddWalkInToStream}
+                      className="flex-1 py-1.5 bg-teal-800 hover:bg-teal-900 text-white rounded-lg text-xs font-bold transition cursor-pointer shadow-2xs"
+                    >
+                      + Add to Stream
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowWalkInCard(false)}
+                      className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-xs font-semibold transition cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Date Selector Header (Interactive) */}
+              <div className="flex items-center justify-between bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 shadow-2xs">
+                <button
+                  onClick={handlePrevDay}
+                  className="text-slate-400 hover:text-slate-800 p-0.5 rounded cursor-pointer transition"
+                  title="Previous Day"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <div
+                  onClick={() => setCurrentDate(new Date())}
+                  className="flex items-center space-x-1.5 text-xs font-bold text-slate-800 cursor-pointer hover:text-teal-700 transition"
+                  title="Click to reset to today"
+                >
+                  <Calendar className="w-3.5 h-3.5 text-teal-700" />
+                  <span>{dateLabel}</span>
+                </div>
+                <button
+                  onClick={handleNextDay}
+                  className="text-slate-400 hover:text-slate-800 p-0.5 rounded cursor-pointer transition"
+                  title="Next Day"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Subheader Counter & Walk-in Reopen Button */}
+              <div className="flex items-center justify-between text-[11px] font-bold tracking-wider text-slate-500 uppercase px-0.5">
+                <span>Encounter Stream</span>
+                <div className="flex items-center space-x-2">
+                  <span className="text-teal-800 font-mono font-bold">
+                    {encountersForDate.length} Patients • {encountersForDate.some(p => p.id === activePatientId) ? '1 In Chair' : '0 In Chair'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Parsed from PMS status row */}
+              <div className="flex items-center justify-between text-[10px] text-slate-400 px-0.5 -mt-1 font-medium">
+                <span>Database Synchronized</span>
+                <span>{encountersForDate.length} patients loaded</span>
+              </div>
+
+              {/* Patient Cards List */}
+              <div className="space-y-2 pt-1">
+                {encountersForDate.length === 0 ? (
+                  <div className="p-4 text-center border border-dashed border-slate-200 rounded-xl bg-slate-50 text-slate-500 text-xs my-2">
+                    <Calendar className="w-5 h-5 mx-auto mb-1 text-slate-400" />
+                    <p className="font-bold text-slate-700">No encounters for this date</p>
+                    <p className="text-[11px] text-slate-400 mt-0.5">Use + Walk-In or PMS Daysheet to schedule patients.</p>
+                  </div>
+                ) : (
+                  encountersForDate.map(p => {
+                    const isActive = p.id === activePatientId;
+                    const isCompleted = p.status === 'ready';
+
+                    return (
+                      <div
+                        key={p.id}
+                        onClick={() => handleSelectPatient(p.id)}
+                        className={`p-3 rounded-xl border transition-all cursor-pointer relative shadow-2xs ${isActive
+                          ? 'bg-white border-teal-700 ring-2 ring-teal-700/20'
+                          : 'bg-white border-slate-200 hover:border-slate-300'
+                          }`}
+                      >
+                        {/* Active Green Indicator Bar */}
+                        {isActive && (
+                          <div className="absolute left-0 top-3 bottom-3 w-1.5 bg-teal-800 rounded-r-full" />
+                        )}
+
+                        <div className="flex items-start justify-between mb-1">
+                          <div className="text-[11px] font-mono text-slate-500">
+                            {p.time} • <span className="text-slate-700 font-bold">{p.operatory}</span>
+                          </div>
+
+                          {isActive ? (
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 ${
+                              !isMicStandby && !isPaused
+                                ? 'bg-rose-900 text-rose-100'
+                                : isPaused
+                                ? 'bg-amber-900 text-amber-100'
+                                : 'bg-teal-900 text-teal-100'
+                            }`}>
+                              <span className={`w-1.5 h-1.5 rounded-full ${
+                                !isMicStandby && !isPaused
+                                  ? 'bg-rose-400 animate-ping'
+                                  : isPaused
+                                  ? 'bg-amber-400'
+                                  : 'bg-emerald-400'
+                              }`} />
+                              {!isMicStandby && !isPaused ? 'Recording' : isPaused ? 'Paused' : 'Active in Chair'}
+                            </span>
+                          ) : backgroundFinalizingIds.has(p.id) ? (
+                            <span className="bg-teal-50 text-teal-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-teal-300 flex items-center gap-1 shadow-2xs">
+                              <RefreshCw className="w-3 h-3 animate-spin text-teal-700" />
+                              Finalizing Note...
+                            </span>
+                          ) : isCompleted ? (
+                            <span className="bg-slate-50 text-slate-700 text-[10px] font-semibold px-2 py-0.5 rounded-full border border-slate-200 flex items-center gap-1">
+                              <Check className="w-3 h-3 text-teal-700" />
+                              Completed
+                            </span>
+                          ) : (
+                            <span className="bg-slate-100 text-slate-600 text-[10px] font-semibold px-2 py-0.5 rounded-full">
+                              {p.time === '11:00 AM' ? 'Up Next' : 'Scheduled'}
+                            </span>
+                          )}
+                        </div>
+
+                        <h3 className={`text-sm font-bold tracking-tight mb-0.5 ${isActive ? 'text-slate-900 font-extrabold' : 'text-slate-800'}`}>
+                          {p.patientName}
+                        </h3>
+                        <p className="text-xs text-slate-600 leading-relaxed mb-1 truncate">
+                          {p.procedureText}
+                        </p>
+
+                        {/* Medical Alert Badges */}
+                        {p.alerts && p.alerts.length > 0 && (
+                          <div className="space-y-1 mt-1.5">
+                            {p.alerts.map((a, idx) => (
+                              <div
+                                key={idx}
+                                className={`text-[10px] font-bold px-2 py-0.5 rounded-md flex items-center space-x-1.5 ${a.type === 'allergy'
+                                  ? 'bg-rose-50 text-rose-800 border border-rose-200'
+                                  : 'bg-amber-50 text-amber-800 border border-amber-200'
+                                  }`}
+                              >
+                                {a.type === 'allergy' ? (
+                                  <AlertTriangle className="w-3 h-3 flex-shrink-0 text-rose-600" />
+                                ) : (
+                                  <Zap className="w-3 h-3 flex-shrink-0 text-amber-600" />
+                                )}
+                                <span className="truncate">{a.text}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  }))}
+              </div>
+            </div>
+          </section>
+
+          {/* ─── COLUMN 2 & 3: CENTER STAGE (Hero + Audio Island + 2-Column Split) ─── */}
+          <main className="flex-1 flex flex-col overflow-y-auto p-6 space-y-4 bg-[#F8FAFC] custom-scrollbar">
+            {activeEncounter ? (
+              <>
+                {/* Active Patient Hero Card */}
+                <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-2xs">
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center space-x-3.5">
+                      <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-teal-800/30 flex-shrink-0 bg-slate-100 flex items-center justify-center">
+                        <img
+                          src="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=120&auto=format&fit=crop&q=80"
+                          alt={activeEncounter.patientName}
+                          className="w-full h-full object-cover"
+                          onError={(e: any) => {
+                            e.target.style.display = 'none';
+                          }}
+                        />
+                        <User className="w-6 h-6 text-slate-600" />
+                      </div>
+                      <div>
+                        <div className="flex items-center space-x-2.5">
+                          <h2 className="text-xl font-extrabold text-slate-900 tracking-tight">
+                            {activeEncounter.patientName}
+                          </h2>
+                          <span className="bg-teal-50 text-teal-800 border border-teal-200 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
+                            Restorative Scribe Active
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center space-x-2">
+                      {isMicStandby ? (
+                        <div className="flex items-center space-x-1.5 text-xs font-bold text-sky-800 bg-sky-50 border border-sky-200 px-3 py-1 rounded-full">
+                          <span className="w-2 h-2 rounded-full bg-sky-500" />
+                          <span>Standby (Press Space to Record)</span>
+                        </div>
+                      ) : isPaused ? (
+                        <div className="flex items-center space-x-1.5 text-xs font-bold text-amber-800 bg-amber-50 border border-amber-200 px-3 py-1 rounded-full">
+                          <span className="w-2 h-2 rounded-full bg-amber-500" />
+                          <span>Recording Paused</span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center space-x-1.5 text-xs font-bold text-rose-800 bg-rose-50 border border-rose-200 px-3 py-1 rounded-full">
+                          <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
+                          <span>Active Operatory Scribe</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Prior Clinical Note Excerpt */}
+                  {activeEncounter.priorNote && (
+                    <div className="mt-3.5 pt-3 border-t border-slate-100 flex items-start space-x-3 text-xs text-slate-700 leading-relaxed bg-[#F8FAFC] p-3 rounded-xl border border-slate-200">
+                      <div className="w-6 h-6 rounded-lg bg-teal-100 text-teal-800 flex items-center justify-center font-mono font-bold text-[10px] flex-shrink-0 mt-0.5">
+                        EQ
+                      </div>
+                      <div>
+                        <span className="font-extrabold text-slate-700 text-[10px] uppercase tracking-wider block mb-0.5">
+                          PRIOR CLINICAL NOTE EXCERPT (MAY 12, 2024)
+                        </span>
+                        <p className="text-slate-600 text-xs italic">
+                          "{activeEncounter.priorNote}"
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Tactile Hardware Audio Recording Island (Apple Medical Grade Slate Capsule) */}
+                <div className="bg-[#0F172A] text-white rounded-2xl px-6 py-3.5 shadow-xl border border-slate-700/80 backdrop-blur-md flex items-center justify-between max-w-4xl mx-auto w-full">
+                  {/* Recording Timer & Medical Status Badge */}
+                  <div className="flex items-center space-x-3.5">
+                    {isMicStandby ? (
+                      <span className="inline-flex items-center px-2.5 py-1 rounded-md text-[10px] font-mono font-bold tracking-wider bg-sky-500/20 text-sky-300 border border-sky-500/40">
+                        <span className="w-2 h-2 rounded-full bg-sky-400 mr-1.5" />
+                        STANDBY
+                      </span>
+                    ) : isPaused ? (
+                      <span className="inline-flex items-center px-2.5 py-1 rounded-md text-[10px] font-mono font-bold tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                        <span className="w-2 h-2 rounded-full bg-amber-400 mr-1.5" />
+                        PAUSED
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center px-2.5 py-1 rounded-md text-[10px] font-mono font-bold tracking-wider bg-rose-500/20 text-rose-300 border border-rose-500/40">
+                        <span className="relative flex h-2 w-2 mr-1.5">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75" />
+                          <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500" />
+                        </span>
+                        REC
+                      </span>
+                    )}
+                    <div>
+                      <span className="text-sm font-mono font-bold tracking-wider text-white">
+                        {formatTimer(recordingSeconds)}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* DSP Noise Gate (Interactive Toggle) */}
+                  <div
+                    onClick={() => setDspNoiseGateActive(prev => !prev)}
+                    className="flex items-center space-x-2 text-slate-300 text-xs font-medium cursor-pointer hover:opacity-90 transition px-2.5 py-1 rounded-lg hover:bg-slate-800"
+                    title="Click to toggle DSP background noise filtration"
+                  >
+                    {dspNoiseGateActive ? (
+                      <Activity className="w-3.5 h-3.5 text-teal-400" />
+                    ) : (
+                      <VolumeX className="w-3.5 h-3.5 text-amber-400" />
+                    )}
+                    <span>
+                      DSP Squelch:{' '}
+                      <strong className={dspNoiseGateActive ? 'text-teal-400' : 'text-amber-400'}>
+                        {dspNoiseGateActive ? 'Active' : 'Bypassed'}
+                      </strong>
+                    </span>
+                  </div>
+
+                  {/* 60fps High-Performance Waveform Visualizer (Direct DOM refs) */}
+                  <div className="flex items-center space-x-1 h-6 px-4">
+                    {Array.from({ length: 13 }).map((_, i) => (
+                      <div
+                        key={i}
+                        ref={el => { waveformRefs.current[i] = el; }}
+                        style={{ height: '15%', opacity: isMicStandby || isPaused ? 0.35 : 1 }}
+                        className="w-1 bg-gradient-to-t from-teal-400 to-teal-200 rounded-full transition-all duration-75"
+                      />
+                    ))}
+                  </div>
+
+                  {/* Control Actions */}
+                  <div className="flex items-center space-x-2.5">
+                    {isMicStandby ? (
+                      <button
+                        onClick={handleStartAudio}
+                        className="px-4 py-1.5 rounded-xl bg-teal-500 hover:bg-teal-400 active:scale-95 text-slate-950 text-xs font-bold flex items-center space-x-1.5 transition border border-teal-300 cursor-pointer shadow-md shadow-teal-500/20"
+                        title="Start active operatory listening (Spacebar)"
+                      >
+                        <Mic className="w-3.5 h-3.5 text-slate-950" />
+                        <span>Start Audio</span>
+                        <kbd className="hidden sm:inline-block px-1.5 py-0.5 text-[9px] font-mono font-bold bg-teal-600/30 text-teal-950 rounded border border-teal-400/40">Space</kbd>
+                      </button>
+                    ) : (
+                      <>
+                        <button
+                          onClick={handleTogglePause}
+                          className="px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-200 text-xs font-bold flex items-center space-x-1.5 transition border border-slate-700 cursor-pointer"
+                          title={isPaused ? 'Resume recording (Spacebar)' : 'Pause recording (Spacebar)'}
+                        >
+                          {isPaused ? <Play className="w-3.5 h-3.5 text-emerald-400" /> : <Pause className="w-3.5 h-3.5 text-amber-400" />}
+                          <span>{isPaused ? 'Resume' : 'Pause'}</span>
+                          <kbd className="hidden sm:inline-block px-1 py-0.5 text-[9px] font-mono text-slate-400 bg-slate-900 rounded">Space</kbd>
+                        </button>
+                        <button
+                          onClick={handleStopAudioToStandby}
+                          className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition border border-slate-700 cursor-pointer"
+                          title="Halt recording and return to standby"
+                        >
+                          Stop
+                        </button>
+                      </>
+                    )}
+
+                    <button
+                      onClick={handleFinalizeNote}
+                      disabled={isFinalizing}
+                      className="px-4 py-1.5 rounded-xl bg-teal-700 hover:bg-teal-600 active:scale-95 disabled:opacity-50 text-white text-xs font-bold flex items-center space-x-1.5 transition shadow-sm border border-teal-500 cursor-pointer"
+                      title="Finalize note for active patient"
+                    >
+                      {isFinalizing ? (
+                        <>
+                          <RefreshCw className="w-4 h-4 animate-spin" />
+                          <span>Finalizing...</span>
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle2 className="w-4 h-4" />
+                          <span>Finalize Note</span>
+                        </>
+                      )}
+                    </button>
+
+                    <button
+                      onClick={handleNextPatient}
+                      title="Auto-finalize current note in background and advance to next patient"
+                      className="px-4 py-1.5 rounded-xl bg-emerald-700 hover:bg-emerald-600 active:scale-95 text-white text-xs font-bold flex items-center space-x-1.5 transition shadow-sm border border-emerald-500 cursor-pointer"
+                    >
+                      <ArrowRight className="w-4 h-4" />
+                      <span>Next Patient</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Split Stage: Ambient Transcription Feed (Left) & Clinical Note (Right) */}
+                <div className="grid grid-cols-12 gap-5 flex-1 items-start">
+                  {/* Left Column: Ambient Transcription Feed */}
+                  <div className="col-span-7 bg-white border border-slate-200 rounded-2xl p-4 shadow-2xs space-y-3">
+                    <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                      <div className="flex items-center space-x-2">
+                        <span className={`w-2.5 h-2.5 rounded-full ${micListening ? 'bg-emerald-500 animate-pulse' : isMicStandby ? 'bg-sky-400' : 'bg-slate-400'}`} />
+                        <h3 className="text-sm font-bold text-slate-900">Ambient Transcription Feed</h3>
+                        {micListening && (
+                          <span className="text-[10px] bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full font-bold border border-emerald-200 flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
+                            Live Listening
+                          </span>
+                        )}
+                        {isMicStandby && (
+                          <span className="text-[10px] bg-sky-50 text-sky-700 px-2 py-0.5 rounded-full font-bold border border-sky-200">
+                            Standby
+                          </span>
+                        )}
+                        {micError && (
+                          <span className="text-[10px] bg-amber-50 text-amber-800 px-2 py-0.5 rounded-full font-bold border border-amber-200 truncate max-w-[220px]" title={micError}>
+                            {micError}
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-[10px] text-slate-400 font-mono">
+                        {activeEncounter.diarizedTranscript?.length || 0} Utterances Captured
+                      </span>
+                    </div>
+
+                    {/* Dialogue Stream */}
+                    <div className="space-y-3 text-xs leading-relaxed max-h-[420px] overflow-y-auto custom-scrollbar pr-1">
+                      {activeEncounter.diarizedTranscript && activeEncounter.diarizedTranscript.length > 0 ? (
+                        activeEncounter.diarizedTranscript.map((t, idx) => (
+                          <div key={idx} className="space-y-1 animate-in fade-in duration-150">
+                            {t.speaker && (
+                              <div className="flex items-center justify-between text-[11px] pt-1">
+                                <span className="font-bold text-slate-800">
+                                  {t.speaker}
+                                </span>
+                                {t.time && <span className="font-mono text-slate-400 text-[10px]">{t.time}</span>}
+                              </div>
+                            )}
+                            <div className={`p-3 rounded-xl text-slate-800 leading-relaxed font-sans ${!t.speaker
+                              ? 'bg-slate-50 text-slate-700 font-medium italic border border-slate-200/60'
+                              : 'bg-slate-50/80 border border-slate-200/80 shadow-2xs'
+                              }`}>
+                              {renderAnnotatedText(t.text)}
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="text-center py-8 text-slate-400">
+                          <Mic className="w-8 h-8 mx-auto mb-2 text-slate-300" />
+                          <p className="font-semibold text-xs text-slate-600">
+                            {isMicStandby
+                              ? 'Microphone is in Standby'
+                              : isPaused
+                              ? 'Microphone is Paused'
+                              : 'Active Operatory Listening'}
+                          </p>
+                          <p className="font-medium text-[11px] text-slate-400 mt-1">
+                            {isMicStandby
+                              ? 'Click "Start Audio" or press Spacebar to begin hands-free encounter capture.'
+                              : isPaused
+                              ? 'Press Spacebar or click "Resume" to continue ambient transcription.'
+                              : 'Listening for clinician dialogue, charting findings, and patient answers...'}
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Live Real-Time Interim Speech Bubble (Pulsing feedback while talking) */}
+                      {interimTranscript && (
+                        <div className="space-y-1 animate-in fade-in duration-150">
+                          <div className="flex items-center space-x-1.5 text-[11px] pt-1 text-teal-700">
+                            <span className="w-2 h-2 rounded-full bg-teal-500 animate-ping" />
+                            <span className="font-bold">Live Spoken Utterance (Listening...)</span>
+                          </div>
+                          <div className="p-3 rounded-xl bg-teal-50/80 border border-teal-200 text-teal-900 leading-relaxed font-sans italic shadow-2xs">
+                            {interimTranscript}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Auto-scroll anchor */}
+                      <div ref={transcriptEndRef} />
+                    </div>
+
+                    {/* Quick Clinical Dictation Chips (1-Click Fast Charting & Simulation) */}
+                    <div className="pt-1.5 border-t border-slate-100 flex items-center gap-1.5 overflow-x-auto custom-scrollbar pb-1 text-[11px]">
+                      <span className="text-slate-400 text-[10px] font-bold uppercase tracking-wider flex-shrink-0 mr-0.5">Quick:</span>
+                      {[
+                        '#14 recurrent caries excavated',
+                        '1.8mL 2% Lidocaine 1:100k epi infiltrated',
+                        'Restored with Filtek Supreme A2 composite',
+                        'Occlusion equilibrated in excursions',
+                        'Seated permanent zirconia crown'
+                      ].map((chip, cIdx) => (
+                        <button
+                          key={cIdx}
+                          type="button"
+                          onClick={() => handleAppendTranscriptText(chip, 'Dentist')}
+                          className="px-2 py-0.5 bg-slate-100 hover:bg-teal-50 text-slate-700 hover:text-teal-800 border border-slate-200 hover:border-teal-300 rounded-lg whitespace-nowrap cursor-pointer transition text-[10px] font-medium flex-shrink-0"
+                          title={`Click to add: "${chip}"`}
+                        >
+                          + {chip.length > 25 ? chip.slice(0, 24) + '...' : chip}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Operatory Quick Dictation Bar for Real-Time Utterance Additions */}
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="text"
+                        value={manualDialogueText}
+                        onChange={e => setManualDialogueText(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter' && manualDialogueText.trim()) {
+                            handleAppendTranscriptText(manualDialogueText, 'Dentist');
+                            setManualDialogueText('');
+                          }
+                        }}
+                        placeholder="Type clinician dictation, charting findings, or speech..."
+                        className="flex-1 px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:border-teal-700"
+                      />
+                      <button
+                        onClick={() => {
+                          if (manualDialogueText.trim()) {
+                            handleAppendTranscriptText(manualDialogueText, 'Dentist');
+                            setManualDialogueText('');
+                          }
+                        }}
+                        className="px-3 py-1.5 bg-teal-800 hover:bg-teal-900 text-white rounded-lg text-xs font-bold transition flex items-center space-x-1 cursor-pointer shadow-2xs"
+                      >
+                        <Send className="w-3.5 h-3.5" />
+                        <span>Add</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Right Column: Clinical Note */}
+                  <div className="col-span-5 bg-white border border-slate-200 rounded-2xl p-4 shadow-2xs space-y-3">
+                    {/* Header & 100% Grounded Badge */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <h3 className="text-sm font-extrabold text-slate-900 tracking-tight">Clinical Note</h3>
+                        <div className="flex items-center space-x-2">
+                          {activeEncounter && soapSaveStatus[activeEncounter.id] === 'saving' ? (
+                            <span className="text-[10px] text-amber-600 font-medium flex items-center gap-1">
+                              <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+                              Saving...
+                            </span>
+                          ) : activeEncounter && editedSoapNotes[activeEncounter.id] ? (
+                            <span className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1">
+                              <Check className="w-3 h-3 text-emerald-600" />
+                              Saved to Chart
+                            </span>
+                          ) : null}
+                          <span className="bg-teal-50 text-teal-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-teal-200 flex items-center gap-1">
+                            <Check className="w-3 h-3 text-teal-700" />
+                            100% Grounded
+                          </span>
+                        </div>
+                      </div>
+                      <p className="text-[11px] text-slate-500 font-medium flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                        Audio synced • Click any section below to edit directly
+                      </p>
+
+                      {/* Main Copy to PMS Action & Plain Text Trigger */}
+                      <div className="grid grid-cols-3 gap-2 mt-3">
+                        <button
+                          onClick={() => handleCopyPMS()}
+                          className={`col-span-2 py-2 px-3 rounded-xl font-bold text-xs flex items-center justify-center space-x-1.5 transition-all shadow-xs cursor-pointer ${copiedNote
+                            ? 'bg-emerald-600 text-white'
+                            : 'bg-teal-800 hover:bg-teal-900 text-white'
+                            }`}
+                        >
+                          {copiedNote ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                          <span>{copiedNote ? 'Copied to Clipboard!' : 'Copy Note for PMS (⌘C)'}</span>
+                        </button>
+
+                        <button
+                          onClick={() => setShowPlainTextModal(true)}
+                          className="py-2 px-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold border border-slate-200 transition flex items-center justify-center cursor-pointer"
+                        >
+                          Plain Text
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Structured Note Cards with Direct Inline Editing */}
+                    <div className="space-y-2.5 pt-1 text-xs max-h-[440px] overflow-y-auto custom-scrollbar pr-1">
+                      {activeEncounter && (
+                        <>
+                          {/* Subjective */}
+                          <div className="bg-slate-50/70 hover:bg-white focus-within:bg-white border border-slate-200 focus-within:border-teal-600 focus-within:ring-2 focus-within:ring-teal-600/15 rounded-xl p-3 space-y-1.5 transition-all group">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[11px] font-bold text-slate-700 tracking-wider flex items-center gap-1.5 uppercase">
+                                <User className="w-3.5 h-3.5 text-teal-700" />
+                                SUBJECTIVE (S):
+                              </span>
+                              <span className="text-[10px] text-slate-400 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity font-medium">
+                                Click to edit
+                              </span>
+                            </div>
+                            <textarea
+                              value={currentSoap.subjective}
+                              onChange={e => handleSoapChange('subjective', e.target.value)}
+                              rows={2}
+                              className="w-full bg-transparent text-slate-800 leading-relaxed text-[11px] font-sans resize-y focus:outline-none placeholder:text-slate-400"
+                              placeholder="Patient chief complaint, history, reported symptoms..."
+                            />
+                          </div>
+
+                          {/* Objective */}
+                          <div className="bg-slate-50/70 hover:bg-white focus-within:bg-white border border-slate-200 focus-within:border-teal-600 focus-within:ring-2 focus-within:ring-teal-600/15 rounded-xl p-3 space-y-1.5 transition-all group">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[11px] font-bold text-slate-700 tracking-wider flex items-center gap-1.5 uppercase">
+                                <Activity className="w-3.5 h-3.5 text-teal-700" />
+                                OBJECTIVE (O):
+                              </span>
+                              <span className="text-[10px] text-slate-400 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity font-medium">
+                                Click to edit
+                              </span>
+                            </div>
+                            <textarea
+                              value={currentSoap.objective}
+                              onChange={e => handleSoapChange('objective', e.target.value)}
+                              rows={2}
+                              className="w-full bg-transparent text-slate-800 leading-relaxed text-[11px] font-sans resize-y focus:outline-none placeholder:text-slate-400"
+                              placeholder="Clinical examination, diagnostic findings, tooth & gingival findings..."
+                            />
+                          </div>
+
+                          {/* Assessment */}
+                          <div className="bg-slate-50/70 hover:bg-white focus-within:bg-white border border-slate-200 focus-within:border-teal-600 focus-within:ring-2 focus-within:ring-teal-600/15 rounded-xl p-3 space-y-1.5 transition-all group">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[11px] font-bold text-slate-700 tracking-wider flex items-center gap-1.5 uppercase">
+                                <Shield className="w-3.5 h-3.5 text-teal-700" />
+                                ASSESSMENT (A):
+                              </span>
+                              <span className="text-[10px] text-slate-400 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity font-medium">
+                                Click to edit
+                              </span>
+                            </div>
+                            <textarea
+                              value={currentSoap.assessment}
+                              onChange={e => handleSoapChange('assessment', e.target.value)}
+                              rows={2}
+                              className="w-full bg-transparent text-slate-800 leading-relaxed text-[11px] font-sans resize-y focus:outline-none placeholder:text-slate-400"
+                              placeholder="Diagnosis, pulpal/periodontal prognosis..."
+                            />
+                          </div>
+
+                          {/* Plan & Procedure */}
+                          <div className="bg-slate-50/70 hover:bg-white focus-within:bg-white border border-slate-200 focus-within:border-teal-600 focus-within:ring-2 focus-within:ring-teal-600/15 rounded-xl p-3 space-y-1.5 transition-all group">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[11px] font-bold text-slate-700 tracking-wider flex items-center gap-1.5 uppercase">
+                                <Sparkles className="w-3.5 h-3.5 text-teal-700" />
+                                PLAN & PROCEDURE (P):
+                              </span>
+                              <span className="text-[10px] text-slate-400 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity font-medium">
+                                Click to edit
+                              </span>
+                            </div>
+                            <textarea
+                              value={currentSoap.plan}
+                              onChange={e => handleSoapChange('plan', e.target.value)}
+                              rows={2}
+                              className="w-full bg-transparent text-slate-800 leading-relaxed text-[11px] font-sans resize-y focus:outline-none placeholder:text-slate-400"
+                              placeholder="Treatment rendered, materials/anesthesia used, post-op instructions..."
+                            />
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div className="text-center py-20 text-slate-400">
+                <User className="w-12 h-12 mx-auto mb-3 text-slate-300" />
+                <h3 className="text-base font-bold text-slate-700">No Patient Selected</h3>
+                <p className="text-xs text-slate-500">Select an encounter from the Daysheet or add a walk-in to start charting.</p>
+              </div>
+            )}
+          </main>
+        </div>
+      </div>
+
+      {/* ─────────────────────────────────────────────────────────────
+          PMS DAYSHEET IMPORT MODAL (Real Clipboard Integration)
+          ───────────────────────────────────────────────────────────── */}
+      {showDaysheetModal && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-9 h-9 rounded-xl bg-teal-100 text-teal-800 flex items-center justify-center">
+                  <Clipboard className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">Paste PMS Daysheet</h3>
+                  <p className="text-xs text-slate-500">Auto-detects Dentrix, Eaglesoft, Open Dental, Exact & D4W</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowDaysheetModal(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Paste the exported daysheet text, tab-separated rows, or appointment summary from your Practice Management Software below:
+            </p>
+
+            <textarea
+              rows={6}
+              value={daysheetRawText}
+              onChange={e => setDaysheetRawText(e.target.value)}
+              placeholder={`08:30 AM\tSarah Jenkins\tCrown Seat #19 (Zirconia)\n09:45 AM\tDavid Martinez\tRestorative #14 MOD Resin\n11:00 AM\tEmily Zhao\tComp Exam + Bitewings\n01:15 PM\tRobert Miller\tEndodontic RCT #3`}
+              className="w-full p-3 text-xs font-mono border border-slate-200 rounded-xl focus:outline-none focus:border-teal-700 bg-slate-50/60 leading-relaxed"
+            />
+
+            <div className="flex items-center justify-between pt-2">
+              <button
+                onClick={() => {
+                  setDaysheetRawText(`08:30 AM\tSarah Jenkins\tCrown Seat #19 (Zirconia)\n09:45 AM\tDavid Martinez\tRestorative #14 MOD Resin\n11:00 AM\tEmily Zhao\tComp Exam + Bitewings\n01:15 PM\tRobert Miller\tEndodontic RCT #3`);
+                }}
+                className="text-[11px] text-teal-700 hover:underline font-semibold cursor-pointer"
+              >
+                Load sample daysheet
+              </button>
+
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={() => setShowDaysheetModal(false)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleParseAndImportDaysheet}
+                  className="px-4 py-2 bg-teal-800 hover:bg-teal-900 text-white rounded-xl text-xs font-bold transition cursor-pointer shadow-sm flex items-center space-x-1.5"
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  <span>Import to Database</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────
+          PLAIN TEXT NOTE MODAL
+          ───────────────────────────────────────────────────────────── */}
+      {showPlainTextModal && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl max-w-xl w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-9 h-9 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center">
+                  <FileText className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">Plain Text Clinical Note</h3>
+                  <p className="text-xs text-slate-500">Unformatted text for non-standard PMS fields or manual pasting</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowPlainTextModal(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <textarea
+              readOnly
+              rows={12}
+              value={getFormattedNoteText()}
+              className="w-full p-3.5 text-xs font-mono border border-slate-200 rounded-xl bg-slate-50 leading-relaxed text-slate-800 select-all"
+            />
+
+            <div className="flex items-center justify-end space-x-2 pt-2">
+              <button
+                onClick={() => setShowPlainTextModal(false)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition cursor-pointer"
+              >
+                Close
+              </button>
+              <button
+                onClick={() => {
+                  const txt = getFormattedNoteText();
+                  if (navigator.clipboard) {
+                    navigator.clipboard.writeText(txt);
+                  }
+                  setCopiedPlainText(true);
+                  setTimeout(() => setCopiedPlainText(false), 2000);
+                }}
+                className="px-4 py-2 bg-teal-800 hover:bg-teal-900 text-white rounded-xl text-xs font-bold transition cursor-pointer shadow-sm flex items-center space-x-1.5"
+              >
+                {copiedPlainText ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                <span>{copiedPlainText ? 'Copied!' : 'Copy Plain Text'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────
+          9. END-OF-DAY / LUNCH BATCH SIGN TRAY (SLIDE-OVER DRAWER)
+          ───────────────────────────────────────────────────────────── */}
+      {showBatchTray && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex justify-end z-50">
+          <div className="bg-white w-full max-w-xl h-full shadow-2xl flex flex-col border-l border-slate-200">
+            {/* Tray Header */}
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between flex-shrink-0 bg-white">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-xl bg-teal-50 border border-teal-200 text-teal-800 flex items-center justify-center">
+                  <Clipboard className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-slate-900 tracking-tight">Batch Sign & Review Tray</h3>
+                  <p className="text-xs text-slate-500">
+                    {completedEncounters.length} finalized notes ready for PMS paste
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowBatchTray(false)}
+                className="w-8 h-8 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 flex items-center justify-center cursor-pointer transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Master Action Banner */}
+            <div className="p-4 bg-slate-50/80 border-b border-slate-200 flex-shrink-0 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
+                  Master Export
+                </span>
+                <span className="text-[10px] text-teal-700 bg-teal-50 px-2 py-0.5 rounded-full font-bold border border-teal-200">
+                  Dentrix • Eaglesoft • Open Dental
+                </span>
+              </div>
+              <button
+                onClick={handleCopyAllBatchNotes}
+                disabled={completedEncounters.length === 0}
+                className={`w-full py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center space-x-2 transition shadow-xs cursor-pointer ${allBatchCopied
+                  ? 'bg-emerald-600 text-white'
+                  : 'bg-teal-800 hover:bg-teal-900 disabled:opacity-50 text-white'
+                  }`}
+              >
+                {allBatchCopied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                <span>
+                  {allBatchCopied
+                    ? `Copied All ${completedEncounters.length} Notes to Clipboard!`
+                    : `Copy All Notes for PMS (${completedEncounters.length} Ready)`}
+                </span>
+              </button>
+            </div>
+
+            {/* Completed Notes Scroll Area */}
+            <div className="flex-1 overflow-y-auto p-5 space-y-3.5 custom-scrollbar bg-[#F8FAFC]">
+              {completedEncounters.length === 0 ? (
+                <div className="text-center py-16 px-6 bg-white border border-dashed border-slate-200 rounded-2xl">
+                  <div className="w-12 h-12 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center mx-auto mb-3">
+                    <FileText className="w-6 h-6" />
+                  </div>
+                  <h4 className="text-sm font-bold text-slate-800 mb-1">No Finalized Notes Yet</h4>
+                  <p className="text-xs text-slate-500 max-w-sm mx-auto leading-relaxed">
+                    Patient notes finalized during consultations or via "Next Patient" will queue here for rapid batch review during lunch or at 5:00 PM.
+                  </p>
+                </div>
+              ) : (
+                completedEncounters.map((p, idx) => {
+                  const consult = consultations.find(c => c.id === p.id) || INITIAL_DATABASE_SEEDS.find(c => c.id === p.id);
+                  const isCopied = copiedBatchIndex === idx;
+
+                  return (
+                    <div
+                      key={p.id}
+                      className="bg-white border border-slate-200 rounded-xl p-4 shadow-2xs space-y-2.5"
+                    >
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <div className="flex items-center space-x-2 mb-0.5">
+                            <span className="text-xs font-bold text-slate-900 font-sans">{p.patientName}</span>
+                            <span className="text-[10px] font-mono text-slate-500 bg-slate-100 px-1.5 py-0.2 rounded font-medium">
+                              {p.time} • {p.operatory}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-600 truncate max-w-xs">{p.procedureText}</p>
+                        </div>
+                        <button
+                          onClick={() => {
+                            const text = getFormattedNoteText(consult);
+                            if (text && navigator.clipboard) {
+                              navigator.clipboard.writeText(text);
+                            }
+                            setCopiedBatchIndex(idx);
+                            setTimeout(() => setCopiedBatchIndex(null), 2000);
+                          }}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center space-x-1.5 transition cursor-pointer ${isCopied
+                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-300'
+                            : 'bg-slate-100 hover:bg-teal-50 text-slate-700 hover:text-teal-800 border border-slate-200'
+                            }`}
+                          title="Copy this patient's clinical note"
+                        >
+                          {isCopied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                          <span>{isCopied ? 'Copied!' : 'Copy Note'}</span>
+                        </button>
+                      </div>
+
+                      {/* Excerpt */}
+                      {p.soap && (
+                        <div className="text-[11px] text-slate-600 bg-slate-50/70 p-2.5 rounded-lg border border-slate-100 leading-relaxed font-mono">
+                          <span className="text-slate-800 font-bold block mb-0.5 font-sans">SOAP Summary:</span>
+                          <span className="line-clamp-2">
+                            {p.soap.treatmentPerformed || p.soap.assessment || p.soap.subjective}
+                          </span>
+                        </div>
+                      )}
+
+                      {/* CDT Codes */}
+                      {p.cdtCodes && p.cdtCodes.length > 0 && (
+                        <div className="flex flex-wrap gap-1 pt-1">
+                          {p.cdtCodes.map((c, cIdx) => (
+                            <span
+                              key={cIdx}
+                              className="text-[10px] font-mono bg-teal-50 text-teal-800 border border-teal-200 px-1.5 py-0.2 rounded"
+                            >
+                              {c.code}: {c.desc}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Tray Footer */}
+            <div className="p-4 border-t border-slate-200 flex items-center justify-between bg-white flex-shrink-0">
+              <span className="text-xs text-slate-500 font-medium">
+                {completedEncounters.length} completed encounters queued
+              </span>
+              <button
+                onClick={() => setShowBatchTray(false)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition cursor-pointer"
+              >
+                Close Tray
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

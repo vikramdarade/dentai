@@ -49,6 +49,13 @@ interface DayScheduleQueueProps {
   authToken: string;
 }
 
+/**
+ * @deprecated [DORMANCY NOTICE - APPLE MEDICAL GRADE WORKSPACE ARCHITECTURE]
+ * Legacy V1 Day Schedule Queue.
+ * Daily patient roster scheduling, CSV/PMS appointment parsing, and day-sheet management
+ * are now consolidated into `ChairsideWorkspace.tsx`.
+ * Retained for backward-compatibility and integration test fixtures.
+ */
 export default function DayScheduleQueue({
   onStartRecording,
   onViewConsultation,

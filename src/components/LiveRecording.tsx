@@ -40,6 +40,13 @@ interface ClinicUsageSnapshot {
   exceeded: boolean;
 }
 
+/**
+ * @deprecated [DORMANCY NOTICE - APPLE MEDICAL GRADE WORKSPACE ARCHITECTURE]
+ * Legacy V1 Recording Screen.
+ * All operatory acoustic capture, DSP noise squelch filtering, speech diarization,
+ * and audio chime feedback are now consolidated into `ChairsideWorkspace.tsx`.
+ * Retained for backward-compatibility and integration test fixtures.
+ */
 export default function LiveRecording({
   patientName,
   dob,

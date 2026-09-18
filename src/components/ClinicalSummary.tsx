@@ -114,6 +114,13 @@ const initEdits = (consultation: Consultation, template: NoteTemplate): Record<s
 
 const RECALL_OPTIONS = ['6 Months (Standard)', '3 Months (Periodontal)', 'Next Available (Urgent)'];
 
+/**
+ * @deprecated [DORMANCY NOTICE - APPLE MEDICAL GRADE WORKSPACE ARCHITECTURE]
+ * Legacy V1 Clinical Summary Screen.
+ * Clinical note review, direct click-to-edit SOAP documentation, CDT/ADA coding,
+ * and 1-click PMS clipboard copy are now consolidated into `ChairsideWorkspace.tsx`.
+ * Retained for backward-compatibility and integration test fixtures.
+ */
 export default function ClinicalSummary({
   consultation,
   onSave,

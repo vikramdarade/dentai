@@ -28,6 +28,7 @@ interface HistoryHubProps {
   /** Used to label colleague-authored notes in the owner view. */
   currentDentistId: string;
   memberNames: Record<string, string>;
+  onOpenWorkspace?: () => void;
 }
 
 export default function HistoryHub({
@@ -44,7 +45,8 @@ export default function HistoryHub({
   onClinicChanged,
   authToken,
   currentDentistId,
-  memberNames
+  memberNames,
+  onOpenWorkspace
 }: HistoryHubProps) {
   const [manageOpen, setManageOpen] = useState(false);
   // Practice records export (see /api/clinic/export on the server).
@@ -164,6 +166,15 @@ export default function HistoryHub({
             onManageClinic={() => setManageOpen(true)}
             onClinicChanged={onClinicChanged}
           />
+          {onOpenWorkspace && (
+            <button
+              onClick={onOpenWorkspace}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold shadow-sm transition-all cursor-pointer ml-2"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-teal-300" />
+              <span>Chairside Scribe</span>
+            </button>
+          )}
         </div>
         <div className="flex items-center gap-4">
           {/*

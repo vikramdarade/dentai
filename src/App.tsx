@@ -32,8 +32,9 @@ import {
   AuthUser
 } from './utils/storage';
 import { DayScheduleItem, updateScheduleItem, formatNoteForPmsClipboard } from './lib/dayScheduleStorage';
+import ChairsideWorkspace from './components/ChairsideWorkspace';
 
-type ViewType = 'history' | 'intake' | 'record' | 'summary';
+type ViewType = 'workspace' | 'history' | 'intake' | 'record' | 'summary';
 
 export default function App() {
   // Public (unauthenticated) screens, addressable by hash so they can be linked
@@ -75,7 +76,7 @@ export default function App() {
     return () => window.removeEventListener('hashchange', onHashChange);
   }, []);
 
-  const [view, setView] = useState<ViewType>('history');
+  const [view, setView] = useState<ViewType>('workspace');
   const [consultations, setConsultations] = useState<Consultation[]>(() => {
     return getLocalConsultations() || [];
   });
@@ -436,7 +437,7 @@ export default function App() {
       setActiveIntake(savedIntake);
       setView('record');
     } else {
-      setView('history');
+      setView('workspace');
     }
   };
 
@@ -468,11 +469,12 @@ export default function App() {
 
   const handleSelectConsultation = (c: Consultation) => {
     setSelectedConsultation(c);
-    setView('summary');
+    setView('workspace');
   };
 
   const handleStartNewConsultation = () => {
-    setView('intake');
+    setSelectedConsultation(null);
+    setView('workspace');
   };
 
   const handleIntakeSubmit = (intakeData: {
@@ -859,7 +861,8 @@ export default function App() {
   const handleSaveConsultation = async (updated: Consultation) => {
     const updatedWithDentist = {
       ...updated,
-      dentistId: updated.dentistId || currentUser?.id
+      dentistId: updated.dentistId || currentUser?.id,
+      clinicId: updated.clinicId || (activeClinic?.clinicId ? activeClinic.clinicId : undefined)
     };
     // Immediately persist locally
     const index = consultations.findIndex((c) => c.id === updatedWithDentist.id);
@@ -880,8 +883,11 @@ export default function App() {
     if (!authToken) return;
 
     try {
-      const res = await fetch(`/api/consultations/${updatedWithDentist.id}`, {
-        method: 'PUT',
+      const isNew = index === -1;
+      const url = isNew ? '/api/consultations' : `/api/consultations/${updatedWithDentist.id}`;
+      const method = isNew ? 'POST' : 'PUT';
+      const res = await fetch(url, {
+        method,
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${authToken}`
@@ -892,7 +898,7 @@ export default function App() {
       if (res.ok) {
         const saved = await res.json();
         removePendingSync(updatedWithDentist.id);
-        const syncedList = newList.map(c => c.id === saved.id ? saved : c);
+        const syncedList = newList.map(c => c.id === updatedWithDentist.id ? saved : c);
         setConsultations(syncedList);
         if (currentUser?.id) {
           saveLocalConsultations(syncedList, currentUser.id);
@@ -908,7 +914,7 @@ export default function App() {
 
   const handleCloseSummary = () => {
     setSelectedConsultation(null);
-    setView('history');
+    setView('workspace');
   };
 
   if (isAuthLoading) {
@@ -977,6 +983,21 @@ export default function App() {
 
   return (
     <div id="dentai-viewport" className="min-h-screen bg-[#F8F7F5] selection:bg-primary-container selection:text-white">
+      {view === 'workspace' && (
+        <ChairsideWorkspace
+          currentUser={currentUser}
+          dentistName={currentUser.name}
+          authToken={authToken}
+          consultations={visibleConsultations}
+          activeClinicId={activeClinicId}
+          initialPatientId={selectedConsultation?.id || null}
+          onOpenHistoryHub={() => setView('history')}
+          onOpenPipeline={() => setView('history')}
+          onLogout={handleLogout}
+          onSaveConsultation={handleSaveConsultation}
+        />
+      )}
+
       {view === 'history' && (
         <HistoryHub
           consultations={visibleConsultations}
@@ -993,6 +1014,7 @@ export default function App() {
           authToken={authToken}
           currentDentistId={currentUser.id}
           memberNames={memberNames}
+          onOpenWorkspace={() => setView('workspace')}
         />
       )}
 

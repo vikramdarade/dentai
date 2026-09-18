@@ -20,6 +20,13 @@ interface TopSurgeryBarProps {
   liveTranscript?: string;
 }
 
+/**
+ * @deprecated [DORMANCY NOTICE - APPLE MEDICAL GRADE WORKSPACE ARCHITECTURE]
+ * Legacy V1 Surgery Overlay Bar.
+ * Live operatory heads-up tracking, acoustic visualization, and dual-tone chime feedback
+ * are now consolidated directly into the unified `ChairsideWorkspace.tsx`.
+ * Retained for backward-compatibility and integration test fixtures.
+ */
 export default function TopSurgeryBar({
   activeItem,
   mediaStream,

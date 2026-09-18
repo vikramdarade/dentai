@@ -19,6 +19,13 @@ interface PatientIntakeProps {
   }) => void;
 }
 
+/**
+ * @deprecated [DORMANCY NOTICE - APPLE MEDICAL GRADE WORKSPACE ARCHITECTURE]
+ * Legacy V1 Intake Wizard.
+ * All active operatory patient onboarding, scheduling, and intake are now consolidated
+ * into the unified single-source-of-truth `ChairsideWorkspace.tsx`.
+ * Retained for backward-compatibility and integration test fixtures.
+ */
 export default function PatientIntake({ onCancel, onSubmit }: PatientIntakeProps) {
   const [currentStep, setCurrentStep] = useState(1);
   const totalSteps = 3;

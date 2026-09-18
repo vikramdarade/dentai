@@ -335,20 +335,20 @@ export default function Landing({ onGetStarted }: LandingProps) {
               {
                 icon: FileText,
                 step: '01',
-                title: 'Start a consult',
-                body: 'Enter the patient’s name, DOB and appointment type — exam, scale & clean or emergency.'
+                title: 'Open Chairside Scribe',
+                body: 'Instant operatory roster view. Select your patient encounter or add a walk-in in seconds with zero screen switching.'
               },
               {
                 icon: Mic,
                 step: '02',
-                title: 'Treat & talk',
-                body: 'The consultation flows in as a live transcript while you work. Recordings survive idle time and even a session timeout.'
+                title: 'Treat & converse naturally',
+                body: 'Dual-stage DSP acoustic squelch filters handpiece noise. Hands-free Spacebar pedal proxy and dual-tone clinical chimes keep you focused on the patient.'
               },
               {
                 icon: ClipboardCheck,
                 step: '03',
-                title: 'Review & paste',
-                body: 'AI structures the findings, ADA item codes and a patient letter. Edit, save, and you’re done.'
+                title: 'Review & 1-click copy',
+                body: 'Real-time SOAP notes with 0ms inline click-to-edit. 1-click clipboard copy pastes instantly into Dentrix, Eaglesoft, Exact, or Cliniko.'
               }
             ].map((item, i) => (
               <motion.div
