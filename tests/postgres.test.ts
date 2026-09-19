@@ -52,7 +52,8 @@ describePostgres('Postgres-backed data layer', () => {
 
     // Clean slate: drop everything this suite owns, in dependency order.
     await pool.query(`
-      DROP TABLE IF EXISTS audit_logs, consultations, usage_events, note_jobs,
+      DROP TABLE IF EXISTS chair_audio_chunks, chair_sessions, patients,
+        audit_logs, consultations, usage_events, note_jobs,
         clinic_members, clinics, dentists, recovery_tokens, revoked_sessions,
         login_attempts, subscriptions, app_meta, practice_acceptances,
         rate_limit_counters, mfa_credentials, mfa_recovery_codes, clinic_invites,
