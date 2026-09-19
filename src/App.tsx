@@ -14,6 +14,7 @@ import Landing from './components/Landing';
 import DemoMovie from './demo/DemoMovie';
 import CredentialScreen from './components/CredentialScreen';
 import LegalPage from './components/LegalPage';
+import BillingModal from './components/BillingModal';
 import { AI_DISCLOSURE_VERSION } from './lib/compliance';
 import PatientRoadmapPrototype from './components/PatientRoadmapPrototype';
 import PhoneBeaconMode from './components/PhoneBeaconMode';
@@ -56,6 +57,7 @@ export default function App() {
     | 'recover'
     | 'roadmap-prototype'
     | 'beacon'
+    | 'billing'
     | null;
   const parseRoute = (hash: string): PublicRoute => {
     if (hash.startsWith('#/demo')) return 'demo';
@@ -65,6 +67,7 @@ export default function App() {
     if (hash.startsWith('#/recover') || hash.startsWith('#/credential')) return 'recover';
     if (hash.startsWith('#/roadmap-prototype') || hash.startsWith('#roadmap-prototype')) return 'roadmap-prototype';
     if (hash.startsWith('#/beacon') || hash.startsWith('#beacon')) return 'beacon';
+    if (hash.startsWith('#/billing') || hash.startsWith('#billing')) return 'billing';
     return null;
   };
 
@@ -97,6 +100,7 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [authToken, setAuthToken] = useState<string | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
+  const [showBillingModal, setShowBillingModal] = useState(false);
 
   // Inactivity warning states
   const [showInactivityWarning, setShowInactivityWarning] = useState(false);
@@ -750,6 +754,7 @@ export default function App() {
         if (!submitRes.ok) {
           const errorData = await submitRes.json().catch(() => ({}));
           if (submitRes.status === 429 || errorData.code === 'QUOTA_DAILY' || errorData.code === 'QUOTA_EXCEEDED') {
+            setShowBillingModal(true);
             throw new Error(errorData.error || 'AI note generation is rate-limited for your clinic today. Your recording is preserved — draft the note offline now, or retry later.');
           }
           if (submitRes.status === 503) {
@@ -1166,6 +1171,22 @@ export default function App() {
           </div>
         )}
       </AnimatePresence>
+
+      {/* Practice Plan & Invoicing Modal */}
+      {(publicRoute === 'billing' || showBillingModal) && (
+        <BillingModal
+          isOpen={true}
+          onClose={() => {
+            setShowBillingModal(false);
+            if (publicRoute === 'billing') {
+              window.location.hash = '#/';
+            }
+          }}
+          activeClinic={activeClinic}
+          authToken={authToken || ''}
+          onPlanUpdated={() => refreshClinics()}
+        />
+      )}
     </div>
   );
 }

@@ -424,6 +424,32 @@ describe('DentAI Server - Mocked Unit Tests', () => {
     const memberToken = memberReg.body.token;
     const memberDentistId = memberReg.body.dentist.id;
 
+    // Write Practice subscription for the owned clinic so seat capacity is available for member approval
+    const subFile = path.join(process.env.DENTAI_DATA_DIR!, 'subscriptions.json');
+    let subData = { subscriptions: [] as any[] };
+    if (fs.existsSync(subFile)) {
+      try {
+        subData = JSON.parse(fs.readFileSync(subFile, 'utf-8'));
+      } catch {}
+    }
+    subData.subscriptions = subData.subscriptions || [];
+    subData.subscriptions.push({
+      id: `sub-${ownedClinic.clinicId}`,
+      clinicId: ownedClinic.clinicId,
+      plan: 'practice',
+      tier: 'practice',
+      status: 'active',
+      seats: 6,
+      stripeCustomerId: 'cus_test',
+      stripeSubscriptionId: 'sub_test',
+      currentPeriodEnd: new Date(Date.now() + 30 * 86400000).toISOString(),
+      cancelAtPeriodEnd: false,
+      activatedBy: 'test',
+      updatedAt: new Date().toISOString(),
+    });
+    fs.writeFileSync(subFile, JSON.stringify(subData, null, 2));
+    invalidateDbCache();
+
     const approveRes = await request(app)
       .post(`/api/clinics/${ownedClinic.clinicId}/members/${memberDentistId}/approve`)
       .set('Authorization', `Bearer ${ownerToken}`);

@@ -41,8 +41,8 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
   trial: {
     id: 'trial',
     name: 'Trial',
-    dailyNotes: 10,
-    dailyTokens: 40_000,
+    dailyNotes: 15,
+    dailyTokens: 60_000,
     seats: 1,
     monthlyAudExGst: 0,
     features: [
@@ -54,14 +54,15 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
   solo: {
     id: 'solo',
     name: 'Solo',
-    dailyNotes: 40,
-    dailyTokens: 150_000,
+    dailyNotes: 15,
+    dailyTokens: 60_000,
     seats: 1,
-    monthlyAudExGst: 149,
+    monthlyAudExGst: 0,
     features: [
-      'One clinician, unlimited patients',
-      'All clinical templates and custom sections',
-      'Record export and 7-year retention',
+      'Free forever for solo clinicians, associates and locums',
+      '15 AI notes per day with all 8 ADA procedure templates',
+      'Offline draft engine with zero lost charts',
+      'Personal consultation history and record export',
     ],
   },
   practice: {
@@ -70,12 +71,12 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
     dailyNotes: 200,
     dailyTokens: 750_000,
     seats: 6,
-    monthlyAudExGst: 399,
+    monthlyAudExGst: 149,
     features: [
-      'Up to 6 clinicians with owner review',
-      'Clinic-wide usage and access log',
-      'Priority queue for urgent and emergency notes',
-      'Export and offboarding support',
+      'Up to 6 clinician seats with centralized multi-chair compliance',
+      'Team template standards and full practice audit trails',
+      'Priority AI generation queue for emergency notes',
+      'Treatment recall worklist and revenue recovery engine',
     ],
   },
   enterprise: {
@@ -95,6 +96,18 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
 
 export function isPlanId(value: unknown): value is PlanId {
   return typeof value === 'string' && Object.prototype.hasOwnProperty.call(PLANS, value);
+}
+
+/** Determines whether a clinic with currentMembersCount active clinicians has capacity for another seat. */
+export function isSeatAvailable(
+  currentMembersCount: number,
+  planOrEntitlements: PlanId | Entitlements
+): boolean {
+  const maxSeats =
+    typeof planOrEntitlements === 'object' && planOrEntitlements !== null && 'seats' in planOrEntitlements
+      ? planOrEntitlements.seats
+      : (PLANS[planOrEntitlements as PlanId] || PLANS.trial).seats;
+  return currentMembersCount < maxSeats;
 }
 
 /** Maps a legacy/`tier` value onto a plan id. */
@@ -232,6 +245,6 @@ export function effectiveDailyLimits(
 /** Human-readable plan summary for receipts, emails and the ops console. */
 export function describePlan(plan: PlanId): string {
   const p = PLANS[plan];
-  const price = p.monthlyAudExGst > 0 ? `A$${p.monthlyAudExGst}/mo ex GST` : 'quoted';
+  const price = p.monthlyAudExGst > 0 ? `A$${p.monthlyAudExGst}/mo ex GST` : (p.id === 'solo' ? 'Free Forever' : 'quoted');
   return `${p.name} — ${p.seats} clinician${p.seats === 1 ? '' : 's'}, ${p.dailyNotes} AI notes/day, ${price}`;
 }

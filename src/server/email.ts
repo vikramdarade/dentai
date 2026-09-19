@@ -228,18 +228,23 @@ export function receiptEmail(params: {
   amountAud: number;
   periodEnd: string;
   invoiceUrl?: string;
+  abn?: string;
 }): RenderedEmail {
-  const amount = `A$${params.amountAud.toFixed(2)} (ex GST)`;
+  const abn = params.abn || process.env.DENTAI_ABN || '';
+  const header = abn ? `PAYMENT RECEIPT — DentAI (ABN: ${abn})` : 'PAYMENT RECEIPT — DentAI';
+
   const paragraphs = [
-    `Thanks — ${params.practiceName} is on the ${params.planName} plan.`,
-    `Amount: ${amount} per month. Current period ends ${params.periodEnd}.`,
-    'Prices exclude GST. A tax invoice is available from your billing page, or reply to this message if you need something specific for your accountant.',
+    header,
+    `Customer: ${params.practiceName}`,
+    `Subscription: ${params.planName} Plan (current period ends ${params.periodEnd})`,
+    `Total Paid: A$${params.amountAud.toFixed(2)} AUD`,
+    'This receipt confirms your monthly subscription payment. You can view past payments or update billing details anytime via the practice billing portal.',
   ];
   return {
-    subject: `DentAI receipt — ${params.practiceName} (${params.planName})`,
-    text: paragraphs.join('\n\n') + (params.invoiceUrl ? `\n\nInvoice: ${params.invoiceUrl}` : ''),
-    html: layout('Payment received', paragraphs, params.invoiceUrl
-      ? { label: 'View invoice', url: params.invoiceUrl }
+    subject: `Payment Receipt — DentAI ${params.planName} for ${params.practiceName}`,
+    text: paragraphs.join('\n\n') + (params.invoiceUrl ? `\n\nReceipt: ${params.invoiceUrl}` : ''),
+    html: layout('Payment Receipt', paragraphs, params.invoiceUrl
+      ? { label: 'View Receipt in Stripe', url: params.invoiceUrl }
       : undefined),
   };
 }
