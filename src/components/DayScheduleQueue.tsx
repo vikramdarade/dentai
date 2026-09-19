@@ -339,13 +339,27 @@ export default function DayScheduleQueue({
     // Collapse TopSurgeryBar immediately
     setRecordingItem(null);
 
-    // Build transcript payload
-    const finalTranscriptText = liveTranscript.trim() || `Consultation recorded for ${targetItem.patientName} (${targetItem.procedureText}). Full clinical examination performed.`;
-    const transcriptItems = [
-      { sender: 'Dentist', text: `Good morning ${targetItem.patientName}, let's begin your appointment for ${targetItem.procedureText}.` },
-      { sender: 'Dialogue', text: finalTranscriptText },
-      { sender: 'Dentist', text: `All procedures completed. We will review your recovery and plan the next recall visit.` }
-    ];
+    // Build the transcript from what was actually captured.
+    //
+    // Nothing is synthesised. This used to substitute a scripted encounter when
+    // the microphone captured nothing — "Good morning <name>, let's begin your
+    // appointment for <procedure>", "Full clinical examination performed", "All
+    // procedures completed" — and submit it as the consultation transcript. That
+    // transcript is clinical evidence, and the note was then generated from, and
+    // grounded against, dialogue nobody ever spoke. If there is no speech there
+    // is no consultation to document, so the recording is failed for review
+    // instead.
+    const finalTranscriptText = liveTranscript.trim();
+    if (!finalTranscriptText) {
+      const failed = updateScheduleItem(targetItem.id, {
+        status: 'failed',
+        error: 'No speech was captured, so no note was generated. Check the microphone and record the consultation again.'
+      });
+      setItems(failed);
+      setLiveTranscript('');
+      return;
+    }
+    const transcriptItems = [{ sender: 'Dialogue', text: finalTranscriptText }];
 
     // Update row to processing with safe UUID and cached transcript
     const assignedConsultationId = generateSafeUuid();
@@ -371,7 +385,8 @@ export default function DayScheduleQueue({
           intakeData: {
             firstName,
             lastName,
-            dob: '1990-01-01',
+            // Never invent identity data; absent stays visibly absent.
+            dob: '',
             appointmentType: targetItem.appointmentType,
             templateId: targetItem.templateId || 'standard'
           },
@@ -456,8 +471,10 @@ export default function DayScheduleQueue({
               transcript: transcriptItems,
               adaCodes: sanitizedAdaCodeStrings,
               completedAt: new Date().toISOString(),
-              groundingScore: grounding?.groundingScore ?? 100,
-              isFullyGrounded: grounding?.isFullyGrounded ?? true,
+              // Default to the unsafe-to-assume direction: a missing grounding
+              // report must never present as "verified".
+              groundingScore: grounding?.groundingScore ?? 0,
+              isFullyGrounded: grounding?.isFullyGrounded ?? false,
               unverifiedClaims: grounding?.unverifiedClaims ?? []
             });
             setItems(fresh);

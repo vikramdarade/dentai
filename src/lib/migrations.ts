@@ -336,8 +336,121 @@ const custodyAndOperability: Migration = {
   },
 };
 
+/**
+ * 003 — patient identity.
+ *
+ * The registry that stops a patient's name being used as their identity (see
+ * `src/lib/patients.ts`). Two additions:
+ *
+ *  - `patients`: one row per patient per clinic. `name_key` is the normalised
+ *    name used to find *candidates*. The partial unique index on
+ *    (clinic_id, name_key, dob) makes registering the same person twice
+ *    idempotent when a date of birth is known, and deliberately allows duplicate
+ *    names with no DOB — those cannot be told apart, and a duplicate record is
+ *    the safe failure where a shared chart is not.
+ *  - `consultations.patient_id`: links a record to the patient it belongs to.
+ *    Nullable because records written before this migration have no link. The
+ *    application must read a null `patient_id` as "patient unknown" and show no
+ *    prior-visit history, rather than falling back to matching on the name —
+ *    which is exactly the behaviour this migration exists to remove.
+ */
+const patientIdentity: Migration = {
+  version: 3,
+  name: 'patient_identity',
+  checksum: 'patients-1',
+  up: async (sql) => {
+    await sql`
+      CREATE TABLE IF NOT EXISTS patients (
+        id          TEXT PRIMARY KEY,
+        clinic_id   TEXT NOT NULL,
+        first_name  TEXT NOT NULL,
+        last_name   TEXT NOT NULL,
+        dob         TEXT NOT NULL DEFAULT '',
+        phone       TEXT,
+        name_key    TEXT NOT NULL,
+        created_by  TEXT,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+        archived_at TIMESTAMPTZ
+      )
+    `;
+    await sql`CREATE INDEX IF NOT EXISTS idx_patients_clinic_name ON patients (clinic_id, name_key)`;
+    await sql`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_patients_identity
+      ON patients (clinic_id, name_key, dob)
+      WHERE archived_at IS NULL AND dob <> ''
+    `;
+    await sql`ALTER TABLE consultations ADD COLUMN IF NOT EXISTS patient_id TEXT`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_consultations_patient ON consultations (patient_id)`;
+  },
+  down: async (sql) => {
+    await sql`DROP INDEX IF EXISTS idx_consultations_patient`;
+    await sql`ALTER TABLE consultations DROP COLUMN IF EXISTS patient_id`;
+    await sql`DROP TABLE IF EXISTS patients`;
+  },
+};
+
+/**
+ * 004 — durable chair-side beacon sessions.
+ *
+ * The beacon session state was a module-level `Map`, which on a serverless host
+ * is per-instance: pairing succeeded on one instance and the next status poll
+ * landed on another that had never heard of the chair. Audio chunks were pushed
+ * into that same Map without bound.
+ *
+ * `chair_sessions` holds the small, hot state (status, telemetry, commands) and
+ * `chair_audio_chunks` holds the audio separately, so a heartbeat never
+ * re-serialises megabytes. Chunk rows are deleted with their session by the
+ * sweeper, and the application caps the total accepted per session.
+ */
+const durableChairSessions: Migration = {
+  version: 4,
+  name: 'durable_chair_sessions',
+  checksum: 'chair-sessions-1',
+  up: async (sql) => {
+    await sql`
+      CREATE TABLE IF NOT EXISTS chair_sessions (
+        chair_id     TEXT PRIMARY KEY,
+        pin_code     TEXT NOT NULL,
+        room_name    TEXT NOT NULL,
+        clinic_id    TEXT,
+        dentist_id   TEXT,
+        dentist_name TEXT,
+        token        TEXT NOT NULL,
+        status       TEXT NOT NULL,
+        device_info  JSONB,
+        commands     JSONB NOT NULL DEFAULT '[]'::jsonb,
+        telemetry    JSONB NOT NULL,
+        created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+        expires_at   TIMESTAMPTZ NOT NULL,
+        updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+      )
+    `;
+    await sql`CREATE INDEX IF NOT EXISTS idx_chair_sessions_expires ON chair_sessions (expires_at)`;
+    await sql`
+      CREATE TABLE IF NOT EXISTS chair_audio_chunks (
+        chair_id    TEXT NOT NULL,
+        chunk_index INTEGER NOT NULL,
+        data_base64 TEXT,
+        size_bytes  INTEGER NOT NULL DEFAULT 0,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (chair_id, chunk_index)
+      )
+    `;
+  },
+  down: async (sql) => {
+    await sql`DROP TABLE IF EXISTS chair_audio_chunks`;
+    await sql`DROP TABLE IF EXISTS chair_sessions`;
+  },
+};
+
 /** Ordered list. Append only — never reorder or renumber a released migration. */
-export const MIGRATIONS: Migration[] = [baseline, custodyAndOperability];
+export const MIGRATIONS: Migration[] = [
+  baseline,
+  custodyAndOperability,
+  patientIdentity,
+  durableChairSessions
+];
 
 export const LATEST_VERSION = MIGRATIONS[MIGRATIONS.length - 1].version;
 

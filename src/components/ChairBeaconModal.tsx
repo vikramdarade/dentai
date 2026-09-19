@@ -29,6 +29,17 @@ interface ChairBeaconModalProps {
   onStartRecordingFromDesktop?: () => void;
   onStopRecordingFromDesktop?: () => void;
   isRecordingActive?: boolean;
+  /**
+   * Reports the chair session this modal created, so the clinician's screen can
+   * find the uploaded audio after recording. Without it the recording is
+   * unreachable: the chair id is generated here and never left this component,
+   * because the pairing session is deleted from module state the moment the
+   * modal closes.
+   *
+   * Emitted once per created session and never cleared: the audio is transcribed
+   * *after* the modal closes, so the clinician's screen has to remember the id.
+   */
+  onChairSessionChange?: (chairId: string) => void;
 }
 
 export default function ChairBeaconModal({
@@ -38,7 +49,8 @@ export default function ChairBeaconModal({
   clinicId,
   onStartRecordingFromDesktop,
   onStopRecordingFromDesktop,
-  isRecordingActive = false
+  isRecordingActive = false,
+  onChairSessionChange
 }: ChairBeaconModalProps) {
   const [chairId, setChairId] = useState<string>('');
   const [pinCode, setPinCode] = useState<string>('');
@@ -77,6 +89,7 @@ export default function ChairBeaconModal({
 
         setChairId(data.chairId);
         setPinCode(data.pinCode);
+        if (onChairSessionChange) onChairSessionChange(data.chairId);
 
         // Construct full link
         const origin = window.location.origin;

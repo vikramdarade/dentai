@@ -65,9 +65,15 @@ describe('quota error classification', () => {
 });
 
 describe('per-clinic daily metering', () => {
-  it('buckets by UTC day', () => {
-    expect(meteringDay(new Date('2026-09-05T23:59:59Z'))).toBe('2026-09-05');
-    expect(meteringDay(new Date('2026-09-06T00:00:01Z'))).toBe('2026-09-06');
+  it('buckets by the clinic calendar day, not UTC', () => {
+    // 09:00 Sydney on 6 Sep is 23:00 UTC on 5 Sep. Bucketing on UTC (the old
+    // behaviour) both reset a clinic's daily allowance mid-morning and split one
+    // clinic day across two buckets.
+    expect(meteringDay(new Date('2026-09-05T23:00:00Z'), 'Australia/Sydney')).toBe('2026-09-06');
+    expect(meteringDay(new Date('2026-09-06T13:00:00Z'), 'Australia/Sydney')).toBe('2026-09-06');
+    // Rollover is at local midnight — 14:00 UTC while Sydney is on AEST (+10).
+    expect(meteringDay(new Date('2026-09-06T13:59:00Z'), 'Australia/Sydney')).toBe('2026-09-06');
+    expect(meteringDay(new Date('2026-09-06T14:30:00Z'), 'Australia/Sydney')).toBe('2026-09-07');
   });
 
   it('reports exceeded at the limit, not before it', () => {

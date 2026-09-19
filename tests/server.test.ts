@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';
 import dotenv from 'dotenv';
+import crypto from 'crypto';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -35,7 +36,7 @@ process.env.DENTAI_DAILY_NOTE_LIMIT = '500';
 process.env.DENTAI_DAILY_TOKEN_LIMIT = '5000000';
 
 // Dynamically import the app to ensure environment variables are evaluated first
-const { app } = await import('../server.ts');
+const { app, invalidateDbCache } = await import('../server.ts');
 
 // Mock the GoogleGenAI library globally for unit tests.
 //
@@ -648,6 +649,87 @@ describe('DentAI Server - Mocked Unit Tests', () => {
     expect(fresh.status).toBe(200);
     const login = await request(app).post('/api/auth/login').send({ dentistId: reg.body.dentist.id, pin: '7529' });
     expect(login.status).toBe(200);
+
+    // ...and the token sign-in returned must actually be usable. This is the
+    // regression guard for a production lockout: a PIN change advances the
+    // account's session epoch, and login used to mint tokens with epoch 0, so
+    // sign-in reported 200 and then every subsequent request 403'd
+    // (SESSION_SUPERSEDED) with no way back in.
+    const afterLogin = await request(app)
+      .get('/api/auth/me')
+      .set('Authorization', `Bearer ${login.body.token}`);
+    expect(afterLogin.status).toBe(200);
+    expect(afterLogin.body.id).toBe(reg.body.dentist.id);
+
+    // The minted token must carry the account's advanced epoch, not the default
+    // 0 — sign-in is the path that used to omit it.
+    const claims = JSON.parse(
+      Buffer.from(login.body.token.split('.')[0], 'base64url').toString('utf8')
+    );
+    expect(claims.epoch).toBeGreaterThanOrEqual(1);
+    expect(claims.dentistId).toBe(reg.body.dentist.id);
+  });
+
+  it('a token minted by sign-in survives a revoke-all, and revoke-all retires the old one', async () => {
+    const name = `Dr. Revoke ${Math.random().toString(36).substring(7)}`;
+    const reg = await request(app)
+      .post('/api/auth/register')
+      .send({ name, specialty: 'Testing', pin: '5932' });
+    expect(reg.status).toBe(201);
+
+    // Advancing the epoch is what "sign out every device" means. Every later
+    // sign-in must still produce a working token.
+    const revoked = await request(app)
+      .post('/api/auth/sessions/revoke-all')
+      .set('Authorization', `Bearer ${reg.body.token}`);
+    expect(revoked.status).toBe(200);
+
+    const login = await request(app)
+      .post('/api/auth/login')
+      .send({ dentistId: reg.body.dentist.id, pin: '5932' });
+    expect(login.status).toBe(200);
+
+    const me = await request(app)
+      .get('/api/auth/me')
+      .set('Authorization', `Bearer ${login.body.token}`);
+    expect(me.status).toBe(200);
+  });
+
+  it('rehashes a legacy (1,000-iteration) PIN on the next successful sign-in', async () => {
+    const name = `Dr. LegacyHash ${Math.random().toString(36).substring(7)}`;
+    const pin = '4726';
+    const reg = await request(app)
+      .post('/api/auth/register')
+      .send({ name, specialty: 'Testing', pin });
+    expect(reg.status).toBe(201);
+    const dentistId = reg.body.dentist.id;
+
+    // Simulate an account created before the PBKDF2 hardening: rewrite the
+    // stored hash at the legacy iteration count.
+    const readUsers = () => JSON.parse(fs.readFileSync(usersDbPath, 'utf-8'));
+    const writeUsers = (data: any) => fs.writeFileSync(usersDbPath, JSON.stringify(data, null, 2));
+
+    const users = readUsers();
+    const stored = users.dentists.find((d: any) => d.id === dentistId);
+    expect(stored?.salt).toBeTruthy();
+    const legacyHash = crypto.pbkdf2Sync(pin, stored.salt, 1_000, 64, 'sha512').toString('hex');
+    stored.pinHash = legacyHash;
+    writeUsers(users);
+    invalidateDbCache();
+
+    // Sign-in still works — verifyPinHash accepts the legacy count so nobody is
+    // locked out.
+    const login = await request(app).post('/api/auth/login').send({ dentistId, pin });
+    expect(login.status).toBe(200);
+
+    // ...and the credential is no longer weak: it has been rewritten at the
+    // current iteration count. Nothing used to rehash, so a 4-digit PIN stayed at
+    // ~10^4 PBKDF2 operations forever.
+    const after = readUsers().dentists.find((d: any) => d.id === dentistId);
+    expect(after.pinHash).not.toBe(legacyHash);
+    expect(after.pinHash).toBe(
+      crypto.pbkdf2Sync(pin, stored.salt, 210_000, 64, 'sha512').toString('hex')
+    );
   });
 
   it('recovery tokens are single-use and reject unknown values', async () => {
@@ -742,6 +824,51 @@ describe('DentAI Server - Mocked Unit Tests', () => {
     expect(updated.body.consent.disclosureVersion).toBe('test-disclosure-v1');
     expect(updated.body.revisions).toHaveLength(2);
     expect(updated.body.revisions[0].savedAt).toBeTruthy();
+  });
+
+  it('applies record governance even when a query string is present (no opt-out via "?")', async () => {
+    const name = `Dr. Query ${Math.random().toString(36).substring(7)}`;
+    const reg = await request(app)
+      .post('/api/auth/register')
+      .send({ name, specialty: 'Testing', pin: '6284' });
+    expect(reg.status).toBe(201);
+    const token = reg.body.token;
+
+    // Governance matched req.originalUrl — which includes the query — against
+    // patterns anchored with `$`. Appending a single parameter made every
+    // pattern fail, so a consultation write skipped the consent gate, the
+    // revision and retention stamps and the stale-write guard, while Express
+    // still served the request (route matching ignores the query). That made the
+    // consent control opt-out from the client side.
+    const created = await request(app)
+      .post('/api/consultations?trace=1')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        firstName: 'Sam',
+        lastName: 'Ellis',
+        appointmentType: 'examination',
+        status: 'In Review',
+        transcript: [{ sender: 'Dentist', text: 'Tooth 26 reviewed, no caries.' }],
+        findings: { chiefComplaint: 'Review', history: '', toothFindings: '' },
+        patientSummary: '',
+        consent: { obtainedAt: new Date().toISOString(), disclosureVersion: 'test-disclosure-v1' }
+      });
+    expect(created.status).toBe(201);
+    expect(created.body.revisions).toHaveLength(1);
+    expect(created.body.recordVersion).toBe(1);
+    expect(created.body.retentionYears).toBeGreaterThan(0);
+    expect(created.body.privacyNoticeVersion).toBeTruthy();
+
+    const updated = await request(app)
+      .put(`/api/consultations/${created.body.id}?trace=1`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        findings: { chiefComplaint: 'Review', history: 'Reviewed', toothFindings: '26 sound' },
+        status: 'Completed'
+      });
+    expect(updated.status).toBe(200);
+    expect(updated.body.revisions).toHaveLength(2);
+    expect(updated.body.consent.disclosureVersion).toBe('test-disclosure-v1');
   });
 
   it('exposes a public health probe and keeps telemetry operator-only', async () => {

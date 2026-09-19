@@ -1,9 +1,17 @@
 /**
- * Transcript Grounding & Zero-Hallucination Verification Engine
+ * Transcript Grounding Verification Engine
  *
- * Deterministically cross-references clinical findings, tooth numbers, surfaces,
- * and treatments rendered in an AI-generated note against the verbatim spoken
- * dialogue in the operatory transcript.
+ * Cross-references the teeth, surfaces, drugs and treatments in an AI-generated
+ * note against what was actually said in the operatory transcript.
+ *
+ * On the limits of this module, because the UI turns its output into a trust
+ * badge: it is a keyword cross-check, not a proof. It can only find claims it
+ * recognises, so "no unverified claims" means "nothing recognisable was
+ * contradicted", not "everything in this note is true". It is written to fail in
+ * the safe direction — an unrecognisable note reports as needing review rather
+ * than as verified — and every extraction rule below is deliberately biased
+ * against inventing a finding, because a false positive here actively clears a
+ * hallucinated tooth as though the audio had confirmed it.
  */
 
 export interface GroundingEntity {
@@ -82,33 +90,79 @@ function normalizeForMatching(text: string): string {
 /**
  * Extracts 2-digit FDI tooth numbers (e.g. 16, 24, 36, 48) and tooth mentions (#16, tooth 16, upper right first molar)
  */
+/**
+ * Surfaces that may follow a bare FDI number as tooth notation ("16 MOD").
+ *
+ * Only combinations that are not ordinary English are accepted. Two-letter
+ * surfaces like "do" and "mo" are extremely common words, and reading "...aged
+ * 24. Do you..." as tooth 24 is precisely the false positive this verifier is
+ * supposed to catch, so they are excluded.
+ */
+const TOOTH_NOTATION_SURFACES = 'modbl|mod|mob|dob|ob|ol|mb|db|ml|dl|mi';
+
+/**
+ * A quadrant phrase followed, within the same clause, by a tooth type.
+ *
+ * Word-boundary matching is essential. The previous `includes('ur')` test also
+ * matched "your", "sure", "during" and "burn" — so "your lower left molar"
+ * invented an upper-right molar (tooth 16) out of the word "your".
+ */
+const QUADRANT_TOOTH_PATTERN =
+  /\b(upper right|upper left|lower left|lower right|maxillary right|maxillary left|mandibular right|mandibular left|ur|ul|ll|lr)\b[^.]{0,40}?\b(molars?|premolars?)\b/g;
+
+const QUADRANT_FDI: Record<string, { molar: string; premolar: string }> = {
+  'upper right': { molar: '16', premolar: '14' },
+  ur: { molar: '16', premolar: '14' },
+  'maxillary right': { molar: '16', premolar: '14' },
+  'upper left': { molar: '26', premolar: '24' },
+  ul: { molar: '26', premolar: '24' },
+  'maxillary left': { molar: '26', premolar: '24' },
+  'lower left': { molar: '36', premolar: '34' },
+  ll: { molar: '36', premolar: '34' },
+  'mandibular left': { molar: '36', premolar: '34' },
+  'lower right': { molar: '46', premolar: '44' },
+  lr: { molar: '46', premolar: '44' },
+  'mandibular right': { molar: '46', premolar: '44' }
+};
+
+/**
+ * Extracts 2-digit FDI tooth numbers (11-18, 21-28, 31-38, 41-48).
+ *
+ * Deliberately conservative. A bare 2-digit number is not a tooth: "see you in
+ * 16 weeks", "24 hours", "age 36" and "45 minutes" all read as FDI codes to a
+ * naive match. That mattered because the same loose rule ran over both the note
+ * and the transcript, so an incidental number in the conversation could ground a
+ * fabricated tooth in the note. A number is only read as a tooth when the text
+ * says so: an explicit introducer ("tooth 16", "#16", "FDI 24"), FDI notation
+ * with a surface ("16 MOD"), or a quadrant phrase ("upper right molar").
+ *
+ * Recall is intentionally traded for precision — a missed tooth simply does not
+ * appear in the report, whereas an invented one can certify treatment that was
+ * never discussed.
+ */
 export function extractToothNumbers(text: string): string[] {
   const normalized = normalizeForMatching(text);
   const results = new Set<string>();
-
-  // Explicit tooth numbers like "#16", "tooth 16", or standalone 2-digit FDI codes (11-48)
-  const regex = /(?:tooth\s+|#)?\b([1-4][1-8])\b/g;
   let match;
-  while ((match = regex.exec(normalized)) !== null) {
+
+  // Explicit introducers: "tooth 16", "teeth 24", "FDI 36", "#48".
+  const explicit = /(?:tooth|teeth|fdi|#)\s*#?\s*([1-4][1-8])\b/g;
+  while ((match = explicit.exec(normalized)) !== null) {
     results.add(match[1]);
   }
 
-  // Common descriptive tooth quadrant references
-  if (normalized.includes('upper right') || normalized.includes('ur')) {
-    if (normalized.includes('molar')) results.add('16');
-    if (normalized.includes('premolar')) results.add('14');
+  // FDI notation carrying a surface suffix: "16 MOD", "24 ob".
+  const withSurface = new RegExp(`\\b([1-4][1-8])\\s*(?:${TOOTH_NOTATION_SURFACES})\\b`, 'g');
+  while ((match = withSurface.exec(normalized)) !== null) {
+    results.add(match[1]);
   }
-  if (normalized.includes('upper left') || normalized.includes('ul')) {
-    if (normalized.includes('molar')) results.add('26');
-    if (normalized.includes('premolar')) results.add('24');
-  }
-  if (normalized.includes('lower left') || normalized.includes('ll')) {
-    if (normalized.includes('molar')) results.add('36');
-    if (normalized.includes('premolar')) results.add('34');
-  }
-  if (normalized.includes('lower right') || normalized.includes('lr')) {
-    if (normalized.includes('molar')) results.add('46');
-    if (normalized.includes('premolar')) results.add('44');
+
+  // Quadrant phrases: quadrant and tooth type must share a clause.
+  QUADRANT_TOOTH_PATTERN.lastIndex = 0;
+  while ((match = QUADRANT_TOOTH_PATTERN.exec(normalized)) !== null) {
+    const mapping = QUADRANT_FDI[match[1]];
+    if (!mapping) continue;
+    results.add(match[2].startsWith('premolar') ? mapping.premolar : mapping.molar);
   }
 
   return Array.from(results);
@@ -192,6 +246,38 @@ export function verifyTranscriptGrounding(
     }
   }
 
+  // 4. Verify surfaces. Full words only: the two-letter surfaces (MO, DO, OB)
+  //    collide with ordinary English and would manufacture findings.
+  for (const surface of DENTAL_SURFACES) {
+    if (surface.length < 5) continue;
+    const rx = new RegExp(`\\b${surface}\\b`);
+    if (!rx.test(normalizedNote)) continue;
+    const found = rx.test(normalizedTranscript);
+    entities.push({
+      category: 'surface',
+      term: surface.charAt(0).toUpperCase() + surface.slice(1),
+      foundInTranscript: found,
+      matchedText: found ? surface : undefined
+    });
+  }
+
+  // A note with nothing recognisable in it has not been verified. Reporting 100%
+  // here told the clinician a bare note had been cross-checked against the audio
+  // when there was nothing to check, and it suppressed the needs-review flag
+  // (isFullyGrounded drives noteOrigin.needsReview). Unverifiable is the unsafe
+  // direction, so it is reported as needing review.
+  if (entities.length === 0) {
+    return {
+      groundingScore: 0,
+      isFullyGrounded: false,
+      groundedEntities: [],
+      unverifiedClaims: [],
+      entityDetails: [],
+      summary:
+        'Nothing in this note could be cross-checked against the conversation (no teeth, treatments, drugs or surfaces were recognised). Review it before saving.'
+    };
+  }
+
   // Compile scores and unverified items
   const groundedEntities: string[] = [];
   const unverifiedClaims: string[] = [];
@@ -206,14 +292,12 @@ export function verifyTranscriptGrounding(
 
   const totalEntities = entities.length;
   const groundedCount = groundedEntities.length;
-  const groundingScore = totalEntities > 0
-    ? Math.round((groundedCount / totalEntities) * 100)
-    : 100;
+  const groundingScore = Math.round((groundedCount / totalEntities) * 100);
 
   const isFullyGrounded = unverifiedClaims.length === 0;
 
   const summary = isFullyGrounded
-    ? '100% transcript-grounded: All teeth, treatments, and drugs were verified against spoken operatory dialogue.'
+    ? `Grounded in the conversation: all ${totalEntities} recognised item(s) were traced back to what was said.`
     : `Attention: ${unverifiedClaims.length} item(s) in note were not explicitly spoken in operatory dialogue (${unverifiedClaims.join(', ')}).`;
 
   return {

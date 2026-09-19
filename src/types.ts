@@ -3,6 +3,26 @@ import type { GroundingReport } from './lib/transcriptGrounding';
 
 export type { AppointmentType };
 
+export interface TranscriptProvenance {
+  /**
+   * 'none' is a real state, not a failure: nothing was captured, and the note
+   * must say so rather than implying a transcript exists.
+   */
+  source: 'server-diarized' | 'browser-live' | 'manual' | 'none';
+  /** Model that produced the transcript, when it came from recorded audio. */
+  modelId?: string;
+  chairId?: string;
+  generatedAt?: string;
+  durationSeconds?: number;
+  chunks?: number;
+  /** Chunks that never arrived. Non-zero means missing speech. */
+  missingChunks?: number;
+  contiguous?: boolean;
+  speakerCounts?: Record<string, number>;
+  /** Operator-facing caveats, carried with the record rather than only shown once. */
+  warnings?: string[];
+}
+
 export interface TranscriptItem {
   sender: 'Dentist' | 'Patient' | 'Dialogue' | 'Clinical Comment';
   text: string;
@@ -202,6 +222,31 @@ export interface Consultation {
   dentistId?: string;
   /** Clinic this consultation was recorded in (stamped server-side). */
   clinicId?: string;
+  /**
+   * Registry id of the patient this record belongs to.
+   *
+   * Absent means patient identity was not established — either the record
+   * predates the registry, or several same-named patients exist and a human has
+   * not yet confirmed which one this is. Consumers must treat an absent id as
+   * "unknown patient": never fall back to matching on the name, because that is
+   * how one patient's history ended up on another patient's chart.
+   */
+  patientId?: string;
+  /**
+   * True when same-named patients exist and one must be confirmed by a human
+   * before this record is attached to a chart. The record is still saved —
+   * clinical work is never discarded over an identity question.
+   */
+  identityNeedsReview?: boolean;
+  /**
+   * ISO timestamp of when the record was created.
+   *
+   * `date`/`time` below are display labels ("Oct 24", no year) and cannot be
+   * ordered reliably — "Oct 1" sorts before "Sep 19". Anything that needs
+   * chronological order (prior-visit history, retention, the audit trail) must
+   * use a real timestamp.
+   */
+  createdAt?: string;
   firstName: string;
   lastName: string;
   dob: string;
@@ -221,6 +266,16 @@ export interface Consultation {
    * AI-drafted note were not actually spoken — and so a later reviewer can.
    */
   grounding?: GroundingReport;
+  /**
+   * Which capture produced `transcript`, and how good it was.
+   *
+   * A note's accuracy claim is only as good as its transcript, and the two
+   * capture paths are not equivalent: recorded audio is diarized (dentist and
+   * patient separated), live speech recognition is not. Recording the source
+   * means a later reviewer can tell why a section looks the way it does — and it
+   * is what lets `/api/transcribe` avoid paying twice for the same recording.
+   */
+  transcriptProvenance?: TranscriptProvenance;
   /** AI-assist consent captured at intake (required for new records). */
   consent?: ConsultationConsent;
   /** Append-only revision trail (server-maintained). */

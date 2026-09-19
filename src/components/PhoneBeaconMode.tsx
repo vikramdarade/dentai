@@ -374,7 +374,12 @@ export default function PhoneBeaconMode({ onExit }: PhoneBeaconModeProps) {
             isCharging,
             audioLevel,
             recordingSeconds,
-            inactivitySeconds: idleSeconds
+            inactivitySeconds: idleSeconds,
+            // The desktop transcribes this recording after the appointment, and
+            // the provider needs the real container to decode it — Safari records
+            // audio/mp4, not audio/webm. Reported here because the phone is the
+            // only device that knows. Capture metadata, never clinical content.
+            audioMimeType: mediaRecorderRef.current?.mimeType || undefined
           })
         }).catch(() => {});
       }

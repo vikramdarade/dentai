@@ -26,20 +26,51 @@ const ALLOWED_SENDERS = new Set(['Dentist', 'Patient', 'Dialogue', 'Clinical Com
 const CLINICAL_TRIGGER_REGEX = /(?:#\d{1,2}|\b(tooth|teeth|fdi|pain|decay|caries|restorative|composite|resin|anesthe|numb|lidocaine|articaine|mepivacaine|infiltrat|block|carpule|clamp|dam|etch|bond|cure|shade|prep|crown|veneer|bridge|implant|scaling|calculus|plaque|prophy|probe|probing|pocket|gingiv|bleeding|perio|pulp|rct|root canal|canal|apex|extract|forceps|elevator|suture|socket|alveol|bite|occlus|floss|brush|hygiene|fluoride|x-ray|bitewing|periapical|opg|cbct|panoram|fracture|chipped|sensitive|abscess|swelling|drain|penicillin|amoxicillin|ibuprofen|paracetamol)\b)/i;
 
 /**
- * Intelligent Clinical Horizon Filter (Apple-grade semantic noise pruning).
- * When recordings run long (e.g. 45+ to 90+ minutes) because the mic was left on
- * after the patient left, this filter separates the active clinical consultation
- * from trailing post-op silence, vacuum hiss, or room turnover banter.
+ * Post-operative and aftercare language — deliberately kept separate from the
+ * procedure vocabulary above.
+ *
+ * The horizon filter treats anything it cannot recognise as room noise and drops
+ * it once a long trailing tail builds up. Ordinary aftercare advice contains no
+ * procedure vocabulary at all: "keep the gauze in for half an hour", "no smoking
+ * tonight", "the script is at reception", "ring us if it swells". Without this
+ * list a genuine post-op handover could be discarded before the note was
+ * generated, and nothing downstream would report it.
+ *
+ * The entries are intentionally broad; each one only makes the filter more
+ * conservative (it keeps more of the transcript).
+ */
+const AFTERCARE_TRIGGER_REGEX = /\b(rinse|gauze|mouthwash|salt\s?water|smok|numbing|numbness|ice\s?pack|ice|pack|heal|rehabilitat|script|prescription|medication|antibiotic|analgesic|painkiller|panadeine|nurofen|soft diet|diet|food|eat|eating|drink|straw|follow[\s-]?up|review|recall|reception|appointment|aftercare|swallow|temperature|soreness|discomfort|pressure|nause|drowsy|dizzy|bleed|swollen|tender|avoid|exercise|lift|rest)\b/i;
+
+/**
+ * Clinical Horizon Filter.
+ *
+ * When a recording runs long because the microphone was left running after the
+ * patient left (45-90 minutes is common), this keeps the consultation and drops
+ * the trailing room turnover: vacuum hiss, instrument restyling, unrelated
+ * banter.
+ *
+ * It is a heuristic, and it is worth being precise about that, because the
+ * outcome is silent — an utterance it recognises as neither clinical nor
+ * aftercare is removed from the transcript the note is generated from, and
+ * nothing downstream reports that a trim occurred. It therefore only trims when a
+ * long tail (more than 15 utterances) has accumulated after the last recognised
+ * clinical utterance, and the recognition vocabulary deliberately includes
+ * aftercare language so a post-op handover is never mistaken for noise.
+ *
+ * This does not guarantee "zero loss" of anything. If clinical advice is phrased
+ * entirely outside the vocabulary below and more than 15 such utterances follow
+ * the last recognised one, it will be trimmed.
  */
 export function clinicalHorizonFilter<T extends { sender?: string; text: string }>(transcript: T[]): T[] {
   if (!Array.isArray(transcript) || transcript.length <= 20) {
     return transcript;
   }
 
-  // Find the last significant clinical utterance
+  // Find the last significant clinical-or-aftercare utterance.
   let lastClinicalIndex = -1;
   for (let i = transcript.length - 1; i >= 0; i--) {
-    if (CLINICAL_TRIGGER_REGEX.test(transcript[i].text)) {
+    const text = transcript[i].text;
+    if (CLINICAL_TRIGGER_REGEX.test(text) || AFTERCARE_TRIGGER_REGEX.test(text)) {
       lastClinicalIndex = i;
       break;
     }

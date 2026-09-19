@@ -2,7 +2,6 @@ import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import helmet from 'helmet';
-import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import { GoogleGenAI, Type } from '@google/genai';
 import {
@@ -81,6 +80,7 @@ import {
   dbUpsertMembership,
   dbDeleteMembership,
   dbListConsultationsForClinic,
+  dbListConsultationsByPatient,
   dbInsertNoteJob,
   dbGetNoteJob,
   dbClaimNextReadyNoteJob,
@@ -110,7 +110,7 @@ import {
   dbListSubscriptions,
   dbSetLoginLock
 } from './src/lib/db';
-import { getTodayStr, getCurrentTimeStr } from './src/types';
+import { getClinicDayLabel, getClinicTimeLabel } from './src/utils/date';
 import {
   LOGIN_MAX_ATTEMPTS,
   LOGIN_LOCKOUT_MS,
@@ -156,6 +156,26 @@ const FILE_STORAGE_ACCEPTED = process.env.DENTAI_ALLOW_FILE_STORAGE === 'true';
 
 const app = express();
 
+/**
+ * Proxy trust.
+ *
+ * Every per-address limiter (durable and `express-rate-limit` alike) keys on
+ * `req.ip`. Behind a platform edge that is the wrong value unless the proxy hop
+ * is declared: Express would report the edge's own socket address for every
+ * request, so every practice on the deployment would share a single rate-limit
+ * bucket — one noisy client could drain the credential budget
+ * (30 requests / 15 min) and lock sign-in out for everyone. With the header
+ * present and untrusted, `express-rate-limit` also reports a validation error.
+ *
+ * Default 1: exactly one platform edge in front of the app (Vercel, an ALB).
+ * Deliberately never `true` — trusting every hop lets a client spoof
+ * X-Forwarded-For and pick its own bucket, which defeats the limiter entirely.
+ * Override with DENTAI_TRUST_PROXY_HOPS for a deeper topology; use 0 to trust
+ * nothing (the process sees its direct peer only).
+ */
+const trustProxyHops = Number(process.env.DENTAI_TRUST_PROXY_HOPS ?? '1');
+app.set('trust proxy', Number.isFinite(trustProxyHops) && trustProxyHops >= 0 ? trustProxyHops : 1);
+
 // Secure HTTP Headers
 app.use(
   helmet({
@@ -195,6 +215,14 @@ const clinicInviteStore = createClinicInviteStore(storeDeps);
 const retentionStore = createRetentionStore(storeDeps);
 const subscriptionStore = createSubscriptionStore(storeDeps);
 const billingEventStore = createBillingEventStore(storeDeps);
+// Patient registry: the reason a patient's *name* is no longer used as their
+// identity. See src/lib/patients.ts for the matching policy.
+const patientStore = createPatientStore(storeDeps);
+const linkConsultationToPatient = createPatientLinker({ store: patientStore, logger });
+// Chair-side beacon sessions. These used to be a module-level Map, which on a
+// serverless host is per-instance state: pairing succeeded on one instance and
+// the next poll landed on another that had never heard of the chair.
+const chairSessionStore = createChairSessionStore({ kv: jsonKv, logger });
 const emailer = createEmailer({ logger });
 const entitlements = createEntitlementResolver({ store: subscriptionStore, logger });
 const alertThresholds = thresholdsFromEnv();
@@ -261,6 +289,10 @@ import {
   createSubscriptionStore,
   type StoreLogger
 } from './src/server/stores';
+import { createChairSessionStore } from './src/server/chairSessionStore';
+import { createPatientStore } from './src/server/patientStore';
+import { createPatientLinker, registerPatientRoutes } from './src/server/patientRoutes';
+import { registerTranscriptionRoutes } from './src/server/transcriptionRoutes';
 import { registerPracticeAgreementRoutes } from './src/server/practiceAgreement';
 import { registerClinicExportRoutes } from './src/server/clinicExport';
 import {
@@ -305,14 +337,17 @@ registerSessionSecurityRoutes(app, {
 });
 
 /** Schema/behaviour version reported by /api/health (bump on breaking change). */
-const SCHEMA_VERSION = '2026-09-16-security-1';
+const SCHEMA_VERSION = '2026-09-19-record-integrity-1';
 
-const generationLimiter = rateLimit({
+// Generation is the expensive path, so it is capped by the same durable counter
+// as the rest. It used to be a bare express-rate-limit instance, whose store is
+// per-process: on a serverless host that made the effective limit "60 per
+// instance", which is not a limit at all when there are twenty instances.
+const generationLimiter = createDurableRateLimit(rateLimitDeps, {
+  name: 'generation',
   windowMs: 15 * 60 * 1000,
   max: 60,
-  message: { error: 'Too many AI generation requests from this address. Please wait and try again.' },
-  standardHeaders: true,
-  legacyHeaders: false,
+  message: 'Too many AI generation requests from this address. Please wait and try again.',
 });
 
 const aiMeteringDeps = {
@@ -389,6 +424,82 @@ registerOpsRoutes(app, {
     processor: process.env.GCP_PROJECT_ID ? 'vertex' : 'developer-api',
   }),
 });
+// Patient registry surface — intake resolution, search, and one patient's
+// record history. Registered here so it precedes any other /api/patients route
+// that may be added later (Express serves the first matching registration).
+registerPatientRoutes(app, {
+  logger,
+  authenticate: authenticateToken,
+  dbEnabled,
+  store: patientStore,
+  resolveClinicScope,
+  listConsultationsByPatient: async (clinicId: string, patientId: string, limit?: number) =>
+    dbEnabled
+      ? dbListConsultationsByPatient(clinicId, patientId, limit)
+      : (await readConsultationsDb()).consultations.filter(
+          (c: any) => c.clinicId === clinicId && c.patientId === patientId
+        ),
+  logAudit,
+});
+
+// Recorded audio → diarized transcript.
+//
+// The recording has always been captured (the phone beacon uploads it) and never
+// used: notes came from the browser's live speech recognition, which has no dental
+// vocabulary, cannot separate the dentist from the patient, and drops audio. This
+// route is what makes the stored audio the source of the note instead.
+registerTranscriptionRoutes(app, {
+  logger,
+  authenticate: authenticateToken,
+  // Transcription may use a stronger model than note generation: it runs once
+  // per appointment in the background and accuracy there limits everything
+  // downstream, whereas the note model is on the clinician's critical path.
+  model: process.env.DENTAI_TRANSCRIPTION_MODEL || process.env.GEMINI_MODEL || 'gemini-3.6-flash',
+  chairStore: chairSessionStore,
+  resolveClinicScope,
+  recordUsageEvent,
+  // Ownership is checked before the transcript is handed back, so the lookup is
+  // scoped to the caller's own records rather than filtered afterwards.
+  loadConsultation: async (id: string, dentistId: string) => {
+    if (dbEnabled) {
+      const list = await dbListConsultations(dentistId);
+      return list.find((c: any) => c.id === id) || null;
+    }
+    return (
+      (await readConsultationsDb()).consultations.find(
+        (c: any) => c.id === id && c.dentistId === dentistId
+      ) || null
+    );
+  },
+  updateConsultation: dbUpdateConsultation,
+  logAudit,
+  // Resolved here rather than inside the route module so there is exactly one
+  // place that decides between Vertex (Australian sovereign processing) and the
+  // Developer API — and one place where a missing key is a null, not a crash.
+  getClient: async () => {
+    const gcpProject = process.env.GCP_PROJECT_ID;
+    if (gcpProject) {
+      const options: any = {
+        vertexai: true,
+        project: gcpProject,
+        location: process.env.GCP_REGION || 'australia-southeast1'
+      };
+      if (process.env.GCP_SERVICE_ACCOUNT_KEY) {
+        try {
+          options.credentials = JSON.parse(process.env.GCP_SERVICE_ACCOUNT_KEY);
+        } catch (e: any) {
+          logger.error('Failed to parse GCP_SERVICE_ACCOUNT_KEY for transcription:', e.message);
+          return null;
+        }
+      }
+      return { client: new GoogleGenAI(options), vertexai: true };
+    }
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey || apiKey === 'MY_GEMINI_API_KEY') return null;
+    return { client: new GoogleGenAI({ apiKey }), vertexai: false };
+  }
+});
+
 // Registration is gated before the signup handler runs: a closed flag and a
 // per-address account-creation limit, because each new account brings its own
 // AI allowance (see src/server/signupGuard.ts). The limiter is the durable one
@@ -402,10 +513,6 @@ const signupLimiterFactory = (options: Record<string, any>) =>
     message: options.message?.error || 'Too many new accounts from this address.',
   });
 app.use('/api/auth/register', ...createSignupGuard({ rateLimit: signupLimiterFactory, logger }));
-
-// Screenshot import carries a full PMS screenshot as base64 — a retina capture
-// routinely exceeds the global 1MB cap, so this route gets its own parser.
-app.use('/api/day/import-screenshot', express.json({ limit: '8mb' }));
 
 // Request Logging & Latency Telemetry Middleware
 app.use((req, res, next) => {
@@ -433,7 +540,7 @@ app.use((req, res, next) => {
 const apiLimiter = createDurableRateLimit(rateLimitDeps, {
   name: 'api',
   windowMs: 15 * 60 * 1000,
-  max: 100,
+  max: process.env.NODE_ENV === 'test' ? 10_000 : 100,
   message: 'Too many requests, please try again later.',
   // Job polling is the async fabric's own heartbeat: the client polls every
   // ~1.5s while a note generates, and each poll opportunistically ticks the
@@ -1154,12 +1261,14 @@ async function tickNoteJobs(force = false): Promise<void> {
             clinicId: job.clinicId,
             firstName: String(intake.firstName || 'Unknown'),
             lastName: String(intake.lastName || 'Patient'),
-            dob: String(intake.dob || '1900-01-01'),
+            // Never invent identity data. An absent DOB stays absent so the
+            // record shows it is missing rather than asserting a false one.
+            dob: String(intake.dob || ''),
             appointmentType: String(intake.appointmentType || 'examination'),
             // Stamp the consultation at job-creation time (when the session
             // actually happened), not when the worker drained it.
-            date: getTodayStr(new Date(job.createdAt)),
-            time: getCurrentTimeStr(new Date(job.createdAt)),
+            date: getClinicDayLabel(new Date(job.createdAt)),
+            time: getClinicTimeLabel(new Date(job.createdAt)),
             status: 'In Review' as const,
             transcript: job.payload?.transcript || [],
             templateId: String(intake.templateId || 'standard'),
@@ -1184,6 +1293,16 @@ async function tickNoteJobs(force = false): Promise<void> {
             consentCapturedAt: job.payload?.consentCapturedAt || undefined,
             consentPractitionerId: job.payload?.consentPractitionerId || undefined
           };
+          // Identity is resolved server-side for the persisted record too, so a
+          // note that completes after the browser closed still lands on the right
+          // chart (or is flagged when the name alone is ambiguous).
+          try {
+            const link = await linkConsultationToPatient(consult);
+            if (link.patientId) consult.patientId = link.patientId;
+            if (link.identityNeedsReview) consult.identityNeedsReview = true;
+          } catch (linkErr: any) {
+            logger.warn('Could not link the worker note to a patient:', linkErr?.message || linkErr);
+          }
           if (dbEnabled) {
             await dbInsertConsultation(consult);
           } else {
@@ -1969,6 +2088,27 @@ function generateToken(payload: { dentistId: string; name?: string; specialty?: 
   return `${base64Payload}.${signature}`;
 }
 
+/**
+ * Mints a session token for a dentist record, taking the epoch from that record.
+ *
+ * Every mint site MUST go through here rather than calling generateToken with a
+ * hand-built payload. The epoch is the control that makes "change PIN" (and an
+ * operator lockout) actually retire other devices, and authenticateToken rejects
+ * any token whose epoch does not match the account's. A mint site that omits the
+ * field silently defaults it to 0 — so once an account's epoch had been advanced,
+ * sign-in appeared to succeed and then every subsequent request returned 403.
+ * Deriving the epoch from the record here means a caller cannot forget it.
+ */
+function issueSessionToken(dentist: any, overrides?: { exp?: number }): string {
+  return generateToken({
+    dentistId: dentist.id,
+    name: dentist.name,
+    specialty: dentist.specialty,
+    epoch: dentistEpoch(dentist),
+    ...(typeof overrides?.exp === 'number' ? { exp: overrides.exp } : {}),
+  });
+}
+
 /** Length-independent constant-time comparison of two base64url signatures. */
 function signaturesMatch(a: string, b: string): boolean {
   const bufA = Buffer.from(a);
@@ -2315,11 +2455,7 @@ app.post('/api/auth/register', async (req, res) => {
       logAudit('signup_referral_attributed', newDentist.id, { code: normalizedReferral });
     }
 
-    const token = generateToken({
-      dentistId: newDentist.id,
-      name: newDentist.name,
-      specialty: newDentist.specialty
-    });
+    const token = issueSessionToken(newDentist);
 
     logAudit('dentist_registered', newDentist.id, {});
 
@@ -2402,14 +2538,45 @@ app.post('/api/auth/login', credentialLimiter, async (req, res) => {
       return res.status(401).json({ error: 'Invalid clinician profile or PIN.' });
     }
 
+    // Opportunistically upgrade a legacy credential on successful sign-in.
+    //
+    // Accounts created before the PBKDF2 hardening verify against a
+    // 1,000-iteration hash. verifyPinHash accepts those so nobody is locked out,
+    // but nothing rehashed them — so a 4-digit PIN stayed at roughly 10^4 PBKDF2
+    // operations forever, which is moments to brute-force if the stored hash ever
+    // leaks. The first successful sign-in rewrites the credential at the current
+    // iteration count. A failure here is logged and ignored: a maintenance step
+    // must never stop a clinician signing in.
+    try {
+      const currentHash = getPinHash(pin, dentistSalt, PBKDF2_ITERATIONS);
+      if (currentHash !== dentist.pinHash) {
+        const upgraded = dbEnabled
+          ? await dbUpdateDentistPin(dentist.id, currentHash, dentistSalt)
+          : await (async () => {
+              const usersData = await readUsersDb();
+              const idx = usersData.dentists.findIndex((d: any) => d.id === dentist.id);
+              if (idx === -1) return false;
+              usersData.dentists[idx].pinHash = currentHash;
+              usersData.dentists[idx].salt = dentistSalt;
+              await writeUsersDb(usersData);
+              return true;
+            })();
+        if (upgraded) {
+          logAudit('pin_hash_upgraded', dentist.id, { iterations: PBKDF2_ITERATIONS });
+        }
+      }
+    } catch (upgradeErr: any) {
+      logger.warn('PIN hash upgrade skipped:', upgradeErr?.message || upgradeErr);
+    }
+
     await clearLoginFailures(attemptKeys);
 
 
-    const token = generateToken({
-      dentistId: dentist.id,
-      name: dentist.name,
-      specialty: dentist.specialty
-    });
+    // The epoch must come from the account record, never the default 0: any PIN
+    // change, session revocation or operator lockout advances it, and
+    // authenticateToken rejects a token minted under an older epoch. Minting 0
+    // here meant sign-in reported success and then every request 403'd.
+    const token = issueSessionToken(dentist);
 
     // Legacy weak PINs still authenticate (we cannot inspect a hash), but the
     // client must prompt for a change — see POST /api/auth/change-pin.
@@ -2461,149 +2628,13 @@ app.post('/api/auth/logout', authenticateToken, async (req: any, res) => {
 });
 
 /**
- * Change your own PIN. Requires the current PIN (proving the person at the
- * keyboard is the account holder) and rejects guessable new PINs. Every other
- * active session is revoked so a shared-workstation session cannot survive a
- * credential change.
+ * NOTE: /api/auth/change-pin and /api/auth/recovery/redeem used to be defined
+ * here. They are registered authoritatively by src/server/sessionSecurity.ts,
+ * which is mounted earlier in this file — Express serves the first matching
+ * route, so the copies that lived here were unreachable dead code (and drifted:
+ * they minted session tokens without the account's epoch). Do not re-add them;
+ * change the behaviour in sessionSecurity.ts instead.
  */
-app.post('/api/auth/change-pin', credentialLimiter, authenticateToken, async (req: any, res) => {
-  try {
-    const { currentPin, newPin } = req.body || {};
-    if (!isValidPinFormat(currentPin) || !isValidPinFormat(newPin)) {
-      return res.status(400).json({ error: 'Current and new PIN must both be exactly 4 digits.' });
-    }
-    if (isWeakPin(newPin)) {
-      return res.status(400).json({ error: weakPinMessage(newPin), code: 'WEAK_PIN' });
-    }
-    if (currentPin === newPin) {
-      return res.status(400).json({ error: 'The new PIN must be different from the current PIN.' });
-    }
-
-    const dentist = req.dentist;
-    const salt = dentist.salt || getDentistSalt(dentist.id);
-    const currentValid =
-      verifyPinHash(currentPin, salt, dentist.pinHash) ||
-      verifyPinHash(currentPin, getDentistSalt(dentist.id), dentist.pinHash);
-
-    if (!currentValid) {
-      await recordLoginFailure(`dentist:${dentist.id}`);
-      logAudit('pin_change_denied', dentist.id, { reason: 'invalid_current_pin' });
-      return res.status(401).json({ error: 'Current PIN is incorrect.' });
-    }
-
-    // Rehash with the current policy salt and iteration count.
-    const newSalt = getDentistSalt(dentist.id);
-    const pinHash = getPinHash(newPin, newSalt);
-
-    if (dbEnabled) {
-      await dbInsertDentist({ id: dentist.id, name: dentist.name, specialty: dentist.specialty, pinHash, salt: newSalt });
-    } else {
-      const usersData = await readUsersDb();
-      const idx = usersData.dentists.findIndex((d: any) => d.id === dentist.id);
-      if (idx === -1) return res.status(404).json({ error: 'Dentist profile not found.' });
-      usersData.dentists[idx].pinHash = pinHash;
-      usersData.dentists[idx].salt = newSalt;
-      await writeUsersDb(usersData);
-    }
-
-    // The session that made the change stays alive; every other session for
-    // this account is revoked by rotating the revocation cutoff below.
-    const claims = req.session as SessionClaims | undefined;
-    logAudit('pin_changed', dentist.id, { sessionStayed: !!claims?.jti });
-
-    res.json({ success: true, message: 'PIN updated. Use it next time you sign in.' });
-  } catch (err) {
-    logger.error('PIN change failed:', err);
-    res.status(500).json({ error: 'Failed to change PIN.' });
-  }
-});
-
-/**
- * Redeem an operator-issued recovery token to set a new PIN.
- *
- * This is the audited replacement for a universal/master PIN. The token is
- * single-use, expires in an hour, is stored only as a SHA-256 hash, and is
- * issued out-of-band by scripts/issue-recovery-token.ts — so a lockout can be
- * resolved without any credential that works for everyone.
- */
-app.post('/api/auth/recovery/redeem', credentialLimiter, async (req, res) => {
-  try {
-    const { token, newPin } = req.body || {};
-    if (typeof token !== 'string' || token.trim().length < 20) {
-      return res.status(400).json({ error: 'A valid recovery token is required.' });
-    }
-    if (!isValidPinFormat(newPin)) {
-      return res.status(400).json({ error: 'New PIN must be exactly 4 digits.' });
-    }
-    if (isWeakPin(newPin)) {
-      return res.status(400).json({ error: weakPinMessage(newPin), code: 'WEAK_PIN' });
-    }
-
-    const tokenHash = crypto.createHash('sha256').update(token.trim()).digest('hex');
-
-    let dentistId: string | null = null;
-    if (dbEnabled) {
-      dentistId = await dbConsumeRecoveryToken(tokenHash);
-    } else {
-      const store: any = await readDb('dentai:recovery_tokens', path.resolve(DATA_DIR, 'recovery_tokens.json'), { tokens: {} });
-      const entry = store.tokens?.[tokenHash];
-      if (entry && !entry.usedAt && Date.parse(entry.expiresAt) > Date.now()) {
-        entry.usedAt = new Date().toISOString();
-        await writeDb('dentai:recovery_tokens', path.resolve(DATA_DIR, 'recovery_tokens.json'), store);
-        dentistId = entry.dentistId;
-      }
-    }
-
-    if (!dentistId) {
-      logAudit('recovery_token_rejected', 'unknown', {});
-      return res.status(401).json({ error: 'That recovery token is invalid, already used, or expired.' });
-    }
-
-    let dentist: any = null;
-    if (dbEnabled) {
-      dentist = await dbGetDentistById(dentistId);
-    } else {
-      dentist = (await readUsersDb()).dentists.find((d: any) => d.id === dentistId) || null;
-    }
-    if (!dentist) {
-      return res.status(404).json({ error: 'Dentist profile not found.' });
-    }
-
-    const salt = getDentistSalt(dentistId);
-    const pinHash = getPinHash(newPin, salt);
-    if (dbEnabled) {
-      await dbInsertDentist({ id: dentist.id, name: dentist.name, specialty: dentist.specialty, pinHash, salt });
-    } else {
-      const usersData = await readUsersDb();
-      const idx = usersData.dentists.findIndex((d: any) => d.id === dentistId);
-      if (idx !== -1) {
-        usersData.dentists[idx].pinHash = pinHash;
-        usersData.dentists[idx].salt = salt;
-        await writeUsersDb(usersData);
-      }
-    }
-
-    await clearLoginFailures(loginAttemptKeys(dentistId, undefined));
-    logAudit('credential_recovered', dentistId, { method: 'operator_recovery_token' });
-
-    const authToken = generateToken({
-      dentistId: dentist.id,
-      name: dentist.name,
-      specialty: dentist.specialty
-    });
-
-    res.json({
-      success: true,
-      token: authToken,
-      sessionTtlSeconds: SESSION_TTL_SECONDS,
-      dentist: { id: dentist.id, name: dentist.name, specialty: dentist.specialty }
-    });
-  } catch (err) {
-    logger.error('Recovery redemption failed:', err);
-    res.status(500).json({ error: 'Failed to complete credential recovery.' });
-  }
-});
-
 app.get('/api/auth/me', authenticateToken, async (req: any, res) => {
   try {
     // Self-heals accounts created before the clinic backbone: the personal
@@ -3060,6 +3091,19 @@ app.post('/api/consultations', authenticateToken, async (req: any, res) => {
       logger.warn('Could not resolve clinic scope for consultation; saving without clinicId.', err);
     }
 
+    // Patient identity. A record is only attached to a chart when a second
+    // identifying detail agrees; same-named patients leave it unlinked and
+    // flagged so a human confirms rather than one patient's history appearing on
+    // another's chart.
+    try {
+      const link = await linkConsultationToPatient(newConsultation);
+      if (link.patientId) newConsultation.patientId = link.patientId;
+      newConsultation.identityNeedsReview = Boolean(link.identityNeedsReview);
+      if (link.patientCandidates) newConsultation.patientCandidates = link.patientCandidates;
+    } catch (err) {
+      logger.warn('Could not link the consultation to a patient; saving unlinked.', err);
+    }
+
     // Auto-extract and quantify unscheduled treatment opportunities if not explicitly populated
     if (!newConsultation.findings?.proposedTreatments || newConsultation.findings.proposedTreatments.length === 0) {
       const patientFullName = `${newConsultation.firstName || ''} ${newConsultation.lastName || ''}`.trim() || 'Patient';
@@ -3119,6 +3163,18 @@ app.put('/api/consultations/:id', authenticateToken, async (req: any, res) => {
       } catch (err) {
         logger.warn('Could not resolve clinic scope on update; preserving stored clinicId.', err);
       }
+      // Re-validate the link on every edit. An existing patientId is returned
+      // unchanged by the linker, so an edit can never re-point a record at a
+      // different patient, and the "needs review" flag clears only once a
+      // clinician actually confirms the patient.
+      try {
+        const link = await linkConsultationToPatient(merged);
+        if (link.patientId) merged.patientId = link.patientId;
+        merged.identityNeedsReview = Boolean(link.identityNeedsReview);
+        if (link.patientCandidates) merged.patientCandidates = link.patientCandidates;
+      } catch (err) {
+        logger.warn('Could not re-validate the patient link on update.', err);
+      }
       await dbUpdateConsultation(id, req.dentist.id, merged);
       logAudit('consultation_updated', req.dentist.id, { consultationId: id });
       return res.json(merged);
@@ -3145,6 +3201,14 @@ app.put('/api/consultations/:id', authenticateToken, async (req: any, res) => {
       if (scope) consultationsData.consultations[index].clinicId = scope;
     } catch (err) {
       logger.warn('Could not resolve clinic scope on update; preserving stored clinicId.', err);
+    }
+    try {
+      const link = await linkConsultationToPatient(consultationsData.consultations[index]);
+      if (link.patientId) consultationsData.consultations[index].patientId = link.patientId;
+      consultationsData.consultations[index].identityNeedsReview = Boolean(link.identityNeedsReview);
+      if (link.patientCandidates) consultationsData.consultations[index].patientCandidates = link.patientCandidates;
+    } catch (err) {
+      logger.warn('Could not re-validate the patient link on update.', err);
     }
 
     await writeConsultationsDb(consultationsData);
@@ -4339,15 +4403,12 @@ interface ChairSessionState {
     inactivitySeconds?: number;
     lastHeartbeat: number;
   };
-  audioChunks: Array<{
-    chunkIndex: number;
-    dataBase64?: string;
-    sizeBytes: number;
-    timestamp: number;
-  }>;
 }
 
-const chairSessions = new Map<string, ChairSessionState>();
+// Sessions live in chairSessionStore (registered with the other stores above).
+// A module-level Map is per-instance state: on a serverless host, pairing would
+// succeed on one instance and the next poll would land on another that had never
+// heard of the chair, and uploaded audio would be lost with the instance.
 
 function generateChairToken(payload: { chairId: string; pinCode: string; roomName: string; clinicId?: string; exp?: number }): string {
   const finalPayload = {
@@ -4372,7 +4433,9 @@ function verifyChairToken(token: string): { chairId: string; pinCode: string; ro
     .createHmac('sha256', SESSION_SECRET)
     .update(base64Payload)
     .digest('base64url');
-  if (signature !== expectedSignature) return null;
+  // Constant-time: an early-exit byte comparison leaks how much of a forged
+  // signature was correct. Same helper the session tokens use.
+  if (!signaturesMatch(signature, expectedSignature)) return null;
   try {
     const payloadStr = Buffer.from(base64Payload, 'base64url').toString('utf8');
     const parsed = JSON.parse(payloadStr);
@@ -4384,7 +4447,7 @@ function verifyChairToken(token: string): { chairId: string; pinCode: string; ro
 }
 
 // 1. Create a chair pairing session (called by Desktop Operatory PC)
-app.post('/api/beacon/chair/create', (req, res) => {
+app.post('/api/beacon/chair/create', async (req, res) => {
   try {
     const { roomName = 'Chair 1', clinicId, dentistId, dentistName } = req.body || {};
     const chairId = `chair-${crypto.randomBytes(3).toString('hex')}`;
@@ -4410,17 +4473,18 @@ app.post('/api/beacon/chair/create', (req, res) => {
         bufferedChunksCount: 0,
         recordingSeconds: 0,
         lastHeartbeat: Date.now()
-      },
-      audioChunks: []
+      }
     };
 
-    chairSessions.set(chairId, session);
+    await chairSessionStore.create(session);
 
-    // Evict old sessions (> 12 hours)
-    for (const [id, s] of chairSessions.entries()) {
-      if (s.expiresAt < Date.now()) {
-        chairSessions.delete(id);
-      }
+    // Sweep expired sessions. This previously ran only against the in-process
+    // Map, so on a serverless host nothing was ever cleared.
+    try {
+      const purged = await chairSessionStore.purgeExpired();
+      if (purged > 0) logger.info(`[Beacon] Swept ${purged} expired chair session(s).`);
+    } catch (purgeErr: any) {
+      logger.warn('Could not sweep expired chair sessions:', purgeErr?.message || purgeErr);
     }
 
     res.status(201).json({
@@ -4439,26 +4503,28 @@ app.post('/api/beacon/chair/create', (req, res) => {
 });
 
 // 2. Mobile Phone pairs with Chair using PIN
-app.post('/api/beacon/chair/pair', (req, res) => {
+app.post('/api/beacon/chair/pair', async (req, res) => {
   try {
     const { chairId, pinCode, deviceInfo, deviceModel, batteryLevel, isCharging } = req.body || {};
     if (!chairId || !pinCode) {
       return res.status(400).json({ error: 'Chair ID and PIN code are required.' });
     }
 
-    const session = chairSessions.get(chairId);
+    const session = await chairSessionStore.get(chairId);
     if (!session || session.pinCode !== String(pinCode).trim()) {
       return res.status(401).json({ error: 'Invalid or expired PIN code.' });
     }
 
-    session.status = 'paired';
-    session.deviceInfo = deviceInfo || {
-      model: deviceModel || 'Smartphone',
-      platform: 'mobile'
+    const telemetry = { ...session.telemetry, lastHeartbeat: Date.now() };
+    if (typeof batteryLevel === 'number') telemetry.batteryLevel = batteryLevel;
+    if (typeof isCharging === 'boolean') telemetry.isCharging = isCharging;
+
+    const pairPatch = {
+      status: 'paired' as const,
+      deviceInfo: deviceInfo || { model: deviceModel || 'Smartphone', platform: 'mobile' },
+      telemetry
     };
-    if (typeof batteryLevel === 'number') session.telemetry.batteryLevel = batteryLevel;
-    if (typeof isCharging === 'boolean') session.telemetry.isCharging = isCharging;
-    session.telemetry.lastHeartbeat = Date.now();
+    await chairSessionStore.update(chairId, pairPatch);
 
     res.json({
       success: true,
@@ -4466,7 +4532,7 @@ app.post('/api/beacon/chair/pair', (req, res) => {
       chairId,
       roomName: session.roomName,
       token: session.token,
-      status: session.status
+      status: pairPatch.status
     });
   } catch (err) {
     logger.error('Failed to pair phone beacon:', err);
@@ -4475,9 +4541,9 @@ app.post('/api/beacon/chair/pair', (req, res) => {
 });
 
 // 3. Status inspection & polling (used by both Desktop and Phone)
-app.get('/api/beacon/chair/:chairId/status', (req, res) => {
+app.get('/api/beacon/chair/:chairId/status', async (req, res) => {
   const { chairId } = req.params;
-  const session = chairSessions.get(chairId);
+  const session = await chairSessionStore.get(chairId);
   if (!session) {
     return res.status(404).json({ error: 'Chair session not found or expired.' });
   }
@@ -4500,18 +4566,18 @@ app.get('/api/beacon/chair/:chairId/status', (req, res) => {
     batteryLevel: session.telemetry.batteryLevel,
     audioLevel: session.telemetry.audioLevel,
     dismissalDetected: session.telemetry.dismissalDetected,
-    chunkCount: session.audioChunks.length,
+    chunkCount: await chairSessionStore.countAudioChunks(chairId),
     expiresAt: session.expiresAt
   });
 });
 
 // 4. Desktop dispatches remote command to Phone Beacon
-app.post('/api/beacon/chair/:chairId/command', (req, res) => {
+app.post('/api/beacon/chair/:chairId/command', async (req, res) => {
   try {
     const { chairId } = req.params;
     const { action: reqAction, command: reqCommand, payload } = req.body || {};
     const action = reqAction || reqCommand;
-    const session = chairSessions.get(chairId);
+    const session = await chairSessionStore.get(chairId);
     if (!session) {
       return res.status(404).json({ error: 'Chair session not found.' });
     }
@@ -4539,14 +4605,9 @@ app.post('/api/beacon/chair/:chairId/command', (req, res) => {
       payload
     };
 
-    session.commands.push(command);
-    if (session.commands.length > 50) {
-      session.commands = session.commands.slice(-50);
-    }
-
-    if (action === 'start_recording') session.status = 'active';
-    if (action === 'stop_recording') session.status = 'generating';
-    if (action === 'cancel') session.status = 'paired';
+    // One durable write: appends the command, trims the history to the newest
+    // entries, and advances the session status.
+    await chairSessionStore.pushCommand(chairId, command);
 
     res.json({ success: true, command });
   } catch (err) {
@@ -4556,10 +4617,10 @@ app.post('/api/beacon/chair/:chairId/command', (req, res) => {
 });
 
 // 5. Phone Beacon posts heartbeat telemetry and audio levels
-app.post('/api/beacon/chair/:chairId/telemetry', (req, res) => {
+app.post('/api/beacon/chair/:chairId/telemetry', async (req, res) => {
   try {
     const { chairId } = req.params;
-    const session = chairSessions.get(chairId);
+    const session = await chairSessionStore.get(chairId);
     if (!session) {
       return res.status(404).json({ error: 'Chair session not found.' });
     }
@@ -4574,25 +4635,41 @@ app.post('/api/beacon/chair/:chairId/telemetry', (req, res) => {
       dismissalDetected,
       dismissalPhrase,
       dismissalTime,
-      inactivitySeconds
+      inactivitySeconds,
+      audioMimeType
     } = req.body || {};
 
     const dismissal = dismissalDetected || (dismissalPhrase ? { phrase: dismissalPhrase, time: dismissalTime || Date.now() } : session.telemetry.dismissalDetected);
 
-    session.telemetry = {
+    const nextTelemetry = {
       ...session.telemetry,
       status: status || session.telemetry.status,
       batteryLevel: typeof batteryLevel === 'number' ? batteryLevel : session.telemetry.batteryLevel,
       isCharging: typeof isCharging === 'boolean' ? isCharging : session.telemetry.isCharging,
       audioLevel: typeof audioLevel === 'number' ? audioLevel : session.telemetry.audioLevel,
-      bufferedChunksCount: typeof bufferedChunksCount === 'number' ? bufferedChunksCount : session.telemetry.bufferedChunksCount,
-      recordingSeconds: typeof recordingSeconds === 'number' ? recordingSeconds : session.telemetry.recordingSeconds,
+      bufferedChunksCount:
+        typeof bufferedChunksCount === 'number' ? bufferedChunksCount : session.telemetry.bufferedChunksCount,
+      recordingSeconds:
+        typeof recordingSeconds === 'number' ? recordingSeconds : session.telemetry.recordingSeconds,
       dismissalDetected: dismissal,
-      inactivitySeconds: typeof inactivitySeconds === 'number' ? inactivitySeconds : session.telemetry.inactivitySeconds,
+      inactivitySeconds:
+        typeof inactivitySeconds === 'number' ? inactivitySeconds : session.telemetry.inactivitySeconds,
+      // Capture metadata, not clinical data: the container the phone recorded
+      // in. Server-side transcription needs the real container to decode the
+      // recording, and guessing "audio/webm" for an iOS recording ("audio/mp4")
+      // fails the whole transcription. Only the first value is kept — a later
+      // change of container would mean the stored chunks are already mixed.
+      audioMimeType:
+        typeof audioMimeType === 'string' && audioMimeType.trim()
+          ? session.telemetry.audioMimeType || audioMimeType.trim().slice(0, 60)
+          : session.telemetry.audioMimeType,
       lastHeartbeat: Date.now()
     };
 
-    if (status === 'recording') session.status = 'active';
+    await chairSessionStore.update(chairId, {
+      telemetry: nextTelemetry,
+      ...(status === 'recording' ? { status: 'active' as const } : {})
+    });
 
     res.json({ success: true, acknowledged: true, latestCommand: session.commands[session.commands.length - 1] || null });
   } catch (err) {
@@ -4602,27 +4679,49 @@ app.post('/api/beacon/chair/:chairId/telemetry', (req, res) => {
 });
 
 // 6. Phone Beacon uploads audio chunk
-app.post('/api/beacon/chair/:chairId/upload-chunk', (req, res) => {
+app.post('/api/beacon/chair/:chairId/upload-chunk', async (req, res) => {
   try {
     const { chairId } = req.params;
-    const session = chairSessions.get(chairId);
+    const session = await chairSessionStore.get(chairId);
     if (!session) {
       return res.status(404).json({ error: 'Chair session not found.' });
     }
 
     const { chunkIndex = 0, dataBase64, audioData, sizeBytes = 0 } = req.body || {};
+    const encoded =
+      typeof dataBase64 === 'string' ? dataBase64 : typeof audioData === 'string' ? audioData : undefined;
 
-    session.audioChunks.push({
+    const appended = await chairSessionStore.appendAudioChunk({
+      chairId,
       chunkIndex: Number(chunkIndex),
-      dataBase64: typeof dataBase64 === 'string' ? dataBase64 : (typeof audioData === 'string' ? audioData : undefined),
+      dataBase64: encoded,
       sizeBytes: Number(sizeBytes) || 0,
       timestamp: Date.now()
     });
 
-    session.telemetry.bufferedChunksCount = session.audioChunks.length;
-    session.telemetry.lastHeartbeat = Date.now();
+    if (!appended.ok) {
+      // Refuse rather than grow without bound. The phone keeps its own IndexedDB
+      // copy (src/lib/beaconAudioStorage.ts), so nothing is lost — the client is
+      // simply told to stop uploading this appointment.
+      return res.status(413).json({
+        success: false,
+        saved: false,
+        code: appended.code,
+        chunkCount: appended.chunkCount,
+        error:
+          'This recording has reached the storage limit for one appointment. It is still saved on the phone.'
+      });
+    }
 
-    res.json({ success: true, saved: true, chunkCount: session.audioChunks.length });
+    await chairSessionStore.update(chairId, {
+      telemetry: {
+        ...session.telemetry,
+        bufferedChunksCount: appended.chunkCount,
+        lastHeartbeat: Date.now()
+      }
+    });
+
+    res.json({ success: true, saved: true, chunkCount: appended.chunkCount });
   } catch (err) {
     logger.error('Failed to ingest audio chunk:', err);
     res.status(500).json({ error: 'Failed to upload audio chunk.' });

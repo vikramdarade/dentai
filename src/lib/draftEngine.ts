@@ -164,10 +164,28 @@ const ADA_ITEM_REF_RE = /\b(?:item|code|billing)\s*(?:number|no\.?)?\s*[:#]?\s*(
 const isClinician = (sender: string): boolean =>
   sender === 'Dentist' || sender === 'Clinical Comment';
 
+/**
+ * True when the speaker could not be determined.
+ *
+ * Live speech recognition cannot separate the dentist from the patient, and the
+ * cockpit records every live utterance as 'Dialogue' for exactly that reason —
+ * labelling it 'Dentist' asserted a role the microphone never established, which
+ * pushed the patient's own words into the clinician-observed sections.
+ *
+ * For this deterministic engine, an unattributed line is therefore considered
+ * for *both* pools: it may legitimately hold either a finding or a complaint, and
+ * withholding it from the clinician pool would silently empty the clinical
+ * sections of every note drafted from live speech.
+ */
+const isUnattributed = (sender: string): boolean =>
+  sender === 'Dialogue' || sender === '' || sender == null;
+
 function extractAdaCodesSpoken(transcript: TranscriptItem[]): { code: string; description: string }[] {
   const found = new Map<string, string>();
   for (const item of transcript) {
-    if (!isClinician(item.sender)) continue;
+    // An explicit "item 414" is a billing reference whoever said it, so an
+    // unattributed line is still evidence for it.
+    if (!isClinician(item.sender) && !isUnattributed(item.sender)) continue;
     const matches = [...normalizeFdiSpoken(item.text).matchAll(ADA_ITEM_REF_RE)];
     for (const m of matches) {
       const code = m[1];
