@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { maskDobInput, parseDobToIso, isValidDob } from '../src/utils/date';
+import { maskDobInput, parseDobToIso, isValidDob, formatClinicDate, formatClinicTime, getClinicTodayIso } from '../src/utils/date';
 
 describe('Date Utilities', () => {
   describe('maskDobInput', () => {
@@ -52,4 +52,30 @@ describe('Date Utilities', () => {
       expect(isValidDob('12/04/1899')).toBe(false);
     });
   });
+
+  describe('Clinic Timezone & Clock Formatting', () => {
+    it('should format clinic dates cleanly in target timezones', () => {
+      const iso = '2026-09-19';
+      const formattedNy = formatClinicDate(iso, undefined, 'America/New_York');
+      expect(formattedNy).toContain('Sep 19, 2026');
+
+      const formattedSyd = formatClinicDate(iso, undefined, 'Australia/Sydney');
+      expect(formattedSyd).toContain('Sep 19, 2026');
+    });
+
+    it('should format 12-hour clinic clock times correctly', () => {
+      const date = new Date('2026-09-19T14:30:00Z');
+      const timeNy = formatClinicTime(date, undefined, 'America/New_York');
+      expect(timeNy).toMatch(/10:30\s?AM/i);
+
+      const timeUtc = formatClinicTime(date, undefined, 'UTC');
+      expect(timeUtc).toMatch(/2:30\s?PM/i);
+    });
+
+    it('should return valid YYYY-MM-DD for clinic today iso', () => {
+      const isoNy = getClinicTodayIso('America/New_York');
+      expect(isoNy).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    });
+  });
 });
+

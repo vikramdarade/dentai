@@ -231,84 +231,7 @@ export default function DayScheduleQueue({
     }
   };
 
-  const handleLoadDemoSchedule = () => {
-    const demoItems: DayScheduleItem[] = [
-      {
-        id: `sched_demo_1`,
-        time: '08:30',
-        patientName: 'Sarah Connor',
-        procedureText: 'Comprehensive Exam & Bitewings (011, 022)',
-        appointmentType: 'examination',
-        templateId: 'standard',
-        status: 'scheduled',
-        source: 'snip',
-        consentObtained: true,
-        consentCapturedAt: new Date().toISOString()
-      },
-      {
-        id: `sched_demo_2`,
-        time: '09:15',
-        patientName: 'David Miller',
-        procedureText: 'Tooth #16 Ceramic Crown Prep (611)',
-        appointmentType: 'prosthodontic',
-        templateId: 'standard',
-        status: 'scheduled',
-        source: 'snip',
-        consentObtained: false
-      },
-      {
-        id: `sched_demo_3`,
-        time: '10:00',
-        patientName: 'Liam O\'Connor',
-        procedureText: 'Emergency: Severe Pain & Pulpitis #36',
-        appointmentType: 'emergency',
-        templateId: 'soap',
-        status: 'scheduled',
-        source: 'snip',
-        consentObtained: false
-      },
-      {
-        id: `sched_demo_4`,
-        time: '11:00',
-        patientName: 'Emma Watson',
-        procedureText: 'Adult Hygiene Scale & Clean & Fluoride (114, 121)',
-        appointmentType: 'scale_clean',
-        templateId: 'concise',
-        status: 'ready',
-        source: 'snip',
-        consentObtained: true,
-        consentCapturedAt: new Date().toISOString(),
-        isFullyGrounded: true,
-        groundingScore: 100,
-        unverifiedClaims: [],
-        adaCodes: ['114', '121'],
-        transcript: [
-          { sender: 'Dentist', text: 'Good morning Emma, we will perform your periodic adult hygiene scaling and topical fluoride treatment today.' },
-          { sender: 'Patient', text: 'Sounds good doctor, my gums have been feeling a bit sensitive on the lower right.' },
-          { sender: 'Dentist', text: 'Supragingival and subgingival calculus removed with ultrasonic scaler and hand curettes. Applied neutral sodium fluoride foam.' },
-          { sender: 'Dentist', text: 'All finished. Avoid eating or hot drinks for thirty minutes.' }
-        ],
-        clinicalNote: `=== DENTAI AMBIENT CLINICAL NOTE ===\nPatient: Emma Watson\nDate: ${getTodayDateStr()} | Time: 11:00\nProcedure: Adult Hygiene Scale & Clean & Fluoride (114, 121)\n\nCHIEF COMPLAINT:\nRoutine 6-monthly preventive hygiene visit. Mild lower right gingival sensitivity reported.\n\nEXAMINATION & FINDINGS:\nGeneralized mild marginal gingivitis with localised calculus deposits lower anterior lingual surfaces. No deep periodontal pocketing (>3mm).\n\nTREATMENT PERFORMED:\nFull mouth scaling and root debridement using ultrasonic scaler and hand instrumentation (ADA 114). Polishing with fine prophy paste. Topical neutral sodium fluoride gel application for 4 minutes (ADA 121).\n\nPOST-OPERATIVE INSTRUCTIONS:\nPatient advised nil by mouth for 30 minutes. Gentle brushing with soft-bristled brush recommended.\n\nNEXT VISIT / RECALL:\n6 Months Routine Hygiene Recall.\n\nADA ITEM CODES:\n114 (Removal of calculus), 121 (Topical fluoride)`
-      },
-      {
-        id: `sched_demo_5`,
-        time: '13:30',
-        patientName: 'Michael Chang',
-        procedureText: 'Tooth #24 MO Resin Restoration (532)',
-        appointmentType: 'restorative',
-        templateId: 'standard',
-        status: 'scheduled',
-        source: 'snip',
-        consentObtained: true,
-        consentCapturedAt: new Date().toISOString()
-      }
-    ];
 
-    // Smart merge demo items
-    const merged = mergeScheduleItems(items, demoItems, getTodayDateStr());
-    setItems(merged);
-    saveTodaySchedule(merged);
-  };
 
   /* ---------------------------------------------------------------------------
    * In-Place Surgery Cockpit Lifecycle (Zero Navigation)
@@ -710,15 +633,7 @@ export default function DayScheduleQueue({
             Add Walk-in
           </button>
 
-          {items.length === 0 && (
-            <button
-              onClick={handleLoadDemoSchedule}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-xl text-xs font-bold transition-all active:scale-95 cursor-pointer"
-            >
-              <Stethoscope className="w-4 h-4 text-emerald-600" />
-              Load Sample Day
-            </button>
-          )}
+
 
           {items.length > 0 && (
             <button
@@ -829,11 +744,11 @@ export default function DayScheduleQueue({
             Snip your appointment book from Dental4Windows or Praktika and press <strong className="text-slate-700">Ctrl+V</strong> to populate your day in 3 seconds.
           </p>
           <button
-            onClick={handleLoadDemoSchedule}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-white text-xs font-bold rounded-xl hover:bg-primary-container transition-colors shadow-sm"
+            onClick={() => setShowWalkInModal(true)}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-white text-xs font-bold rounded-xl hover:bg-primary-container transition-colors shadow-sm cursor-pointer"
           >
-            <Sparkles className="w-4 h-4" />
-            Populate with Sample Day
+            <Plus className="w-4 h-4" />
+            Add Walk-in Appointment
           </button>
         </div>
       ) : (

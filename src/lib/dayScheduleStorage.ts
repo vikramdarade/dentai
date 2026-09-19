@@ -1,4 +1,5 @@
 import { AppointmentType } from './dentalLibrary';
+import { getClinicTodayIso } from '../utils/date';
 
 export type ScheduleItemStatus =
   | 'scheduled'
@@ -80,11 +81,7 @@ export function generateSafeUuid(): string {
 }
 
 export function getTodayDateStr(): string {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+  return getClinicTodayIso();
 }
 
 export function loadTodaySchedule(dateStr = getTodayDateStr()): DayScheduleItem[] {

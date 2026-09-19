@@ -40,6 +40,7 @@ import { AuthUser } from '../utils/storage';
 import { AppointmentType, getTemplateById } from '../lib/dentalLibrary';
 import { generateOfflineDraft } from '../lib/draftEngine';
 import { normalizeSpokenDentalText } from '../lib/dentalPhoneticLexicon';
+import { formatClinicDate, formatClinicTime, getClinicTodayIso } from '../utils/date';
 
 interface ChairsideWorkspaceProps {
   currentUser: AuthUser | null;
@@ -57,6 +58,7 @@ interface ChairsideWorkspaceProps {
 export interface PatientEncounter {
   id: string;
   consultationId?: string;
+  date?: string;
   time: string;
   operatory: string;
   patientName: string;
@@ -68,6 +70,7 @@ export interface PatientEncounter {
   dob?: string;
   team?: string;
   priorNote?: string;
+  priorNoteDate?: string;
   alerts?: { type: 'allergy' | 'medication' | 'general'; text: string }[];
   diarizedTranscript?: {
     speaker?: string;
@@ -85,141 +88,6 @@ export interface PatientEncounter {
   dischargeFlag?: string;
 }
 
-// Initial clinical seed records (used ONLY when database is 100% empty on fresh deploy)
-const INITIAL_DATABASE_SEEDS: Consultation[] = [
-  {
-    id: 'seed-pt-01',
-    dentistId: 'dentist-01',
-    firstName: 'Sarah',
-    lastName: 'Jenkins',
-    dob: '1985-11-04',
-    appointmentType: 'prosthodontic',
-    templateId: 'standard',
-    date: new Date().toISOString().split('T')[0],
-    time: '08:30 AM',
-    status: 'Completed',
-    patientSummary: '',
-    transcript: [
-      { sender: 'Dentist', text: 'Good morning Sarah, today we are seating your permanent zirconia crown on tooth #19.' },
-      { sender: 'Patient', text: 'Good morning doctor, the temporary held up well with zero pain.' },
-      { sender: 'Dentist', text: 'Excellent. Temporary removed intact. Preparation cleansed with pumice slurry. Seating permanent zirconia crown.' }
-    ],
-    findings: {
-      chiefComplaint: 'Scheduled for permanent crown delivery #19.',
-      history: 'Tooth #19 prepared for full-contour zirconia crown. Pre-op shade A2 selected. Temporary placed with Temp-Bond NE.',
-      toothFindings: 'Zirconia crown #19 tried in: proximal contacts firm, marginal integrity verified, occlusion equilibrated in centric and excursions.',
-      findingsGingival: 'Normal post-prep gingival tissue healing without inflammation.',
-      diagnosis: 'Treated reversible pulpitis and structural breakdown #19.',
-      treatmentPerformed: 'Cemented with RelyX Luting Plus resin-modified glass ionomer. Excess cement removed, flossed interproximally.',
-      recommendations: 'Avoid sticky or hard foods on lower left quadrant for 2 hours.',
-      recallRequirements: '6 Months (Standard)',
-      customSections: { operatory: 'Op 1' },
-      adaCodes: [
-        { code: 'D2740', description: 'Crown - porcelain/ceramic substrate (#19)' }
-      ]
-    }
-  },
-  {
-    id: 'seed-pt-02',
-    dentistId: 'dentist-01',
-    firstName: 'David',
-    lastName: 'Martinez',
-    dob: '1982-04-12',
-    appointmentType: 'restorative',
-    templateId: 'restorative',
-    date: new Date().toISOString().split('T')[0],
-    time: '09:45 AM',
-    status: 'In Review',
-    patientSummary: '',
-    transcript: [
-      { sender: 'Dentist', text: 'Good morning David. How is that upper left tooth behaving this morning? Any sensitivity to your iced coffee?' },
-      { sender: 'Patient', text: 'Yes, doc. If cold liquids hit it, it lingers for about five seconds. Nothing throbbing at night, but definitely sharper when chewing nuts.' },
-      { sender: 'Dentist', text: 'Alright, let us get you comfortable. Mia, we are going to do 1.8mL carpule of 2% Lidocaine with 1:100,000 epinephrine . No penicillin or amoxicillin will be prescribed today per allergy notes.' },
-      { sender: 'Clinical Comment', text: 'Anesthetic ready. Yellow Isolite placed on maxillary left quadrant. Operatory light set to non-cure mode.' },
-      { sender: 'Dentist', text: 'Charting entry: On tooth #14 , we excavated deep recurrent caries beneath the distal-occlusal margin. Theracal liner placed over axial wall. Etched with 37% phosphoric acid for 15s. Bonded with universal adhesive, restored with Filtek Supreme A2 composite in 2mm increments.' }
-    ],
-    findings: {
-      chiefComplaint: 'Lingering cold sensitivity (~5s) in maxillary left quadrant and sharper discomfort chewing nuts.',
-      history: 'Tooth #14 deep mesial decay noted under old amalgam during examination. Cold testing was normal (+2s), but caries abuts pulp horn. Recommended direct resin composite if buccal cusp remains intact after decay removal.',
-      toothFindings: 'Tooth #14 shows defective MOD amalgam margins with recurrent caries into dentin. Palpation and percussion negative. Periodontal pocket depths within normal limits (2-3mm). Pulp testing positive to Endo-Ice with 4s recovery.',
-      findingsGingival: 'Healthy attached keratinized gingiva, no erythema or bleeding upon probing.',
-      diagnosis: 'ICD-10 K02.62 (Dental caries on pit and fissure surface penetrating into dentin); K04.01 (Reversible pulpitis, #14).',
-      treatmentPerformed: 'Administered 1.8mL 2% Lidocaine w/ 1:100k epi via PSA/MSA infiltration. Isolite isolation placed. Amalgam removed and dentinal caries thoroughly excavated. Cavity cleansed and Gluma applied for 30s. 37% phosphoric acid etch on enamel/dentin, universal adhesive light-cured 10s. Restored with Filtek Supreme A2 composite in anatomical increments. Occlusion adjusted in centric and lateral excursions. Polished to high shine.',
-      recommendations: 'Mild postoperative sensitivity may occur for 24-48 hours. Report bite discrepancy immediately.',
-      recallRequirements: '6 Months (Standard)',
-      customSections: { operatory: 'Op 3' },
-      adaCodes: [
-        { code: 'D2393', description: 'Resin composite, 3 surfaces (#14 MOD)' },
-        { code: 'D9215', description: 'Local anesthesia in conjunction with procedure' }
-      ]
-    }
-  },
-  {
-    id: 'seed-pt-03',
-    dentistId: 'dentist-01',
-    firstName: 'Emily',
-    lastName: 'Zhao',
-    dob: '1995-08-19',
-    appointmentType: 'examination',
-    templateId: 'examination',
-    date: new Date().toISOString().split('T')[0],
-    time: '11:00 AM',
-    status: 'In Review',
-    patientSummary: '',
-    transcript: [
-      { sender: 'Dentist', text: 'Hi Emily, welcome in for your routine 6-month preventive checkup and cleaning.' },
-      { sender: 'Patient', text: 'Hi doctor, everything feels great, no complaints since my last cleaning.' }
-    ],
-    findings: {
-      chiefComplaint: 'Routine 6-month preventive examination and cleaning. No active complaints.',
-      history: 'Periodic recall. Routine hygiene check. Mild localized plaque gingivitis lower anteriors previously noted.',
-      toothFindings: 'Full mouth periodontal screening within 2-3mm. No visible active carious lesions. 4 digital bitewings exposed.',
-      findingsGingival: 'Generalized healthy periodontium. Low caries risk index.',
-      diagnosis: 'Healthy oral state with generalized low plaque index.',
-      treatmentPerformed: 'Completed adult prophylaxis. Applied 5% Sodium Fluoride varnish. Scheduled 6-month recall.',
-      recommendations: 'Continue twice-daily brushing with fluoridated toothpaste and daily interdental flossing.',
-      recallRequirements: '6 Months (Standard)',
-      customSections: { operatory: 'Op 2' },
-      adaCodes: [
-        { code: 'D0150', description: 'Comprehensive oral evaluation - new or established' },
-        { code: 'D0274', description: 'Bitewings - four radiographic images' },
-        { code: 'D1110', description: 'Prophylaxis - adult' }
-      ]
-    }
-  },
-  {
-    id: 'seed-pt-04',
-    dentistId: 'dentist-01',
-    firstName: 'Robert',
-    lastName: 'Miller',
-    dob: '1968-02-10',
-    appointmentType: 'endodontic',
-    templateId: 'standard',
-    date: new Date().toISOString().split('T')[0],
-    time: '01:15 PM',
-    status: 'In Review',
-    patientSummary: '',
-    transcript: [
-      { sender: 'Dentist', text: 'Welcome back Robert, today we complete the root canal obturation on tooth #3.' },
-      { sender: 'Patient', text: 'Thank you doctor, the tooth has felt completely calm since the first appointment.' }
-    ],
-    findings: {
-      chiefComplaint: 'Returns for final obturation and core buildup on tooth #3.',
-      history: 'Tooth #3 instrumentation completed. Working lengths verified: MB1 21mm, MB2 20.5mm, DB 21.5mm, P 22mm. Calcium hydroxide placed.',
-      toothFindings: 'Temporary Cavit seal intact. Canals dry, no purulence, edema, or foul odor.',
-      findingsGingival: 'Gingival margin healthy, rubber dam placed with clamp #14 on tooth #2.',
-      diagnosis: 'Previously initiated endodontic therapy with symptomatic apical periodontitis resolved.',
-      treatmentPerformed: 'Obturated MB1, MB2, DB, and Palatal canals with gutta-percha and bioceramic sealer. Fuji II core buildup placed.',
-      recommendations: 'Permanent full coverage crown required to protect tooth structure.',
-      recallRequirements: 'Crown preparation in 2 weeks',
-      customSections: { operatory: 'Op 3' },
-      adaCodes: [
-        { code: 'D3330', description: 'Endodontic therapy, molar tooth (#3)' }
-      ]
-    }
-  }
-];
-
 export default function ChairsideWorkspace({
   currentUser,
   dentistName,
@@ -232,10 +100,9 @@ export default function ChairsideWorkspace({
   onSaveConsultation
 }: ChairsideWorkspaceProps) {
   // ─────────────────────────────────────────────────────────────
-  // 1. DATABASE & ENCOUNTER STATE
+  // 1. DATABASE & ENCOUNTER STATE (Production Real Data)
   // ─────────────────────────────────────────────────────────────
-  const [activePatientId, setActivePatientId] = useState<string>(() => initialPatientId || 'seed-pt-02');
-  const [isSeedingDb, setIsSeedingDb] = useState(false);
+  const [activePatientId, setActivePatientId] = useState<string>(() => initialPatientId || '');
   const hasUserManuallySelectedRef = useRef(false);
   const lastKnownWalkinIdRef = useRef<string | null>(null);
 
@@ -246,79 +113,71 @@ export default function ChairsideWorkspace({
     }
   }, [initialPatientId]);
 
-  // Self-heal: If database is completely empty upon first load, seed genuine records to the database!
-  useEffect(() => {
-    const seedDatabaseIfEmpty = async () => {
-      if (consultations.length === 0 && !isSeedingDb && authToken) {
-        setIsSeedingDb(true);
-        try {
-          for (const seed of INITIAL_DATABASE_SEEDS) {
-            const seedRecord = {
-              ...seed,
-              dentistId: currentUser?.id || seed.dentistId
-            };
-            if (onSaveConsultation) {
-              await onSaveConsultation(seedRecord);
-            }
-          }
-        } catch (err) {
-          console.warn('Initial database seeding warning:', err);
-        } finally {
-          setIsSeedingDb(false);
-        }
-      }
-    };
-    seedDatabaseIfEmpty();
-  }, [consultations.length, authToken, currentUser?.id]);
-
   // ─────────────────────────────────────────────────────────────
   // 2. INTERACTIVE DATE NAVIGATION
   // ─────────────────────────────────────────────────────────────
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
   const dateLabel = useMemo(() => {
-    const today = new Date();
-    const isToday = currentDate.toDateString() === today.toDateString();
-    const formatted = currentDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const todayIso = getClinicTodayIso();
+    const currentIso = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(currentDate.getDate()).padStart(2, '0')}`;
+    const isToday = currentIso === todayIso;
+    const formatted = formatClinicDate(currentDate, { month: 'short', day: 'numeric' });
     return isToday ? `Today, ${formatted}` : formatted;
   }, [currentDate]);
 
   const currentDateStr = useMemo(() => {
-    return currentDate.toISOString().split('T')[0];
+    const year = currentDate.getFullYear();
+    const month = String(currentDate.getMonth() + 1).padStart(2, '0');
+    const day = String(currentDate.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
   }, [currentDate]);
 
   const handlePrevDay = () => {
-    setCurrentDate(prev => new Date(prev.getTime() - 86400000));
+    setCurrentDate(prev => new Date(prev.getFullYear(), prev.getMonth(), prev.getDate() - 1));
   };
 
   const handleNextDay = () => {
-    setCurrentDate(prev => new Date(prev.getTime() + 86400000));
+    setCurrentDate(prev => new Date(prev.getFullYear(), prev.getMonth(), prev.getDate() + 1));
   };
 
   // Real-time optimistic ambient transcript state (0ms latency, zero-lag UI feedback)
   const [localLiveTranscripts, setLocalLiveTranscripts] = useState<Record<string, { sender: string; text: string; time?: string }[]>>({});
 
-  // Convert real database consultations into live encounters
+  // Convert real database consultations into live encounters (Zero mock fallbacks)
   const patientEncounters: PatientEncounter[] = useMemo(() => {
-    const sourceList = consultations.length > 0 ? consultations : INITIAL_DATABASE_SEEDS;
-
-    return sourceList.map((c, index) => {
+    return consultations.map((c, index) => {
       const operatory = c.findings?.customSections?.operatory || `Op ${(index % 3) + 1}`;
-      const timeStr = c.time || (index === 0 ? '08:30 AM' : index === 1 ? '09:45 AM' : index === 2 ? '11:00 AM' : '01:15 PM');
+      const timeStr = c.time || formatClinicTime(new Date());
       const fullName = `${c.firstName || ''} ${c.lastName || ''}`.trim() || 'Patient';
       const procedureText = c.appointmentType
         ? `${c.appointmentType.charAt(0).toUpperCase() + c.appointmentType.slice(1)} • ${c.findings?.treatmentPerformed ? c.findings.treatmentPerformed.slice(0, 32) : 'Clinical Procedure'}`
         : 'Restorative Care';
 
-      // Parse medical alerts from history or findings
+      // Parse medical alerts from genuine patient history or findings
       const alerts: { type: 'allergy' | 'medication' | 'general'; text: string }[] = [];
-      if (fullName.includes('David')) {
-        alerts.push({ type: 'allergy', text: 'Penicillin Allergy (Anaphylaxis)' });
-        alerts.push({ type: 'medication', text: 'Anticoagulant (Warfarin INR 2.3)' });
-      } else if (c.findings?.history?.toLowerCase().includes('allergy') || c.findings?.chiefComplaint?.toLowerCase().includes('allergy')) {
+      const hist = (c.findings?.history || '').toLowerCase();
+      const cc = (c.findings?.chiefComplaint || '').toLowerCase();
+      if (hist.includes('allergy') || cc.includes('allergy')) {
         alerts.push({ type: 'allergy', text: 'Patient Reported Drug Allergy' });
-      } else if (c.findings?.history?.toLowerCase().includes('warfarin') || c.findings?.history?.toLowerCase().includes('anticoagulant')) {
+      }
+      if (hist.includes('warfarin') || hist.includes('anticoagulant') || cc.includes('anticoagulant')) {
         alerts.push({ type: 'medication', text: 'Anticoagulant Regimen' });
       }
+
+      // Dynamically resolve actual prior clinical history for this patient
+      const priorVisits = consultations.filter(other =>
+        other.id !== c.id &&
+        (
+          (c.lastName && other.lastName && other.lastName.toLowerCase() === c.lastName.toLowerCase() &&
+           c.firstName && other.firstName && other.firstName.toLowerCase() === c.firstName.toLowerCase()) ||
+          (c.id === other.id)
+        ) &&
+        Boolean(other.date && (!c.date || other.date < c.date))
+      ).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+
+      const latestPrior = priorVisits[0];
+      const priorNote = latestPrior?.findings?.treatmentPerformed || latestPrior?.findings?.history || latestPrior?.patientSummary || c.findings?.history || '';
+      const priorNoteDate = latestPrior?.date || c.findings?.customSections?.priorNoteDate || '';
 
       // Map real transcript into diarized feed with optimistic local merge
       const baseTranscript = c.transcript || [];
@@ -332,20 +191,17 @@ export default function ChairsideWorkspace({
         }
       }
 
-      const diarizedTranscript = combinedItems.map((t, tIdx) => {
+      const diarizedTranscript = combinedItems.map((t) => {
         const role = t.sender.toLowerCase().includes('patient')
           ? ('patient' as const)
           : t.sender.toLowerCase().includes('assistant') || t.sender.toLowerCase().includes('comment')
             ? ('assistant' as const)
             : ('dentist' as const);
 
-        const defaultTimes = ['09:48:05 AM', '09:48:42 AM', '09:49:15 AM', '09:50:00 AM', '09:51:20 AM'];
-        const fallbackTime = defaultTimes[tIdx % defaultTimes.length];
-
         return {
-          speaker: role === 'patient' ? `${fullName} (Patient)` : role === 'assistant' ? 'Mia Lawson, RDA' : (dentistName || 'Dr. Marcus Vance, DDS'),
+          speaker: role === 'patient' ? `${fullName} (Patient)` : role === 'assistant' ? 'Mia Lawson, RDA' : (dentistName || 'Attending Clinician'),
           role,
-          time: (t as any).time || fallbackTime,
+          time: (t as any).time || (c.time || formatClinicTime(new Date())),
           text: t.text
         };
       });
@@ -354,10 +210,10 @@ export default function ChairsideWorkspace({
       const soap = {
         subjective: c.findings?.chiefComplaint
           ? `${c.findings.chiefComplaint} ${c.findings.history || ''}`
-          : 'Patient presents for scheduled dental appointment. Denies spontaneous throbbing pain.',
+          : 'Patient presents for scheduled dental appointment.',
         objective: c.findings?.toothFindings
           ? `${c.findings.toothFindings} ${c.findings.findingsGingival || ''}`
-          : 'Clinical examination completed. Soft tissue within normal limits. Periodontal probing verified.',
+          : 'Clinical examination completed. Soft tissue within normal limits.',
         assessment: c.findings?.diagnosis || 'Dental condition assessed and recorded.',
         plan: c.findings?.treatmentPerformed
           ? `${c.findings.treatmentPerformed} ${c.findings.recommendations || ''}`
@@ -368,13 +224,12 @@ export default function ChairsideWorkspace({
         code: a.code,
         desc: a.description,
         fee: '$180.00'
-      })) || [
-          { code: 'D2393', desc: 'Resin composite restoration', fee: '$345.00' }
-        ];
+      })) || [];
 
       return {
         id: c.id,
         consultationId: c.id,
+        date: c.date,
         time: timeStr,
         operatory,
         patientName: fullName,
@@ -382,8 +237,9 @@ export default function ChairsideWorkspace({
         appointmentType: c.appointmentType || 'restorative',
         templateId: c.templateId || 'standard',
         status: c.status === 'Completed' ? 'ready' : (c.id === activePatientId ? 'recording' : 'scheduled'),
-        dob: c.dob || '1985-05-15',
-        priorNote: c.findings?.history || 'Prior examination completed. Treatment plan formulated.',
+        dob: c.dob || '',
+        priorNote,
+        priorNoteDate,
         alerts,
         diarizedTranscript,
         soap,
@@ -392,27 +248,21 @@ export default function ChairsideWorkspace({
     });
   }, [consultations, activePatientId, dentistName, localLiveTranscripts]);
 
-  // Filter encounters for the selected day sheet date
+  // Filter encounters for the selected day sheet date (Pure genuine data)
   const encountersForDate: PatientEncounter[] = useMemo(() => {
-    const sourceList = consultations.length > 0 ? consultations : INITIAL_DATABASE_SEEDS;
-    const matching = patientEncounters.filter(p => {
-      const orig = sourceList.find(c => c.id === p.id);
+    return patientEncounters.filter(p => {
+      const orig = consultations.find(c => c.id === p.id);
       return orig?.date === currentDateStr;
     });
-
-    if (matching.length > 0) return matching;
-
-    // If viewing today, fallback to all encounters
-    const todayStr = new Date().toISOString().split('T')[0];
-    if (currentDateStr === todayStr) return patientEncounters;
-
-    return [];
   }, [patientEncounters, consultations, currentDateStr]);
 
   // Self-healing & real-time multi-browser operatory synchronization:
   // Auto-focus active encounter if another browser added a walk-in patient or recorded dialogue
   useEffect(() => {
-    if (encountersForDate.length === 0) return;
+    if (encountersForDate.length === 0) {
+      if (activePatientId) setActivePatientId('');
+      return;
+    }
 
     // Check for walk-in patient
     const walkInEncounter = encountersForDate.find(p => p.id.startsWith('walkin-'));
@@ -421,7 +271,7 @@ export default function ChairsideWorkspace({
     const liveDiscussionEncounter = encountersForDate.find(
       p => p.diarizedTranscript && p.diarizedTranscript.length > 0 && p.id.startsWith('walkin-')
     ) || encountersForDate.find(
-      p => p.diarizedTranscript && p.diarizedTranscript.length > 2
+      p => p.diarizedTranscript && p.diarizedTranscript.length > 1
     );
 
     // If a brand-new walk-in arrived from another browser, auto-focus it
@@ -441,9 +291,8 @@ export default function ChairsideWorkspace({
       return;
     }
 
-    // If still idling on default seed patient and user hasn't explicitly locked onto a card,
-    // auto-switch to whichever patient has live discussion or is a walk-in
-    if (!hasUserManuallySelectedRef.current && activePatientId === 'seed-pt-02') {
+    // If user hasn't explicitly locked onto a card and a live encounter exists, switch to it
+    if (!hasUserManuallySelectedRef.current) {
       if (liveDiscussionEncounter) {
         setActivePatientId(liveDiscussionEncounter.id);
       } else if (walkInEncounter) {
@@ -453,6 +302,7 @@ export default function ChairsideWorkspace({
   }, [encountersForDate, activePatientId]);
 
   const activeEncounter = useMemo(() => {
+    if (encountersForDate.length === 0) return null;
     return encountersForDate.find(p => p.id === activePatientId) || encountersForDate[0] || null;
   }, [encountersForDate, activePatientId]);
 
@@ -712,7 +562,7 @@ export default function ChairsideWorkspace({
     setSoapSaveStatus(prev => ({ ...prev, [targetId]: 'saving' }));
 
     // 2. Persist to consultation in database
-    const existingConsultation = consultationsRef.current.find(c => c.id === targetId) || INITIAL_DATABASE_SEEDS.find(c => c.id === targetId);
+    const existingConsultation = consultationsRef.current.find(c => c.id === targetId);
     if (existingConsultation && onSaveConsultation) {
       const currentFindings = existingConsultation.findings || {};
       const updatedFindings: ClinicalFindings = {
@@ -865,7 +715,7 @@ export default function ChairsideWorkspace({
     if (!normalized) return;
 
     const targetId = activeEncounterRef.current.id;
-    const timeNow = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const timeNow = formatClinicTime(new Date(), { second: '2-digit' });
 
     // 1. Instant 0ms optimistic UI update: renders the new utterance immediately in the feed
     setLocalLiveTranscripts(prev => ({
@@ -878,7 +728,7 @@ export default function ChairsideWorkspace({
     setInterimTranscript('');
 
     // 2. Concurrently persist to database consultation
-    const existingConsultation = consultationsRef.current.find(c => c.id === targetId) || INITIAL_DATABASE_SEEDS.find(c => c.id === targetId);
+    const existingConsultation = consultationsRef.current.find(c => c.id === targetId);
     if (existingConsultation) {
       const updatedTranscript: TranscriptItem[] = [
         ...(existingConsultation.transcript || []),
@@ -1058,12 +908,12 @@ export default function ChairsideWorkspace({
     }
 
     const lines = daysheetRawText.split('\n').map(l => l.trim()).filter(Boolean);
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = getClinicTodayIso();
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       const parts = line.split(/[\t,]| {2,}/);
-      const timeGuess = line.match(/\d{1,2}:\d{2}(\s?[AP]M)?/i)?.[0] || '10:00 AM';
+      const timeGuess = line.match(/\d{1,2}:\d{2}(\s?[AP]M)?/i)?.[0] || formatClinicTime(new Date());
       const cleanName = parts.length > 1 ? parts[1].trim() : parts[0].replace(timeGuess, '').trim();
       const procedure = parts.length > 2 ? parts[2].trim() : 'Dental Consultation & Treatment';
 
@@ -1077,7 +927,7 @@ export default function ChairsideWorkspace({
         clinicId: activeClinicId || undefined,
         firstName,
         lastName,
-        dob: '1988-06-15',
+        dob: '',
         appointmentType: 'restorative',
         date: todayStr,
         time: timeGuess,
@@ -1123,10 +973,10 @@ export default function ChairsideWorkspace({
   // 5. QUICK WALK-IN ENTRY (SAVES DIRECTLY TO DATABASE)
   // ─────────────────────────────────────────────────────────────
   const [showWalkInCard, setShowWalkInCard] = useState(false);
-  const [walkInName, setWalkInName] = useState('Maria Gonzalez');
-  const [walkInOperatory, setWalkInOperatory] = useState('Op 2');
-  const [walkInTime, setWalkInTime] = useState('Now (10:00 AM)');
-  const [walkInReason, setWalkInReason] = useState('Acute localized pain #30, swelling');
+  const [walkInName, setWalkInName] = useState('');
+  const [walkInOperatory, setWalkInOperatory] = useState('Op 1');
+  const [walkInTime, setWalkInTime] = useState(() => `Now (${formatClinicTime(new Date())})`);
+  const [walkInReason, setWalkInReason] = useState('');
 
   const handleAddWalkInToStream = async () => {
     if (!walkInName.trim()) return;
@@ -1145,30 +995,27 @@ export default function ChairsideWorkspace({
       clinicId: activeClinicId || undefined,
       firstName,
       lastName,
-      dob: '1991-06-22',
+      dob: '',
       appointmentType: 'emergency',
       templateId: 'emergency',
-      date: new Date().toISOString().split('T')[0],
+      date: getClinicTodayIso(),
       time: cleanTime,
       status: 'In Review',
       patientSummary: '',
       transcript: [
-        { sender: 'Dentist', text: `Emergency walk-in encounter started for ${firstName} ${lastName}. Chief complaint: ${walkInReason}` }
+        { sender: 'Dentist', text: `Emergency walk-in encounter started for ${firstName} ${lastName}.${walkInReason ? ` Chief complaint: ${walkInReason}` : ''}` }
       ],
       findings: {
-        chiefComplaint: walkInReason,
-        history: 'Patient arrived with acute localized pain in lower right quadrant with swelling reported.',
-        toothFindings: 'Tooth #30 tender to vertical percussion and palpation. Slight buccal vestibule fullness.',
-        findingsGingival: 'Mild erythema around gingival margin #30.',
-        diagnosis: 'Acute apical abscess / symptomatic irreversible pulpitis tooth #30.',
-        treatmentPerformed: 'Emergency pulpal debridement, canal disinfection, and temporary sedation.',
-        recommendations: 'Prescribed analgesics as indicated. Patient cautioned regarding chewing on lower right quadrant.',
-        recallRequirements: 'Complete endodontic therapy within 7-10 days',
+        chiefComplaint: walkInReason || 'Emergency walk-in consultation',
+        history: walkInReason ? `Emergency presentation: ${walkInReason}` : 'Patient presented for walk-in emergency evaluation.',
+        toothFindings: '',
+        findingsGingival: '',
+        diagnosis: '',
+        treatmentPerformed: '',
+        recommendations: '',
+        recallRequirements: '',
         customSections: { operatory: walkInOperatory },
-        adaCodes: [
-          { code: 'D0140', description: 'Limited oral evaluation - problem focused' },
-          { code: 'D3221', description: 'Pulpal debridement, primary and permanent teeth' }
-        ]
+        adaCodes: []
       }
     };
 
@@ -1193,7 +1040,7 @@ export default function ChairsideWorkspace({
   // ─────────────────────────────────────────────────────────────
   const executeBackgroundNoteFinalization = async (targetId: string, autoCopyClipboard = false) => {
     try {
-      const targetConsult = consultations.find(c => c.id === targetId) || INITIAL_DATABASE_SEEDS.find(c => c.id === targetId);
+      const targetConsult = consultations.find(c => c.id === targetId);
       if (!targetConsult) return;
 
       const template = getTemplateById(targetConsult.templateId || 'standard');
@@ -1344,7 +1191,7 @@ export default function ChairsideWorkspace({
 
   // Generate note text formatted for PMS clipboard (incorporating clinician inline edits)
   const getFormattedNoteText = (consultToCopy?: Consultation): string => {
-    const target = consultToCopy || consultations.find(c => c.id === activeEncounter?.id) || INITIAL_DATABASE_SEEDS.find(c => c.id === activeEncounter?.id);
+    const target = consultToCopy || consultations.find(c => c.id === activeEncounter?.id);
     if (!target) return '';
 
     const isCurrentActive = target.id === activeEncounter?.id;
@@ -1354,8 +1201,8 @@ export default function ChairsideWorkspace({
     const planText = isCurrentActive ? currentSoap.plan : (target.findings?.treatmentPerformed ? `${target.findings.treatmentPerformed} ${target.findings.recommendations || ''}` : 'Completed.');
 
     return `=== DENTAI CLINICAL NOTE ===
-PATIENT: ${target.firstName} ${target.lastName} (DOB: ${target.dob})
-DATE: ${new Date().toLocaleDateString('en-AU', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })}
+PATIENT: ${target.firstName} ${target.lastName} (DOB: ${target.dob || 'Not recorded'})
+DATE: ${formatClinicDate(target.date || new Date(), { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })}
 PROVIDER: ${dentistName || 'Attending Clinician'}
 PROCEDURE: ${target.appointmentType?.toUpperCase() || 'GENERAL RESTORATIVE'}
 
@@ -1394,7 +1241,7 @@ VERIFICATION: 100% Deterministically Grounded (0 Hallucination Vectors)
   const handleCopyAllBatchNotes = () => {
     const allNotesText = completedEncounters
       .map(p => {
-        const consult = consultations.find(c => c.id === p.id) || INITIAL_DATABASE_SEEDS.find(c => c.id === p.id);
+        const consult = consultations.find(c => c.id === p.id);
         return getFormattedNoteText(consult);
       })
       .filter(Boolean)
@@ -1734,9 +1581,10 @@ VERIFICATION: 100% Deterministically Grounded (0 Hallucination Vectors)
                         onChange={e => setWalkInTime(e.target.value)}
                         className="w-full px-2 py-1 text-[11px] font-medium border border-slate-200 rounded-lg bg-slate-50/50 appearance-none pr-5 text-slate-700"
                       >
-                        <option value="Now (10:00 AM)">Now (10:00 AM)</option>
-                        <option value="10:30 AM">10:30 AM</option>
-                        <option value="11:00 AM">11:00 AM</option>
+                        <option value={`Now (${formatClinicTime(new Date())})`}>Now ({formatClinicTime(new Date())})</option>
+                        <option value={formatClinicTime(new Date(Date.now() + 15 * 60000))}>{formatClinicTime(new Date(Date.now() + 15 * 60000))}</option>
+                        <option value={formatClinicTime(new Date(Date.now() + 30 * 60000))}>{formatClinicTime(new Date(Date.now() + 30 * 60000))}</option>
+                        <option value={formatClinicTime(new Date(Date.now() + 60 * 60000))}>{formatClinicTime(new Date(Date.now() + 60 * 60000))}</option>
                       </select>
                       <ChevronDown className="w-3 h-3 text-slate-400 absolute right-1.5 top-2 pointer-events-none" />
                     </div>
@@ -1892,7 +1740,7 @@ VERIFICATION: 100% Deterministically Grounded (0 Hallucination Vectors)
                             </span>
                           ) : (
                             <span className="bg-slate-100 text-slate-600 text-[10px] font-semibold px-2 py-0.5 rounded-full">
-                              {p.time === '11:00 AM' ? 'Up Next' : 'Scheduled'}
+                              {p.id === encountersForDate.find(o => o.id !== activePatientId && o.status !== 'ready')?.id ? 'Up Next' : 'Scheduled'}
                             </span>
                           )}
                         </div>
@@ -2003,7 +1851,9 @@ VERIFICATION: 100% Deterministically Grounded (0 Hallucination Vectors)
                       </div>
                       <div>
                         <span className="font-extrabold text-slate-700 text-[10px] uppercase tracking-wider block mb-0.5">
-                          PRIOR CLINICAL NOTE EXCERPT (MAY 12, 2024)
+                          {activeEncounter.priorNoteDate
+                            ? `PRIOR CLINICAL NOTE EXCERPT (${formatClinicDate(activeEncounter.priorNoteDate).toUpperCase()})`
+                            : 'PATIENT CLINICAL & DENTAL HISTORY'}
                         </span>
                         <p className="text-slate-600 text-xs italic">
                           "{activeEncounter.priorNote}"
@@ -2495,16 +2345,7 @@ VERIFICATION: 100% Deterministically Grounded (0 Hallucination Vectors)
               className="w-full p-3 text-xs font-mono border border-slate-200 rounded-xl focus:outline-none focus:border-teal-700 bg-slate-50/60 leading-relaxed"
             />
 
-            <div className="flex items-center justify-between pt-2">
-              <button
-                onClick={() => {
-                  setDaysheetRawText(`08:30 AM\tSarah Jenkins\tCrown Seat #19 (Zirconia)\n09:45 AM\tDavid Martinez\tRestorative #14 MOD Resin\n11:00 AM\tEmily Zhao\tComp Exam + Bitewings\n01:15 PM\tRobert Miller\tEndodontic RCT #3`);
-                }}
-                className="text-[11px] text-teal-700 hover:underline font-semibold cursor-pointer"
-              >
-                Load sample daysheet
-              </button>
-
+            <div className="flex items-center justify-end pt-2">
               <div className="flex items-center space-x-2">
                 <button
                   onClick={() => setShowDaysheetModal(false)}
@@ -2650,7 +2491,7 @@ VERIFICATION: 100% Deterministically Grounded (0 Hallucination Vectors)
                 </div>
               ) : (
                 completedEncounters.map((p, idx) => {
-                  const consult = consultations.find(c => c.id === p.id) || INITIAL_DATABASE_SEEDS.find(c => c.id === p.id);
+                  const consult = consultations.find(c => c.id === p.id);
                   const isCopied = copiedBatchIndex === idx;
 
                   return (
@@ -2831,7 +2672,7 @@ VERIFICATION: 100% Deterministically Grounded (0 Hallucination Vectors)
                 <div className="space-y-4">
                   <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200/80">
                     <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-teal-800 block mb-1">
-                      PHASE 1 • 08:00 AM MORNING SETUP
+                      PHASE 1 • MORNING CLINICAL SETUP
                     </span>
                     <h4 className="text-xs font-bold text-slate-900 mb-1">Operatory Roster & Audio Verification</h4>
                     <p className="leading-relaxed text-slate-600">
@@ -2861,7 +2702,7 @@ VERIFICATION: 100% Deterministically Grounded (0 Hallucination Vectors)
 
                   <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200/80">
                     <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-teal-800 block mb-1">
-                      PHASE 4 • 05:00 PM EVENING RECONCILIATION
+                      PHASE 4 • END-OF-DAY RECONCILIATION
                     </span>
                     <h4 className="text-xs font-bold text-slate-900 mb-1">Batch Tray Zero-Backlog Sweep</h4>
                     <p className="leading-relaxed text-slate-600">
