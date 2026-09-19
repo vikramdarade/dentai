@@ -28,7 +28,7 @@ async function main() {
     await page.waitForTimeout(2500);
     // Hold on the demo CTA for the "try the live app" line, then relax onto
     // the profile cards so the outro ends on the product itself.
-    const cta = page.getByText('Watch the narrated product demo').first();
+    const cta = page.getByText(/Watch narrated demo|Watch the narrated product demo/i).first();
     if (await cta.count()) {
       await cta.hover();
       await page.waitForTimeout(6000);

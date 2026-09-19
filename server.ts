@@ -4634,6 +4634,9 @@ app.post('/api/beacon/chair/:chairId/upload-chunk', (req, res) => {
 // /api/telemetry is deliberately retired (401) — see README
 // "Monitoring and operations".
 
+// Statically serve demo artifacts (e.g. /demo/dentai-demo.mp4)
+app.use('/demo', express.static(path.resolve(__dirname, 'demo')));
+
 // Unified Frontend Router (Dev vs Prod vs Test)
 async function setupDevMode() {
   logger.info('Starting DentAI in DEVELOPMENT mode with Vite Middleware...');

@@ -1,9 +1,8 @@
 /**
- * Scene 3 recorder: the full dentist flow — intake → live recording with a
- * sample consultation transcript → AI note generation → clinical summary.
+ * Scene 3 recorder: the full dentist flow — chairside operatory, ambient HUD,
+ * contextual day guide & hotkeys, live audio squelch capture, 1-click PMS paste,
+ * batch tray, and history hub.
  * Records the LIVE app via headless Chromium.
- *
- * Prerequisite: `bun run demo:auth` (demo owner exists + is logged in here).
  */
 import { chromium } from 'playwright';
 import fs from 'fs';
@@ -21,62 +20,112 @@ async function main() {
   await page.goto(LIVE_URL, { waitUntil: 'networkidle' });
   await page.waitForTimeout(2000);
 
-  // Select the demo owner profile, then tap the 4-digit PIN on the keypad
-  // (the login PIN pad is rendered as buttons, not inputs).
-  await page.getByText(DEMO.owner.name, { exact: true }).first().click();
-  await page.waitForTimeout(700);
+  // 1. Sign in with Dr. Aisha Verma + PIN
+  const nameInput = page.locator('input[placeholder*="Dr. Sarah Jenkins"]');
+  if (await nameInput.count()) {
+    await nameInput.fill(DEMO.owner.name);
+    await page.waitForTimeout(600);
+  } else {
+    const profile = page.getByText(DEMO.owner.name, { exact: true }).first();
+    if (await profile.count()) {
+      await profile.click();
+      await page.waitForTimeout(600);
+    }
+  }
+
   for (const digit of DEMO.owner.pin) {
     await page.getByRole('button', { name: digit, exact: true }).click();
     await page.waitForTimeout(160);
   }
-  await page.waitForSelector('text=New Consultation', { timeout: 30000 });
-  await page.waitForTimeout(3000);
 
-  // ---- Intake: step 1 identity ----
-  await page.getByText('New Consultation').first().click();
-  await page.waitForTimeout(1200);
+  const submitBtn = page.getByRole('button', { name: /Sign In to Practice/i });
+  if (await submitBtn.count() && await submitBtn.isEnabled()) {
+    await submitBtn.click();
+  }
 
-  const texts = page.locator('input[type="text"]');
-  await texts.nth(0).pressSequentially(DEMO.patient.firstName, { delay: 60 });
-  await texts.nth(1).pressSequentially(DEMO.patient.lastName, { delay: 60 });
-  await texts.nth(2).pressSequentially(DEMO.patient.dobDigits, { delay: 80 });
-  await page.waitForTimeout(1500);
-
-  // ---- Intake: step 2 treatment type ----
-  await page.locator('form button[type="submit"]').click();
-  await page.waitForTimeout(1200);
-  await page.locator('select').first().selectOption({ index: 1 });
-  await page.waitForTimeout(1500);
-
-  // ---- Intake: step 3 consent ----
-  await page.locator('form button[type="submit"]').click();
-  await page.waitForTimeout(1200);
-  await page.getByText('Verbal Consent Obtained').click();
-  await page.waitForTimeout(800);
-  await page.locator('form button[type="submit"]').click();
-  await page.waitForSelector('text=Ready to Capture Session', { timeout: 20000 });
+  // 2. Land in Chairside Operatory Workspace
+  await page.waitForSelector('text=Attending Clinician', { timeout: 30000 });
   await page.waitForTimeout(2500);
 
-  // ---- Recording screen: inject the sample consultation transcript ----
-  await page.locator('select').first().selectOption({ index: 0 });
-  // Register the dialog handler BEFORE the click (Playwright auto-dismisses
-  // dialogs otherwise, which would cancel the transcript replacement).
-  page.once('dialog', (d: any) => d.accept());
-  await page.getByText('Load Sample Audio Transcript').click();
-  await page.waitForTimeout(6000); // transcript items land with per-line timing
+  // 3. Showcase Contextual Operatory Day Guide & Support (?)
+  const guideBtn = page.getByRole('button', { name: /Guide & Support/i }).first();
+  if (await guideBtn.count()) {
+    await guideBtn.click();
+    await page.waitForTimeout(3000); // 4-Phase Day Flow
 
-  // ---- Finish note: async AI job with graceful offline fallback ----
-  await page.getByRole('button', { name: 'Finish Note' }).click();
-  // Either the processing overlay resolves or the offline fallback completes;
-  // both end on the Clinical Summary screen.
-  await page.waitForSelector('text=Clinical Findings', { timeout: 120000 });
-  await page.waitForTimeout(2000);
+    // Hotkeys tab
+    const hotkeysTab = page.getByRole('button', { name: /Operatory Hotkeys/i }).first();
+    if (await hotkeysTab.count()) {
+      await hotkeysTab.click();
+      await page.waitForTimeout(3000);
+    }
 
-  // Showcase the generated clinical record.
-  await page.mouse.wheel(0, 400);
-  await page.waitForTimeout(3000);
-  await page.mouse.wheel(0, 400);
-  await page.waitForTimeout(5000);
+    // Direct GitHub Issue Dispatcher tab
+    const ghTab = page.getByRole('button', { name: /Request Feature \(GitHub\)/i }).first();
+    if (await ghTab.count()) {
+      await ghTab.click();
+      await page.waitForTimeout(3000);
+    }
+
+    // Close guide
+    const closeBtn = page.locator('div.fixed button:has(svg.lucide-x)').first();
+    if (await closeBtn.count()) {
+      await closeBtn.click();
+    } else {
+      await page.keyboard.press('Escape');
+    }
+    await page.waitForTimeout(1500);
+  }
+
+  // 4. Select active patient encounter (Maya Sharma) on left roster
+  const patientRow = page.getByText(/Maya Sharma|Sharma, Maya|Patient Encounter/i).first();
+  if (await patientRow.count()) {
+    await patientRow.click();
+    await page.waitForTimeout(1500);
+  }
+
+  // 5. Demonstrate Ambient Operatory HUD & Live Recording Island
+  const audioToggle = page.locator('button[title*="Start Recording"], button[title*="Toggle Recording"]').first();
+  if (await audioToggle.count()) {
+    await audioToggle.click();
+    await page.waitForTimeout(4000); // Intra-Op Active HUD & waveform pulse
+
+    // Stop audio
+    await audioToggle.click();
+    await page.waitForTimeout(2000);
+  } else {
+    // Alternatively spacebar audio trigger
+    await page.keyboard.press('Space');
+    await page.waitForTimeout(3000);
+    await page.keyboard.press('Space');
+    await page.waitForTimeout(1500);
+  }
+
+  // 6. Demonstrate 1-Click Formatted Note Copy for PMS (⌘C)
+  const copyBtn = page.getByRole('button', { name: /Copy Note/i }).first();
+  if (await copyBtn.count()) {
+    await copyBtn.click();
+    await page.waitForTimeout(2500);
+  }
+
+  // 7. Demonstrate Batch Tray (⌘B) for 20-patient operatory day reconciliation
+  const batchBtn = page.getByRole('button', { name: /Batch Tray/i }).first();
+  if (await batchBtn.count()) {
+    await batchBtn.click();
+    await page.waitForTimeout(3500);
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(1500);
+  }
+
+  // 8. Open History Hub via left navigation rail
+  const historyNav = page.locator('button[title="Today\'s Notes"]').first();
+  if (await historyNav.count()) {
+    await historyNav.click();
+    await page.waitForTimeout(4000);
+    // Showcase history hub
+    await page.mouse.wheel(0, 300);
+    await page.waitForTimeout(3000);
+  }
 
   const video = page.video();
   await ctx.close();

@@ -14,7 +14,7 @@
  */
 
 const EXPLICIT_DEMO_URL = process.env.DEMO_URL || '';
-const LOCAL_DEFAULT_URL = 'http://localhost:5173';
+const LOCAL_DEFAULT_URL = 'http://localhost:3000';
 
 function isLocalUrl(url: string): boolean {
   return /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?/i.test(url);
@@ -36,8 +36,8 @@ export const VIDEO = { width: 1920, height: 1080, fps: 30 } as const;
 
 /** Demo identities — kept constant so `demo:cleanup` can find them. */
 export const DEMO = {
-  owner: { name: 'Dr. Aisha Verma', specialty: 'General Dentistry', pin: '2468' },
-  member: { name: 'Dr. Rohan Mehta', specialty: 'Endodontics', pin: '1357' },
+  owner: { name: 'Dr. Aisha Verma', specialty: 'General Dentistry', pin: '3829' },
+  member: { name: 'Dr. Rohan Mehta', specialty: 'Endodontics', pin: '7415' },
   patient: { firstName: 'Maya', lastName: 'Sharma', dobDigits: '15041985' }
 };
 
@@ -55,32 +55,32 @@ export interface Scene {
 export const SCENES: Scene[] = [
   {
     id: '01-sign-in',
-    minDuration: 14,
+    minDuration: 20,
     narration:
-      'Meet DentAI — the clinical scribe built for busy dental practices. Every dentist signs in with a secure profile and a four-digit PIN, so patient records stay protected on any workstation in the clinic.'
+      'Meet DentAI — the clinical scribe engineered for modern dental practices. Every clinician signs in with practice identity isolation and a four-digit PIN. The new Clinician Guide provides immediate help for PIN resets via secure recovery tokens, lockout protection, and direct in-app GitHub issue submission for instant feedback.'
   },
   {
     id: '02-onboarding',
-    minDuration: 14,
+    minDuration: 18,
     narration:
-      'Onboarding takes less than a minute. A dentist registers with a name and specialty, sets a PIN, and their personal clinic is provisioned instantly — no IT project required.'
+      'Onboarding takes less than a minute. Register a doctor name and dental specialty, set an operatory PIN, and a personal clinic workspace is provisioned instantly — complete with practice invite codes to join an existing group.'
   },
   {
     id: '03-dentist-flow',
-    minDuration: 34,
+    minDuration: 75,
     narration:
-      "Here is the dentist flow. Start a new consultation, capture the patient's identity and verbal consent, then pick the treatment type — DentAI matches it to the right clinical template. During the appointment, the conversation is transcribed live. When you finish, DentAI drafts structured clinical notes, billing codes, and a patient-friendly care summary in seconds. The dentist reviews, adjusts, and saves — the note lands in the History Hub, and works offline when the clinic internet drops."
+      'Here is the dentist chairside experience. Start a consultation, capture patient identity and verbal consent, and select your clinical template. Inside the operatory, the ambient HUD provides real-time state cues and phonetic dictation tips. Press the question mark key anytime to open the Clinician Day Guide — outlining the four-phase operatory flow from morning Daysheet setup to evening batch close, along with hands-free glove-safe hotkeys and direct GitHub feedback. During treatment, the audio graph squelches ambient clinic noise while transcribing clinical dialogue live. With one tap, DentAI drafts comprehensive clinical notes, billing codes, and a patient-friendly summary, ready for one-click PMS clipboard transfer.'
   },
   {
     id: '04-owner-flow',
-    minDuration: 26,
+    minDuration: 35,
     narration:
-      'For practice owners, the clinic switcher manages the whole team. Share your invite code, and a colleague can request to join from their own login. Approve with one tap. Every note stays scoped to its clinic, with per-clinic AI metering, so records never leak between practices.'
+      'For practice owners and principal dentists, the clinic switcher manages the entire dental team. Share your clinic invite code so associate dentists can request to join directly from their session. Practice owners approve with one tap. Every consultation remains strictly scoped to its clinic, with per-practice quota metering and complete audit trails.'
   },
   {
     id: '05-outro',
-    minDuration: 14,
+    minDuration: 22,
     narration:
-      'From consultation to compliant record in under two minutes. DentAI scales from a solo practice to a multi-clinic group — reliable, auditable, and built for muscle memory. Try the live app now at dentai dash one dot vercel dot app.'
+      'From chairside consultation to compliant clinical record in under two minutes. DentAI brings Apple Medical Grade elegance, hands-free aseptic controls, and contextual operatory guidance to every operatory. Explore DentAI live today.'
   }
 ];

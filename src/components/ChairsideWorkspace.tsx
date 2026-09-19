@@ -1410,6 +1410,13 @@ VERIFICATION: 100% Deterministically Grounded (0 Hallucination Vectors)
         e.preventDefault();
         setShowBatchTray(prev => !prev);
       }
+      // Escape: Dismiss active modal overlays
+      if (e.key === 'Escape') {
+        setShowDayGuide(false);
+        setShowBatchTray(false);
+        setShowDaysheetModal(false);
+        setShowPlainTextModal(false);
+      }
     };
 
     window.addEventListener('keydown', handleKeyDown);
@@ -2670,13 +2677,25 @@ VERIFICATION: 100% Deterministically Grounded (0 Hallucination Vectors)
                   </p>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => setShowDayGuide(false)}
-                className="w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-600 transition cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
+              <div className="flex items-center space-x-2">
+                <a
+                  href="#/demo"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100/80 text-primary text-xs font-bold border border-indigo-200 transition cursor-pointer"
+                  title="Watch narrated 3-minute product demo"
+                >
+                  <Play className="w-3.5 h-3.5 fill-current" />
+                  <span>Watch 3-Min Demo</span>
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setShowDayGuide(false)}
+                  className="w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-600 transition cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </div>
 
             {/* Navigation Tabs */}

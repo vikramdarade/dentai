@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   ClipboardCheck,
   Clock,
+  CirclePlay,
   DollarSign,
   FileText,
   Languages,
@@ -180,6 +181,13 @@ export default function Landing({ onGetStarted }: LandingProps) {
                 Try DentAI free
                 <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
               </button>
+              <a
+                href="#/demo"
+                className="flex h-12 items-center justify-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50/70 hover:bg-indigo-100/80 px-6 text-sm font-bold text-primary shadow-sm transition-all active:scale-[0.98]"
+              >
+                <CirclePlay className="w-4 h-4 text-primary" />
+                Watch 3-Min Demo
+              </a>
               <a
                 href="#revenue-engine"
                 className="flex h-12 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-7 text-sm font-bold text-slate-700 shadow-sm transition-all hover:border-indigo-200 hover:text-primary active:scale-[0.98]"

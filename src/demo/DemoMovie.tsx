@@ -25,6 +25,8 @@ import {
   Sparkles,
   Mic,
   Building2,
+  Film,
+  Download,
 } from 'lucide-react';
 import SceneStage from './Scenes';
 import {
@@ -85,6 +87,7 @@ interface DemoMovieProps {
 }
 
 export default function DemoMovie({ onExit }: DemoMovieProps) {
+  const [playerMode, setPlayerMode] = useState<'video' | 'interactive'>('video');
   const [playing, setPlaying] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [narration, setNarration] = useState(true);
@@ -369,102 +372,150 @@ export default function DemoMovie({ onExit }: DemoMovieProps) {
           </div>
 
           <div className="flex items-center gap-2">
-            <div className="hidden lg:flex items-center gap-1 bg-white/5 border border-white/10 rounded-full px-1 py-1">
-              {ACTS.map((a) => (
-                <button
-                  key={a.id}
-                  onClick={() => seekTo(DEMO_SCENES.slice(0, firstOfAct(a.id)).reduce((acc, s) => acc + s.duration, 0))}
-                  className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold transition-colors cursor-pointer ${
-                    activeAct === a.id ? 'bg-primary text-white' : 'text-slate-400 hover:text-white'
-                  }`}
-                >
-                  {ACT_ICONS[a.id]}
-                  {a.label}
-                </button>
-              ))}
-            </div>
-
-            {/* Direct Scene/Chapter Jump Selector */}
-            <select
-              value={sceneIdx}
-              onChange={(e) => {
-                const targetIdx = Number(e.target.value);
-                const targetMs = targetIdx === 0 ? 0 : SCENE_ENDS[targetIdx - 1];
-                seekTo(targetMs);
-              }}
-              className="bg-white/10 hover:bg-white/15 border border-white/20 rounded-lg px-2.5 py-1.5 text-xs font-bold text-slate-100 outline-none cursor-pointer max-w-[170px] sm:max-w-[220px] md:max-w-[260px] truncate"
-              title="Jump directly to any scene or chapter"
-            >
-              {DEMO_SCENES.map((s, idx) => (
-                <option key={s.id} value={idx} className="bg-slate-900 text-white">
-                  Scene {idx + 1}: {s.title} {s.kind === 'roi' || s.kind === 'share-template' || s.kind === 'pricing' ? '⭐ NEW' : ''}
-                </option>
-              ))}
-            </select>
-
-            <button
-              onClick={toggleNarration}
-              title={narration ? 'Narration on' : 'Narration off'}
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
-                narration ? 'bg-emerald-500/15 text-emerald-300' : 'bg-white/5 text-slate-400 hover:text-white'
-              }`}
-            >
-              {narration ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
-              <span className="hidden sm:inline">{narration ? 'Voice On' : 'Muted'}</span>
-            </button>
-
-            {/* Voice Selector (always rendered so user sees it) */}
-            {narration && (
-              <select
-                value={selectedVoiceURI}
-                onChange={(e) => {
-                  const uri = e.target.value;
-                  setSelectedVoiceURI(uri);
-                  const v = availableVoices.find((voice) => voice.voiceURI === uri) || null;
-                  voiceRef.current = v;
-                  if (playingRef.current) {
-                    speakScene(sceneIndexAt(elapsedRef.current));
+            {/* Player Mode Switcher */}
+            <div className="flex items-center bg-white/10 p-0.5 rounded-xl border border-white/15 text-xs font-bold shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  setPlayerMode('video');
+                  if (playing) {
+                    setPlaying(false);
+                    playingRef.current = false;
+                    window.speechSynthesis?.cancel();
                   }
                 }}
-                className="bg-white/5 border border-white/15 hover:border-emerald-400/50 rounded-lg px-2 py-1.5 text-xs font-semibold text-emerald-300 outline-none cursor-pointer max-w-[130px] sm:max-w-[160px] md:max-w-[200px] truncate"
-                title="Narration Voice (Female/Natural voices prioritized)"
+                className={`px-3 py-1.5 rounded-lg transition flex items-center gap-1.5 cursor-pointer ${
+                  playerMode === 'video' ? 'bg-primary text-white shadow-sm' : 'text-slate-300 hover:text-white'
+                }`}
               >
-                {availableVoices.length === 0 ? (
-                  <option className="bg-slate-900 text-white">🎙️ Natural Female (System)</option>
-                ) : (
-                  availableVoices.slice(0, 15).map((v) => (
-                    <option key={v.voiceURI} value={v.voiceURI} className="bg-slate-900 text-white">
-                      🎙️ {v.name.replace(/Microsoft |Online \(Natural\) - |Desktop - /g, '').slice(0, 22)}
+                <Film className="w-3.5 h-3.5" />
+                <span>HD Video (MP4)</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setPlayerMode('interactive')}
+                className={`px-3 py-1.5 rounded-lg transition flex items-center gap-1.5 cursor-pointer ${
+                  playerMode === 'interactive' ? 'bg-primary text-white shadow-sm' : 'text-slate-300 hover:text-white'
+                }`}
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>Interactive Sim</span>
+              </button>
+            </div>
+
+            {/* Direct Download MP4 */}
+            <a
+              href="/demo/dentai-demo.mp4"
+              download="dentai-demo.mp4"
+              className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-slate-300 hover:text-white hover:bg-white/10 border border-white/10 transition-colors"
+              title="Download full 1080p MP4 recording"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Download MP4</span>
+            </a>
+
+            {/* Interactive Mode Controls */}
+            {playerMode === 'interactive' && (
+              <>
+                <div className="hidden lg:flex items-center gap-1 bg-white/5 border border-white/10 rounded-full px-1 py-1">
+                  {ACTS.map((a) => (
+                    <button
+                      key={a.id}
+                      onClick={() => seekTo(DEMO_SCENES.slice(0, firstOfAct(a.id)).reduce((acc, s) => acc + s.duration, 0))}
+                      className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold transition-colors cursor-pointer ${
+                        activeAct === a.id ? 'bg-primary text-white' : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      {ACT_ICONS[a.id]}
+                      {a.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Direct Scene/Chapter Jump Selector */}
+                <select
+                  value={sceneIdx}
+                  onChange={(e) => {
+                    const targetIdx = Number(e.target.value);
+                    const targetMs = targetIdx === 0 ? 0 : SCENE_ENDS[targetIdx - 1];
+                    seekTo(targetMs);
+                  }}
+                  className="bg-white/10 hover:bg-white/15 border border-white/20 rounded-lg px-2.5 py-1.5 text-xs font-bold text-slate-100 outline-none cursor-pointer max-w-[170px] sm:max-w-[220px] md:max-w-[260px] truncate"
+                  title="Jump directly to any scene or chapter"
+                >
+                  {DEMO_SCENES.map((s, idx) => (
+                    <option key={s.id} value={idx} className="bg-slate-900 text-white">
+                      Scene {idx + 1}: {s.title} {s.kind === 'roi' || s.kind === 'share-template' || s.kind === 'pricing' ? '⭐ NEW' : ''}
                     </option>
-                  ))
+                  ))}
+                </select>
+
+                <button
+                  onClick={toggleNarration}
+                  title={narration ? 'Narration on' : 'Narration off'}
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                    narration ? 'bg-emerald-500/15 text-emerald-300' : 'bg-white/5 text-slate-400 hover:text-white'
+                  }`}
+                >
+                  {narration ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+                  <span className="hidden sm:inline">{narration ? 'Voice On' : 'Muted'}</span>
+                </button>
+
+                {narration && (
+                  <select
+                    value={selectedVoiceURI}
+                    onChange={(e) => {
+                      const uri = e.target.value;
+                      setSelectedVoiceURI(uri);
+                      const v = availableVoices.find((voice) => voice.voiceURI === uri) || null;
+                      voiceRef.current = v;
+                      if (playingRef.current) {
+                        speakScene(sceneIndexAt(elapsedRef.current));
+                      }
+                    }}
+                    className="bg-white/5 border border-white/15 hover:border-emerald-400/50 rounded-lg px-2 py-1.5 text-xs font-semibold text-emerald-300 outline-none cursor-pointer max-w-[130px] sm:max-w-[160px] md:max-w-[200px] truncate"
+                    title="Narration Voice (Female/Natural voices prioritized)"
+                  >
+                    {availableVoices.length === 0 ? (
+                      <option className="bg-slate-900 text-white">🎙️ Natural Female (System)</option>
+                    ) : (
+                      availableVoices.slice(0, 15).map((v) => (
+                        <option key={v.voiceURI} value={v.voiceURI} className="bg-slate-900 text-white">
+                          🎙️ {v.name.replace(/Microsoft |Online \(Natural\) - |Desktop - /g, '').slice(0, 22)}
+                        </option>
+                      ))
+                    )}
+                  </select>
                 )}
-              </select>
+
+                <select
+                  value={speed}
+                  onChange={(e) => {
+                    const s = Number(e.target.value);
+                    speedRef.current = s;
+                    setSpeed(s);
+                  }}
+                  className="bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-xs font-semibold text-slate-300 outline-none cursor-pointer"
+                  title="Playback speed"
+                >
+                  <option value={0.75} className="bg-slate-900">0.75×</option>
+                  <option value={1} className="bg-slate-900">1×</option>
+                  <option value={1.25} className="bg-slate-900">1.25×</option>
+                  <option value={1.5} className="bg-slate-900">1.5×</option>
+                </select>
+
+                <button
+                  onClick={togglePresent}
+                  title="Present / record mode — hides all controls"
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                    present ? 'bg-primary text-white' : 'bg-white/5 text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <MonitorPlay className="w-4 h-4" />
+                  <span className="hidden sm:inline">Record</span>
+                </button>
+              </>
             )}
-            <select
-              value={speed}
-              onChange={(e) => {
-                const s = Number(e.target.value);
-                speedRef.current = s;
-                setSpeed(s);
-              }}
-              className="bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-xs font-semibold text-slate-300 outline-none cursor-pointer"
-              title="Playback speed"
-            >
-              <option value={0.75} className="bg-slate-900">0.75×</option>
-              <option value={1} className="bg-slate-900">1×</option>
-              <option value={1.25} className="bg-slate-900">1.25×</option>
-              <option value={1.5} className="bg-slate-900">1.5×</option>
-            </select>
-            <button
-              onClick={togglePresent}
-              title="Present / record mode — hides all controls"
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
-                present ? 'bg-primary text-white' : 'bg-white/5 text-slate-400 hover:text-white'
-              }`}
-            >
-              <MonitorPlay className="w-4 h-4" />
-              <span className="hidden sm:inline">Record</span>
-            </button>
           </div>
         </header>
       )}
@@ -473,136 +524,197 @@ export default function DemoMovie({ onExit }: DemoMovieProps) {
       <div className="flex-1 min-h-0 flex flex-col items-center justify-center px-3 md:px-6 py-3">
         <div
           ref={stageRef}
-          className="relative w-full max-w-5xl overflow-hidden rounded-2xl bg-white ring-1 ring-white/15 shadow-2xl shadow-black/40"
+          className="relative w-full max-w-5xl overflow-hidden rounded-2xl bg-slate-950 ring-1 ring-white/15 shadow-2xl shadow-black/40"
           style={{ height: 'clamp(440px, 66vh, 680px)' }}
         >
-          <SceneStage scene={scene} progress={progress} />
-
-          {/* In-demo act badge (hidden in present mode) */}
-          {!present && (
-            <div className="absolute top-3 left-3 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-900/70 backdrop-blur text-[10px] font-bold uppercase tracking-widest text-slate-200">
-              {ACT_ICONS[scene.act]}
-              {scene.act === 'dentist' ? 'Dentist' : scene.act === 'owner' ? 'Owner' : 'Intro'} · {sceneIdx + 1} /{' '}
-              {DEMO_SCENES.length}
-            </div>
-          )}
-
-          {/* Start overlay */}
-          {!playing && !ended && elapsed === 0 && (
-            <div className="absolute inset-0 z-20 bg-slate-950/60 backdrop-blur-[2px] flex items-center justify-center">
-              <button
-                onClick={togglePlay}
-                className="flex flex-col items-center gap-3 group cursor-pointer"
+          {playerMode === 'video' ? (
+            <div className="relative w-full h-full flex items-center justify-center bg-black">
+              <video
+                controls
+                autoPlay
+                playsInline
+                className="w-full h-full object-contain"
+                src="/demo/dentai-demo.mp4"
               >
-                <div className="w-20 h-20 rounded-full bg-primary flex items-center justify-center shadow-2xl shadow-primary/40 group-hover:scale-105 transition-transform">
-                  <Play className="w-8 h-8 text-white ml-1" fill="currentColor" />
-                </div>
-                <span className="text-sm font-bold text-white bg-slate-900/60 px-4 py-1.5 rounded-full">
-                  Play narrated demo · {formatClock(DEMO_TOTAL_MS)}
-                </span>
-              </button>
+                Your browser does not support HTML5 video streaming.
+              </video>
             </div>
-          )}
+          ) : (
+            <>
+              <SceneStage scene={scene} progress={progress} />
 
-          {/* Replay overlay */}
-          {ended && (
-            <div className="absolute inset-0 z-20 bg-slate-950/60 backdrop-blur-[2px] flex items-center justify-center">
-              <button onClick={restart} className="flex flex-col items-center gap-3 group cursor-pointer">
-                <div className="w-20 h-20 rounded-full bg-primary flex items-center justify-center shadow-2xl shadow-primary/40 group-hover:scale-105 transition-transform">
-                  <RotateCcw className="w-8 h-8 text-white" />
+              {/* In-demo act badge (hidden in present mode) */}
+              {!present && (
+                <div className="absolute top-3 left-3 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-900/70 backdrop-blur text-[10px] font-bold uppercase tracking-widest text-slate-200">
+                  {ACT_ICONS[scene.act]}
+                  {scene.act === 'dentist' ? 'Dentist' : scene.act === 'owner' ? 'Owner' : 'Intro'} · {sceneIdx + 1} /{' '}
+                  {DEMO_SCENES.length}
                 </div>
-                <span className="text-sm font-bold text-white bg-slate-900/60 px-4 py-1.5 rounded-full">Replay demo</span>
-              </button>
-            </div>
+              )}
+
+              {/* Start overlay */}
+              {!playing && !ended && elapsed === 0 && (
+                <div className="absolute inset-0 z-20 bg-slate-950/60 backdrop-blur-[2px] flex items-center justify-center">
+                  <button
+                    onClick={togglePlay}
+                    className="flex flex-col items-center gap-3 group cursor-pointer"
+                  >
+                    <div className="w-20 h-20 rounded-full bg-primary flex items-center justify-center shadow-2xl shadow-primary/40 group-hover:scale-105 transition-transform">
+                      <Play className="w-8 h-8 text-white ml-1" fill="currentColor" />
+                    </div>
+                    <span className="text-sm font-bold text-white bg-slate-900/60 px-4 py-1.5 rounded-full">
+                      Play narrated demo · {formatClock(DEMO_TOTAL_MS)}
+                    </span>
+                  </button>
+                </div>
+              )}
+
+              {/* Replay overlay */}
+              {ended && (
+                <div className="absolute inset-0 z-20 bg-slate-950/60 backdrop-blur-[2px] flex items-center justify-center">
+                  <button onClick={restart} className="flex flex-col items-center gap-3 group cursor-pointer">
+                    <div className="w-20 h-20 rounded-full bg-primary flex items-center justify-center shadow-2xl shadow-primary/40 group-hover:scale-105 transition-transform">
+                      <RotateCcw className="w-8 h-8 text-white" />
+                    </div>
+                    <span className="text-sm font-bold text-white bg-slate-900/60 px-4 py-1.5 rounded-full">Replay demo</span>
+                  </button>
+                </div>
+              )}
+            </>
           )}
         </div>
 
-        {/* Captions */}
+        {/* Captions / Video Info */}
         <div className="w-full max-w-5xl mt-3 px-1">
-          <div className="flex items-start gap-3">
-            <div className="hidden md:flex shrink-0 items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/5 border border-white/10 text-[10px] font-bold uppercase tracking-widest text-slate-300 mt-0.5">
-              <Sparkles className="w-3 h-3 text-primary" />
-              {scene.title}
+          {playerMode === 'video' ? (
+            <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-slate-300 bg-white/5 border border-white/10 rounded-xl px-4 py-2.5">
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                <span className="font-bold text-white">Apple Medical Grade 1080p Walkthrough Video</span>
+                <span className="text-slate-400">· 2 min 54 sec · H.264 / AAC 44.1kHz</span>
+              </div>
+              <div className="flex items-center gap-3 text-[11px]">
+                <span className="text-slate-400">5 Scenes: Identity & Support · Onboarding · Chairside Operatory · Owner Management · Outro</span>
+                <a
+                  href="/demo/dentai-demo.mp4"
+                  download="dentai-demo.mp4"
+                  className="font-bold text-primary hover:underline flex items-center gap-1"
+                >
+                  <Download className="w-3.5 h-3.5" /> Download (6.5 MB)
+                </a>
+              </div>
             </div>
-            <p className="text-sm md:text-[15px] leading-relaxed text-slate-200">
-              {scene.narration}
-            </p>
-          </div>
+          ) : (
+            <div className="flex items-start gap-3">
+              <div className="hidden md:flex shrink-0 items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/5 border border-white/10 text-[10px] font-bold uppercase tracking-widest text-slate-300 mt-0.5">
+                <Sparkles className="w-3 h-3 text-primary" />
+                {scene.title}
+              </div>
+              <p className="text-sm md:text-[15px] leading-relaxed text-slate-200">
+                {scene.narration}
+              </p>
+            </div>
+          )}
         </div>
       </div>
 
       {/* Controls (hidden in present mode) */}
       {!present && (
         <footer className="shrink-0 border-t border-white/10 px-4 md:px-6 py-3 bg-[#0E1626]">
-          <div className="max-w-5xl mx-auto">
-            <div className="flex items-center gap-3">
-              <button
-                onClick={togglePlay}
-                className="w-10 h-10 rounded-full bg-primary flex items-center justify-center shadow-lg shadow-primary/30 hover:scale-105 transition-transform cursor-pointer"
-                title={playing ? 'Pause' : 'Play'}
-              >
-                {playing ? (
-                  <Pause className="w-5 h-5 text-white" fill="currentColor" />
-                ) : (
-                  <Play className="w-5 h-5 text-white ml-0.5" fill="currentColor" />
-                )}
-              </button>
-              <button
-                onClick={restart}
-                className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
-                title="Restart"
-              >
-                <RotateCcw className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => goToScene(-1)}
-                className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
-                title="Previous scene"
-              >
-                <SkipBack className="w-4 h-4" />
-              </button>
-
-              <input
-                type="range"
-                min={0}
-                max={DEMO_TOTAL_MS}
-                value={elapsed}
-                onChange={(e) => seekTo(Number(e.target.value))}
-                className="flex-1 h-1.5 cursor-pointer"
-                style={{ accentColor: '#0F52BA' }}
-                aria-label="Seek"
-              />
-
-              <button
-                onClick={() => goToScene(1)}
-                className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
-                title="Next scene"
-              >
-                <SkipForward className="w-4 h-4" />
-              </button>
-              <span className="font-mono text-xs text-slate-400 tabular-nums whitespace-nowrap">
-                {formatClock(elapsed)} / {formatClock(DEMO_TOTAL_MS)}
-              </span>
-              <button
-                onClick={toggleFullscreen}
-                className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
-                title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
-              >
-                {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
-              </button>
+          {playerMode === 'video' ? (
+            <div className="max-w-5xl mx-auto flex items-center justify-between text-xs text-slate-400">
+              <div className="flex items-center gap-2">
+                <span className="font-semibold text-slate-300">Apple Medical Grade Standards · Hands-Free Operatory Ergonomics</span>
+              </div>
+              <div className="flex items-center gap-4">
+                <button
+                  onClick={() => setPlayerMode('interactive')}
+                  className="text-primary hover:underline font-bold flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Switch to Interactive Sim</span>
+                </button>
+                <a
+                  href="/demo/dentai-demo.mp4"
+                  download="dentai-demo.mp4"
+                  className="bg-white/10 hover:bg-white/20 text-white font-bold px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Download MP4</span>
+                </a>
+              </div>
             </div>
-            <div className="flex items-center justify-between mt-2">
-              <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-widest">
-                {scene.title}
-              </span>
-              <button
-                onClick={togglePresent}
-                className="text-[10px] text-slate-400 hover:text-white font-bold uppercase tracking-widest cursor-pointer"
-              >
-                Present / record mode →
-              </button>
+          ) : (
+            <div className="max-w-5xl mx-auto">
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={togglePlay}
+                  className="w-10 h-10 rounded-full bg-primary flex items-center justify-center shadow-lg shadow-primary/30 hover:scale-105 transition-transform cursor-pointer"
+                  title={playing ? 'Pause' : 'Play'}
+                >
+                  {playing ? (
+                    <Pause className="w-5 h-5 text-white" fill="currentColor" />
+                  ) : (
+                    <Play className="w-5 h-5 text-white ml-0.5" fill="currentColor" />
+                  )}
+                </button>
+                <button
+                  onClick={restart}
+                  className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                  title="Restart"
+                >
+                  <RotateCcw className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => goToScene(-1)}
+                  className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                  title="Previous scene"
+                >
+                  <SkipBack className="w-4 h-4" />
+                </button>
+
+                <input
+                  type="range"
+                  min={0}
+                  max={DEMO_TOTAL_MS}
+                  value={elapsed}
+                  onChange={(e) => seekTo(Number(e.target.value))}
+                  className="flex-1 h-1.5 cursor-pointer"
+                  style={{ accentColor: '#0F52BA' }}
+                  aria-label="Seek"
+                />
+
+                <button
+                  onClick={() => goToScene(1)}
+                  className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                  title="Next scene"
+                >
+                  <SkipForward className="w-4 h-4" />
+                </button>
+                <span className="font-mono text-xs text-slate-400 tabular-nums whitespace-nowrap">
+                  {formatClock(elapsed)} / {formatClock(DEMO_TOTAL_MS)}
+                </span>
+                <button
+                  onClick={toggleFullscreen}
+                  className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                  title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+                >
+                  {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
+                </button>
+              </div>
+              <div className="flex items-center justify-between mt-2">
+                <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-widest">
+                  {scene.title}
+                </span>
+                <button
+                  onClick={togglePresent}
+                  className="text-[10px] text-slate-400 hover:text-white font-bold uppercase tracking-widest cursor-pointer"
+                >
+                  Present / record mode →
+                </button>
+              </div>
             </div>
-          </div>
+          )}
         </footer>
       )}
 
