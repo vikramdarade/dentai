@@ -49,3 +49,10 @@
 10. **Actual Clinic Timestamps & Zero Mock Seed Drift**:
     - The application is a live pilot; never hardcode placeholder dates (e.g. static "18 Sep 2026") or demo seed records.
     - All date/time operations must use the clinic timezone utilities in `src/utils/date.ts` (`formatClinicDate`, `formatClinicTime`, `getClinicTodayIso`).
+
+11. **Cross-Patient Boundary Isolation & Forced Standby**:
+    - Any patient transition (via Daysheet selection, "Next Patient" button, or `⌘→` hotkey) must **immediately halt active listening** (`recognitionRef.current.stop()`) and place the workspace into explicit **`STANDBY` mode (`isMicStandby = true`, timer reset to `00:00`, stop chime played)**.
+    - Never auto-start recording on a newly selected patient; recording must strictly require intentional, physical clinician initiation (`Spacebar` or `Start Audio`).
+    - Speech recognition buffers and live in-memory transcripts must remain strictly scoped by unique patient consultation ID (`localLiveTranscripts[targetId]`).
+    - The asynchronous handoff for the prior patient must dispatch an immutable snapshot of their transcript, ensuring subsequent room audio cannot contaminate the prior patient's chart.
+

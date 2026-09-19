@@ -76,3 +76,10 @@ dentai/
 6. **Clinic Local Timezone Fidelity**:
    - Never hardcode static placeholder dates or demo seed records.
    - Always derive clinic local time using `src/utils/date.ts`.
+
+7. **Cross-Patient Boundary Isolation & Forced Standby**:
+   - Switching patients immediately stops speech recognition, resets recording duration, and engages `STANDBY` mode.
+   - Recording never auto-starts on an incoming patient; it strictly requires physical clinician activation.
+   - Live transcript buffers remain segregated by consultation ID (`localLiveTranscripts[consultationId]`), and asynchronous handoffs use immutable data snapshots.
+
+
