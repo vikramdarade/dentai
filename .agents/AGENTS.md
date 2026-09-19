@@ -27,3 +27,25 @@
 6. **Composite Entity IDs for O(1) Updates**:
    - When generating child entity records derived from consultations (such as treatment opportunities), prefix the child ID with the parent consultation ID (e.g. `${consultationId}-tx-${key}`).
    - Update endpoints (`PATCH /api/pipeline/:id`) must parse the prefix to perform direct O(1) targeting rather than scanning the entire consultation database linearly.
+
+7. **Extended Transcript Capacity & Horizon Filtering**:
+   - The server transcript capacity is 5,000 entries (allowing up to 10 hours of speech / <75,000 tokens of Gemini 2.5 Flash's 1,000,000-token window). Never set arbitrary low limits (<200) that reject long consultations.
+   - When passing transcripts to AI synthesis models or offline draft engines, always apply `clinicalHorizonFilter` to prune post-procedure room turnover noise while preserving all clinical dialogue and post-op instructions.
+
+8. **Medical-Grade Audio Silence Sleep & Early Warnings**:
+   - Continuous audio listening must feature an adaptive 3-minute silence sleep to prevent battery drain and accidental post-op recording.
+   - Clinicians must be given an explicit 30-second audio-visual warning (at 2m 30s) with a distinct warning chime (double-pip 784Hz) and a hands-free `Spacebar` / `[Keep Listening]` trigger before auto-pausing.
+
+9. **Receptionist-Friendly UI Language (Anti-Jargon Standard)**:
+   - All user-facing UI copy must be readable by a 12th-grade receptionist or assistant.
+   - Strictly avoid engineering and acoustic jargon in the interface:
+     - No "DSP squelch" &rarr; use "Noise Filter"
+     - No "100% grounded / 0 hallucination vectors" &rarr; use "Verified from Audio"
+     - No "Ambient transcription feed / utterances" &rarr; use "Live Conversation / Lines Recorded"
+     - No "Batch Tray" &rarr; use "End of Day Notes"
+     - No "Master Export" &rarr; use "Copy All Notes"
+     - No "Aseptic Operatory Hotkeys" &rarr; use "Hands-Free Keyboard Shortcuts"
+
+10. **Actual Clinic Timestamps & Zero Mock Seed Drift**:
+    - The application is a live pilot; never hardcode placeholder dates (e.g. static "18 Sep 2026") or demo seed records.
+    - All date/time operations must use the clinic timezone utilities in `src/utils/date.ts` (`formatClinicDate`, `formatClinicTime`, `getClinicTodayIso`).
