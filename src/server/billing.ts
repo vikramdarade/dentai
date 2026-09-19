@@ -491,9 +491,9 @@ export function registerBillingRoutes(app: any, deps: BillingRoutesDeps): void {
         });
       }
       const plan = req.body?.plan;
-      if (!isPlanId(plan) || plan === 'trial' || plan === 'enterprise') {
+      if (plan !== 'practice') {
         return res.status(400).json({
-          error: 'Choose the Solo or Practice plan. Group plans are quoted — contact support.',
+          error: 'Solo is free forever. To upgrade your clinic, select the Practice plan (Group plans are quoted).',
         });
       }
       if (!stripeKey) {
@@ -508,8 +508,8 @@ export function registerBillingRoutes(app: any, deps: BillingRoutesDeps): void {
       const origin = `${req.protocol}://${req.get('host')}`;
       const body = new URLSearchParams();
       body.set('mode', 'subscription');
-      body.set('success_url', `${origin}/#/dashboard?billing=success`);
-      body.set('cancel_url', `${origin}/#/dashboard?billing=cancelled`);
+      body.set('success_url', `${origin}/#/billing?status=success`);
+      body.set('cancel_url', `${origin}/#/billing?status=cancelled`);
       body.set('client_reference_id', clinic.clinicId);
       body.set('metadata[clinicId]', clinic.clinicId);
       body.set('subscription_data[metadata][clinicId]', clinic.clinicId);
@@ -518,10 +518,10 @@ export function registerBillingRoutes(app: any, deps: BillingRoutesDeps): void {
       body.set('line_items[0][price_data][currency]', 'aud');
       body.set('line_items[0][price_data][unit_amount]', String(definition.monthlyAudExGst * 100));
       body.set('line_items[0][price_data][recurring][interval]', 'month');
-      body.set('line_items[0][price_data][product_data][name]', `DentAI ${definition.name}`);
+      body.set('line_items[0][price_data][product_data][name]', `DentAI ${definition.name} Plan`);
       body.set(
         'line_items[0][price_data][product_data][description]',
-        `${definition.seats} clinician seat(s), ${definition.dailyNotes} AI notes/day`
+        `${definition.seats} clinician seat(s), ${definition.dailyNotes} AI notes/day, priority queue, recall worklist`
       );
 
       const response = await fetchImpl('https://api.stripe.com/v1/checkout/sessions', {
@@ -551,6 +551,61 @@ export function registerBillingRoutes(app: any, deps: BillingRoutesDeps): void {
     } catch (err: any) {
       deps.logger.error('Billing checkout failed:', err?.message || err, { url: req.originalUrl });
       return res.status(500).json({ error: 'Could not start checkout.' });
+    }
+  });
+
+  app.post('/api/billing/portal', deps.authenticate, async (req: any, res: any) => {
+    try {
+      const clinic = await ownedClinic(deps, req.dentist.id);
+      if (!clinic) {
+        return res.status(403).json({
+          error: 'Only the practice owner can manage billing and view tax invoices.',
+          code: 'OWNER_REQUIRED',
+        });
+      }
+      const subscription = await deps.subscriptions.forClinic(clinic.clinicId);
+      if (!subscription?.stripeCustomerId) {
+        return res.status(404).json({
+          error: 'No active Stripe billing account found for this practice.',
+          code: 'NO_CUSTOMER',
+        });
+      }
+      if (!stripeKey) {
+        return res.status(503).json({
+          error: 'Billing portal is not configured on this deployment.',
+          code: 'BILLING_NOT_CONFIGURED',
+        });
+      }
+
+      const origin = `${req.protocol}://${req.get('host')}`;
+      const body = new URLSearchParams();
+      body.set('customer', subscription.stripeCustomerId);
+      body.set('return_url', `${origin}/#/billing`);
+
+      const response = await fetchImpl('https://api.stripe.com/v1/billing_portal/sessions', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${stripeKey}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body,
+      });
+      const payload: any = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        deps.logger.error('Stripe billing portal session creation failed.', undefined, {
+          status: response.status,
+          message: payload?.error?.message,
+        });
+        return res.status(502).json({ error: 'Could not open billing portal. Please try again shortly.' });
+      }
+
+      await deps.logAudit('billing_portal_opened', req.dentist.id, {
+        clinicId: clinic.clinicId,
+      });
+      return res.json({ url: payload.url });
+    } catch (err: any) {
+      deps.logger.error('Billing portal failed:', err?.message || err, { url: req.originalUrl });
+      return res.status(500).json({ error: 'Could not open billing portal.' });
     }
   });
 

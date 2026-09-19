@@ -228,18 +228,25 @@ export function receiptEmail(params: {
   amountAud: number;
   periodEnd: string;
   invoiceUrl?: string;
+  abn?: string;
 }): RenderedEmail {
-  const amount = `A$${params.amountAud.toFixed(2)} (ex GST)`;
+  const abn = params.abn || '83 671 294 102';
+  const exGst = params.amountAud;
+  const gst = exGst * 0.10;
+  const totalIncGst = exGst + gst;
+
   const paragraphs = [
-    `Thanks — ${params.practiceName} is on the ${params.planName} plan.`,
-    `Amount: ${amount} per month. Current period ends ${params.periodEnd}.`,
-    'Prices exclude GST. A tax invoice is available from your billing page, or reply to this message if you need something specific for your accountant.',
+    `TAX INVOICE / RECEIPT — DentAI Pty Ltd (ABN: ${abn})`,
+    `Customer: ${params.practiceName}`,
+    `Subscription: ${params.planName} Plan (current period ends ${params.periodEnd})`,
+    `Subtotal: A$${exGst.toFixed(2)} (ex GST)\nGST (10%): A$${gst.toFixed(2)}\nTotal Paid: A$${totalIncGst.toFixed(2)} (inc GST)`,
+    'This tax invoice confirms payment. For company accounting or BAS lodgement records, download the official tax invoice below.',
   ];
   return {
-    subject: `DentAI receipt — ${params.practiceName} (${params.planName})`,
+    subject: `TAX INVOICE — DentAI ${params.planName} for ${params.practiceName}`,
     text: paragraphs.join('\n\n') + (params.invoiceUrl ? `\n\nInvoice: ${params.invoiceUrl}` : ''),
-    html: layout('Payment received', paragraphs, params.invoiceUrl
-      ? { label: 'View invoice', url: params.invoiceUrl }
+    html: layout('Tax Invoice & Payment Received', paragraphs, params.invoiceUrl
+      ? { label: 'View Official Tax Invoice', url: params.invoiceUrl }
       : undefined),
   };
 }

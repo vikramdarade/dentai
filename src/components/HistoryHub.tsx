@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { Search, Plus, FileText, Menu, Building2, Download, X, Sparkles, TrendingUp, Calendar } from 'lucide-react';
+import { Search, Plus, FileText, Menu, Building2, Download, X, Sparkles, TrendingUp, Calendar, CreditCard } from 'lucide-react';
 import { Consultation, getTodayStr, getYesterdayStr } from '../types';
 import { motion } from 'motion/react';
 import ClinicSwitcher from './ClinicSwitcher';
 import ClinicMembersModal from './ClinicMembersModal';
+import BillingModal from './BillingModal';
 import TreatmentPipeline from './TreatmentPipeline';
 import DayScheduleQueue from './DayScheduleQueue';
 import ErrorBoundary from './ErrorBoundary';
@@ -49,6 +50,7 @@ export default function HistoryHub({
   onOpenWorkspace
 }: HistoryHubProps) {
   const [manageOpen, setManageOpen] = useState(false);
+  const [showBillingModal, setShowBillingModal] = useState(false);
   // Practice records export (see /api/clinic/export on the server).
   const [exportOpen, setExportOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -176,7 +178,19 @@ export default function HistoryHub({
             </button>
           )}
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2 sm:gap-3">
+          {/* Plan & Billing management button */}
+          {activeClinic && (
+            <button
+              onClick={() => setShowBillingModal(true)}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200/80 text-xs font-bold transition-all cursor-pointer"
+              title="Practice Plan, Clinician Seats & Tax Invoices"
+            >
+              <CreditCard className="w-3.5 h-3.5 text-indigo-600" />
+              <span className="hidden md:inline">Plan & Billing</span>
+            </button>
+          )}
+
           {/*
             Records export. A practice must be able to get its own records out
             without asking us — under APP 12 part of the point is that the
@@ -461,6 +475,17 @@ export default function HistoryHub({
           authToken={authToken}
           onClose={() => setManageOpen(false)}
           onChanged={onClinicChanged}
+        />
+      )}
+
+      {/* Practice Plan & Billing Modal */}
+      {showBillingModal && (
+        <BillingModal
+          isOpen={showBillingModal}
+          onClose={() => setShowBillingModal(false)}
+          activeClinic={activeClinic}
+          authToken={authToken}
+          onPlanUpdated={onClinicChanged}
         />
       )}
     </div>

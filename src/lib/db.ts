@@ -471,6 +471,16 @@ export async function dbDeleteMembership(clinicId: string, dentistId: string): P
   return rows.length > 0;
 }
 
+export async function dbCountActiveMembers(clinicId: string): Promise<number> {
+  if (!sql) return 0;
+  const rows = (await sql`
+    SELECT COUNT(*)::int AS count
+    FROM clinic_members
+    WHERE clinic_id = ${clinicId} AND status = 'active'
+  `) as any[];
+  return Number(rows[0]?.count ?? 0);
+}
+
 export async function dbListConsultationsForClinic(clinicId: string): Promise<any[]> {
   if (!sql) return [];
   // The indexed column is authoritative for new rows; the JSONB match keeps
