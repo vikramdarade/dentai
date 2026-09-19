@@ -184,7 +184,7 @@ export default function HistoryHub({
             <button
               onClick={() => setShowBillingModal(true)}
               className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200/80 text-xs font-bold transition-all cursor-pointer"
-              title="Practice Plan, Clinician Seats & Tax Invoices"
+              title="Practice Plan, Clinician Seats & Receipts"
             >
               <CreditCard className="w-3.5 h-3.5 text-indigo-600" />
               <span className="hidden md:inline">Plan & Billing</span>

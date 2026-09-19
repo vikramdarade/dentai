@@ -1,17 +1,17 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "SF Pro", "Inter", -system-ui, sans-serif;
-  --font-mono: 'SF Mono', 'JetBrains Mono', ui-monospace, Menlo, monospace;
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "SF Pro", "Inter", "Segoe UI", "Segoe UI Variable Text", system-ui, sans-serif;
+  --font-mono: 'SF Mono', 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace;
   
   /* Typography tokens used by the components (font-* family, text-* size utilities) */
-  --font-headline-sm: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro", "Inter", sans-serif;
-  --font-headline-md: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro", "Inter", sans-serif;
-  --font-headline-lg: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro", "Inter", sans-serif;
-  --font-label-sm: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro", "Inter", sans-serif;
-  --font-label-md: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro", "Inter", sans-serif;
-  --font-body-md: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro", "Inter", sans-serif;
-  --font-transcription-text: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro", "Inter", sans-serif;
+  --font-headline-sm: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro", "Inter", "Segoe UI", sans-serif;
+  --font-headline-md: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro", "Inter", "Segoe UI", sans-serif;
+  --font-headline-lg: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro", "Inter", "Segoe UI", sans-serif;
+  --font-label-sm: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro", "Inter", "Segoe UI", sans-serif;
+  --font-label-md: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro", "Inter", "Segoe UI", sans-serif;
+  --font-body-md: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro", "Inter", "Segoe UI", sans-serif;
+  --font-transcription-text: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro", "Inter", "Segoe UI", sans-serif;
   --text-headline-sm: 1.25rem;
   --text-headline-md: 1.5rem;
   --text-headline-lg: 1.875rem;
@@ -19,17 +19,17 @@
   --text-label-md: 0.875rem;
   --text-body-md: 0.875rem;
 
-  --color-primary: #0071E3;
-  --color-primary-dark: #005BB5;
-  --color-primary-light: #EBF3FD;
-  --color-primary-container: #0071E3;
+  --color-primary: #0060BA;
+  --color-primary-dark: #004D96;
+  --color-primary-light: #EEF5FD;
+  --color-primary-container: #0060BA;
   
-  --color-apple-blue: #0071E3;
-  --color-apple-blue-hover: #0077ED;
-  --color-surgical-teal: #00A389;
+  --color-apple-blue: #0060BA;
+  --color-apple-blue-hover: #006ED6;
+  --color-surgical-teal: #007A66;
   --color-surgical-teal-light: #E6F6F4;
-  --color-alert-coral: #FF3B30;
-  --color-clinical-amber: #FF9500;
+  --color-alert-coral: #E02E24;
+  --color-clinical-amber: #D97706;
   
   --color-surface-bg: #F5F5F7;
   --color-surface-card: #FFFFFF;

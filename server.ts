@@ -42,7 +42,7 @@ import {
   personalClinicName,
   sanitizeClinicName
 } from './src/lib/clinics';
-import { PLANS, type PlanId } from './src/lib/plans';
+import { PLANS, type PlanId, resolveEntitlements } from './src/lib/plans';
 import {
   extractProposedTreatmentsFromFindings,
   lookupAdaFee,
@@ -2730,8 +2730,7 @@ app.post('/api/clinics/:id/members/:dentistId/approve', authenticateToken, async
 
     // Enforce practice seat allowance
     const subscription = await subscriptionStore.forClinic(clinicId);
-    const planId = (subscription?.plan as PlanId) || 'trial';
-    const planDef = PLANS[planId] || PLANS.trial;
+    const entitlements = resolveEntitlements(subscription);
 
     if (dbEnabled) {
       clinic = await dbGetClinicById(clinicId);
@@ -2741,18 +2740,18 @@ app.post('/api/clinics/:id/members/:dentistId/approve', authenticateToken, async
       }
 
       const activeCount = await dbCountActiveMembers(clinicId);
-      if (activeCount >= planDef.seats) {
+      if (activeCount >= entitlements.seats) {
         logAudit('clinic_member_approval_blocked_seat_limit', req.dentist.id, {
           clinicId,
           memberDentistId,
-          plan: planDef.id,
-          seats: planDef.seats,
+          plan: entitlements.plan,
+          seats: entitlements.seats,
           activeCount,
         });
         return res.status(409).json({
-          error: `This practice has reached its limit of ${planDef.seats} clinician seat(s) on the ${planDef.name} plan. Upgrade your plan or deactivate an existing member to approve access.`,
+          error: `This practice has reached its limit of ${entitlements.seats} clinician seat(s) on the ${entitlements.planName} plan. Upgrade your plan or deactivate an existing member to approve access.`,
           code: 'SEAT_LIMIT_REACHED',
-          seats: planDef.seats,
+          seats: entitlements.seats,
           activeCount,
         });
       }
@@ -2769,18 +2768,18 @@ app.post('/api/clinics/:id/members/:dentistId/approve', authenticateToken, async
 
       clinic.members = clinic.members || [];
       const activeCount = clinic.members.filter((m: any) => m.status === 'active').length;
-      if (activeCount >= planDef.seats) {
+      if (activeCount >= entitlements.seats) {
         logAudit('clinic_member_approval_blocked_seat_limit', req.dentist.id, {
           clinicId,
           memberDentistId,
-          plan: planDef.id,
-          seats: planDef.seats,
+          plan: entitlements.plan,
+          seats: entitlements.seats,
           activeCount,
         });
         return res.status(409).json({
-          error: `This practice has reached its limit of ${planDef.seats} clinician seat(s) on the ${planDef.name} plan. Upgrade your plan or deactivate an existing member to approve access.`,
+          error: `This practice has reached its limit of ${entitlements.seats} clinician seat(s) on the ${entitlements.planName} plan. Upgrade your plan or deactivate an existing member to approve access.`,
           code: 'SEAT_LIMIT_REACHED',
-          seats: planDef.seats,
+          seats: entitlements.seats,
           activeCount,
         });
       }

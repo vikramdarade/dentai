@@ -218,7 +218,7 @@ export default function TreatmentPipeline({
         fetchRoi();
         showNotification(
           pmsMeta?.pmsAppointmentId
-            ? `Verified in PMS (${(pmsMeta.pmsType || 'PMS').toUpperCase()} #${pmsMeta.pmsAppointmentId})! Production locked.`
+            ? `Booked in PMS (${(pmsMeta.pmsType || 'PMS').toUpperCase()} #${pmsMeta.pmsAppointmentId})! Production scheduled.`
             : newStatus === 'booked'
             ? 'Treatment marked as Booked! Practice production updated.'
             : newStatus === 'contacted'
@@ -476,7 +476,7 @@ export default function TreatmentPipeline({
         {/* Card 2: Booked Production (Verified Recovered Revenue) */}
         <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-200/80 flex flex-col justify-between">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-500">Verified Recovered Production</span>
+            <span className="text-xs font-bold text-slate-500">Booked Production</span>
             <div className="w-9 h-9 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center border border-emerald-100">
               <TrendingUp className="w-4 h-4" />
             </div>
@@ -603,7 +603,7 @@ export default function TreatmentPipeline({
             }`}
           >
             <CheckCircle2 className="w-3.5 h-3.5" />
-            <span>PMS-Verified Only ({opportunities.filter(o => o.pmsAppointmentId || o.pmsSyncStatus === 'verified' || o.pmsSyncStatus === 'auto_synced').length})</span>
+            <span>PMS-Booked Only ({opportunities.filter(o => o.pmsAppointmentId || o.pmsSyncStatus === 'verified' || o.pmsSyncStatus === 'auto_synced').length})</span>
           </button>
         </div>
       </div>

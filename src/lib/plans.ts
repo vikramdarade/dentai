@@ -43,12 +43,12 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
     name: 'Trial',
     dailyNotes: 15,
     dailyTokens: 60_000,
-    seats: 6,
+    seats: 1,
     monthlyAudExGst: 0,
     features: [
       'Full note generation and template library',
       'Offline draft engine when quota is exhausted',
-      '14-day evaluation, up to 6 clinicians',
+      '14-day evaluation, one clinician',
     ],
   },
   solo: {
@@ -99,9 +99,15 @@ export function isPlanId(value: unknown): value is PlanId {
 }
 
 /** Determines whether a clinic with currentMembersCount active clinicians has capacity for another seat. */
-export function isSeatAvailable(currentMembersCount: number, planId: PlanId): boolean {
-  const plan = PLANS[planId] || PLANS.trial;
-  return currentMembersCount < plan.seats;
+export function isSeatAvailable(
+  currentMembersCount: number,
+  planOrEntitlements: PlanId | Entitlements
+): boolean {
+  const maxSeats =
+    typeof planOrEntitlements === 'object' && planOrEntitlements !== null && 'seats' in planOrEntitlements
+      ? planOrEntitlements.seats
+      : (PLANS[planOrEntitlements as PlanId] || PLANS.trial).seats;
+  return currentMembersCount < maxSeats;
 }
 
 /** Maps a legacy/`tier` value onto a plan id. */

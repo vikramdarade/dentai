@@ -77,17 +77,15 @@ export default function BillingModal({
     setError(null);
 
     try {
-      const [billingRes, membersRes] = await Promise.all([
-        fetch('/api/billing/status', {
+      const billingRes = await fetch(
+        `/api/billing/status?clinicId=${encodeURIComponent(activeClinic.clinicId)}`,
+        {
           headers: { Authorization: `Bearer ${authToken}` }
-        }),
-        fetch(`/api/clinics/${activeClinic.clinicId}/members`, {
-          headers: { Authorization: `Bearer ${authToken}` }
-        })
-      ]);
+        }
+      );
 
       if (billingRes.status === 403) {
-        setError('Only the practice owner can manage subscription and tax receipts.');
+        setError('Only the practice owner can manage subscription and billing settings.');
         setLoading(false);
         return;
       }
@@ -102,6 +100,10 @@ export default function BillingModal({
       const data: BillingStatusResponse = await billingRes.json();
       setBillingData(data);
 
+      const targetClinicId = data.clinicId || activeClinic.clinicId;
+      const membersRes = await fetch(`/api/clinics/${targetClinicId}/members`, {
+        headers: { Authorization: `Bearer ${authToken}` }
+      });
       if (membersRes.ok) {
         const membersData = await membersRes.json();
         const activeCount = Array.isArray(membersData.members)
@@ -134,7 +136,10 @@ export default function BillingModal({
           'Content-Type': 'application/json',
           Authorization: `Bearer ${authToken}`
         },
-        body: JSON.stringify({ plan: 'practice' })
+        body: JSON.stringify({
+          plan: 'practice',
+          clinicId: billingData?.clinicId || activeClinic?.clinicId
+        })
       });
 
       const data = await res.json().catch(() => ({}));
@@ -145,10 +150,11 @@ export default function BillingModal({
       if (data.url) {
         window.location.href = data.url;
       } else {
-        throw new Error('No checkout URL returned by server.');
+        throw new Error('Checkout URL not received.');
       }
     } catch (err: any) {
-      setError(err?.message || 'Could not start checkout.');
+      setError(err?.message || 'Failed to start Stripe checkout.');
+    } finally {
       setCheckoutBusy(false);
     }
   };
@@ -163,7 +169,10 @@ export default function BillingModal({
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${authToken}`
-        }
+        },
+        body: JSON.stringify({
+          clinicId: billingData?.clinicId || activeClinic?.clinicId
+        })
       });
 
       const data = await res.json().catch(() => ({}));
@@ -299,7 +308,7 @@ export default function BillingModal({
                       ) : (
                         <Receipt className="w-3.5 h-3.5 text-slate-300" />
                       )}
-                      <span>Manage Tax Invoices & Cards</span>
+                      <span>Manage Payment Method & Receipts</span>
                     </button>
                   ) : (
                     <button
@@ -367,7 +376,7 @@ export default function BillingModal({
                     </div>
                     <div className="mt-1">
                       <span className="text-lg font-black text-slate-800">$149 AUD</span>
-                      <span className="text-xs text-slate-500 font-medium"> / month ex GST</span>
+                      <span className="text-xs text-slate-500 font-medium"> / month</span>
                     </div>
                     <p className="text-xs text-slate-500 mt-1">
                       Full operatory team suite for private practices.
@@ -391,7 +400,7 @@ export default function BillingModal({
                       </li>
                       <li className="flex items-center gap-2">
                         <CheckCircle2 className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
-                        <span>Monthly Australian Tax Invoices (ABN & GST)</span>
+                        <span>Automated payment receipts via Stripe</span>
                       </li>
                     </ul>
                   </div>
@@ -415,15 +424,15 @@ export default function BillingModal({
                 </div>
               </div>
 
-              {/* Tax Invoice & Compliance Assurance Footer */}
+              {/* Payment & Compliance Assurance Footer */}
               <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200/60 text-xs text-slate-500 space-y-1.5">
                 <div className="flex items-center gap-2 font-bold text-slate-700">
                   <ShieldCheck className="w-4 h-4 text-indigo-600" />
                   <span>Australian Business & Medical Privacy Standards</span>
                 </div>
                 <p className="text-[11px] leading-relaxed">
-                  DentAI invoices are issued under ABN 83 671 294 102 with compliant 10% GST line items.
-                  Stripe handles credit card processing with zero health data disclosure. You can cancel or modify your seat subscription anytime without lock-in contracts.
+                  DentAI subscriptions are billed monthly in AUD via Stripe with automated digital payment receipts.
+                  Stripe handles payment processing with zero health data disclosure. You can cancel or modify your subscription anytime without lock-in contracts.
                 </p>
               </div>
             </>

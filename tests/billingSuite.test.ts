@@ -44,34 +44,52 @@ describe('Recall Due-Date Engine', () => {
 
   it('calculates 6-month standard recall due date', () => {
     const result = calculateRecallDueDate(baseDate, '6 Months (Standard)');
-    expect(result.intervalMonths).toBe(6);
-    expect(result.urgency).toBe('routine');
+    expect(result).not.toBeNull();
+    expect(result!.intervalMonths).toBe(6);
+    expect(result!.urgency).toBe('routine');
     // September 2026 + 6 months = March 2027
-    expect(result.dueDateIso.startsWith('2027-03')).toBe(true);
+    expect(result!.dueDateIso.startsWith('2027-03')).toBe(true);
+  });
+
+  it('clamps month-end dates without rolling into March (e.g. 31 Aug + 6mo -> 28 Feb)', () => {
+    const result = calculateRecallDueDate('2026-08-31T10:00:00.000Z', '6 Months');
+    expect(result).not.toBeNull();
+    // Must land on February 28, 2027 (not March 3, 2027)
+    expect(result!.dueDateIso.startsWith('2027-02-28')).toBe(true);
+  });
+
+  it('returns null and does not fabricate interval when recall requirement is missing', () => {
+    const result = calculateRecallDueDate(baseDate, '');
+    expect(result).toBeNull();
+    const resultUndefined = calculateRecallDueDate(baseDate, undefined);
+    expect(resultUndefined).toBeNull();
   });
 
   it('calculates 3-month periodontal recall due date', () => {
     const result = calculateRecallDueDate(baseDate, '3 Months (Periodontal)');
-    expect(result.intervalMonths).toBe(3);
-    expect(result.urgency).toBe('periodontal');
+    expect(result).not.toBeNull();
+    expect(result!.intervalMonths).toBe(3);
+    expect(result!.urgency).toBe('periodontal');
     // September 2026 + 3 months = December 2026
-    expect(result.dueDateIso.startsWith('2026-12')).toBe(true);
+    expect(result!.dueDateIso.startsWith('2026-12')).toBe(true);
   });
 
   it('calculates urgent next available recall due date (2 weeks)', () => {
     const result = calculateRecallDueDate(baseDate, 'Next Available (Urgent)');
-    expect(result.intervalMonths).toBe(0.5);
-    expect(result.urgency).toBe('urgent');
+    expect(result).not.toBeNull();
+    expect(result!.intervalMonths).toBe(0.5);
+    expect(result!.urgency).toBe('urgent');
     // September 15 + 14 days = September 29
-    expect(result.dueDateIso.startsWith('2026-09-29')).toBe(true);
+    expect(result!.dueDateIso.startsWith('2026-09-29')).toBe(true);
   });
 
-  it('extracts recall items from consultations and determines status', () => {
+  it('extracts recall items from consultations, deduplicates by patient, and determines status', () => {
     const mockConsultations: any[] = [
       {
         id: 'c-1',
         dentistId: 'dentist-1',
         clinicId: 'clinic-1',
+        patientId: 'p-1',
         firstName: 'Alice',
         lastName: 'Smith',
         date: '2026-03-01T09:00:00.000Z',
@@ -83,6 +101,7 @@ describe('Recall Due-Date Engine', () => {
         id: 'c-2',
         dentistId: 'dentist-1',
         clinicId: 'clinic-1',
+        patientId: 'p-2',
         firstName: 'Bob',
         lastName: 'Jones',
         date: '2026-08-01T09:00:00.000Z',
@@ -94,6 +113,7 @@ describe('Recall Due-Date Engine', () => {
         id: 'c-3',
         dentistId: 'dentist-1',
         clinicId: 'clinic-1',
+        patientId: 'p-3',
         firstName: 'Carol',
         lastName: 'White',
         date: '2026-03-15T09:00:00.000Z',
@@ -227,5 +247,42 @@ describe('Billing & Member Approval API Integration', () => {
       .send({ plan: 'solo' });
     expect(checkoutSoloRes.status).toBe(400);
     expect(checkoutSoloRes.body.error).toContain('Solo is free forever');
+  });
+
+  it('enforces 1 seat limit on an unsubscribed trial clinic without writing any subscription', async () => {
+    const request = (await import('supertest')).default;
+    const { app } = await import('../server.ts');
+
+    // Register a fresh owner (no subscription written — resolves naturally to trial)
+    const ownerName = `Dr. Trial Owner ${Math.random().toString(36).substring(7)}`;
+    const ownerReg = await request(app)
+      .post('/api/auth/register')
+      .send({ name: ownerName, specialty: 'General Dentistry', pin: '5192' });
+    expect(ownerReg.status).toBe(201);
+    const ownerToken = ownerReg.body.token;
+
+    const ownerClinics = await request(app)
+      .get('/api/clinics/mine')
+      .set('Authorization', `Bearer ${ownerToken}`);
+    const clinicId = ownerClinics.body[0].clinicId;
+    const inviteCode = ownerClinics.body[0].inviteCode;
+
+    // Colleague attempts to join
+    const colleagueName = `Dr. Trial Colleague ${Math.random().toString(36).substring(7)}`;
+    const colleagueReg = await request(app)
+      .post('/api/auth/register')
+      .send({ name: colleagueName, specialty: 'General Dentistry', pin: '4921', inviteCode });
+    expect(colleagueReg.status).toBe(201);
+    const colleagueId = colleagueReg.body.dentist.id;
+
+    // Owner attempts to approve colleague on Trial plan (already 1 active member = owner)
+    const approveRes = await request(app)
+      .post(`/api/clinics/${clinicId}/members/${colleagueId}/approve`)
+      .set('Authorization', `Bearer ${ownerToken}`);
+
+    // Must be blocked because trial is 1 seat!
+    expect(approveRes.status).toBe(409);
+    expect(approveRes.body.code).toBe('SEAT_LIMIT_REACHED');
+    expect(approveRes.body.seats).toBe(1);
   });
 });

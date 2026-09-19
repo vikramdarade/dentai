@@ -443,9 +443,16 @@ export interface BillingRoutesDeps {
 /** Owner-only helper shared by the billing routes. */
 async function ownedClinic(
   deps: BillingRoutesDeps,
-  dentistId: string
+  dentistId: string,
+  preferredClinicId?: string
 ): Promise<{ clinicId: string; clinicName?: string } | null> {
   const memberships = await deps.membershipsFor(dentistId);
+  if (preferredClinicId) {
+    const matched = memberships.find(
+      (m) => m.clinicId === preferredClinicId && m.role === 'owner' && m.status === 'active'
+    );
+    if (matched) return { clinicId: matched.clinicId, clinicName: matched.clinicName };
+  }
   const owned = memberships.find((m) => m.role === 'owner' && m.status === 'active');
   return owned ? { clinicId: owned.clinicId, clinicName: owned.clinicName } : null;
 }
@@ -458,7 +465,8 @@ export function registerBillingRoutes(app: any, deps: BillingRoutesDeps): void {
 
   app.get('/api/billing/status', deps.authenticate, async (req: any, res: any) => {
     try {
-      const clinic = await ownedClinic(deps, req.dentist.id);
+      const preferredClinicId = (req.query?.clinicId as string) || undefined;
+      const clinic = await ownedClinic(deps, req.dentist.id, preferredClinicId);
       if (!clinic) {
         return res.status(403).json({
           error: 'Only the practice owner can view billing.',
@@ -483,7 +491,8 @@ export function registerBillingRoutes(app: any, deps: BillingRoutesDeps): void {
 
   app.post('/api/billing/checkout', deps.authenticate, async (req: any, res: any) => {
     try {
-      const clinic = await ownedClinic(deps, req.dentist.id);
+      const preferredClinicId = (req.body?.clinicId as string) || undefined;
+      const clinic = await ownedClinic(deps, req.dentist.id, preferredClinicId);
       if (!clinic) {
         return res.status(403).json({
           error: 'Only the practice owner can start a subscription.',
@@ -498,45 +507,46 @@ export function registerBillingRoutes(app: any, deps: BillingRoutesDeps): void {
       }
       if (!stripeKey) {
         return res.status(503).json({
-          error:
-            'Card payments are not enabled on this deployment yet. Contact support and we will invoice the practice directly.',
-          code: 'BILLING_NOT_CONFIGURED',
+          error: 'Online checkout is not configured on this deployment. Please contact support.',
+          code: 'STRIPE_NOT_CONFIGURED',
         });
       }
 
-      const definition = PLANS[plan];
-      const origin = `${req.protocol}://${req.get('host')}`;
-      const body = new URLSearchParams();
-      body.set('mode', 'subscription');
-      body.set('success_url', `${origin}/#/billing?status=success`);
-      body.set('cancel_url', `${origin}/#/billing?status=cancelled`);
-      body.set('client_reference_id', clinic.clinicId);
-      body.set('metadata[clinicId]', clinic.clinicId);
-      body.set('subscription_data[metadata][clinicId]', clinic.clinicId);
-      body.set('subscription_data[metadata][plan]', plan);
-      body.set('line_items[0][quantity]', '1');
-      body.set('line_items[0][price_data][currency]', 'aud');
-      body.set('line_items[0][price_data][unit_amount]', String(definition.monthlyAudExGst * 100));
-      body.set('line_items[0][price_data][recurring][interval]', 'month');
-      body.set('line_items[0][price_data][product_data][name]', `DentAI ${definition.name} Plan`);
-      body.set(
+      // Live Stripe Checkout Session creation via native fetch
+      const origin = req.headers.origin || `http://localhost:${process.env.PORT || 3000}`;
+      const params = new URLSearchParams();
+      params.append('mode', 'subscription');
+      params.append('payment_method_types[0]', 'card');
+      params.append('line_items[0][price_data][currency]', 'aud');
+      params.append('line_items[0][price_data][product_data][name]', 'DentAI Practice Plan');
+      params.append(
         'line_items[0][price_data][product_data][description]',
-        `${definition.seats} clinician seat(s), ${definition.dailyNotes} AI notes/day, priority queue, recall worklist`
+        'Up to 6 clinician seats, priority queue, team recall worklist, 7-year retention'
       );
+      params.append('line_items[0][price_data][unit_amount]', '14900'); // A$149.00
+      params.append('line_items[0][price_data][recurring][interval]', 'month');
+      params.append('line_items[0][quantity]', '1');
+      params.append('success_url', `${origin}/#/billing?status=success&session_id={CHECKOUT_SESSION_ID}`);
+      params.append('cancel_url', `${origin}/#/billing?status=cancelled`);
+      params.append('client_reference_id', clinic.clinicId);
+      params.append('metadata[clinic_id]', clinic.clinicId);
+      params.append('metadata[dentist_id]', req.dentist.id);
+      params.append('metadata[plan]', plan);
 
-      const response = await fetchImpl('https://api.stripe.com/v1/checkout/sessions', {
+      const resp = await fetchImpl('https://api.stripe.com/v1/checkout/sessions', {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${stripeKey}`,
           'Content-Type': 'application/x-www-form-urlencoded',
         },
-        body,
+        body: params.toString(),
       });
-      const payload: any = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        deps.logger.error('Stripe checkout session creation failed.', undefined, {
-          status: response.status,
-          message: payload?.error?.message,
+
+      const payload = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        deps.logger.error('Stripe checkout session failed:', payload?.error?.message || payload, {
+          clinicId: clinic.clinicId,
+          status: resp.status,
         });
         return res.status(502).json({
           error: 'Could not start checkout with the payment provider. Please try again shortly.',
@@ -556,10 +566,11 @@ export function registerBillingRoutes(app: any, deps: BillingRoutesDeps): void {
 
   app.post('/api/billing/portal', deps.authenticate, async (req: any, res: any) => {
     try {
-      const clinic = await ownedClinic(deps, req.dentist.id);
+      const preferredClinicId = (req.body?.clinicId as string) || undefined;
+      const clinic = await ownedClinic(deps, req.dentist.id, preferredClinicId);
       if (!clinic) {
         return res.status(403).json({
-          error: 'Only the practice owner can manage billing and view tax invoices.',
+          error: 'Only the practice owner can manage billing and view receipts.',
           code: 'OWNER_REQUIRED',
         });
       }

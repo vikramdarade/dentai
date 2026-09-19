@@ -230,23 +230,21 @@ export function receiptEmail(params: {
   invoiceUrl?: string;
   abn?: string;
 }): RenderedEmail {
-  const abn = params.abn || '83 671 294 102';
-  const exGst = params.amountAud;
-  const gst = exGst * 0.10;
-  const totalIncGst = exGst + gst;
+  const abn = params.abn || process.env.DENTAI_ABN || '';
+  const header = abn ? `PAYMENT RECEIPT — DentAI (ABN: ${abn})` : 'PAYMENT RECEIPT — DentAI';
 
   const paragraphs = [
-    `TAX INVOICE / RECEIPT — DentAI Pty Ltd (ABN: ${abn})`,
+    header,
     `Customer: ${params.practiceName}`,
     `Subscription: ${params.planName} Plan (current period ends ${params.periodEnd})`,
-    `Subtotal: A$${exGst.toFixed(2)} (ex GST)\nGST (10%): A$${gst.toFixed(2)}\nTotal Paid: A$${totalIncGst.toFixed(2)} (inc GST)`,
-    'This tax invoice confirms payment. For company accounting or BAS lodgement records, download the official tax invoice below.',
+    `Total Paid: A$${params.amountAud.toFixed(2)} AUD`,
+    'This receipt confirms your monthly subscription payment. You can view past payments or update billing details anytime via the practice billing portal.',
   ];
   return {
-    subject: `TAX INVOICE — DentAI ${params.planName} for ${params.practiceName}`,
-    text: paragraphs.join('\n\n') + (params.invoiceUrl ? `\n\nInvoice: ${params.invoiceUrl}` : ''),
-    html: layout('Tax Invoice & Payment Received', paragraphs, params.invoiceUrl
-      ? { label: 'View Official Tax Invoice', url: params.invoiceUrl }
+    subject: `Payment Receipt — DentAI ${params.planName} for ${params.practiceName}`,
+    text: paragraphs.join('\n\n') + (params.invoiceUrl ? `\n\nReceipt: ${params.invoiceUrl}` : ''),
+    html: layout('Payment Receipt', paragraphs, params.invoiceUrl
+      ? { label: 'View Receipt in Stripe', url: params.invoiceUrl }
       : undefined),
   };
 }

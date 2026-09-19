@@ -2398,9 +2398,6 @@ VERIFICATION: Fully verified from patient conversation
                 <ChairsideOdontogram
                   transcriptText={activeEncounter.diarizedTranscript?.map(t => t.text).join(' ') || ''}
                   findingsText={`${activeEncounter.soap?.objective || ''} ${activeEncounter.soap?.assessment || ''}`}
-                  onSelectTooth={(fdi) => {
-                    handleAppendTranscriptText(`Tooth ${fdi}: `, 'Dentist');
-                  }}
                 />
 
                 {/* Split Stage: Ambient Transcription Feed (Left) & Clinical Note (Right) */}
@@ -2564,14 +2561,14 @@ VERIFICATION: Fully verified from patient conversation
                               Saved to Chart
                             </span>
                           ) : null}
-                          <span className="bg-[#E6F6F4] text-[#00A389] text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-[#00A389]/20 flex items-center gap-1 shadow-2xs">
-                            <Check className="w-3 h-3 text-[#00A389]" />
-                            Verified from Audio
+                          <span className="bg-[#E6F6F4] text-[#007A66] text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-[#00A389]/20 flex items-center gap-1 shadow-2xs">
+                            <Check className="w-3 h-3 text-[#007A66]" />
+                            Transcribed from Audio
                           </span>
                         </div>
                       </div>
                       <p className="text-[11px] text-slate-500 font-medium flex items-center gap-1.5">
-                        <span className="w-1.5 h-1.5 rounded-full bg-[#00A389]" />
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#007A66]" />
                         Audio synced • Click any section below to edit directly
                       </p>
 
