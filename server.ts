@@ -278,7 +278,7 @@ import {
 } from './src/server/configCheck';
 import { createAlerter, thresholdsFromEnv } from './src/server/alerting';
 import { runRetentionSweep, type RetentionSweepResult } from './src/server/retention';
-import { createTranscriptValidation } from './src/server/payloadValidation';
+import { createTranscriptValidation, clinicalHorizonFilter } from './src/server/payloadValidation';
 
 // Credential change and "sign out every device". Registered here so they are
 // the authoritative handlers for those paths (Express routes to the first
@@ -897,6 +897,7 @@ async function getTokensUsedToday(scopeId: string): Promise<number> {
  * they must also hold on the legacy CLINICAL_AI_CONFIG path.
  */
 function buildNotePrompt(intakeData: any, templateName: string, transcript: any[]): string {
+  const effectiveTranscript = clinicalHorizonFilter(transcript);
   return `
 === PATIENT INTAKE DATA ===
 First Name: ${intakeData.firstName}
@@ -921,7 +922,7 @@ documentation error: capture everything that WAS said. Leave a section empty onl
 when the encounter genuinely does not support it.
 
 === CLINICAL SESSION TRANSCRIPT ===
-${transcript.map((t: any) => `${t.sender}: ${t.text}`).join('\n')}
+${effectiveTranscript.map((t: any) => `${t.sender}: ${t.text}`).join('\n')}
 `;
 }
 
@@ -1303,8 +1304,8 @@ app.post('/api/notes/jobs', authenticateToken, async (req: any, res: express.Res
     if (transcript.length === 0) {
       return res.status(400).json({ error: 'Transcript is empty — record or type dialogue first.' });
     }
-    if (transcript.length > 200) {
-      return res.status(400).json({ error: 'Transcript contains too many entries (maximum 200 items).' });
+    if (transcript.length > 5000) {
+      return res.status(400).json({ error: 'Transcript contains too many entries (maximum 5,000 items).' });
     }
     const resolved = resolveNoteTemplate(intakeData);
     if (resolved.error) {
@@ -1336,17 +1337,18 @@ app.post('/api/notes/jobs', authenticateToken, async (req: any, res: express.Res
     // duplicate with a different id.
     const isUuid = (v: unknown): v is string =>
       typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
-    const job: JobRecord = {
-      id: isUuid(consultationId) ? consultationId : crypto.randomUUID(),
-      dentistId: req.dentist.id,
-      clinicId: scopeId,
-      priority: priorityForAppointmentType(intakeData.appointmentType),
-      status: 'queued',
-      attempts: 0,
-      payload: { intakeData, transcript, consentObtained, consentCapturedAt, consentPractitionerId },
-      createdAt: new Date().toISOString(),
-      nextAttemptAt: null
-    };
+      const effectiveTranscript = clinicalHorizonFilter(transcript);
+      const job: JobRecord = {
+        id: isUuid(consultationId) ? consultationId : crypto.randomUUID(),
+        dentistId: req.dentist.id,
+        clinicId: scopeId,
+        priority: priorityForAppointmentType(intakeData.appointmentType),
+        status: 'queued',
+        attempts: 0,
+        payload: { intakeData, transcript: effectiveTranscript, consentObtained, consentCapturedAt, consentPractitionerId },
+        createdAt: new Date().toISOString(),
+        nextAttemptAt: null
+      };
 
     if (dbEnabled) {
       await dbInsertNoteJob({
@@ -3912,9 +3914,9 @@ app.post('/api/generate-notes', authenticateToken, async (req: express.Request, 
       return res.status(400).json({ error: 'Appointment type must be one of: examination, scale_clean, emergency, restorative, endodontic, surgical, prosthodontic, paediatric.' });
     }
 
-    // Transcript validation: max 200 items, each item must have sender and text
-    if (transcript.length > 200) {
-      return res.status(400).json({ error: 'Transcript contains too many entries (maximum 200 items).' });
+    // Transcript validation: max 5,000 items, each item must have sender and text
+    if (transcript.length > 5000) {
+      return res.status(400).json({ error: 'Transcript contains too many entries (maximum 5,000 items).' });
     }
 
     for (let i = 0; i < transcript.length; i++) {

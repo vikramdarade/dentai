@@ -119,7 +119,7 @@ describe('Payload boundaries', () => {
       .set('Authorization', `Bearer ${token}`)
       .send({
         intakeData: { firstName: 'A', lastName: 'B', dob: '1980-01-01', appointmentType: 'examination' },
-        transcript: Array.from({ length: 500 }, (_, i) => ({ sender: 'Patient', text: `line ${i}` })),
+        transcript: Array.from({ length: 5001 }, (_, i) => ({ sender: 'Patient', text: `line ${i}` })),
       });
     expect([400, 429]).toContain(res.status);
   });

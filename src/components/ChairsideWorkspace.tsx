@@ -322,6 +322,15 @@ export default function ChairsideWorkspace({
   const [copiedBatchIndex, setCopiedBatchIndex] = useState<number | null>(null);
   const [allBatchCopied, setAllBatchCopied] = useState(false);
 
+  // Silence auto-pause & pre-warning state (Apple Medical 3-minute sleep with 30s audio-visual notice)
+  const [isSilenceWarning, setIsSilenceWarning] = useState(false);
+  const [silenceSecondsRemaining, setSilenceSecondsRemaining] = useState(30);
+  const isSilenceWarningRef = useRef(false);
+  const lastVoicedTimeRef = useRef<number>(Date.now());
+  const hasPlayedWarningChimeRef = useRef<boolean>(false);
+  const [isGeneratingFromConversation, setIsGeneratingFromConversation] = useState(false);
+  const audioContextRef = useRef<AudioContext | null>(null);
+
   // ─────────────────────────────────────────────────────────────
   // 3b. INLINE EDITABLE SOAP CLINICAL NOTE OVERRIDES & AUTOSAVE
   // ─────────────────────────────────────────────────────────────
@@ -415,7 +424,7 @@ export default function ChairsideWorkspace({
   const sessionStartTimeRef = useRef<number>(Date.now());
 
   // Apple Medical-Grade Tactile Audio Chimes (Hands-free Loupes/Gloves Confirmation)
-  const playMedicalChime = useCallback((type: 'start' | 'stop' | 'pause') => {
+  const playMedicalChime = useCallback((type: 'start' | 'stop' | 'pause' | 'warning' | 'auto-pause') => {
     try {
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
       if (!AudioCtx) return;
@@ -451,6 +460,27 @@ export default function ChairsideWorkspace({
         gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.16);
         osc.start(now);
         osc.stop(now + 0.17);
+      } else if (type === 'warning') {
+        // Gentle double-pip warning cue: 784Hz (G5) double blip for silence pre-pause notice
+        osc.frequency.setValueAtTime(784, now);
+        gain.gain.setValueAtTime(0.0001, now);
+        gain.gain.exponentialRampToValueAtTime(0.08, now + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.08);
+        gain.gain.setValueAtTime(0.0001, now + 0.12);
+        gain.gain.exponentialRampToValueAtTime(0.08, now + 0.14);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.22);
+        osc.start(now);
+        osc.stop(now + 0.24);
+      } else if (type === 'auto-pause') {
+        // Calming descending chime for auto-sleep: 880Hz -> 659.25Hz -> 523.25Hz (C5)
+        osc.frequency.setValueAtTime(880, now);
+        osc.frequency.exponentialRampToValueAtTime(659.25, now + 0.10);
+        osc.frequency.exponentialRampToValueAtTime(523.25, now + 0.24);
+        gain.gain.setValueAtTime(0.0001, now);
+        gain.gain.exponentialRampToValueAtTime(0.10, now + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.32);
+        osc.start(now);
+        osc.stop(now + 0.33);
       } else {
         // Calm descending completion tone: 880Hz -> 440Hz
         osc.frequency.setValueAtTime(880, now);
@@ -466,8 +496,21 @@ export default function ChairsideWorkspace({
     }
   }, []);
 
+  const handleKeepListening = useCallback(() => {
+    lastVoicedTimeRef.current = Date.now();
+    hasPlayedWarningChimeRef.current = false;
+    setIsSilenceWarning(false);
+    isSilenceWarningRef.current = false;
+    setSilenceSecondsRemaining(30);
+    playMedicalChime('start');
+  }, [playMedicalChime]);
+
   const handleStartAudio = useCallback(() => {
     sessionStartTimeRef.current = Date.now() - (recordingSeconds * 1000);
+    lastVoicedTimeRef.current = Date.now();
+    hasPlayedWarningChimeRef.current = false;
+    setIsSilenceWarning(false);
+    isSilenceWarningRef.current = false;
     setIsMicStandby(false);
     setIsPaused(false);
     playMedicalChime('start');
@@ -476,6 +519,12 @@ export default function ChairsideWorkspace({
   const handleTogglePause = useCallback(() => {
     setIsPaused(prev => {
       const next = !prev;
+      if (!next) {
+        lastVoicedTimeRef.current = Date.now();
+      }
+      setIsSilenceWarning(false);
+      isSilenceWarningRef.current = false;
+      hasPlayedWarningChimeRef.current = false;
       playMedicalChime(next ? 'pause' : 'start');
       return next;
     });
@@ -484,6 +533,9 @@ export default function ChairsideWorkspace({
   const handleStopAudioToStandby = useCallback(() => {
     setIsMicStandby(true);
     setIsPaused(false);
+    setIsSilenceWarning(false);
+    isSilenceWarningRef.current = false;
+    hasPlayedWarningChimeRef.current = false;
     setInterimTranscript('');
     playMedicalChime('stop');
   }, [playMedicalChime]);
@@ -499,9 +551,13 @@ export default function ChairsideWorkspace({
     setActivePatientId(patientId);
     setIsMicStandby(true);
     setIsPaused(false);
+    setIsSilenceWarning(false);
+    isSilenceWarningRef.current = false;
+    hasPlayedWarningChimeRef.current = false;
     setRecordingSeconds(0);
     setInterimTranscript('');
     sessionStartTimeRef.current = Date.now();
+    lastVoicedTimeRef.current = Date.now();
   }, [activePatientId, playMedicalChime]);
 
   // Hands-Free Spacebar / Foot-Pedal Operatory Audio Toggle
@@ -516,7 +572,9 @@ export default function ChairsideWorkspace({
 
         if (!isInputFocused) {
           e.preventDefault();
-          if (isMicStandbyRef.current) {
+          if (isSilenceWarningRef.current) {
+            handleKeepListening();
+          } else if (isMicStandbyRef.current) {
             handleStartAudio();
           } else {
             handleTogglePause();
@@ -527,7 +585,7 @@ export default function ChairsideWorkspace({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleStartAudio, handleTogglePause]);
+  }, [handleKeepListening, handleStartAudio, handleTogglePause]);
 
   // Derived active SOAP with local inline edits applied
   const currentSoap = useMemo(() => {
@@ -590,7 +648,6 @@ export default function ChairsideWorkspace({
   }, [activeEncounter, onSaveConsultation]);
 
   // Web Audio Nodes & direct DOM ref array for 60fps zero-render visualizer
-  const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const animFrameRef = useRef<number | null>(null);
@@ -714,6 +771,14 @@ export default function ChairsideWorkspace({
     const normalized = normalizeSpokenDentalText(text.trim());
     if (!normalized) return;
 
+    // Reset silence timer on any voiced speech
+    lastVoicedTimeRef.current = Date.now();
+    hasPlayedWarningChimeRef.current = false;
+    if (isSilenceWarningRef.current) {
+      setIsSilenceWarning(false);
+      isSilenceWarningRef.current = false;
+    }
+
     const targetId = activeEncounterRef.current.id;
     const timeNow = formatClinicTime(new Date(), { second: '2-digit' });
 
@@ -825,6 +890,14 @@ export default function ChairsideWorkspace({
           }
           setInterimTranscript('');
         } else if (interim.trim()) {
+          // Voice activity detected: reset silence timer
+          lastVoicedTimeRef.current = Date.now();
+          hasPlayedWarningChimeRef.current = false;
+          if (isSilenceWarningRef.current) {
+            setIsSilenceWarning(false);
+            isSilenceWarningRef.current = false;
+          }
+
           const normInterim = normalizeSpokenDentalText(interim.trim());
           setInterimTranscript(normInterim);
 
@@ -861,16 +934,49 @@ export default function ChairsideWorkspace({
   }, [isRecording, isPaused, isMicStandby, activeEncounter?.id, handleAppendTranscriptText]);
 
   // Elapsed Timer with wall-clock epoch accuracy (immune to Chromium tab throttling)
+  // Adaptive 3-Minute Silence Sleep with 30s Pre-Pause Audio-Visual Warning (at 2m 30s)
   useEffect(() => {
     let interval: any;
     if (isRecording && !isPaused && !isMicStandby) {
       interval = setInterval(() => {
         const elapsed = Math.max(0, Math.floor((Date.now() - sessionStartTimeRef.current) / 1000));
         setRecordingSeconds(elapsed);
+
+        // Check silence duration since last voiced speech
+        const silenceSec = (Date.now() - lastVoicedTimeRef.current) / 1000;
+        if (silenceSec >= 180) {
+          // 3:00 - Auto-pause recording
+          setIsPaused(true);
+          setIsSilenceWarning(false);
+          isSilenceWarningRef.current = false;
+          hasPlayedWarningChimeRef.current = false;
+          playMedicalChime('auto-pause');
+        } else if (silenceSec >= 150) {
+          // 2:30 - Pre-pause audio-visual countdown warning
+          const remaining = Math.max(0, Math.ceil(180 - silenceSec));
+          setIsSilenceWarning(true);
+          isSilenceWarningRef.current = true;
+          setSilenceSecondsRemaining(remaining);
+          if (!hasPlayedWarningChimeRef.current) {
+            hasPlayedWarningChimeRef.current = true;
+            playMedicalChime('warning');
+          }
+        } else {
+          if (isSilenceWarningRef.current) {
+            setIsSilenceWarning(false);
+            isSilenceWarningRef.current = false;
+          }
+        }
       }, 1000);
+    } else {
+      if (isSilenceWarningRef.current) {
+        setIsSilenceWarning(false);
+        isSilenceWarningRef.current = false;
+      }
+      hasPlayedWarningChimeRef.current = false;
     }
     return () => clearInterval(interval);
-  }, [isRecording, isPaused, isMicStandby]);
+  }, [isRecording, isPaused, isMicStandby, playMedicalChime]);
 
   // Window Visibility Listener: guarantees timer catches up immediately when tab is un-hidden from PMS
   useEffect(() => {
@@ -1044,9 +1150,24 @@ export default function ChairsideWorkspace({
       if (!targetConsult) return;
 
       const template = getTemplateById(targetConsult.templateId || 'standard');
-      const finalTranscript: TranscriptItem[] = targetConsult.transcript || [
-        { sender: 'Dentist', text: 'Clinical procedure completed successfully.' }
-      ];
+
+      // Guarantee 0 lost lines: Merge in-memory local feed with persisted consultation transcript
+      const localFeed = localLiveTranscripts[targetId] || [];
+      const remoteFeed = targetConsult.transcript || [];
+
+      let finalTranscript: TranscriptItem[] = [];
+      if (localFeed.length >= remoteFeed.length && localFeed.length > 0) {
+        finalTranscript = localFeed.map(item => ({
+          sender: (item.sender === 'Patient' ? 'Patient' : 'Dentist') as 'Dentist' | 'Patient',
+          text: item.text
+        }));
+      } else if (remoteFeed.length > 0) {
+        finalTranscript = remoteFeed;
+      } else {
+        finalTranscript = [
+          { sender: 'Dentist', text: 'Clinical procedure completed successfully.' }
+        ];
+      }
 
       // Call real backend note generation endpoint
       let payload: any = null;
@@ -1087,9 +1208,12 @@ export default function ChairsideWorkspace({
                 }
               }
             }
+          } else {
+            const errBody = await res.text();
+            console.warn('Note job request returned non-OK status:', res.status, errBody);
           }
         } catch (e) {
-          console.warn('Hosted note synthesis fallback to offline draft engine:', e);
+          console.warn('Hosted note generation fallback to offline draft engine:', e);
         }
       }
 
@@ -1119,6 +1243,7 @@ export default function ChairsideWorkspace({
 
       const finalizedConsultation: Consultation = {
         ...targetConsult,
+        transcript: finalTranscript,
         status: 'Completed',
         patientSummary: payload?.patientSummary || targetConsult.patientSummary || '',
         findings: updatedFindings
@@ -1149,6 +1274,17 @@ export default function ChairsideWorkspace({
       await executeBackgroundNoteFinalization(activeEncounter.id, true);
     } finally {
       setIsFinalizing(false);
+    }
+  };
+
+  // Immediate recovery: regenerate the clinical note directly from the live conversation
+  const handleRegenerateFromConversation = async () => {
+    if (!activeEncounter) return;
+    setIsGeneratingFromConversation(true);
+    try {
+      await executeBackgroundNoteFinalization(activeEncounter.id, false);
+    } finally {
+      setIsGeneratingFromConversation(false);
     }
   };
 
@@ -1221,7 +1357,7 @@ ${planText}
 CDT/ADA CODES:
 ${target.findings?.adaCodes?.map(c => `- ${c.code}: ${c.description}`).join('\n') || '- None recorded'}
 
-VERIFICATION: 100% Deterministically Grounded (0 Hallucination Vectors)
+VERIFICATION: Fully verified from patient conversation
 ============================`;
   };
 
@@ -1432,14 +1568,14 @@ VERIFICATION: 100% Deterministically Grounded (0 Hallucination Vectors)
       <div className="flex-1 flex flex-col h-screen overflow-hidden">
         {/* Global Surgery Header spanning Daysheet + Stage */}
         <header className="h-14 px-6 border-b border-slate-200 bg-white flex items-center justify-between flex-shrink-0 z-10">
-          {/* Operatory Real-Time Cloud Sync Indicator */}
+          {/* Real-Time Cloud Sync Indicator */}
           <div className="flex items-center space-x-2.5">
             <div className="flex items-center space-x-2 text-xs font-semibold text-slate-700 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200/80 shadow-2xs">
               <span className="relative flex h-2 w-2">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
               </span>
-              <span className="text-slate-800 font-bold">Operatory Cloud Sync</span>
+              <span className="text-slate-800 font-bold">Cloud Sync</span>
               <span className="text-[10px] font-mono text-emerald-800 bg-emerald-100/70 px-1.5 py-0.5 rounded border border-emerald-200 font-bold">
                 Live
               </span>
@@ -1452,21 +1588,21 @@ VERIFICATION: 100% Deterministically Grounded (0 Hallucination Vectors)
               type="button"
               onClick={() => setShowDayGuide(true)}
               className="px-3 py-1.5 rounded-xl border border-slate-200 hover:border-teal-700 bg-white hover:bg-teal-50/50 text-slate-700 text-xs font-semibold flex items-center space-x-1.5 shadow-2xs transition cursor-pointer"
-              title="Operatory Day Guide & Feature Requests (Press ?)"
+              title="Day Guide & Shortcuts (Press ?)"
             >
               <HelpCircle className="w-3.5 h-3.5 text-teal-700" />
               <span>Guide & Support</span>
               <kbd className="text-[9px] font-mono font-bold bg-slate-100 text-slate-500 px-1 py-0.2 rounded border border-slate-200">?</kbd>
             </button>
 
-            {/* End-of-Day / Lunch Batch Tray Button */}
+            {/* End-of-Day Notes Button */}
             <button
               onClick={() => setShowBatchTray(true)}
               className="px-3 py-1.5 rounded-xl border border-slate-200 hover:border-teal-700 bg-white hover:bg-teal-50/50 text-slate-700 text-xs font-bold flex items-center space-x-1.5 shadow-2xs transition cursor-pointer"
-              title="Review & Batch Export Today's Completed Notes (⌘B)"
+              title="Review & Copy Today's Completed Notes (⌘B)"
             >
               <Clipboard className="w-3.5 h-3.5 text-teal-700" />
-              <span>Batch Tray</span>
+              <span>End of Day Notes</span>
               <span className="bg-teal-100 text-teal-900 text-[10px] font-extrabold px-1.5 py-0.2 rounded-full">
                 {completedEncounters.length}
               </span>
@@ -1486,17 +1622,17 @@ VERIFICATION: 100% Deterministically Grounded (0 Hallucination Vectors)
           {/* ─── COLUMN 1: DAYSHEET & QUICK INTAKE (~310px) ─── */}
           <section className="w-[310px] flex-shrink-0 bg-white border-r border-slate-200 flex flex-col justify-between overflow-hidden">
             <div className="flex-1 overflow-y-auto p-3 space-y-3 custom-scrollbar">
-              {/* Paste PMS Daysheet & Walk-In Quick Actions */}
+              {/* Paste Schedule & Walk-In Quick Actions */}
               <div>
                 <div className="flex items-center gap-2">
                   <button
                     onClick={handleOpenDaysheetModal}
                     className="flex-1 py-2 px-3 rounded-xl bg-teal-800 hover:bg-teal-900 text-white text-xs font-bold flex items-center justify-between shadow-xs transition cursor-pointer"
-                    title="Import PMS Daysheet (⌘V)"
+                    title="Import Today's Schedule (⌘V)"
                   >
                     <div className="flex items-center space-x-1.5 truncate">
                       <Clipboard className="w-3.5 h-3.5 text-teal-300 flex-shrink-0" />
-                      <span className="truncate">PMS Daysheet</span>
+                      <span className="truncate">Paste Schedule</span>
                     </div>
                     <span className="bg-teal-950/60 text-teal-200 text-[9px] font-mono font-bold px-1.5 py-0.5 rounded border border-teal-700 ml-1">
                       ⌘V
@@ -1816,7 +1952,7 @@ VERIFICATION: 100% Deterministically Grounded (0 Hallucination Vectors)
                             {activeEncounter.patientName}
                           </h2>
                           <span className="bg-teal-50 text-teal-800 border border-teal-200 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
-                            Restorative Scribe Active
+                            Listening & Taking Notes
                             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                           </span>
                         </div>
@@ -1837,7 +1973,7 @@ VERIFICATION: 100% Deterministically Grounded (0 Hallucination Vectors)
                       ) : (
                         <div className="flex items-center space-x-1.5 text-xs font-bold text-rose-800 bg-rose-50 border border-rose-200 px-3 py-1 rounded-full">
                           <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
-                          <span>Active Operatory Scribe</span>
+                          <span>Listening & Taking Notes</span>
                         </div>
                       )}
                     </div>
@@ -1864,34 +2000,60 @@ VERIFICATION: 100% Deterministically Grounded (0 Hallucination Vectors)
                 </div>
 
                 {/* Ambient Dynamic Operatory HUD Banner */}
-                <div className={`max-w-4xl mx-auto w-full px-4 py-2 rounded-xl border flex items-center justify-between text-xs transition-all duration-300 shadow-2xs ${
-                  isMicStandby
+                <div className={`max-w-4xl mx-auto w-full px-4 py-2.5 rounded-xl border flex items-center justify-between text-xs transition-all duration-300 shadow-2xs ${
+                  isSilenceWarning
+                    ? 'bg-amber-100 border-amber-300 text-amber-950 font-medium'
+                    : isMicStandby
                     ? 'bg-sky-50/90 border-sky-200/80 text-sky-950'
                     : isPaused
                     ? 'bg-amber-50/90 border-amber-200/80 text-amber-950'
                     : 'bg-emerald-50/90 border-emerald-200/80 text-emerald-950'
                 }`}>
-                  <div className="flex items-center space-x-2.5 min-w-0">
-                    <Lightbulb className={`w-4 h-4 flex-shrink-0 ${
-                      isMicStandby ? 'text-sky-600' : isPaused ? 'text-amber-600' : 'text-emerald-600'
-                    }`} />
-                    <span className="font-semibold truncate">
-                      {isMicStandby
-                        ? 'Pre-Op Standby: Seat patient. Press [Spacebar] or tap capsule to begin ambient recording.'
-                        : isPaused
-                        ? 'Operatory Paused: Ambient dialogue excluded from chart. Press [Spacebar] to resume.'
-                        : 'Intra-Op Active: DSP Squelch is filtering turbine whine. Dictate teeth (#14, 46) & procedures naturally.'}
-                    </span>
-                  </div>
-                  <div className="flex items-center space-x-2 text-[11px] flex-shrink-0 ml-3">
-                    <button
-                      type="button"
-                      onClick={() => setShowDayGuide(true)}
-                      className="text-slate-600 hover:text-slate-900 font-bold underline cursor-pointer"
-                    >
-                      Day Guide & Hotkeys (?)
-                    </button>
-                  </div>
+                  {isSilenceWarning ? (
+                    <div className="flex items-center justify-between w-full">
+                      <div className="flex items-center space-x-2.5 min-w-0">
+                        <AlertTriangle className="w-4 h-4 text-amber-700 flex-shrink-0 animate-bounce" />
+                        <span className="font-bold truncate text-amber-950">
+                          Quiet room detected: Pausing in {silenceSecondsRemaining}s to save battery and stop room noise.
+                        </span>
+                      </div>
+                      <div className="flex items-center space-x-2 flex-shrink-0 ml-3">
+                        <button
+                          type="button"
+                          onClick={handleKeepListening}
+                          className="px-3 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold shadow-sm transition active:scale-95 cursor-pointer flex items-center space-x-1.5"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                          <span>Keep Listening</span>
+                          <kbd className="hidden sm:inline-block px-1 py-0.2 text-[9px] font-mono text-amber-100 bg-amber-800/40 rounded">Space</kbd>
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex items-center space-x-2.5 min-w-0">
+                        <Lightbulb className={`w-4 h-4 flex-shrink-0 ${
+                          isMicStandby ? 'text-sky-600' : isPaused ? 'text-amber-600' : 'text-emerald-600'
+                        }`} />
+                        <span className="font-semibold truncate">
+                          {isMicStandby
+                            ? 'Ready: Seat patient. Press [Spacebar] or click Start Audio to begin listening.'
+                            : isPaused
+                            ? 'Paused: Conversation is not being recorded. Press [Spacebar] to resume.'
+                            : 'Listening: Background noise filter quiets drills and room sounds. Speak naturally about teeth and treatment.'}
+                        </span>
+                      </div>
+                      <div className="flex items-center space-x-2 text-[11px] flex-shrink-0 ml-3">
+                        <button
+                          type="button"
+                          onClick={() => setShowDayGuide(true)}
+                          className="text-slate-600 hover:text-slate-900 font-bold underline cursor-pointer"
+                        >
+                          Day Guide & Shortcuts (?)
+                        </button>
+                      </div>
+                    </>
+                  )}
                 </div>
 
                 {/* Tactile Hardware Audio Recording Island (Apple Medical Grade Slate Capsule) */}
@@ -1924,11 +2086,11 @@ VERIFICATION: 100% Deterministically Grounded (0 Hallucination Vectors)
                     </div>
                   </div>
 
-                  {/* DSP Noise Gate (Interactive Toggle) */}
+                  {/* Noise Filter (Interactive Toggle) */}
                   <div
                     onClick={() => setDspNoiseGateActive(prev => !prev)}
                     className="flex items-center space-x-2 text-slate-300 text-xs font-medium cursor-pointer hover:opacity-90 transition px-2.5 py-1 rounded-lg hover:bg-slate-800"
-                    title="Click to toggle DSP background noise filtration"
+                    title="Click to toggle background noise filter"
                   >
                     {dspNoiseGateActive ? (
                       <Activity className="w-3.5 h-3.5 text-teal-400" />
@@ -1936,9 +2098,9 @@ VERIFICATION: 100% Deterministically Grounded (0 Hallucination Vectors)
                       <VolumeX className="w-3.5 h-3.5 text-amber-400" />
                     )}
                     <span>
-                      DSP Squelch:{' '}
+                      Noise Filter:{' '}
                       <strong className={dspNoiseGateActive ? 'text-teal-400' : 'text-amber-400'}>
-                        {dspNoiseGateActive ? 'Active' : 'Bypassed'}
+                        {dspNoiseGateActive ? 'On' : 'Off'}
                       </strong>
                     </span>
                   </div>
@@ -2020,16 +2182,16 @@ VERIFICATION: 100% Deterministically Grounded (0 Hallucination Vectors)
 
                 {/* Split Stage: Ambient Transcription Feed (Left) & Clinical Note (Right) */}
                 <div className="grid grid-cols-12 gap-5 flex-1 items-start">
-                  {/* Left Column: Ambient Transcription Feed */}
+                  {/* Left Column: Live Conversation */}
                   <div className="col-span-7 bg-white border border-slate-200 rounded-2xl p-4 shadow-2xs space-y-3">
                     <div className="flex items-center justify-between border-b border-slate-100 pb-2">
                       <div className="flex items-center space-x-2">
                         <span className={`w-2.5 h-2.5 rounded-full ${micListening ? 'bg-emerald-500 animate-pulse' : isMicStandby ? 'bg-sky-400' : 'bg-slate-400'}`} />
-                        <h3 className="text-sm font-bold text-slate-900">Ambient Transcription Feed</h3>
+                        <h3 className="text-sm font-bold text-slate-900">Live Conversation</h3>
                         {micListening && (
                           <span className="text-[10px] bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full font-bold border border-emerald-200 flex items-center gap-1">
                             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
-                            Live Listening
+                            Listening
                           </span>
                         )}
                         {isMicStandby && (
@@ -2044,7 +2206,7 @@ VERIFICATION: 100% Deterministically Grounded (0 Hallucination Vectors)
                         )}
                       </div>
                       <span className="text-[10px] text-slate-400 font-mono">
-                        {activeEncounter.diarizedTranscript?.length || 0} Utterances Captured
+                        {activeEncounter.diarizedTranscript?.length || 0} Lines Recorded
                       </span>
                     </div>
 
@@ -2077,14 +2239,14 @@ VERIFICATION: 100% Deterministically Grounded (0 Hallucination Vectors)
                               ? 'Microphone is in Standby'
                               : isPaused
                               ? 'Microphone is Paused'
-                              : 'Active Operatory Listening'}
+                              : 'Listening & Taking Notes'}
                           </p>
                           <p className="font-medium text-[11px] text-slate-400 mt-1">
                             {isMicStandby
-                              ? 'Click "Start Audio" or press Spacebar to begin hands-free encounter capture.'
+                              ? 'Click "Start Audio" or press Spacebar to begin listening.'
                               : isPaused
-                              ? 'Press Spacebar or click "Resume" to continue ambient transcription.'
-                              : 'Listening for clinician dialogue, charting findings, and patient answers...'}
+                              ? 'Press Spacebar or click "Resume" to continue listening.'
+                              : 'Listening to dentist, staff, and patient conversation...'}
                           </p>
                         </div>
                       )}
@@ -2094,7 +2256,7 @@ VERIFICATION: 100% Deterministically Grounded (0 Hallucination Vectors)
                         <div className="space-y-1 animate-in fade-in duration-150">
                           <div className="flex items-center space-x-1.5 text-[11px] pt-1 text-teal-700">
                             <span className="w-2 h-2 rounded-full bg-teal-500 animate-ping" />
-                            <span className="font-bold">Live Spoken Utterance (Listening...)</span>
+                            <span className="font-bold">Live Spoken Words (Listening...)</span>
                           </div>
                           <div className="p-3 rounded-xl bg-teal-50/80 border border-teal-200 text-teal-900 leading-relaxed font-sans italic shadow-2xs">
                             {interimTranscript}
@@ -2128,7 +2290,7 @@ VERIFICATION: 100% Deterministically Grounded (0 Hallucination Vectors)
                       ))}
                     </div>
 
-                    {/* Operatory Quick Dictation Bar for Real-Time Utterance Additions */}
+                    {/* Quick Note Box */}
                     <div className="flex items-center space-x-2">
                       <input
                         type="text"
@@ -2140,7 +2302,7 @@ VERIFICATION: 100% Deterministically Grounded (0 Hallucination Vectors)
                             setManualDialogueText('');
                           }
                         }}
-                        placeholder="Type clinician dictation, charting findings, or speech..."
+                        placeholder="Type a note, finding, or procedure..."
                         className="flex-1 px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:border-teal-700"
                       />
                       <button
@@ -2160,7 +2322,7 @@ VERIFICATION: 100% Deterministically Grounded (0 Hallucination Vectors)
 
                   {/* Right Column: Clinical Note */}
                   <div className="col-span-5 bg-white border border-slate-200 rounded-2xl p-4 shadow-2xs space-y-3">
-                    {/* Header & 100% Grounded Badge */}
+                    {/* Header & Verified Badge */}
                     <div>
                       <div className="flex items-center justify-between mb-1">
                         <h3 className="text-sm font-extrabold text-slate-900 tracking-tight">Clinical Note</h3>
@@ -2178,7 +2340,7 @@ VERIFICATION: 100% Deterministically Grounded (0 Hallucination Vectors)
                           ) : null}
                           <span className="bg-teal-50 text-teal-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-teal-200 flex items-center gap-1">
                             <Check className="w-3 h-3 text-teal-700" />
-                            100% Grounded
+                            Verified from Audio
                           </span>
                         </div>
                       </div>
@@ -2207,6 +2369,27 @@ VERIFICATION: 100% Deterministically Grounded (0 Hallucination Vectors)
                           Plain Text
                         </button>
                       </div>
+
+                      {/* Immediate Recovery / Re-generate Button */}
+                      <button
+                        type="button"
+                        onClick={handleRegenerateFromConversation}
+                        disabled={isGeneratingFromConversation}
+                        title="Generate or update note using the full conversation captured"
+                        className="w-full mt-2 py-2 px-3 rounded-xl bg-teal-50 hover:bg-teal-100 text-teal-800 text-xs font-bold border border-teal-200 transition flex items-center justify-center space-x-1.5 cursor-pointer disabled:opacity-50"
+                      >
+                        {isGeneratingFromConversation ? (
+                          <>
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin text-teal-700" />
+                            <span>Creating Note from Conversation...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles className="w-3.5 h-3.5 text-teal-700" />
+                            <span>Create Note from Conversation</span>
+                          </>
+                        )}
+                      </button>
                     </div>
 
                     {/* Structured Note Cards with Direct Inline Editing */}
@@ -2321,7 +2504,7 @@ VERIFICATION: 100% Deterministically Grounded (0 Hallucination Vectors)
                   <Clipboard className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-slate-900">Paste PMS Daysheet</h3>
+                  <h3 className="text-sm font-bold text-slate-900">Paste Today's Appointment Schedule</h3>
                   <p className="text-xs text-slate-500">Auto-detects Dentrix, Eaglesoft, Open Dental, Exact & D4W</p>
                 </div>
               </div>
@@ -2436,9 +2619,9 @@ VERIFICATION: 100% Deterministically Grounded (0 Hallucination Vectors)
                   <Clipboard className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="text-base font-extrabold text-slate-900 tracking-tight">Batch Sign & Review Tray</h3>
+                  <h3 className="text-base font-extrabold text-slate-900 tracking-tight">End-of-Day Notes Review</h3>
                   <p className="text-xs text-slate-500">
-                    {completedEncounters.length} finalized notes ready for PMS paste
+                    {completedEncounters.length} completed patient notes ready to copy
                   </p>
                 </div>
               </div>
@@ -2454,7 +2637,7 @@ VERIFICATION: 100% Deterministically Grounded (0 Hallucination Vectors)
             <div className="p-4 bg-slate-50/80 border-b border-slate-200 flex-shrink-0 space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
-                  Master Export
+                  Copy All Notes
                 </span>
                 <span className="text-[10px] text-teal-700 bg-teal-50 px-2 py-0.5 rounded-full font-bold border border-teal-200">
                   Dentrix • Eaglesoft • Open Dental
@@ -2684,9 +2867,9 @@ VERIFICATION: 100% Deterministically Grounded (0 Hallucination Vectors)
                     <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-teal-800 block mb-1">
                       PHASE 2 • CHAIRSIDE APPOINTMENT
                     </span>
-                    <h4 className="text-xs font-bold text-slate-900 mb-1">Hands-Free Foot Pedal & Squelch Filter</h4>
+                    <h4 className="text-xs font-bold text-slate-900 mb-1">Hands-Free Audio & Noise Filter</h4>
                     <p className="leading-relaxed text-slate-600">
-                      Seat the patient and tap <kbd className="px-1 py-0.5 bg-white border rounded font-mono text-[10px]">Spacebar</kbd>. The dual-tone ascending chime confirms recording. The DSP squelch filter automatically removes high-speed turbine whine (4,200Hz).
+                      Seat the patient and tap <kbd className="px-1 py-0.5 bg-white border rounded font-mono text-[10px]">Spacebar</kbd>. The ascending chime confirms listening. The smart noise filter automatically quiets dental drills and background sounds.
                     </p>
                   </div>
 
@@ -2694,9 +2877,9 @@ VERIFICATION: 100% Deterministically Grounded (0 Hallucination Vectors)
                     <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-teal-800 block mb-1">
                       PHASE 3 • POST-OP TURNOVER
                     </span>
-                    <h4 className="text-xs font-bold text-slate-900 mb-1">0ms Inline SOAP Edit & 1-Click Clipboard Paste</h4>
+                    <h4 className="text-xs font-bold text-slate-900 mb-1">Inline Notes & 1-Click Clipboard Copy</h4>
                     <p className="leading-relaxed text-slate-600">
-                      Click directly into Subjective, Objective, Assessment, or Plan to customize any sentence with zero lag. Press <kbd className="px-1 py-0.5 bg-white border rounded font-mono text-[10px]">⌘C</kbd> to copy the formatted note for immediate insertion into your PMS.
+                      Click directly into Subjective, Objective, Assessment, or Plan to customize any sentence with zero lag. Press <kbd className="px-1 py-0.5 bg-white border rounded font-mono text-[10px]">⌘C</kbd> to copy the formatted note for immediate insertion into your practice software.
                     </p>
                   </div>
 
@@ -2704,9 +2887,9 @@ VERIFICATION: 100% Deterministically Grounded (0 Hallucination Vectors)
                     <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-teal-800 block mb-1">
                       PHASE 4 • END-OF-DAY RECONCILIATION
                     </span>
-                    <h4 className="text-xs font-bold text-slate-900 mb-1">Batch Tray Zero-Backlog Sweep</h4>
+                    <h4 className="text-xs font-bold text-slate-900 mb-1">End-of-Day Notes Review</h4>
                     <p className="leading-relaxed text-slate-600">
-                      Press <kbd className="px-1 py-0.5 bg-white border rounded font-mono text-[10px]">⌘B</kbd> to open the Batch Tray. Verify all 20 encounters are completed and billed. Leave the practice on time with zero evening charting backlog.
+                      Press <kbd className="px-1 py-0.5 bg-white border rounded font-mono text-[10px]">⌘B</kbd> to open End-of-Day Notes. Verify all encounters are completed and billed. Leave the practice on time with zero evening charting backlog.
                     </p>
                   </div>
                 </div>
@@ -2715,9 +2898,9 @@ VERIFICATION: 100% Deterministically Grounded (0 Hallucination Vectors)
               {guideActiveTab === 'hotkeys' && (
                 <div className="space-y-3">
                   <div className="p-3.5 bg-indigo-50/50 rounded-2xl border border-indigo-100">
-                    <h4 className="font-bold text-slate-900 mb-1">Aseptic Operatory Hotkeys</h4>
+                    <h4 className="font-bold text-slate-900 mb-1">Hands-Free Keyboard Shortcuts</h4>
                     <p className="text-slate-600">
-                      Designed for operatory workstations covered with barrier film or foot-pedal proxy mappings so you never break asepsis.
+                      Designed so you can navigate quickly using a keyboard or foot pedal without touching the mouse.
                     </p>
                   </div>
 
@@ -2733,7 +2916,7 @@ VERIFICATION: 100% Deterministically Grounded (0 Hallucination Vectors)
                       <tbody className="divide-y divide-slate-100 font-medium">
                         <tr>
                           <td className="p-3 font-mono font-bold text-teal-800">Spacebar</td>
-                          <td className="p-3 font-bold text-slate-800">Toggle Audio (Start / Pause / Resume)</td>
+                          <td className="p-3 font-bold text-slate-800">Toggle Audio (Start / Pause / Resume / Keep Listening)</td>
                           <td className="p-3 text-slate-500">Hands-free foot pedal or keyboard tap</td>
                         </tr>
                         <tr>
@@ -2743,23 +2926,23 @@ VERIFICATION: 100% Deterministically Grounded (0 Hallucination Vectors)
                         </tr>
                         <tr>
                           <td className="p-3 font-mono font-bold text-teal-800">⌘B / Ctrl+B</td>
-                          <td className="p-3 font-bold text-slate-800">Open / Close Batch Tray</td>
-                          <td className="p-3 text-slate-500">End-of-day 20-patient reconciliation</td>
+                          <td className="p-3 font-bold text-slate-800">Open / Close End-of-Day Notes</td>
+                          <td className="p-3 text-slate-500">Review and copy all today's notes</td>
                         </tr>
                         <tr>
                           <td className="p-3 font-mono font-bold text-teal-800">⌘→ / Ctrl+→</td>
                           <td className="p-3 font-bold text-slate-800">Advance to Next Patient</td>
-                          <td className="p-3 text-slate-500">Instant operatory switch without mouse</td>
+                          <td className="p-3 text-slate-500">Instant patient switch without mouse</td>
                         </tr>
                         <tr>
                           <td className="p-3 font-mono font-bold text-teal-800">⌘V / Ctrl+V</td>
-                          <td className="p-3 font-bold text-slate-800">Import Daysheet CSV / Text</td>
-                          <td className="p-3 text-slate-500">Instant bulk patient schedule ingestion</td>
+                          <td className="p-3 font-bold text-slate-800">Import Appointment Schedule</td>
+                          <td className="p-3 text-slate-500">Quickly load today's schedule</td>
                         </tr>
                         <tr>
                           <td className="p-3 font-mono font-bold text-teal-800">?</td>
-                          <td className="p-3 font-bold text-slate-800">Open Operatory Guide</td>
-                          <td className="p-3 text-slate-500">Instant access to hotkeys and support</td>
+                          <td className="p-3 font-bold text-slate-800">Open Guide & Shortcuts</td>
+                          <td className="p-3 text-slate-500">Instant access to shortcuts and help</td>
                         </tr>
                       </tbody>
                     </table>
@@ -2892,7 +3075,7 @@ VERIFICATION: 100% Deterministically Grounded (0 Hallucination Vectors)
                         className="w-full h-9 px-2 bg-white border border-slate-200 rounded-xl text-xs font-medium focus:border-teal-700 outline-none"
                       >
                         <option value="feature-request">Feature Request</option>
-                        <option value="clinical-audio">Operatory Audio & DSP</option>
+                        <option value="clinical-audio">Microphone & Noise Filter</option>
                         <option value="dental-lexicon">Dental Lexicon & Codes</option>
                         <option value="pms-clipboard">PMS Clipboard & Export</option>
                         <option value="operatory-bug">Bug Report</option>

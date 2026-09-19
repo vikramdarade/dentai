@@ -18,10 +18,49 @@
 
 type Middleware = (req: any, res: any, next: (err?: any) => void) => any;
 
-const MAX_ENTRIES = 200;
+const MAX_ENTRIES = 5_000;
 const MAX_TEXT_LENGTH = 20_000;
 /** 'Dialogue' and 'Clinical Comment' are the capture roles the recorder emits. */
 const ALLOWED_SENDERS = new Set(['Dentist', 'Patient', 'Dialogue', 'Clinical Comment']);
+
+const CLINICAL_TRIGGER_REGEX = /(?:#\d{1,2}|\b(tooth|teeth|fdi|pain|decay|caries|restorative|composite|resin|anesthe|numb|lidocaine|articaine|mepivacaine|infiltrat|block|carpule|clamp|dam|etch|bond|cure|shade|prep|crown|veneer|bridge|implant|scaling|calculus|plaque|prophy|probe|probing|pocket|gingiv|bleeding|perio|pulp|rct|root canal|canal|apex|extract|forceps|elevator|suture|socket|alveol|bite|occlus|floss|brush|hygiene|fluoride|x-ray|bitewing|periapical|opg|cbct|panoram|fracture|chipped|sensitive|abscess|swelling|drain|penicillin|amoxicillin|ibuprofen|paracetamol)\b)/i;
+
+/**
+ * Intelligent Clinical Horizon Filter (Apple-grade semantic noise pruning).
+ * When recordings run long (e.g. 45+ to 90+ minutes) because the mic was left on
+ * after the patient left, this filter separates the active clinical consultation
+ * from trailing post-op silence, vacuum hiss, or room turnover banter.
+ */
+export function clinicalHorizonFilter<T extends { sender?: string; text: string }>(transcript: T[]): T[] {
+  if (!Array.isArray(transcript) || transcript.length <= 20) {
+    return transcript;
+  }
+
+  // Find the last significant clinical utterance
+  let lastClinicalIndex = -1;
+  for (let i = transcript.length - 1; i >= 0; i--) {
+    if (CLINICAL_TRIGGER_REGEX.test(transcript[i].text)) {
+      lastClinicalIndex = i;
+      break;
+    }
+  }
+
+  // If no clinical triggers were found, return the full transcript
+  if (lastClinicalIndex === -1) {
+    return transcript;
+  }
+
+  // Only filter if there is a significant trailing tail of post-procedure room turnover noise (>15 non-clinical utterances)
+  const trailingCount = transcript.length - (lastClinicalIndex + 1);
+  if (trailingCount <= 15) {
+    return transcript;
+  }
+
+  // Allow a graceful 15-utterance margin after the last clinical discussion
+  // to capture closing patient instructions ("rinse gently", "see reception for your next appointment")
+  const cutoffIndex = Math.min(transcript.length, lastClinicalIndex + 16);
+  return transcript.slice(0, cutoffIndex);
+}
 
 export interface ValidationProblem {
   error: string;
