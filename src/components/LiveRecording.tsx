@@ -10,6 +10,9 @@ import { generateWithOnDeviceModel, type OnDeviceResult } from '../lib/onDeviceM
 import { normalizedToPayload } from '../lib/normalizeNoteOutput';
 import { normalizeSpokenDentalText } from '../lib/dentalPhoneticLexicon';
 import { OPERATORY_AUDIO_DEFAULTS } from '../lib/operatoryAudioFilter';
+import { chooseNoteTranscript } from '../lib/transcription';
+import { isTranscriptionFailure, requestTranscription } from '../lib/transcribeClient';
+import type { TranscriptProvenance } from '../types';
 
 const isQuotaFailure = (msg: string): boolean =>
   msg.toLowerCase().includes('quota') ||
@@ -24,7 +27,14 @@ interface LiveRecordingProps {
   onBack: () => void;
   onFinish: (
     finalTranscript: TranscriptItem[],
-    fallbackNote?: { engine: 'offline-draft' | 'on-device'; modelId?: string; payload: GeneratedNotePayload }
+    fallbackNote?: { engine: 'offline-draft' | 'on-device'; modelId?: string; payload: GeneratedNotePayload },
+    /**
+     * Where the transcript came from. A note's accuracy is bounded by its
+     * transcript, and the two sources are not equivalent — recorded audio is
+     * diarized, live speech recognition is not — so the record keeps the source
+     * and any caveats rather than only showing them once.
+     */
+    provenance?: TranscriptProvenance
   ) => Promise<void> | void;
   /** Live async-job status line (e.g. "retrying in ~45s") rendered on the processing overlay. */
   processingHint?: string | null;
@@ -108,6 +118,16 @@ export default function LiveRecording({
   const [recognitionError, setRecognitionError] = useState<string | null>(null);
 
   const recognitionRef = useRef<any>(null);
+
+  // ── Recorded-audio transcription ──────────────────────────────────────────
+  // The phone beacon uploads the real audio; this screen is where the chair id
+  // becomes known (the modal generates it), so it is where the recording becomes
+  // reachable. Transcribing it replaces the browser transcript as the note source.
+  const beaconChairIdRef = useRef<string | null>(null);
+  const transcriptionRef = useRef<Promise<void> | null>(null);
+  const serverTranscriptRef = useRef<TranscriptItem[] | null>(null);
+  const transcriptProvenanceRef = useRef<TranscriptProvenance | null>(null);
+  const recordedMimeTypeRef = useRef<string | null>(null);
 
   // True while the user has explicitly paused the microphone — suppresses auto-restart.
   const micStoppedByUserRef = useRef(false);
@@ -635,6 +655,97 @@ export default function LiveRecording({
     setIsProcessing(false);
   };
 
+  /**
+   * Transcribes the recording as soon as the appointment stops, rather than when
+   * the note is requested. The dentist usually reviews the transcript before
+   * pressing generate, so the work overlaps that pause instead of adding to it —
+   * and it means the offline and on-device tiers benefit too, not just the
+   * hosted path.
+   */
+  const startServerTranscription = () => {
+    const chairId = beaconChairIdRef.current;
+    if (!chairId || !authToken) return;
+    if (transcriptionRef.current) return;
+
+    transcriptionRef.current = (async () => {
+      const result = await requestTranscription({
+        authToken,
+        chairId,
+        mimeType: recordedMimeTypeRef.current
+      });
+      if (!result.ok) {
+        if (isTranscriptionFailure(result) && result.code !== 'NO_AUDIO' && result.code !== 'AUDIO_TOO_SMALL') {
+          // Recorded audio exists but could not be transcribed: say so on the
+          // record, because the note will be built from the weaker live
+          // transcript and the clinician should know that.
+          transcriptProvenanceRef.current = {
+            source: 'browser-live',
+            generatedAt: new Date().toISOString(),
+            warnings: [result.error]
+          };
+        }
+        return;
+      }
+      if (result.transcript.length === 0) return;
+      serverTranscriptRef.current = result.transcript;
+      transcriptProvenanceRef.current = {
+        source: 'server-diarized',
+        modelId: result.model,
+        chairId,
+        generatedAt: new Date().toISOString(),
+        durationSeconds: result.durationSeconds,
+        chunks: result.chunks,
+        missingChunks: result.missingChunks,
+        contiguous: result.contiguous,
+        speakerCounts: result.speakerCounts,
+        warnings: result.warnings
+      };
+    })();
+  };
+
+  const wasRecordingRef = useRef(isRecording);
+  useEffect(() => {
+    if (wasRecordingRef.current && !isRecording) startServerTranscription();
+    wasRecordingRef.current = isRecording;
+  }, [isRecording]);
+
+  /**
+   * The transcript the note is generated from, and how long we are willing to
+   * wait for the better one.
+   *
+   * The budget is deliberately short. A dentist waiting at the chair is the
+   * reason this feature exists, so a slow transcription loses to a fast, worse
+   * transcript — and the choice is recorded either way, so the difference is
+   * visible afterwards rather than being a silent quality lottery.
+   */
+  const resolveTranscriptForNote = async (): Promise<{
+    transcript: TranscriptItem[];
+    provenance: TranscriptProvenance;
+  }> => {
+    const pending = transcriptionRef.current;
+    if (pending) {
+      await Promise.race([
+        pending.catch(() => {}),
+        new Promise((resolve) => setTimeout(resolve, 25_000))
+      ]);
+    }
+
+    const choice = chooseNoteTranscript({
+      live: transcript,
+      diarized: serverTranscriptRef.current
+    });
+    const stored = transcriptProvenanceRef.current;
+    const provenance: TranscriptProvenance = {
+      ...(stored || {}),
+      // The chosen source wins over the earlier guess: the choice is made against
+      // the live transcript actually captured in this session.
+      source: choice.source,
+      generatedAt: new Date().toISOString(),
+      warnings: choice.warnings.length > 0 ? choice.warnings : stored?.warnings || []
+    };
+    return { transcript: choice.transcript, provenance };
+  };
+
   const startProcessingSession = (initialState: string) => {
     setIsRecording(false);
     setIsProcessing(true);
@@ -653,7 +764,8 @@ export default function LiveRecording({
     startProcessingSession('Formatting consultation dialogue...');
 
     try {
-      await onFinish(transcript);
+      const resolved = await resolveTranscriptForNote();
+      await onFinish(resolved.transcript, undefined, resolved.provenance);
       stopProcessingTicker();
     } catch (err: any) {
       stopProcessingTicker();
@@ -675,7 +787,8 @@ export default function LiveRecording({
         patientSummary: draft.patientSummary,
         adaCodes: draft.adaCodes
       };
-      await onFinish(transcript, { engine: 'offline-draft', payload });
+      const resolvedOffline = await resolveTranscriptForNote();
+      await onFinish(resolvedOffline.transcript, { engine: 'offline-draft', payload }, resolvedOffline.provenance);
       stopProcessingTicker();
     } catch (err: any) {
       stopProcessingTicker();
@@ -706,7 +819,12 @@ export default function LiveRecording({
         engine: 'on-device',
         modelId: res.modelId
       };
-      await onFinish(transcript, { engine: 'on-device', modelId: res.modelId, payload });
+      const resolvedOnDevice = await resolveTranscriptForNote();
+      await onFinish(
+        resolvedOnDevice.transcript,
+        { engine: 'on-device', modelId: res.modelId, payload },
+        resolvedOnDevice.provenance
+      );
       stopProcessingTicker();
     } catch (err: any) {
       stopProcessingTicker();
@@ -1643,6 +1761,14 @@ export default function LiveRecording({
         onStartRecordingFromDesktop={() => setIsRecording(true)}
         onStopRecordingFromDesktop={() => setIsRecording(false)}
         isRecordingActive={isRecording}
+        onChairSessionChange={(id) => {
+          // A new pairing means a new recording, so the previous transcript no
+          // longer describes this appointment and must not be reused.
+          beaconChairIdRef.current = id;
+          serverTranscriptRef.current = null;
+          transcriptionRef.current = null;
+          transcriptProvenanceRef.current = null;
+        }}
       />
     </div>
   );

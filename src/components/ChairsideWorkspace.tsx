@@ -36,6 +36,13 @@ import {
 } from 'lucide-react';
 import { addScheduleItem } from '../lib/dayScheduleStorage';
 import { Consultation, TranscriptItem, ClinicalFindings } from '../types';
+import { chooseNoteTranscript, type TranscriptSource } from '../lib/transcription';
+import {
+  blobToBase64,
+  isTranscriptionFailure,
+  requestTranscription,
+  uploadAudioSegment
+} from '../lib/transcribeClient';
 import { AuthUser } from '../utils/storage';
 import { AppointmentType, getTemplateById } from '../lib/dentalLibrary';
 import { generateOfflineDraft } from '../lib/draftEngine';
@@ -86,6 +93,27 @@ export interface PatientEncounter {
   };
   cdtCodes?: { code: string; desc: string; fee: string }[];
   dischargeFlag?: string;
+}
+
+/**
+ * Best available ordering timestamp for a stored record.
+ *
+ * `date` is a display label with no year ("Oct 24"), so comparing those as
+ * strings puts "Oct 1" before "Sep 19" and mis-orders prior visits. Prefer a
+ * real ISO timestamp — server-governed records always carry
+ * `revisions[].savedAt`.
+ */
+function consultationInstant(record: Consultation): number {
+  const candidates = [
+    (record as { createdAt?: string }).createdAt,
+    record.revisions?.[0]?.savedAt,
+    record.revisions?.[record.revisions.length - 1]?.savedAt
+  ];
+  for (const value of candidates) {
+    const parsed = value ? Date.parse(value) : NaN;
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return NaN;
 }
 
 export default function ChairsideWorkspace({
@@ -143,6 +171,19 @@ export default function ChairsideWorkspace({
   // Real-time optimistic ambient transcript state (0ms latency, zero-lag UI feedback)
   const [localLiveTranscripts, setLocalLiveTranscripts] = useState<Record<string, { sender: string; text: string; time?: string }[]>>({});
 
+  // True while the recorded audio is being transcribed for the note. Surfaced so
+  // the "finalising" wait is explained rather than looking like a stall.
+  const [isTranscribingNote, setIsTranscribingNote] = useState(false);
+  // The container this operatory's recorder produced. The provider needs the real
+  // one (Safari records audio/mp4, Chrome audio/webm) or decoding fails.
+  const recordedMimeTypeRef = useRef<string | null>(null);
+  const chunkUploadRef = useRef<{
+    chairKey: string;
+    counter: number;
+    queue: Promise<unknown>;
+    recorder: MediaRecorder | null;
+  }>({ chairKey: '', counter: 0, queue: Promise.resolve(), recorder: null });
+
   // Convert real database consultations into live encounters (Zero mock fallbacks)
   const patientEncounters: PatientEncounter[] = useMemo(() => {
     return consultations.map((c, index) => {
@@ -164,16 +205,36 @@ export default function ChairsideWorkspace({
         alerts.push({ type: 'medication', text: 'Anticoagulant Regimen' });
       }
 
-      // Dynamically resolve actual prior clinical history for this patient
-      const priorVisits = consultations.filter(other =>
-        other.id !== c.id &&
-        (
-          (c.lastName && other.lastName && other.lastName.toLowerCase() === c.lastName.toLowerCase() &&
-           c.firstName && other.firstName && other.firstName.toLowerCase() === c.firstName.toLowerCase()) ||
-          (c.id === other.id)
-        ) &&
-        Boolean(other.date && (!c.date || other.date < c.date))
-      ).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+      // Prior clinical history for THIS patient, resolved through the patient
+      // registry — never by name.
+      //
+      // This previously matched on first + last name, so two patients called John
+      // Smith shared a history and one patient's previous treatment was shown as
+      // the other's prior history, which is a clinical safety problem: that
+      // history informs what the clinician does at the chair.
+      //
+      // A record with no patientId — written before the registry, or flagged for
+      // identity review — now shows no prior history at all. Showing nothing is
+      // correct; showing another patient's chart is not.
+      const currentInstant = consultationInstant(c);
+      const priorVisits = c.patientId
+        ? consultations
+            .filter((other) => other.id !== c.id && other.patientId === c.patientId)
+            .filter((other) => {
+              const instant = consultationInstant(other);
+              // With no real timestamps we cannot prove it is *prior*, but it is
+              // still the same patient, which is what this lookup is for.
+              if (!Number.isFinite(currentInstant) || !Number.isFinite(instant)) return true;
+              return instant < currentInstant;
+            })
+            .sort((a, b) => {
+              const ai = consultationInstant(a);
+              const bi = consultationInstant(b);
+              if (!Number.isFinite(ai)) return 1;
+              if (!Number.isFinite(bi)) return -1;
+              return bi - ai;
+            })
+        : [];
 
       const latestPrior = priorVisits[0];
       const priorNote = latestPrior?.findings?.treatmentPerformed || latestPrior?.findings?.history || latestPrior?.patientSummary || c.findings?.history || '';
@@ -764,8 +825,107 @@ export default function ChairsideWorkspace({
     };
   }, [isRecording, isPaused, isMicStandby, dspNoiseGateActive]);
 
+  /**
+   * Operatory audio capture.
+   *
+   * The cockpit previously captured NO audio at all — the microphone stream fed
+   * a visualiser and the Web Speech API, and nothing else. That is the ceiling on
+   * note accuracy here: with no recording there is nothing to transcribe
+   * accurately, so the note could only ever be as good as a browser recogniser
+   * with no dental vocabulary that cannot separate the dentist from the patient.
+   *
+   * The stream is now also recorded in 5-second slices and uploaded against the
+   * consultation, so the appointment can be transcribed server-side with
+   * diarization and the note generated from that instead.
+   *
+   * Deliberate properties:
+   *  - Uploads are serialised through one promise chain. Parallel slice uploads
+   *    would arrive out of order, and the transcriber assembles by index — order
+   *    is the recorder's, and the queue is what preserves it.
+   *  - A failed slice is not retried here and does not stop the recording; a gap
+   *    is reported to the clinician later as "part of the recording is missing"
+   *    rather than being stitched over.
+   *  - Nothing is uploaded without an auth token and an active encounter, so a
+   *    demo session with no clinic context records nothing.
+   */
+  useEffect(() => {
+    if (!isRecording || isPaused || isMicStandby) return;
+    if (!authToken || !activeEncounter?.id) return;
+    if (typeof MediaRecorder === 'undefined') return;
+
+    const consultationId = activeEncounter.id;
+    let cancelled = false;
+    let recorder: MediaRecorder | null = null;
+
+    const start = async () => {
+      // Reuse the stream the visualiser already opened rather than opening a
+      // second capture on the same microphone. The visualiser effect is declared
+      // first but is asynchronous, so its stream is usually a tick or two away —
+      // hence the short wait rather than a second getUserMedia call.
+      let stream = streamRef.current;
+      for (let attempt = 0; !stream && attempt < 20; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        if (cancelled) return;
+        stream = streamRef.current;
+      }
+      if (!stream) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        } catch {
+          return;
+        }
+      }
+      if (cancelled) return;
+
+      try {
+        recorder = new MediaRecorder(stream);
+      } catch {
+        return;
+      }
+
+      recordedMimeTypeRef.current = recorder.mimeType || 'audio/webm';
+      chunkUploadRef.current = { chairKey: consultationId, counter: 0, queue: Promise.resolve(), recorder };
+
+      recorder.ondataavailable = (event: BlobEvent) => {
+        if (!event.data || event.data.size === 0) return;
+        const index = chunkUploadRef.current.counter;
+        chunkUploadRef.current.counter += 1;
+        const blob = event.data;
+        // Chained onto the previous upload so slices land in order.
+        chunkUploadRef.current.queue = chunkUploadRef.current.queue
+          .then(async () => {
+            const base64 = await blobToBase64(blob);
+            await uploadAudioSegment({
+              authToken,
+              consultationId,
+              chunkIndex: index,
+              base64,
+              sizeBytes: blob.size
+            });
+          })
+          .catch(() => {});
+      };
+
+      // 5s slices: long enough that the upload volume is modest, short enough
+      // that an interrupted appointment keeps all but the last few seconds.
+      recorder.start(5000);
+    };
+
+    void start();
+
+    return () => {
+      cancelled = true;
+      try {
+        if (recorder && recorder.state !== 'inactive') recorder.stop();
+      } catch {
+        // Already stopped, or the recorder was never started on this device.
+      }
+    };
+  }, [isRecording, isPaused, isMicStandby, activeEncounter?.id, authToken]);
+
   // Helper to append spoken or typed utterance with 0ms optimistic UI update & real database persistence
-  const handleAppendTranscriptText = useCallback(async (text: string, sender: 'Dentist' | 'Patient' = 'Dentist') => {
+  const handleAppendTranscriptText = useCallback(
+    async (text: string, sender: 'Dentist' | 'Patient' | 'Dialogue' = 'Dentist') => {
     if (!text.trim() || !activeEncounterRef.current) return;
 
     const normalized = normalizeSpokenDentalText(text.trim());
@@ -833,7 +993,12 @@ export default function ChairsideWorkspace({
       const recognition = new SpeechRec();
       recognition.continuous = true;
       recognition.interimResults = true;
-      recognition.lang = navigator.language || 'en-AU';
+      // The product is built for Australian practices, so recognition is pinned
+      // to Australian English. This used to follow `navigator.language`, which
+      // meant any machine set to en-US or en-GB transcribed with US/UK phonetics
+      // — undermining the dental lexicon and the dialect-resilience claim on
+      // exactly the hardware a practice actually owns.
+      recognition.lang = 'en-AU';
 
       recognition.onstart = () => {
         setMicListening(true);
@@ -886,7 +1051,14 @@ export default function ChairsideWorkspace({
             /^[^a-zA-Z0-9]+$/.test(trimmedFinal);
 
           if (!isMechanicalNoise) {
-            handleAppendTranscriptText(trimmedFinal, 'Dentist');
+            // 'Dialogue', not 'Dentist'. The Web Speech API does not diarize: it
+            // returns one undifferentiated stream, so every live utterance was
+            // being recorded as clinician speech. That asserted a role the
+            // microphone never established, and it pushed the patient's own
+            // words into the clinician-observed sections of the note (while
+            // leaving nothing to fill the patient-reported ones). The recorded
+            // audio is transcribed separately and *does* carry roles.
+            handleAppendTranscriptText(trimmedFinal, 'Dialogue');
           }
           setInterimTranscript('');
         } else if (interim.trim()) {
@@ -908,7 +1080,7 @@ export default function ChairsideWorkspace({
               const norm = normalizeSpokenDentalText(interim.trim());
               const isNoise = /^(sh+|ah+|um+|zz+|ss+|hh+|ff+|th+)(\s+(sh+|ah+|um+|zz+|ss+|hh+|ff+|th+))*$/i.test(norm);
               if (norm && !isNoise) {
-                handleAppendTranscriptText(norm, 'Dentist');
+                handleAppendTranscriptText(norm, 'Dialogue');
               }
               setInterimTranscript('');
             }
@@ -1014,7 +1186,6 @@ export default function ChairsideWorkspace({
     }
 
     const lines = daysheetRawText.split('\n').map(l => l.trim()).filter(Boolean);
-    const todayStr = getClinicTodayIso();
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
@@ -1027,39 +1198,17 @@ export default function ChairsideWorkspace({
       const firstName = names[0] || 'Patient';
       const lastName = names.slice(1).join(' ') || `${i + 1}`;
 
-      const newConsult: Consultation = {
-        id: `pms-import-${Date.now()}-${i}`,
-        dentistId: currentUser?.id || 'dentist-01',
-        clinicId: activeClinicId || undefined,
-        firstName,
-        lastName,
-        dob: '',
-        appointmentType: 'restorative',
-        date: todayStr,
-        time: timeGuess,
-        status: 'In Review',
-        patientSummary: '',
-        transcript: [
-          { sender: 'Dentist', text: `Imported from PMS daysheet for ${procedure}.` }
-        ],
-        templateId: 'standard',
-        findings: {
-          chiefComplaint: `Scheduled via PMS for: ${procedure}`,
-          history: 'Imported from practice management schedule.',
-          toothFindings: '',
-          findingsGingival: '',
-          diagnosis: '',
-          treatmentPerformed: procedure,
-          recommendations: '',
-          recallRequirements: '6 Months',
-          customSections: { operatory: `Op ${(i % 3) + 1}` }
-        }
-      };
-
-      if (onSaveConsultation) {
-        await onSaveConsultation(newConsult);
-      }
-
+      // A daysheet row is a scheduled appointment, NOT a clinical record.
+      //
+      // This used to create a consultation per row carrying a synthesised
+      // transcript ("Imported from PMS daysheet for X."), an invented chief
+      // complaint, a treatmentPerformed value asserting treatment that had not
+      // happened yet, and a fabricated practitioner id
+      // (currentUser?.id || 'dentist-01'). The grounding check then cross-checked
+      // AI output against that invented transcript and reported it as verified.
+      //
+      // Only the schedule entry is created here. The clinical record is created
+      // by the consultation itself, from real speech.
       addScheduleItem({
         time: timeGuess,
         patientName: `${firstName} ${lastName}`,
@@ -1155,19 +1304,63 @@ export default function ChairsideWorkspace({
       const localFeed = localLiveTranscripts[targetId] || [];
       const remoteFeed = targetConsult.transcript || [];
 
-      let finalTranscript: TranscriptItem[] = [];
+      let liveTranscript: TranscriptItem[] = [];
       if (localFeed.length >= remoteFeed.length && localFeed.length > 0) {
-        finalTranscript = localFeed.map(item => ({
-          sender: (item.sender === 'Patient' ? 'Patient' : 'Dentist') as 'Dentist' | 'Patient',
+        liveTranscript = localFeed.map(item => ({
+          sender: (item.sender === 'Patient' ? 'Patient' : item.sender === 'Dialogue' ? 'Dialogue' : 'Dentist') as TranscriptItem['sender'],
           text: item.text
         }));
       } else if (remoteFeed.length > 0) {
-        finalTranscript = remoteFeed;
-      } else {
-        finalTranscript = [
-          { sender: 'Dentist', text: 'Clinical procedure completed successfully.' }
-        ];
+        liveTranscript = remoteFeed;
       }
+      // No fabricated line here. This used to invent "Clinical procedure completed
+      // successfully." when nothing was captured, which put a clinical statement
+      // nobody made into the note *and* gave the generator a transcript to fill
+      // from — so a recording failure produced a confident, entirely fictional
+      // record. An empty transcript is now passed through as empty, and the
+      // caller is told the note rests on no captured speech.
+
+      // The recorded audio is the better source: it is transcribed server-side
+      // with diarization, so patient-reported and clinician-observed statements
+      // arrive separated. Live speech recognition is only the fallback.
+      let transcribed: TranscriptItem[] | undefined;
+      let transcriptionWarnings: string[] = [];
+      let transcriptSource: TranscriptSource = 'browser-live';
+      if (authToken) {
+        setIsTranscribingNote(true);
+        const result = await requestTranscription({
+          authToken,
+          consultationId: targetConsult.id,
+          mimeType: recordedMimeTypeRef.current
+        });
+        setIsTranscribingNote(false);
+        if (result.ok) {
+          transcribed = result.transcript;
+          transcriptionWarnings = result.warnings;
+          if (result.contiguous === false) {
+            transcriptionWarnings = [
+              ...transcriptionWarnings,
+              'Part of the recording did not upload, so some of what was said may be missing.'
+            ];
+          }
+        } else if (isTranscriptionFailure(result)) {
+          // These three are expected, not faults, and telling the clinician about
+          // them would be noise they cannot act on: no audio recorded, a recording
+          // too short to hold speech, or an encounter that was never persisted
+          // server-side (so no recording can exist for it).
+          const expected = ['NO_AUDIO', 'AUDIO_TOO_SMALL', 'NOT_FOUND'].includes(result.code);
+          if (!expected) transcriptionWarnings = [...transcriptionWarnings, result.error];
+        }
+      }
+
+      const transcriptChoice = chooseNoteTranscript({
+        live: liveTranscript,
+        diarized: transcribed,
+        audioIncomplete: transcriptionWarnings.length > 0
+      });
+      const finalTranscript = transcriptChoice.transcript;
+      transcriptSource = transcriptChoice.source;
+      const transcriptWarnings = [...transcriptionWarnings, ...transcriptChoice.warnings];
 
       // Call real backend note generation endpoint
       let payload: any = null;
@@ -1183,7 +1376,9 @@ export default function ChairsideWorkspace({
               intakeData: {
                 firstName: targetConsult.firstName,
                 lastName: targetConsult.lastName,
-                dob: targetConsult.dob || '1985-01-01',
+                // Never invent a date of birth: it is a patient identifier, and a
+                // fabricated one is how two patients' records end up merged.
+                dob: targetConsult.dob || '',
                 appointmentType: targetConsult.appointmentType,
                 templateId: template.id
               },
@@ -1228,22 +1423,33 @@ export default function ChairsideWorkspace({
         };
       }
 
+      // Nothing here is invented. Every section falls back to whatever is already
+      // on the record, and then to empty — because these fields are the clinical
+      // record. The previous boilerplate ("Teeth examined and stable.", "Gingiva
+      // stable.", "Procedure completed.") meant that an empty generation produced
+      // a saved note asserting an examination and a procedure that may never have
+      // happened. An empty field is visibly unfinished; a fabricated one is not.
       const updatedFindings: ClinicalFindings = {
-        chiefComplaint: payload?.chiefComplaint || targetConsult.findings?.chiefComplaint || 'Patient completed visit.',
+        chiefComplaint: payload?.chiefComplaint || targetConsult.findings?.chiefComplaint || '',
         history: payload?.history || targetConsult.findings?.history || '',
-        toothFindings: payload?.toothFindings || targetConsult.findings?.toothFindings || 'Teeth examined and stable.',
-        findingsGingival: payload?.findingsGingival || targetConsult.findings?.findingsGingival || 'Gingiva stable.',
-        diagnosis: payload?.diagnosis || targetConsult.findings?.diagnosis || 'Treatment performed per diagnosis.',
-        treatmentPerformed: payload?.treatmentPerformed || targetConsult.findings?.treatmentPerformed || 'Procedure completed.',
-        recommendations: payload?.recommendations || targetConsult.findings?.recommendations || 'Standard oral hygiene instructions.',
-        recallRequirements: payload?.recallRequirements || '6 Months (Standard)',
-        customSections: targetConsult.findings?.customSections || {},
+        toothFindings: payload?.toothFindings || targetConsult.findings?.toothFindings || '',
+        findingsGingival: payload?.findingsGingival || targetConsult.findings?.findingsGingival || '',
+        diagnosis: payload?.diagnosis || targetConsult.findings?.diagnosis || '',
+        treatmentPerformed: payload?.treatmentPerformed || targetConsult.findings?.treatmentPerformed || '',
+        recommendations: payload?.recommendations || targetConsult.findings?.recommendations || '',
+        recallRequirements: payload?.recallRequirements || targetConsult.findings?.recallRequirements || '',
+        customSections: payload?.customSections || targetConsult.findings?.customSections || {},
         adaCodes: payload?.adaCodes?.length ? payload.adaCodes : targetConsult.findings?.adaCodes || []
       };
 
       const finalizedConsultation: Consultation = {
         ...targetConsult,
         transcript: finalTranscript,
+        transcriptProvenance: {
+          source: transcriptSource,
+          generatedAt: new Date().toISOString(),
+          warnings: transcriptWarnings
+        },
         status: 'Completed',
         patientSummary: payload?.patientSummary || targetConsult.patientSummary || '',
         findings: updatedFindings
@@ -2159,7 +2365,7 @@ VERIFICATION: Fully verified from patient conversation
                       {isFinalizing ? (
                         <>
                           <RefreshCw className="w-4 h-4 animate-spin" />
-                          <span>Finalizing...</span>
+                          <span>{isTranscribingNote ? 'Transcribing recording…' : 'Finalizing...'}</span>
                         </>
                       ) : (
                         <>

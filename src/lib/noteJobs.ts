@@ -9,6 +9,8 @@
  * another.
  */
 
+import { getClinicDayKey } from '../utils/date';
+
 export type NoteJobStatus = 'queued' | 'processing' | 'done' | 'failed' | 'metered';
 
 export type NoteJobPriority = 'emergency' | 'urgent' | 'routine';
@@ -92,9 +94,16 @@ export interface UsageSnapshot {
   exceeded: boolean;
 }
 
-/** Current UTC day in YYYY-MM-DD — the metering bucket key. */
-export function meteringDay(now = new Date()): string {
-  return now.toISOString().slice(0, 10);
+/**
+ * Current clinic-local day in YYYY-MM-DD — the metering bucket key.
+ *
+ * This is the clinic's calendar day, not UTC. Bucketing on UTC meant an
+ * Australian practice's "40 notes for today" allowance rolled over at 10-11am
+ * local — in the middle of the working day — and one clinic day straddled two
+ * buckets. See `getClinicDayKey`.
+ */
+export function meteringDay(now = new Date(), timeZone?: string): string {
+  return getClinicDayKey(now, timeZone);
 }
 
 export function usageSnapshotFor(scopeId: string, used: number, limit = DEFAULT_CLINIC_DAILY_LIMIT, now = new Date()): UsageSnapshot {

@@ -284,8 +284,11 @@ export async function dbListConsultations(dentistId: string): Promise<any[]> {
 export async function dbInsertConsultation(consultation: any): Promise<void> {
   if (!sql) return;
   await sql`
-    INSERT INTO consultations (id, dentist_id, consultation_clinic_id, data)
-    VALUES (${consultation.id}, ${consultation.dentistId}, ${consultation.clinicId ?? null}, ${JSON.stringify(consultation)}::jsonb)
+    INSERT INTO consultations (id, dentist_id, consultation_clinic_id, patient_id, data)
+    VALUES (
+      ${consultation.id}, ${consultation.dentistId}, ${consultation.clinicId ?? null},
+      ${consultation.patientId ?? null}, ${JSON.stringify(consultation)}::jsonb
+    )
     ON CONFLICT (id) DO NOTHING
   `;
 }
@@ -300,11 +303,37 @@ export async function dbUpdateConsultation(
     UPDATE consultations
     SET data = ${JSON.stringify(consultation)}::jsonb,
         consultation_clinic_id = ${consultation.clinicId ?? null},
+        patient_id = ${consultation.patientId ?? null},
         updated_at = now()
     WHERE id = ${id} AND dentist_id = ${dentistId}
     RETURNING id
   `) as any[];
   return rows.length > 0;
+}
+
+/**
+ * Every record for one patient at one clinic, newest first.
+ *
+ * Scoped to the patient registry id, not to a name. Previous history was looked
+ * up by matching first + last name, so two patients called John Smith shared a
+ * chart. A record written before patient identity existed has no `patient_id`
+ * and is therefore not returned here — the caller must show "no prior history"
+ * rather than fall back to matching on the name.
+ */
+export async function dbListConsultationsByPatient(
+  clinicId: string,
+  patientId: string,
+  limit = 100
+): Promise<any[]> {
+  if (!sql) return [];
+  const rows = (await sql`
+    SELECT data FROM consultations
+    WHERE consultation_clinic_id = ${clinicId}
+      AND patient_id = ${patientId}
+    ORDER BY created_at DESC
+    LIMIT ${limit}
+  `) as any[];
+  return rows.map((r: any) => r.data);
 }
 
 // --- Clinics & memberships ----------------------------------------------------

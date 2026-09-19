@@ -523,6 +523,42 @@ describe('Transcript Grounding & Zero-Hallucination Verification Engine', () => 
     expect(report.unverifiedClaims).toContain('Scandonest');
     expect(report.summary).toContain('Attention');
   });
+
+  it('never reads an incidental number as a tooth (durations, ages, quantities)', () => {
+    // "see you in 16 weeks" used to yield tooth 16. Because the same loose rule
+    // ran over the note too, that matched a fabricated tooth and cleared it as
+    // grounded — which is exactly how a hallucinated tooth passed verification.
+    expect(extractToothNumbers('see you in 16 weeks, 24 hours, age 36')).toEqual([]);
+    expect(extractToothNumbers('45 minutes in the chair, 12 months recall')).toEqual([]);
+
+    // The same sentence must not fabricate a tooth from the word "your":
+    // the old quadrant test was a bare includes('ur').
+    expect(extractToothNumbers('your lower left molar')).toEqual(['36']);
+
+    // Real notation still works: explicit introducers, #-notation, FDI+surface.
+    expect(extractToothNumbers('tooth 16 and #48 reviewed')).toEqual(['16', '48']);
+    expect(extractToothNumbers('24 mod composite placed')).toEqual(['24']);
+  });
+
+  it('flags a fabricated tooth instead of clearing it via an unrelated number', () => {
+    const transcript = [{ sender: 'Dialogue', text: 'see you in 16 weeks for a review' }];
+    const report = verifyTranscriptGrounding('Extraction of tooth 16 performed.', transcript, []);
+
+    // Tooth 16 was never discussed, so it must be reported as unverified.
+    expect(report.isFullyGrounded).toBe(false);
+    expect(report.unverifiedClaims).toContain('Tooth #16');
+    expect(report.groundedEntities).not.toContain('Tooth #16');
+  });
+
+  it('does not report an unverifiable note as grounded', () => {
+    // A note with nothing recognisable in it has not been checked. Reporting
+    // 100% here suppressed needsReview on the least specific notes.
+    const report = verifyTranscriptGrounding('Patient attended for a routine visit.', [], []);
+    expect(report.isFullyGrounded).toBe(false);
+    expect(report.groundingScore).toBe(0);
+    expect(report.entityDetails).toEqual([]);
+    expect(report.summary).toMatch(/cross-checked|Review/i);
+  });
 });
 
 describe('Chairside Verbal Recording Consent Capture', () => {

@@ -61,13 +61,28 @@ export function createRecordGovernance(deps: RecordGovernanceDeps): Middleware {
     const originalUrl: string = req.originalUrl || '';
     const method: string = (req.method || 'GET').toUpperCase();
 
-    const isConsultationWrite = method === 'POST' && /^\/api\/consultations\/?$/.test(originalUrl);
+    /**
+     * Path only — never the query string.
+     *
+     * These decisions used to run against `originalUrl`, which includes the
+     * query, while every pattern is anchored with `$`. Appending one parameter
+     * (?x=1) made all three patterns fail, so the middleware returned early and a
+     * consultation write or read fell straight through to its handler with no
+     * consent gate, no revision stamp, no retention stamp, no stale-write guard
+     * and no read audit — and Express still served the request, because route
+     * matching ignores the query string. That made the consent control opt-out
+     * from the client side. Strip the query before every decision, and use the
+     * stripped form for the audit label so a caller cannot inflate it either.
+     */
+    const pathname: string = originalUrl.split('?')[0].split('#')[0];
+
+    const isConsultationWrite = method === 'POST' && /^\/api\/consultations\/?$/.test(pathname);
     const isConsultationUpdate =
-      (method === 'PUT' || method === 'PATCH') && /^\/api\/consultations\/[^/?]+$/.test(originalUrl);
+      (method === 'PUT' || method === 'PATCH') && /^\/api\/consultations\/[^/?]+$/.test(pathname);
     const isConsultationRead =
       method === 'GET' &&
-      (/^\/api\/consultations\/?$/.test(originalUrl) ||
-        /^\/api\/clinics\/[^/]+\/consultations\/?$/.test(originalUrl));
+      (/^\/api\/consultations\/?$/.test(pathname) ||
+        /^\/api\/clinics\/[^/]+\/consultations\/?$/.test(pathname));
 
     // Anything that is not a clinical record access is none of this middleware's
     // business (and must not be forced through authentication here).
@@ -87,9 +102,9 @@ export function createRecordGovernance(deps: RecordGovernanceDeps): Middleware {
             const count = Array.isArray(body) ? body.length : undefined;
             void Promise.resolve(
               deps.logAudit('consultation_records_viewed', dentistId, {
-                route: originalUrl,
+                route: pathname,
                 count,
-                scope: /^\/api\/clinics\//.test(originalUrl) ? 'clinic' : 'own',
+                scope: /^\/api\/clinics\//.test(pathname) ? 'clinic' : 'own',
               })
             ).catch(() => {});
           }
@@ -111,7 +126,7 @@ export function createRecordGovernance(deps: RecordGovernanceDeps): Middleware {
         // The patient's consent is the legal basis for processing their
         // consultation content, so an enforcing deployment refuses the record
         // rather than storing content it cannot justify.
-        await deps.logAudit('consultation_rejected_no_consent', dentistId, { route: originalUrl });
+        await deps.logAudit('consultation_rejected_no_consent', dentistId, { route: pathname });
         return res.status(400).json({
           error:
             'This consultation cannot be saved because AI-assist consent was not recorded. ' +
@@ -135,7 +150,7 @@ export function createRecordGovernance(deps: RecordGovernanceDeps): Middleware {
 
         if (hasTranscript && !consentWasSupplied) {
           void Promise.resolve(
-            deps.logAudit('consultation_without_consent_captured', dentistId, { route: originalUrl })
+            deps.logAudit('consultation_without_consent_captured', dentistId, { route: pathname })
           ).catch(() => {});
         }
 
@@ -165,7 +180,7 @@ export function createRecordGovernance(deps: RecordGovernanceDeps): Middleware {
       // ---- Update: preserve consent, append a revision ---------------------
       let existing: any = null;
       try {
-        const id = originalUrl.split('/').filter(Boolean).pop();
+        const id = pathname.split('/').filter(Boolean).pop();
         const all = await deps.listConsultations(dentistId);
         existing = all.find((c: any) => c.id === id) || null;
       } catch (loadErr: any) {

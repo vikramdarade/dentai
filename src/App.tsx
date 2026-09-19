@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { AnimatePresence } from 'motion/react';
-import { Consultation, TranscriptItem, ClinicalFindings, GeneratedNotePayload, NoteOrigin, getTodayStr, getCurrentTimeStr } from './types';
+import { Consultation, TranscriptItem, ClinicalFindings, GeneratedNotePayload, NoteOrigin, TranscriptProvenance, getTodayStr, getCurrentTimeStr } from './types';
 import { ClinicMembership } from './lib/clinics';
 import { getTemplateById, getDefaultTemplateIdForType, AppointmentType } from './lib/dentalLibrary';
 import { normalizedToPayload } from './lib/normalizeNoteOutput';
@@ -514,7 +514,10 @@ export default function App() {
     const intakeData = {
       firstName,
       lastName,
-      dob: '1990-01-01', // Placeholder per pilot request: DOB not needed
+      // Left empty rather than defaulted: a written DOB is identity data, and a
+      // fabricated one is indistinguishable from a real one later. The record
+      // shows it is missing instead.
+      dob: '',
       appointmentType: item.appointmentType,
       templateId: item.templateId || 'standard',
       scheduleItemId: item.id
@@ -528,7 +531,8 @@ export default function App() {
 
   const handleRecordFinish = async (
     finalTranscript: TranscriptItem[],
-    fallbackNote?: { engine: 'offline-draft' | 'on-device'; modelId?: string; payload: GeneratedNotePayload }
+    fallbackNote?: { engine: 'offline-draft' | 'on-device'; modelId?: string; payload: GeneratedNotePayload },
+    provenance?: TranscriptProvenance
   ) => {
     if (!activeIntake || !currentUser) return;
     const template = getTemplateById(activeIntake.templateId || getDefaultTemplateIdForType(activeIntake.appointmentType));
@@ -633,16 +637,24 @@ export default function App() {
                 adaCodes: jobPayload.adaCodes || []
               };
 
+              // Establish patient identity before the record is stored, so the
+              // chairside prior-history lookup has a chart to read and an
+              // ambiguous name is flagged instead of guessed at.
+              const identity = await resolvePatientIdentity(currentIntake);
+
               const newConsult: Consultation = {
                 id: assignedConsultationId,
                 dentistId: currentUser.id,
                 clinicId: activeClinic?.clinicId,
+                ...identity,
                 firstName: currentIntake.firstName,
                 lastName: currentIntake.lastName,
                 dob: currentIntake.dob,
                 appointmentType: currentIntake.appointmentType,
                 date: getTodayStr(),
                 time: getCurrentTimeStr(),
+                // Real timestamp: display date/time cannot be ordered reliably.
+                createdAt: new Date().toISOString(),
                 status: 'Completed',
                 transcript: finalTranscript,
                 templateId: template.id,
@@ -806,18 +818,29 @@ export default function App() {
         adaCodes: payload.adaCodes || []
       };
 
+      // Patient identity first: a record with no patientId shows no prior
+      // history, and an ambiguous name must be flagged rather than guessed at.
+      const identity = await resolvePatientIdentity(activeIntake);
+
       const newConsult: Consultation = {
         id: authToken ? consultationId : crypto.randomUUID(),
         dentistId: currentUser.id,
         clinicId: activeClinic?.clinicId,
+        ...identity,
         firstName: activeIntake.firstName,
         lastName: activeIntake.lastName,
         dob: activeIntake.dob,
         appointmentType: activeIntake.appointmentType,
         date: getTodayStr(),
         time: getCurrentTimeStr(),
+        createdAt: new Date().toISOString(),
         status: 'In Review',
         transcript: finalTranscript,
+        // Which capture produced this transcript, carried with the record: a note
+        // built from live speech recognition (speakers not separated) is not the
+        // same evidence as one built from diarized recorded audio, and a later
+        // reviewer needs to be able to tell them apart.
+        ...(provenance ? { transcriptProvenance: provenance } : {}),
         templateId: template.id,
         findings,
         patientSummary: payload.patientSummary || '',
@@ -871,6 +894,47 @@ export default function App() {
     } catch (err) {
       console.error('Failed to generate clinical findings:', err);
       throw err;
+    }
+  };
+
+  /**
+   * Resolves the patient registry entry for an intake.
+   *
+   * The server links every write as well, but asking at intake is what lets the
+   * clinician be *told* when a name is ambiguous: two patients called John Smith
+   * must not share a chart, so the record is left unlinked until a human says
+   * which one this is. A failed resolve never blocks the consultation — the
+   * record is stored unlinked, which is the safe direction.
+   */
+  const resolvePatientIdentity = async (intake: {
+    firstName: string;
+    lastName: string;
+    dob: string;
+  }): Promise<{ patientId?: string; identityNeedsReview?: boolean }> => {
+    if (!authToken || !activeClinic?.clinicId) return {};
+    try {
+      const res = await fetch('/api/patients/resolve', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`
+        },
+        body: JSON.stringify({
+          firstName: intake.firstName,
+          lastName: intake.lastName,
+          dob: intake.dob,
+          clinicId: activeClinic.clinicId
+        })
+      });
+      if (!res.ok) return {};
+      const data = await res.json();
+      if (data?.status === 'matched' || data?.status === 'created') {
+        return { patientId: data.patient?.id, identityNeedsReview: false };
+      }
+      if (data?.status === 'ambiguous') return { identityNeedsReview: true };
+      return {};
+    } catch {
+      return {};
     }
   };
 
