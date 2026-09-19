@@ -80,6 +80,7 @@ export default function App() {
   }, []);
 
   const [view, setView] = useState<ViewType>('workspace');
+  const [hubInitialTab, setHubInitialTab] = useState<'schedule' | 'records' | 'pipeline'>('schedule');
   const [consultations, setConsultations] = useState<Consultation[]>(() => {
     return getLocalConsultations() || [];
   });
@@ -1076,8 +1077,14 @@ export default function App() {
           consultations={visibleConsultations}
           activeClinicId={activeClinicId}
           initialPatientId={selectedConsultation?.id || null}
-          onOpenHistoryHub={() => setView('history')}
-          onOpenPipeline={() => setView('history')}
+          onOpenHistoryHub={() => {
+            setHubInitialTab('records');
+            setView('history');
+          }}
+          onOpenPipeline={() => {
+            setHubInitialTab('pipeline');
+            setView('history');
+          }}
           onLogout={handleLogout}
           onSaveConsultation={handleSaveConsultation}
         />
@@ -1086,6 +1093,7 @@ export default function App() {
       {view === 'history' && (
         <HistoryHub
           consultations={visibleConsultations}
+          initialTab={hubInitialTab}
           onSelectConsultation={handleSelectConsultation}
           onStartNewConsultation={handleStartNewConsultation}
           onStartScheduledConsultation={handleStartScheduledConsultation}

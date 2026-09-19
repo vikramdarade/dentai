@@ -21,6 +21,9 @@ import {
   X,
   Clipboard,
   MessageSquare,
+  LayoutDashboard,
+  TrendingUp,
+  Mail,
   ChevronDown,
   Send,
   RefreshCw,
@@ -125,6 +128,7 @@ export default function ChairsideWorkspace({
   activeClinicId,
   initialPatientId,
   onOpenHistoryHub,
+  onOpenPipeline,
   onLogout,
   onSaveConsultation
 }: ChairsideWorkspaceProps) {
@@ -1598,10 +1602,83 @@ VERIFICATION: Fully verified from patient conversation
   };
 
   // ─────────────────────────────────────────────────────────────
-  // 7. PLAIN TEXT MODAL STATE
+  // 7. PLAIN TEXT & DELIVERABLES MODAL STATE
   // ─────────────────────────────────────────────────────────────
   const [showPlainTextModal, setShowPlainTextModal] = useState(false);
   const [copiedPlainText, setCopiedPlainText] = useState(false);
+  const [showDeliverablesModal, setShowDeliverablesModal] = useState(false);
+  const [deliverablesActiveTab, setDeliverablesActiveTab] = useState<'referral' | 'postop'>('referral');
+  const [copiedDeliverable, setCopiedDeliverable] = useState<'referral' | 'postop' | null>(null);
+
+  const getReferralText = () => {
+    if (!activeEncounter) return '';
+    const patientName = activeEncounter.patientName || 'Patient';
+    const dob = activeEncounter.dob || 'On record';
+    const date = activeEncounter.date || getClinicTodayIso();
+    const reason = currentSoap.assessment || currentSoap.subjective || activeEncounter.procedureText || 'Specialist assessment and management';
+    const teeth = (currentSoap.objective + ' ' + (activeEncounter.procedureText || '')).match(/\b[1-4][1-8]\b/g)?.join(', ') || 'See examination';
+    const findings = currentSoap.objective || 'Clinical examination and findings documented in chart.';
+    const interim = currentSoap.plan || 'Emergency pain relief and temporisation provided.';
+    const clinician = dentistName || currentUser?.name || 'Attending Clinician';
+
+    return `CONFIDENTIAL SPECIALIST REFERRAL
+Date: ${date}
+Patient: ${patientName} (DOB: ${dob})
+Referring Clinician: ${clinician} (AHPRA Registered)
+
+Dear Colleague,
+
+Thank you for seeing ${patientName} regarding specialist assessment and management.
+
+Clinical Details:
+• Relevant Tooth / Site: ${teeth}
+• Reason for Referral: ${reason}
+• Clinical Findings & Examination: ${findings}
+• Interim Therapy Provided Today: ${interim}
+
+Please contact our rooms if additional radiographs or records are required. We would appreciate a brief report following your consultation.
+
+Kind regards,
+${clinician}`;
+  };
+
+  const getPostOpText = () => {
+    if (!activeEncounter) return '';
+    const patientName = activeEncounter.patientName || 'Patient';
+    const firstName = patientName.split(' ')[0] || 'Patient';
+    const clinician = dentistName || currentUser?.name || 'Your Dental Team';
+    const treatment = currentSoap.plan || activeEncounter.procedureText || 'Dental Treatment';
+
+    return `Subject: Post-Operative Care & Recovery Instructions — ${patientName}
+
+Dear ${firstName},
+
+Thank you for visiting our practice today. Here are your personalized post-treatment care instructions:
+
+Procedure Completed:
+${treatment}
+
+Immediate Care & What to Expect:
+1. Local Anaesthetic & Numbness:
+   • Numbness typically lasts 2 to 4 hours. Avoid chewing hot food, biting your lips, or chewing your tongue until full sensation returns.
+2. Discomfort & Pain Relief:
+   • Mild tenderness or aching around the treated site is normal as the anaesthetic wears off. Over-the-counter pain relief (such as Ibuprofen or Paracetamol, as medically appropriate for you) is recommended before feeling fully returns.
+3. Oral Hygiene & Healing:
+   • Continue gentle brushing around the area with a soft-bristle toothbrush. Avoid vigorous mouth rinsing or forceful spitting for the next 24 hours to protect the healing site.
+   • Avoid smoking, alcohol, and strenuous exercise for at least 24 to 48 hours.
+
+When to Contact Us Immediately:
+Please reach out to our clinic right away if you experience any of the following:
+• Continuous bleeding that persists after biting firmly on a clean gauze pack for 30 minutes
+• Rapidly increasing swelling or difficulty opening your mouth/swallowing
+• Severe, throbbing pain that is not alleviated by pain relief medication
+• Elevated temperature or fever
+
+We wish you a prompt and smooth recovery!
+
+Warm regards,
+${clinician}`;
+  };
 
   // ─────────────────────────────────────────────────────────────
   // 8. GLOBAL HANDS-FREE KEYBOARD SHORTCUTS (Spacebar, ⌘→, ⌘V, ⌘C)
@@ -1613,7 +1690,7 @@ VERIFICATION: Fully verified from patient conversation
       const isInput = targetTag === 'input' || targetTag === 'textarea';
 
       // ⌘→: Advance to Next Patient (hands-free transition without touching mouse)
-      if (!isInput && !showDaysheetModal && !showPlainTextModal && !showBatchTray && !showDayGuide) {
+      if (!isInput && !showDaysheetModal && !showPlainTextModal && !showBatchTray && !showDayGuide && !showDeliverablesModal) {
         if (isModifier && (e.key === 'ArrowRight' || e.key === 'Right')) {
           e.preventDefault();
           handleNextPatient();
@@ -1648,12 +1725,13 @@ VERIFICATION: Fully verified from patient conversation
         setShowBatchTray(false);
         setShowDaysheetModal(false);
         setShowPlainTextModal(false);
+        setShowDeliverablesModal(false);
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeEncounter, encountersForDate, consultations, dentistName, showDaysheetModal, showPlainTextModal, showBatchTray]);
+  }, [activeEncounter, encountersForDate, consultations, dentistName, showDaysheetModal, showPlainTextModal, showBatchTray, showDeliverablesModal]);
 
   // Entity annotator for live speech feed
   const renderAnnotatedText = (text: string) => {
@@ -1702,16 +1780,8 @@ VERIFICATION: Fully verified from patient conversation
           {/* Nav Icons */}
           <div className="flex flex-col items-center space-y-2 pt-2">
             <button
-              onClick={() => { }}
-              className="w-9 h-9 rounded-xl flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition cursor-pointer"
-              title="Overview"
-            >
-              <div className="w-2.5 h-2.5 rounded-full bg-slate-400" />
-            </button>
-
-            <button
               className="w-10 h-10 rounded-xl flex items-center justify-center bg-teal-800 text-white shadow-xs transition cursor-pointer"
-              title="Chairside Scribe"
+              title="Chairside Scribe (Active Operatory)"
             >
               <Activity className="w-5 h-5 text-teal-200" />
             </button>
@@ -1719,17 +1789,17 @@ VERIFICATION: Fully verified from patient conversation
             <button
               onClick={onOpenHistoryHub}
               className="w-9 h-9 rounded-xl flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition cursor-pointer"
-              title="Today's Notes"
+              title="Patient Records & History Hub"
             >
-              <FileText className="w-5 h-5" />
+              <LayoutDashboard className="w-5 h-5" />
             </button>
 
             <button
-              onClick={onOpenHistoryHub}
-              className="w-9 h-9 rounded-xl flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition cursor-pointer"
-              title="Audio & Vocab Settings"
+              onClick={() => onOpenPipeline?.()}
+              className="w-9 h-9 rounded-xl flex items-center justify-center text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition cursor-pointer"
+              title="Treatment Pipeline & Recall Worklist"
             >
-              <Sliders className="w-5 h-5" />
+              <TrendingUp className="w-5 h-5" />
             </button>
           </div>
         </div>
@@ -1747,9 +1817,6 @@ VERIFICATION: Fully verified from patient conversation
             title={!isMicStandby && !isPaused ? 'Active Recording' : isPaused ? 'Recording Paused' : 'Microphone Standby'}
           >
             <Mic className="w-4 h-4" />
-          </div>
-          <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-500">
-            <MessageSquare className="w-4 h-4" />
           </div>
           <button
             type="button"
@@ -2593,26 +2660,38 @@ VERIFICATION: Fully verified from patient conversation
                         </button>
                       </div>
 
-                      {/* Immediate Recovery / Re-generate Button */}
-                      <button
-                        type="button"
-                        onClick={handleRegenerateFromConversation}
-                        disabled={isGeneratingFromConversation}
-                        title="Generate or update note using the full conversation captured"
-                        className="w-full mt-2.5 py-2 px-3 rounded-xl bg-[#E6F6F4] hover:bg-[#d8f0ed] active:scale-[0.98] text-[#00A389] text-xs font-semibold border border-[#00A389]/25 transition flex items-center justify-center space-x-1.5 cursor-pointer disabled:opacity-50"
-                      >
-                        {isGeneratingFromConversation ? (
-                          <>
-                            <RefreshCw className="w-3.5 h-3.5 animate-spin text-[#00A389]" />
-                            <span>Creating Note from Conversation...</span>
-                          </>
-                        ) : (
-                          <>
-                            <Sparkles className="w-3.5 h-3.5 text-[#00A389]" />
-                            <span>Create Note from Conversation</span>
-                          </>
-                        )}
-                      </button>
+                      {/* Secondary Actions: Referral & Handover + Update Note */}
+                      <div className="grid grid-cols-2 gap-2 mt-2.5">
+                        <button
+                          type="button"
+                          onClick={() => setShowDeliverablesModal(true)}
+                          className="py-2 px-2.5 rounded-xl bg-indigo-50/80 hover:bg-indigo-100/90 text-indigo-700 active:scale-[0.98] text-xs font-bold border border-indigo-200/80 transition flex items-center justify-center space-x-1.5 cursor-pointer shadow-2xs"
+                          title="Generate specialist referral letters and patient post-op care instructions"
+                        >
+                          <FileText className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                          <span className="truncate">Referral & Handover</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={handleRegenerateFromConversation}
+                          disabled={isGeneratingFromConversation}
+                          title="Generate or update note using the full conversation captured"
+                          className="py-2 px-2.5 rounded-xl bg-[#E6F6F4] hover:bg-[#d8f0ed] active:scale-[0.98] text-[#00A389] text-xs font-semibold border border-[#00A389]/25 transition flex items-center justify-center space-x-1.5 cursor-pointer disabled:opacity-50"
+                        >
+                          {isGeneratingFromConversation ? (
+                            <>
+                              <RefreshCw className="w-3.5 h-3.5 animate-spin text-[#00A389] shrink-0" />
+                              <span className="truncate">Updating...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Sparkles className="w-3.5 h-3.5 text-[#00A389] shrink-0" />
+                              <span className="truncate">Update Note</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
                     </div>
 
                     {/* Structured Note Cards with Direct Inline Editing */}
@@ -2824,6 +2903,130 @@ VERIFICATION: Fully verified from patient conversation
                 {copiedPlainText ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
                 <span>{copiedPlainText ? 'Copied!' : 'Copy Plain Text'}</span>
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────
+          PATIENT DELIVERABLES & REFERRAL HANDOVER MODAL
+          ───────────────────────────────────────────────────────────── */}
+      {showDeliverablesModal && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl border border-slate-200 space-y-4 font-sans">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-700 flex items-center justify-center">
+                  <FileText className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">
+                    Patient Deliverables & Handover
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    {activeEncounter ? `${activeEncounter.patientName} • ${activeEncounter.procedureText}` : 'Active Patient'}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowDeliverablesModal(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Tab selection */}
+            <div className="flex items-center gap-2 border-b border-slate-100 pb-2">
+              <button
+                type="button"
+                onClick={() => setDeliverablesActiveTab('referral')}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                  deliverablesActiveTab === 'referral'
+                    ? 'bg-indigo-600 text-white shadow-xs'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                <FileText className="w-3.5 h-3.5" />
+                <span>Specialist Referral Letter</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setDeliverablesActiveTab('postop')}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                  deliverablesActiveTab === 'postop'
+                    ? 'bg-indigo-600 text-white shadow-xs'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                <Mail className="w-3.5 h-3.5" />
+                <span>Patient Post-Op Care Email</span>
+              </button>
+            </div>
+
+            {/* Notice */}
+            <div className="bg-amber-50 border border-amber-200/80 rounded-xl p-2.5 flex items-start gap-2 text-[11px] text-amber-800">
+              <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
+              <span>Grounded directly in this patient's clinical note and examination findings. Please review before sending.</span>
+            </div>
+
+            {/* Textarea */}
+            <textarea
+              readOnly
+              rows={12}
+              value={deliverablesActiveTab === 'referral' ? getReferralText() : getPostOpText()}
+              className="w-full p-3.5 text-xs font-mono border border-slate-200 rounded-xl bg-slate-50 leading-relaxed text-slate-800 select-all"
+            />
+
+            {/* Actions */}
+            <div className="flex items-center justify-between pt-2">
+              <div>
+                {deliverablesActiveTab === 'postop' && (
+                  <a
+                    href={`mailto:?subject=${encodeURIComponent(`Post-Operative Care Instructions — ${activeEncounter?.patientName || 'Patient'}`)}&body=${encodeURIComponent(getPostOpText())}`}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-xl transition cursor-pointer"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    <span>Open in Email App</span>
+                  </a>
+                )}
+              </div>
+
+              <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setShowDeliverablesModal(false)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition cursor-pointer"
+                >
+                  Close
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const text = deliverablesActiveTab === 'referral' ? getReferralText() : getPostOpText();
+                    if (navigator.clipboard) {
+                      navigator.clipboard.writeText(text);
+                    }
+                    setCopiedDeliverable(deliverablesActiveTab);
+                    setTimeout(() => setCopiedDeliverable(null), 2000);
+                  }}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition cursor-pointer shadow-sm flex items-center space-x-1.5"
+                >
+                  {copiedDeliverable === deliverablesActiveTab ? (
+                    <>
+                      <Check className="w-4 h-4" />
+                      <span>Copied to Clipboard!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-4 h-4" />
+                      <span>
+                        {deliverablesActiveTab === 'referral' ? 'Copy Referral Letter' : 'Copy Post-Op Email'}
+                      </span>
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         </div>

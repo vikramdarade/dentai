@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Search, Plus, FileText, Menu, Building2, Download, X, Sparkles, TrendingUp, Calendar, CreditCard } from 'lucide-react';
 import { Consultation, getTodayStr, getYesterdayStr } from '../types';
 import { motion } from 'motion/react';
@@ -30,6 +30,7 @@ interface HistoryHubProps {
   currentDentistId: string;
   memberNames: Record<string, string>;
   onOpenWorkspace?: () => void;
+  initialTab?: 'schedule' | 'records' | 'pipeline';
 }
 
 export default function HistoryHub({
@@ -47,7 +48,8 @@ export default function HistoryHub({
   authToken,
   currentDentistId,
   memberNames,
-  onOpenWorkspace
+  onOpenWorkspace,
+  initialTab
 }: HistoryHubProps) {
   const [manageOpen, setManageOpen] = useState(false);
   const [showBillingModal, setShowBillingModal] = useState(false);
@@ -87,8 +89,15 @@ export default function HistoryHub({
 
   const previewEnabled = isPmsPreviewEnabled();
   const [hubTab, setHubTab] = useState<'schedule' | 'records' | 'pipeline'>(() => {
+    if (initialTab) return initialTab;
     return previewEnabled ? 'schedule' : 'records';
   });
+
+  useEffect(() => {
+    if (initialTab) {
+      setHubTab(initialTab);
+    }
+  }, [initialTab]);
   const getInitials = (name: string) => {
     return name
       .split(' ')
