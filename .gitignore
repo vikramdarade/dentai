@@ -30,6 +30,7 @@ data/*
 demo/out/
 *.mp4
 !demo/dentai-demo.mp4
+!public/demo/dentai-demo.mp4
 test-results/
 playwright-report/
 exports/

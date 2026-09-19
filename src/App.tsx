@@ -317,6 +317,9 @@ export default function App() {
   // Fetch consultations for the active scope whenever auth or the selected
   // clinic changes. An owner additionally sees every note recorded under the
   // clinics they own (cross-clinic view); switching away drops colleague
+  // Fetch consultations for the active scope whenever auth or the selected
+  // clinic changes. An owner additionally sees every note recorded under the
+  // clinics they own (cross-clinic view); switching away drops colleague
   // records so notes never leak between clinics.
   useEffect(() => {
     if (!authToken || !currentUser) {
@@ -327,26 +330,35 @@ export default function App() {
     flushPendingSync();
     refreshClinics();
 
-    const ownerClinic = activeClinic?.role === 'owner' ? activeClinic : null;
-    if (ownerClinic) {
-      fetchClinicConsultations(ownerClinic.clinicId);
-      fetchClinicMemberNames(ownerClinic.clinicId);
-    } else {
-      setMemberNames({});
-      setConsultations(prev => prev.filter(
-        (c: Consultation) => !c.clinicId || c.dentistId === currentUser.id
-      ));
-    }
+    const syncActiveClinic = () => {
+      const ownerClinic = activeClinic?.role === 'owner' ? activeClinic : null;
+      if (ownerClinic) {
+        fetchClinicConsultations(ownerClinic.clinicId);
+        fetchClinicMemberNames(ownerClinic.clinicId);
+      } else {
+        setMemberNames({});
+      }
+    };
+    syncActiveClinic();
+
+    // Cross-browser live operatory poll (fetches walk-ins & real-time dialogue every 3.5s)
+    const pollTimer = setInterval(() => {
+      fetchConsultations();
+      syncActiveClinic();
+    }, 3500);
+
+    return () => clearInterval(pollTimer);
   }, [authToken, currentUser?.id, activeClinicId]);
 
-  /** Records visible in the active clinic scope (owner view includes colleagues). */
+  /** Records visible in the active clinic scope (owner view includes colleagues, own records always visible). */
   const visibleConsultations = useMemo(() => {
     if (!activeClinic) return consultations;
     return consultations.filter((c: Consultation) =>
+      (currentUser?.id && c.dentistId === currentUser.id) ||
       c.clinicId === activeClinic.clinicId ||
       (!c.clinicId && activeClinic.role === 'owner')
     );
-  }, [consultations, activeClinic]);
+  }, [consultations, activeClinic, currentUser?.id]);
 
   // Re-upload any consultations that were queued while the backend was unreachable.
   // Tries PUT first (record exists) and falls back to POST (record is new).
@@ -384,34 +396,37 @@ export default function App() {
     }
   };
 
-  const fetchConsultations = async () => {
-    if (!currentUser || !authToken) return;
+  const fetchConsultations = async (overrideToken?: string, overrideUser?: any) => {
+    const tk = overrideToken || authToken;
+    const usr = overrideUser || currentUser;
+    if (!usr || !tk) return;
     try {
       const res = await fetch('/api/consultations', {
-        headers: { 'Authorization': `Bearer ${authToken}` }
+        headers: { 'Authorization': `Bearer ${tk}` }
       });
       if (res.ok) {
         const data = await res.json();
         // Only keep consultations that belong to the current dentist
         const myServerData = Array.isArray(data)
-          ? data.filter((c: Consultation) => !c.dentistId || c.dentistId === currentUser.id)
+          ? data.filter((c: Consultation) => !c.dentistId || c.dentistId === usr.id)
           : [];
-        const local = getLocalConsultations(currentUser.id) || [];
-        const myLocal = local.filter((c: Consultation) => !c.dentistId || c.dentistId === currentUser.id);
+        const local = getLocalConsultations(usr.id) || [];
+        const myLocal = local.filter((c: Consultation) => !c.dentistId || c.dentistId === usr.id);
 
+        // Crucial for cross-device sync: Add local baseline first, then server data overwrites with latest
         const mergedMap = new Map<string, Consultation>();
-        myServerData.forEach((c: Consultation) => mergedMap.set(c.id, { ...c, dentistId: c.dentistId || currentUser.id }));
-        myLocal.forEach((c: Consultation) => mergedMap.set(c.id, { ...c, dentistId: c.dentistId || currentUser.id }));
+        myLocal.forEach((c: Consultation) => mergedMap.set(c.id, { ...c, dentistId: c.dentistId || usr.id }));
+        myServerData.forEach((c: Consultation) => mergedMap.set(c.id, { ...c, dentistId: c.dentistId || usr.id }));
 
         const merged = Array.from(mergedMap.values());
         setConsultations(merged);
-        saveLocalConsultations(merged, currentUser.id);
+        saveLocalConsultations(merged, usr.id);
       }
     } catch (err) {
       console.warn('Failed to fetch consultations from server, falling back to local cache:', err);
-      const cached = getLocalConsultations(currentUser?.id);
+      const cached = getLocalConsultations(usr?.id);
       if (cached && cached.length > 0) {
-        setConsultations(cached.filter((c: Consultation) => !c.dentistId || c.dentistId === currentUser?.id));
+        setConsultations(cached.filter((c: Consultation) => !c.dentistId || c.dentistId === usr?.id));
       }
     }
   };
@@ -423,6 +438,7 @@ export default function App() {
     // Clinics are refreshed from the backend (login does not return them);
     // the authToken effect above also calls refreshClinics() on login.
     refreshClinics(token);
+    fetchConsultations(token, dentist);
     const local = getLocalConsultations(dentist.id);
     if (local) {
       setConsultations(local);

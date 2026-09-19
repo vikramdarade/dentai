@@ -534,8 +534,21 @@ export default function DemoMovie({ onExit }: DemoMovieProps) {
                 autoPlay
                 playsInline
                 className="w-full h-full object-contain"
-                src="/demo/dentai-demo.mp4"
+                onError={(e) => {
+                  const videoEl = e.currentTarget;
+                  // If /demo/dentai-demo.mp4 fails, try /api/demo/video once before falling back to interactive sim
+                  if (!videoEl.dataset.retried) {
+                    videoEl.dataset.retried = 'true';
+                    videoEl.src = '/api/demo/video';
+                    videoEl.load();
+                    videoEl.play().catch(() => {});
+                  } else {
+                    setPlayerMode('interactive');
+                  }
+                }}
               >
+                <source src="/demo/dentai-demo.mp4" type="video/mp4" />
+                <source src="/api/demo/video" type="video/mp4" />
                 Your browser does not support HTML5 video streaming.
               </video>
             </div>

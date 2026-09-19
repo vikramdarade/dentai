@@ -4637,6 +4637,21 @@ app.post('/api/beacon/chair/:chairId/upload-chunk', (req, res) => {
 // Statically serve demo artifacts (e.g. /demo/dentai-demo.mp4)
 app.use('/demo', express.static(path.resolve(__dirname, 'demo')));
 
+// Direct API video stream fallback for serverless deployments
+app.get('/api/demo/video', (req, res) => {
+  const possiblePaths = [
+    path.resolve(__dirname, 'demo', 'dentai-demo.mp4'),
+    path.resolve(__dirname, 'dist', 'demo', 'dentai-demo.mp4'),
+    path.resolve(__dirname, 'public', 'demo', 'dentai-demo.mp4')
+  ];
+  for (const p of possiblePaths) {
+    if (fs.existsSync(p)) {
+      return res.sendFile(p);
+    }
+  }
+  res.status(404).json({ error: 'Demo video not found.' });
+});
+
 // Unified Frontend Router (Dev vs Prod vs Test)
 async function setupDevMode() {
   logger.info('Starting DentAI in DEVELOPMENT mode with Vite Middleware...');
