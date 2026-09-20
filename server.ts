@@ -42,7 +42,7 @@ import {
   personalClinicName,
   sanitizeClinicName
 } from './src/lib/clinics';
-import { PLANS, type PlanId, resolveEntitlements } from './src/lib/plans';
+import { PLANS, isPlanId, type PlanId, resolveEntitlements } from './src/lib/plans';
 import {
   extractProposedTreatmentsFromFindings,
   lookupAdaFee,
@@ -53,6 +53,8 @@ import type {
   TreatmentStatus,
   PracticeRoiSummary
 } from './src/types';
+import { verifyPmsWebhookSignature, checkAndRecordWebhookReplay } from './src/server/pmsWebhookAuth';
+import { evaluateChunkIngestion } from './src/lib/standbyPolicy';
 import { logger } from './logger';
 import fs from 'fs';
 import crypto from 'crypto';
@@ -3746,21 +3748,74 @@ app.patch('/api/pipeline/:id', authenticateToken, async (req: any, res) => {
 // Inbound PMS Booking Webhook (Cliniko, Core Practice, or Zapier integration)
 app.post('/api/webhooks/pms-booking', async (req: any, res) => {
   try {
-    const { opportunityId, pmsType = 'cliniko', pmsAppointmentId, patientName, bookedAt = new Date().toISOString(), clinicId } = req.body;
+    const webhookSecret = process.env.DENTAI_PMS_WEBHOOK_SECRET;
+    if (!webhookSecret || !webhookSecret.trim()) {
+      logger.warn('Inbound PMS booking webhook received but DENTAI_PMS_WEBHOOK_SECRET is not configured.');
+      return res.status(503).json({ error: 'Webhook not configured.', code: 'WEBHOOK_NOT_CONFIGURED' });
+    }
 
-    if (!pmsAppointmentId && !opportunityId) {
-      return res.status(400).json({ error: 'Missing required parameters: opportunityId or pmsAppointmentId required.' });
+    const signatureHeader = req.headers['x-dentai-signature'] as string | undefined;
+    const rawPayload = req.rawBody;
+    const sigResult = verifyPmsWebhookSignature({
+      secret: webhookSecret,
+      header: signatureHeader,
+      payload: rawPayload
+    });
+
+    if (!sigResult.ok) {
+      const reason = (sigResult as any).reason;
+      logger.warn(`Inbound PMS booking webhook signature rejected: ${reason}`);
+      logAudit('pms_webhook_rejected', 'system', { reason });
+      return res.status(401).json({ error: 'Invalid signature.', code: 'INVALID_SIGNATURE' });
+    }
+
+    // Replay / idempotency guard
+    const eventId =
+      (req.headers['x-dentai-event-id'] as string) ||
+      (signatureHeader ? signatureHeader.split('v1=')[1] : undefined);
+    if (eventId && checkAndRecordWebhookReplay(eventId)) {
+      logger.warn('Inbound PMS booking webhook duplicate/replay detected.');
+      return res.status(200).json({ success: true, duplicate: true, message: 'Event already processed.' });
+    }
+
+    const {
+      opportunityId,
+      pmsType = 'cliniko',
+      pmsAppointmentId,
+      bookedAt: rawBookedAt,
+      clinicId
+    } = req.body || {};
+
+    if (!opportunityId || typeof opportunityId !== 'string' || !opportunityId.trim()) {
+      return res.status(400).json({ error: 'Missing required opportunityId parameter.', code: 'OPPORTUNITY_ID_REQUIRED' });
+    }
+
+    if (!clinicId || typeof clinicId !== 'string' || !clinicId.trim()) {
+      return res.status(400).json({ error: 'Missing required clinicId parameter.', code: 'CLINIC_ID_REQUIRED' });
+    }
+
+    // Validate ISO timestamp, defaulting securely to server receipt time
+    let bookedAt = new Date().toISOString();
+    if (rawBookedAt && typeof rawBookedAt === 'string') {
+      const parsed = Date.parse(rawBookedAt);
+      if (!isNaN(parsed)) {
+        bookedAt = new Date(parsed).toISOString();
+      }
     }
 
     let foundOpp: TreatmentOpportunity | null = null;
     let targetConsult: any = null;
 
     if (dbEnabled) {
-      const fastConsultId = opportunityId && opportunityId.includes('-tx-') ? opportunityId.split('-tx-')[0] : null;
-      const allConsults = clinicId ? await dbListConsultationsForClinic(clinicId) : [];
+      const fastConsultId = opportunityId.includes('-tx-') ? opportunityId.split('-tx-')[0] : null;
+      const allConsults = await dbListConsultationsForClinic(clinicId);
       const searchPool = fastConsultId ? allConsults.filter((c: any) => c.id === fastConsultId) : allConsults;
 
       for (const c of searchPool) {
+        if (c.clinicId && c.clinicId !== clinicId) {
+          continue;
+        }
+
         const items = c.findings?.proposedTreatments || extractProposedTreatmentsFromFindings({
           findings: c.findings,
           patientName: `${c.firstName} ${c.lastName}`,
@@ -3768,9 +3823,7 @@ app.post('/api/webhooks/pms-booking', async (req: any, res) => {
           clinicId: c.clinicId,
           consultationId: c.id
         });
-        const match = opportunityId
-          ? items.find((i: any) => i.id === opportunityId)
-          : items.find((i: any) => patientName && `${c.firstName} ${c.lastName}`.toLowerCase().includes(patientName.toLowerCase().trim()));
+        const match = items.find((i: any) => i.id === opportunityId);
 
         if (match) {
           match.status = 'booked';
@@ -3788,12 +3841,17 @@ app.post('/api/webhooks/pms-booking', async (req: any, res) => {
       }
     } else {
       const data = await readConsultationsDb();
-      const fastConsultId = opportunityId && opportunityId.includes('-tx-') ? opportunityId.split('-tx-')[0] : null;
+      const fastConsultId = opportunityId.includes('-tx-') ? opportunityId.split('-tx-')[0] : null;
       const searchPool = fastConsultId
         ? data.consultations.filter((c: any) => c.id === fastConsultId)
         : data.consultations;
 
       for (const c of searchPool) {
+        // Enforce clinic boundary: consultation must match request's clinicId
+        if (c.clinicId && c.clinicId !== clinicId) {
+          continue;
+        }
+
         const items = c.findings?.proposedTreatments || extractProposedTreatmentsFromFindings({
           findings: c.findings,
           patientName: `${c.firstName} ${c.lastName}`,
@@ -3801,9 +3859,7 @@ app.post('/api/webhooks/pms-booking', async (req: any, res) => {
           clinicId: c.clinicId,
           consultationId: c.id
         });
-        const match = opportunityId
-          ? items.find((i: any) => i.id === opportunityId)
-          : items.find((i: any) => patientName && `${c.firstName} ${c.lastName}`.toLowerCase().includes(patientName.toLowerCase().trim()));
+        const match = items.find((i: any) => i.id === opportunityId);
 
         if (match) {
           match.status = 'booked';
@@ -3829,7 +3885,8 @@ app.post('/api/webhooks/pms-booking', async (req: any, res) => {
       opportunityId: foundOpp.id,
       pmsType,
       pmsAppointmentId,
-      consultationId: targetConsult?.id
+      consultationId: targetConsult?.id,
+      clinicId
     });
 
     res.json({ success: true, opportunity: foundOpp });
@@ -3939,8 +3996,22 @@ app.get('/api/pipeline/roi', authenticateToken, async (req: any, res) => {
       ? Number((daysToBookTotal / daysToBookCount).toFixed(1))
       : 0;
 
-    const subscriptionCost = 149;
-    const netRoiMultiple = totalBookedValue > 0
+    // The multiple must divide by what THIS clinic actually pays. This was a
+    // hardcoded 149, which told a free Solo clinic it was realising a return
+    // against a subscription it does not have, and gave a Group/annual/GST
+    // customer the Practice price. No cost => no multiple, not an invented one.
+    let subscriptionCost = 0;
+    if (clinicId) {
+      try {
+        const subscription = await subscriptionStore.forClinic(clinicId);
+        const plan = isPlanId(subscription?.plan) ? subscription.plan : null;
+        subscriptionCost = plan ? PLANS[plan].monthlyAudExGst : 0;
+      } catch (subErr: any) {
+        logger.warn('Could not resolve the plan price for the ROI summary:', subErr?.message || subErr);
+      }
+    }
+    const netRoiMultiple =
+      subscriptionCost > 0 && totalBookedValue > 0
       ? Number((totalBookedValue / subscriptionCost).toFixed(1))
       : 0;
 
@@ -4952,7 +5023,28 @@ app.post('/api/beacon/chair/:chairId/upload-chunk', async (req, res) => {
       return res.status(404).json({ error: 'Chair session not found.' });
     }
 
-    const { chunkIndex = 0, dataBase64, audioData, sizeBytes = 0 } = req.body || {};
+    const token =
+      (req.headers['x-chair-token'] as string) ||
+      (req.headers['authorization']?.startsWith('Bearer ') ? req.headers['authorization'].slice(7) : undefined) ||
+      req.body?.token;
+
+    if (!token || !verifyChairToken(token)) {
+      return res.status(401).json({ error: 'Valid chair token required.', code: 'INVALID_CHAIR_TOKEN' });
+    }
+
+    const { chunkIndex = 0, dataBase64, audioData, sizeBytes = 0, consultationId } = req.body || {};
+
+    // Enforce patient & session boundary: refuse late chunks after patient switch or closure
+    const verdict = evaluateChunkIngestion(session, consultationId);
+    if (verdict.action === 'refuse') {
+      return res.status(409).json({
+        success: false,
+        saved: false,
+        code: verdict.code,
+        error: verdict.reason
+      });
+    }
+
     const encoded =
       typeof dataBase64 === 'string' ? dataBase64 : typeof audioData === 'string' ? audioData : undefined;
 

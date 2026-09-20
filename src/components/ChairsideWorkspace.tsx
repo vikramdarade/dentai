@@ -14,28 +14,22 @@ import {
   Shield,
   User,
   FileText,
-  Sliders,
   Sparkles,
   Activity,
   LogOut,
   X,
   Clipboard,
-  MessageSquare,
   LayoutDashboard,
   TrendingUp,
   Mail,
-  ChevronDown,
   Send,
   RefreshCw,
   Upload,
-  Zap,
-  VolumeX,
   ArrowRight,
   HelpCircle,
-  Lightbulb,
-  BookOpen,
   LifeBuoy,
-  ExternalLink
+  ExternalLink,
+  Tag
 } from 'lucide-react';
 import { addScheduleItem } from '../lib/dayScheduleStorage';
 import { Consultation, TranscriptItem, ClinicalFindings } from '../types';
@@ -51,7 +45,9 @@ import { AppointmentType, getTemplateById } from '../lib/dentalLibrary';
 import { generateOfflineDraft } from '../lib/draftEngine';
 import { normalizeSpokenDentalText } from '../lib/dentalPhoneticLexicon';
 import { formatClinicDate, formatClinicTime, getClinicTodayIso } from '../utils/date';
-import ChairsideOdontogram from './ChairsideOdontogram';
+import { decideSilenceAction, SILENCE_SLEEP_SECONDS } from '../lib/silencePolicy';
+import { toPmsEncounter, renderForPms } from '../lib/pms';
+import { ClinicMembership } from '../lib/clinics';
 
 interface ChairsideWorkspaceProps {
   currentUser: AuthUser | null;
@@ -59,6 +55,7 @@ interface ChairsideWorkspaceProps {
   authToken: string | null;
   consultations: Consultation[];
   activeClinicId?: string | null;
+  activeClinic?: ClinicMembership | null;
   initialPatientId?: string | null;
   onOpenHistoryHub: () => void;
   onOpenPipeline?: () => void;
@@ -126,6 +123,7 @@ export default function ChairsideWorkspace({
   authToken,
   consultations,
   activeClinicId,
+  activeClinic,
   initialPatientId,
   onOpenHistoryHub,
   onOpenPipeline,
@@ -224,21 +222,21 @@ export default function ChairsideWorkspace({
       const currentInstant = consultationInstant(c);
       const priorVisits = c.patientId
         ? consultations
-            .filter((other) => other.id !== c.id && other.patientId === c.patientId)
-            .filter((other) => {
-              const instant = consultationInstant(other);
-              // With no real timestamps we cannot prove it is *prior*, but it is
-              // still the same patient, which is what this lookup is for.
-              if (!Number.isFinite(currentInstant) || !Number.isFinite(instant)) return true;
-              return instant < currentInstant;
-            })
-            .sort((a, b) => {
-              const ai = consultationInstant(a);
-              const bi = consultationInstant(b);
-              if (!Number.isFinite(ai)) return 1;
-              if (!Number.isFinite(bi)) return -1;
-              return bi - ai;
-            })
+          .filter((other) => other.id !== c.id && other.patientId === c.patientId)
+          .filter((other) => {
+            const instant = consultationInstant(other);
+            // With no real timestamps we cannot prove it is *prior*, but it is
+            // still the same patient, which is what this lookup is for.
+            if (!Number.isFinite(currentInstant) || !Number.isFinite(instant)) return true;
+            return instant < currentInstant;
+          })
+          .sort((a, b) => {
+            const ai = consultationInstant(a);
+            const bi = consultationInstant(b);
+            if (!Number.isFinite(ai)) return 1;
+            if (!Number.isFinite(bi)) return -1;
+            return bi - ai;
+          })
         : [];
 
       const latestPrior = priorVisits[0];
@@ -908,7 +906,7 @@ export default function ChairsideWorkspace({
               sizeBytes: blob.size
             });
           })
-          .catch(() => {});
+          .catch(() => { });
       };
 
       // 5s slices: long enough that the upload volume is modest, short enough
@@ -931,50 +929,50 @@ export default function ChairsideWorkspace({
   // Helper to append spoken or typed utterance with 0ms optimistic UI update & real database persistence
   const handleAppendTranscriptText = useCallback(
     async (text: string, sender: 'Dentist' | 'Patient' | 'Dialogue' = 'Dentist') => {
-    if (!text.trim() || !activeEncounterRef.current) return;
+      if (!text.trim() || !activeEncounterRef.current) return;
 
-    const normalized = normalizeSpokenDentalText(text.trim());
-    if (!normalized) return;
+      const normalized = normalizeSpokenDentalText(text.trim());
+      if (!normalized) return;
 
-    // Reset silence timer on any voiced speech
-    lastVoicedTimeRef.current = Date.now();
-    hasPlayedWarningChimeRef.current = false;
-    if (isSilenceWarningRef.current) {
-      setIsSilenceWarning(false);
-      isSilenceWarningRef.current = false;
-    }
-
-    const targetId = activeEncounterRef.current.id;
-    const timeNow = formatClinicTime(new Date(), { second: '2-digit' });
-
-    // 1. Instant 0ms optimistic UI update: renders the new utterance immediately in the feed
-    setLocalLiveTranscripts(prev => ({
-      ...prev,
-      [targetId]: [
-        ...(prev[targetId] || []),
-        { sender, text: normalized, time: timeNow }
-      ]
-    }));
-    setInterimTranscript('');
-
-    // 2. Concurrently persist to database consultation
-    const existingConsultation = consultationsRef.current.find(c => c.id === targetId);
-    if (existingConsultation) {
-      const updatedTranscript: TranscriptItem[] = [
-        ...(existingConsultation.transcript || []),
-        { sender, text: normalized }
-      ];
-
-      const updatedConsultation: Consultation = {
-        ...existingConsultation,
-        transcript: updatedTranscript
-      };
-
-      if (onSaveConsultation) {
-        await onSaveConsultation(updatedConsultation);
+      // Reset silence timer on any voiced speech
+      lastVoicedTimeRef.current = Date.now();
+      hasPlayedWarningChimeRef.current = false;
+      if (isSilenceWarningRef.current) {
+        setIsSilenceWarning(false);
+        isSilenceWarningRef.current = false;
       }
-    }
-  }, [onSaveConsultation]);
+
+      const targetId = activeEncounterRef.current.id;
+      const timeNow = formatClinicTime(new Date(), { second: '2-digit' });
+
+      // 1. Instant 0ms optimistic UI update: renders the new utterance immediately in the feed
+      setLocalLiveTranscripts(prev => ({
+        ...prev,
+        [targetId]: [
+          ...(prev[targetId] || []),
+          { sender, text: normalized, time: timeNow }
+        ]
+      }));
+      setInterimTranscript('');
+
+      // 2. Concurrently persist to database consultation
+      const existingConsultation = consultationsRef.current.find(c => c.id === targetId);
+      if (existingConsultation) {
+        const updatedTranscript: TranscriptItem[] = [
+          ...(existingConsultation.transcript || []),
+          { sender, text: normalized }
+        ];
+
+        const updatedConsultation: Consultation = {
+          ...existingConsultation,
+          transcript: updatedTranscript
+        };
+
+        if (onSaveConsultation) {
+          await onSaveConsultation(updatedConsultation);
+        }
+      }
+    }, [onSaveConsultation]);
 
   // SpeechRecognition Hook with Operatory Acoustic Artifact Filtering & Live Interim Dialogue
   useEffect(() => {
@@ -1119,18 +1117,20 @@ export default function ChairsideWorkspace({
         const elapsed = Math.max(0, Math.floor((Date.now() - sessionStartTimeRef.current) / 1000));
         setRecordingSeconds(elapsed);
 
-        // Check silence duration since last voiced speech
+        // Check silence duration since last voiced speech via pure policy
         const silenceSec = (Date.now() - lastVoicedTimeRef.current) / 1000;
-        if (silenceSec >= 180) {
+        const action = decideSilenceAction(silenceSec);
+
+        if (action === 'pause') {
           // 3:00 - Auto-pause recording
           setIsPaused(true);
           setIsSilenceWarning(false);
           isSilenceWarningRef.current = false;
           hasPlayedWarningChimeRef.current = false;
           playMedicalChime('auto-pause');
-        } else if (silenceSec >= 150) {
+        } else if (action === 'warn') {
           // 2:30 - Pre-pause audio-visual countdown warning
-          const remaining = Math.max(0, Math.ceil(180 - silenceSec));
+          const remaining = Math.max(0, Math.ceil(SILENCE_SLEEP_SECONDS - silenceSec));
           setIsSilenceWarning(true);
           isSilenceWarningRef.current = true;
           setSilenceSecondsRemaining(remaining);
@@ -1536,16 +1536,39 @@ export default function ChairsideWorkspace({
     return encountersForDate.filter(p => p.status === 'ready');
   }, [encountersForDate]);
 
-  // Generate note text formatted for PMS clipboard (incorporating clinician inline edits)
+  const [selectedPmsTarget, setSelectedPmsTarget] = useState<'d4w' | 'exact' | 'cliniko' | 'generic'>('d4w');
+
+  // Generate note text formatted for PMS clipboard (incorporating clinician inline edits & PMS adapter)
   const getFormattedNoteText = (consultToCopy?: Consultation): string => {
     const target = consultToCopy || consultations.find(c => c.id === activeEncounter?.id);
     if (!target) return '';
 
     const isCurrentActive = target.id === activeEncounter?.id;
-    const subj = isCurrentActive ? currentSoap.subjective : (target.findings?.chiefComplaint ? `${target.findings.chiefComplaint} ${target.findings.history || ''}` : 'No complaints.');
-    const obj = isCurrentActive ? currentSoap.objective : (target.findings?.toothFindings ? `${target.findings.toothFindings} ${target.findings.findingsGingival || ''}` : 'Intact.');
-    const assess = isCurrentActive ? currentSoap.assessment : (target.findings?.diagnosis || 'Stable.');
-    const planText = isCurrentActive ? currentSoap.plan : (target.findings?.treatmentPerformed ? `${target.findings.treatmentPerformed} ${target.findings.recommendations || ''}` : 'Completed.');
+    const subj = isCurrentActive ? currentSoap.subjective : (target.findings?.chiefComplaint ? `${target.findings.chiefComplaint} ${target.findings.history || ''}` : '');
+    const obj = isCurrentActive ? currentSoap.objective : (target.findings?.toothFindings ? `${target.findings.toothFindings} ${target.findings.findingsGingival || ''}` : '');
+    const assess = isCurrentActive ? currentSoap.assessment : (target.findings?.diagnosis || '');
+    const planText = isCurrentActive ? currentSoap.plan : (target.findings?.treatmentPerformed ? `${target.findings.treatmentPerformed} ${target.findings.recommendations || ''}` : '');
+
+    // Construct synthesized consultation snapshot reflecting live clinician edits
+    const liveConsult: Consultation = {
+      ...target,
+      findings: {
+        ...target.findings,
+        chiefComplaint: subj,
+        toothFindings: obj,
+        diagnosis: assess,
+        treatmentPerformed: planText,
+        adaCodes: isCurrentActive && activeEncounter?.cdtCodes ? activeEncounter.cdtCodes.map(c => ({ code: c.code, description: c.desc })) : (target.findings?.adaCodes || [])
+      }
+    };
+
+    try {
+      const pmsEncounter = toPmsEncounter(liveConsult);
+      const rendered = renderForPms(selectedPmsTarget, pmsEncounter);
+      if (rendered?.body) return rendered.body;
+    } catch {
+      // Safe fallback if adapter encounters edge case
+    }
 
     return `=== DENTAI CLINICAL NOTE ===
 PATIENT: ${target.firstName} ${target.lastName} (DOB: ${target.dob || 'Not recorded'})
@@ -1554,21 +1577,21 @@ PROVIDER: ${dentistName || 'Attending Clinician'}
 PROCEDURE: ${target.appointmentType?.toUpperCase() || 'GENERAL RESTORATIVE'}
 
 SUBJECTIVE (S):
-${subj}
+${subj || 'No complaints recorded.'}
 
 OBJECTIVE (O):
-${obj}
+${obj || 'Examination completed.'}
 
 ASSESSMENT (A):
-${assess}
+${assess || 'Clinical findings documented.'}
 
 PLAN & PROCEDURE (P):
-${planText}
+${planText || 'Treatment completed.'}
 
 CDT/ADA CODES:
 ${target.findings?.adaCodes?.map(c => `- ${c.code}: ${c.description}`).join('\n') || '- None recorded'}
 
-VERIFICATION: Fully verified from patient conversation
+VERIFICATION: Verified from patient conversation
 ============================`;
   };
 
@@ -1764,112 +1787,59 @@ ${clinician}`;
   };
 
   return (
-    <div className="flex h-screen w-full bg-[#F8FAFC] text-slate-800 font-sans overflow-hidden antialiased select-none">
+    <div className="flex h-screen w-full bg-[#F8F9FA] text-slate-800 font-sans overflow-hidden antialiased select-none">
       {/* ─────────────────────────────────────────────────────────────
-          1. ULTRA-SLIM ICON RAIL (60px)
-          ───────────────────────────────────────────────────────────── */}
-      <aside className="w-[60px] flex-shrink-0 bg-white border-r border-slate-200 flex flex-col justify-between items-center py-3 z-30 shadow-2xs">
-        <div className="flex flex-col items-center space-y-4">
-          {/* Tooth Brand Logo */}
-          <div className="w-10 h-10 rounded-xl bg-teal-800 text-white flex items-center justify-center shadow-xs">
-            <svg viewBox="0 0 24 24" className="w-5 h-5 text-white" fill="currentColor">
-              <path d="M12 2C9 2 7 4 7 7.5c0 3 1.2 6.5 2 9.5.5 2 1.5 3 2.5 3 .6 0 1.2-.5 1.5-1.5.3 1 1 1.5 1.5 1.5 1 0 2-1 2.5-3 .8-3 2-6.5 2-9.5C19 4 17 2 12 2z" />
-            </svg>
-          </div>
-
-          {/* Nav Icons */}
-          <div className="flex flex-col items-center space-y-2 pt-2">
-            <button
-              className="w-10 h-10 rounded-xl flex items-center justify-center bg-teal-800 text-white shadow-xs transition cursor-pointer"
-              title="Chairside Scribe (Active Operatory)"
-            >
-              <Activity className="w-5 h-5 text-teal-200" />
-            </button>
-
-            <button
-              onClick={onOpenHistoryHub}
-              className="w-9 h-9 rounded-xl flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition cursor-pointer"
-              title="Patient Records & History Hub"
-            >
-              <LayoutDashboard className="w-5 h-5" />
-            </button>
-
-            <button
-              onClick={() => onOpenPipeline?.()}
-              className="w-9 h-9 rounded-xl flex items-center justify-center text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition cursor-pointer"
-              title="Treatment Pipeline & Recall Worklist"
-            >
-              <TrendingUp className="w-5 h-5" />
-            </button>
-          </div>
-        </div>
-
-        {/* Bottom Rail Icons */}
-        <div className="flex flex-col items-center space-y-3">
-          <div
-            className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
-              !isMicStandby && !isPaused
-                ? 'bg-rose-100 text-rose-700 animate-pulse'
-                : isPaused
-                ? 'bg-amber-100 text-amber-700'
-                : 'bg-slate-100 text-slate-400'
-            }`}
-            title={!isMicStandby && !isPaused ? 'Active Recording' : isPaused ? 'Recording Paused' : 'Microphone Standby'}
-          >
-            <Mic className="w-4 h-4" />
-          </div>
-          <button
-            type="button"
-            onClick={() => setShowDayGuide(true)}
-            className="w-8 h-8 rounded-full hover:bg-teal-50 flex items-center justify-center text-slate-400 hover:text-teal-700 transition cursor-pointer"
-            title="Clinician Day Guide & Support (Press ?)"
-          >
-            <HelpCircle className="w-4 h-4" />
-          </button>
-          <button
-            onClick={onLogout}
-            className="w-8 h-8 rounded-full hover:bg-rose-50 flex items-center justify-center text-slate-400 hover:text-rose-600 transition cursor-pointer"
-            title="Sign Out"
-          >
-            <LogOut className="w-4 h-4" />
-          </button>
-        </div>
-      </aside>
-
-      {/* ─────────────────────────────────────────────────────────────
-          2. MAIN OPERATORY WORKSPACE (Full Width Header + 2-Column Area)
+          1. GLOBAL TOP SURGERY HEADER
           ───────────────────────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col h-screen overflow-hidden">
-        {/* Global Surgery Header spanning Daysheet + Stage */}
-        <header className="h-14 px-6 border-b border-slate-200 bg-white flex items-center justify-between flex-shrink-0 z-10">
-          {/* Real-Time Cloud Sync Indicator */}
-          <div className="flex items-center space-x-2.5">
-            <div className="flex items-center space-x-2 text-xs font-semibold text-slate-700 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200/80 shadow-2xs">
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
-              </span>
-              <span className="text-slate-800 font-bold">Cloud Sync</span>
-              <span className="text-[10px] font-mono text-emerald-800 bg-emerald-100/70 px-1.5 py-0.5 rounded border border-emerald-200 font-bold">
-                Live
-              </span>
+        <header className="h-14 px-6 border-b border-slate-200 bg-white flex items-center justify-between flex-shrink-0 z-20 shadow-2xs">
+          <div className="flex items-center space-x-3">
+            <div className="w-9 h-9 rounded-xl bg-[#0060BA] text-white flex items-center justify-center shadow-xs">
+              <svg viewBox="0 0 24 24" className="w-5 h-5 text-white" fill="currentColor">
+                <path d="M12 2C9 2 7 4 7 7.5c0 3 1.2 6.5 2 9.5.5 2 1.5 3 2.5 3 .6 0 1.2-.5 1.5-1.5.3 1 1 1.5 1.5 1.5 1 0 2-1 2.5-3 .8-3 2-6.5 2-9.5C19 4 17 2 12 2z" />
+              </svg>
+            </div>
+            <div>
+              <div className="flex items-center space-x-2">
+                <span className="font-extrabold text-slate-900 text-sm tracking-tight">DentAI</span>
+                <span className="text-[10px] bg-sky-50 text-sky-800 font-bold px-1.5 py-0.2 rounded border border-sky-200">Operatory Scribe</span>
+              </div>
+              <div className="text-[10px] text-slate-400 font-semibold">{activeClinic?.clinicName || 'Chairside Medical Workspace'}</div>
             </div>
           </div>
 
           <div className="flex items-center space-x-2.5">
-            {/* Contextual Day Guide & Direct GitHub Support */}
+            <button
+              onClick={onOpenHistoryHub}
+              className="px-3 py-1.5 rounded-xl border border-slate-200 hover:border-sky-500 bg-white hover:bg-sky-50/50 text-slate-700 text-xs font-semibold flex items-center space-x-1.5 shadow-2xs transition cursor-pointer"
+              title="Patient Records & History Hub"
+            >
+              <LayoutDashboard className="w-3.5 h-3.5 text-slate-600" />
+              <span>Past Records</span>
+            </button>
+
+            {onOpenPipeline && (
+              <button
+                onClick={onOpenPipeline}
+                className="px-3 py-1.5 rounded-xl border border-slate-200 hover:border-amber-500 bg-white hover:bg-amber-50/50 text-slate-700 text-xs font-semibold flex items-center space-x-1.5 shadow-2xs transition cursor-pointer"
+                title="Treatment Pipeline & Worklist"
+              >
+                <TrendingUp className="w-3.5 h-3.5 text-amber-600" />
+                <span>Worklist</span>
+              </button>
+            )}
+
             <button
               type="button"
               onClick={() => setShowDayGuide(true)}
-              className="px-3 py-1.5 rounded-xl border border-slate-200 hover:border-teal-700 bg-white hover:bg-teal-50/50 text-slate-700 text-xs font-semibold flex items-center space-x-1.5 shadow-2xs transition cursor-pointer"
+              className="px-3 py-1.5 rounded-xl border border-slate-200 hover:border-sky-500 bg-white hover:bg-sky-50/50 text-slate-700 text-xs font-semibold flex items-center space-x-1.5 shadow-2xs transition cursor-pointer"
               title="Day Guide & Shortcuts (Press ?)"
             >
-              <HelpCircle className="w-3.5 h-3.5 text-teal-700" />
-              <span>Guide & Support</span>
+              <HelpCircle className="w-3.5 h-3.5 text-sky-600" />
+              <span>Guide</span>
               <kbd className="text-[9px] font-mono font-bold bg-slate-100 text-slate-500 px-1 py-0.2 rounded border border-slate-200">?</kbd>
             </button>
 
-            {/* End-of-Day Notes Button */}
             <button
               onClick={() => setShowBatchTray(true)}
               className="px-3 py-1.5 rounded-xl border border-slate-200 hover:border-teal-700 bg-white hover:bg-teal-50/50 text-slate-700 text-xs font-bold flex items-center space-x-1.5 shadow-2xs transition cursor-pointer"
@@ -1882,61 +1852,86 @@ ${clinician}`;
               </span>
             </button>
 
+            <div className="h-6 w-[1px] bg-slate-200 mx-1" />
+
             <div className="text-right">
-              <div className="text-xs font-bold text-slate-800">{dentistName || 'Dr. Marcus Vance, DDS'}</div>
-              <div className="text-[10px] font-semibold text-slate-500">Attending Clinician</div>
+              <div className="text-xs font-bold text-slate-800">{dentistName || 'Dr. Marcus Vance'}</div>
+              <div className="text-[10px] font-semibold text-slate-400">Attending Clinician</div>
             </div>
-            <div className="w-8 h-8 rounded-full bg-teal-800 text-white font-bold text-xs flex items-center justify-center border border-teal-900 shadow-2xs">
+            <div className="w-8 h-8 rounded-full bg-[#0060BA] text-white font-bold text-xs flex items-center justify-center border border-sky-700 shadow-2xs">
               {dentistName ? dentistName.split(' ').map(n => n[0]).join('').slice(0, 2) : 'MV'}
             </div>
+            <button
+              onClick={onLogout}
+              className="w-8 h-8 rounded-full hover:bg-rose-50 flex items-center justify-center text-slate-400 hover:text-rose-600 transition cursor-pointer ml-1"
+              title="Sign Out"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
           </div>
         </header>
-        {/* Content Area: Column 1 Daysheet + Column 2/3 Stage */}
+
+        {/* Content Area: 2-Pane Hybrid Split (Left 28% Clinic Day Schedule + Right 72% Apple Clinical Document) */}
         <div className="flex-1 flex flex-row overflow-hidden">
-          {/* ─── COLUMN 1: DAYSHEET & QUICK INTAKE (~310px) ─── */}
-          <section className="w-[310px] flex-shrink-0 bg-white border-r border-slate-200 flex flex-col justify-between overflow-hidden">
-            <div className="flex-1 overflow-y-auto p-3 space-y-3 custom-scrollbar">
-              {/* Paste Schedule & Walk-In Quick Actions */}
+          {/* ─── PANE 1: CLINIC DAY SCHEDULE (28% ~320px) ─── */}
+          <section className="w-[320px] flex-shrink-0 bg-white border-r border-slate-200 flex flex-col justify-between overflow-hidden shadow-2xs">
+            <div className="flex-1 overflow-y-auto p-3.5 space-y-3 custom-scrollbar">
+              {/* Schedule Title & Import Actions */}
               <div>
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">Clinic Day Schedule</h3>
+                  <div className="flex items-center space-x-1">
+                    <button
+                      onClick={handlePrevDay}
+                      className="text-slate-400 hover:text-slate-800 p-0.5 rounded cursor-pointer transition"
+                      title="Previous Day"
+                    >
+                      <ChevronLeft className="w-3.5 h-3.5" />
+                    </button>
+                    <span
+                      onClick={() => setCurrentDate(new Date())}
+                      className="text-[11px] font-bold text-slate-700 cursor-pointer hover:text-sky-600 transition"
+                      title="Reset to today"
+                    >
+                      {dateLabel}
+                    </span>
+                    <button
+                      onClick={handleNextDay}
+                      className="text-slate-400 hover:text-slate-800 p-0.5 rounded cursor-pointer transition"
+                      title="Next Day"
+                    >
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+
                 <div className="flex items-center gap-2">
                   <button
                     onClick={handleOpenDaysheetModal}
-                    className="flex-1 py-2 px-3 rounded-xl bg-teal-800 hover:bg-teal-900 text-white text-xs font-bold flex items-center justify-between shadow-xs transition cursor-pointer"
+                    className="flex-1 py-1.5 px-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold flex items-center justify-between shadow-2xs transition cursor-pointer"
                     title="Import Today's Schedule (⌘V)"
                   >
                     <div className="flex items-center space-x-1.5 truncate">
-                      <Clipboard className="w-3.5 h-3.5 text-teal-300 flex-shrink-0" />
+                      <Clipboard className="w-3.5 h-3.5 text-sky-400 flex-shrink-0" />
                       <span className="truncate">Paste Schedule</span>
                     </div>
-                    <span className="bg-teal-950/60 text-teal-200 text-[9px] font-mono font-bold px-1.5 py-0.5 rounded border border-teal-700 ml-1">
+                    <span className="bg-slate-800 text-slate-300 text-[9px] font-mono font-bold px-1.5 py-0.2 rounded border border-slate-700 ml-1">
                       ⌘V
                     </span>
                   </button>
 
                   <button
                     onClick={() => setShowWalkInCard(prev => !prev)}
-                    className={`py-2 px-3 rounded-xl border text-xs font-bold flex items-center space-x-1 shadow-xs transition cursor-pointer ${showWalkInCard
-                      ? 'bg-teal-50 border-teal-300 text-teal-800'
+                    className={`py-1.5 px-2.5 rounded-xl border text-xs font-bold flex items-center space-x-1 shadow-2xs transition cursor-pointer ${showWalkInCard
+                      ? 'bg-sky-50 border-sky-300 text-sky-800'
                       : 'bg-white hover:bg-slate-50 border-slate-200 text-slate-700'
                       }`}
                     title="Add Walk-In Patient"
                   >
-                    <Plus className="w-3.5 h-3.5 text-teal-600" />
+                    <Plus className="w-3.5 h-3.5 text-sky-600" />
                     <span>Walk-In</span>
                   </button>
                 </div>
-                <div className="text-[10px] text-slate-500 font-medium px-1 pt-1.5 flex items-center justify-between">
-                  <span className="flex items-center gap-1 font-semibold text-slate-600">
-                    <span>=</span> Quick Import Active
-                  </span>
-                  <span className="text-slate-400 truncate">Dentrix, Eaglesoft, Open Dental</span>
-                </div>
-                {pmsImportNotice && (
-                  <div className="mt-1.5 text-[10px] bg-emerald-100 text-emerald-800 px-2 py-1 rounded font-bold flex items-center gap-1">
-                    <Check className="w-3 h-3 text-emerald-700" />
-                    <span>Daysheet imported directly to database!</span>
-                  </div>
-                )}
               </div>
 
               {/* Quick Walk-In Entry Inline Card */}
@@ -1944,85 +1939,60 @@ ${clinician}`;
                 <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-2xs space-y-2">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-1.5 text-xs font-bold text-slate-800">
-                      <User className="w-3.5 h-3.5 text-teal-700" />
+                      <User className="w-3.5 h-3.5 text-sky-700" />
                       <span>Quick Walk-In Entry</span>
                     </div>
-                    <div className="flex items-center space-x-1">
-                      <span className="bg-amber-100 text-amber-900 text-[9px] font-bold px-1.5 py-0.5 rounded flex items-center gap-1">
-                        <span className="w-1.5 h-1.5 rounded-full bg-amber-600" />
-                        Urgent Triage
-                      </span>
-                      <button
-                        onClick={() => setShowWalkInCard(false)}
-                        className="text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
+                    <button
+                      onClick={() => setShowWalkInCard(false)}
+                      className="text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
                   </div>
 
-                  {/* Name Input */}
                   <input
                     type="text"
                     value={walkInName}
                     onChange={e => setWalkInName(e.target.value)}
                     placeholder="Patient Name"
-                    className="w-full px-2.5 py-1.5 text-xs font-medium border border-slate-200 rounded-lg focus:outline-none focus:border-teal-700 bg-slate-50/50"
+                    className="w-full px-2.5 py-1.5 text-xs font-medium border border-slate-200 rounded-lg focus:outline-none focus:border-sky-600 bg-slate-50/50"
                   />
 
-                  {/* Op & Time Row */}
-                  <div className="grid grid-cols-3 gap-1.5">
-                    <div className="relative">
-                      <select
-                        value={walkInOperatory}
-                        onChange={e => setWalkInOperatory(e.target.value)}
-                        className="w-full px-2 py-1 text-[11px] font-medium border border-slate-200 rounded-lg bg-slate-50/50 appearance-none pr-5 text-slate-700"
-                      >
-                        <option value="Op 1">Op 1</option>
-                        <option value="Op 2">Op 2</option>
-                        <option value="Op 3">Op 3</option>
-                      </select>
-                      <ChevronDown className="w-3 h-3 text-slate-400 absolute right-1.5 top-2 pointer-events-none" />
-                    </div>
-
-                    <div className="relative">
-                      <select
-                        value={walkInTime}
-                        onChange={e => setWalkInTime(e.target.value)}
-                        className="w-full px-2 py-1 text-[11px] font-medium border border-slate-200 rounded-lg bg-slate-50/50 appearance-none pr-5 text-slate-700"
-                      >
-                        <option value={`Now (${formatClinicTime(new Date())})`}>Now ({formatClinicTime(new Date())})</option>
-                        <option value={formatClinicTime(new Date(Date.now() + 15 * 60000))}>{formatClinicTime(new Date(Date.now() + 15 * 60000))}</option>
-                        <option value={formatClinicTime(new Date(Date.now() + 30 * 60000))}>{formatClinicTime(new Date(Date.now() + 30 * 60000))}</option>
-                        <option value={formatClinicTime(new Date(Date.now() + 60 * 60000))}>{formatClinicTime(new Date(Date.now() + 60 * 60000))}</option>
-                      </select>
-                      <ChevronDown className="w-3 h-3 text-slate-400 absolute right-1.5 top-2 pointer-events-none" />
-                    </div>
-
-                    <button
-                      type="button"
-                      className="px-2 py-1 text-[11px] font-bold bg-amber-50 text-amber-800 border border-amber-200 rounded-lg flex items-center justify-center gap-1 cursor-pointer"
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <select
+                      value={walkInOperatory}
+                      onChange={e => setWalkInOperatory(e.target.value)}
+                      className="w-full px-2 py-1 text-[11px] font-medium border border-slate-200 rounded-lg bg-slate-50/50 text-slate-700"
                     >
-                      <AlertTriangle className="w-3 h-3 text-amber-600" />
-                      <span>Alert</span>
-                    </button>
+                      <option value="Op 1">Op 1</option>
+                      <option value="Op 2">Op 2</option>
+                      <option value="Op 3">Op 3</option>
+                    </select>
+
+                    <select
+                      value={walkInTime}
+                      onChange={e => setWalkInTime(e.target.value)}
+                      className="w-full px-2 py-1 text-[11px] font-medium border border-slate-200 rounded-lg bg-slate-50/50 text-slate-700"
+                    >
+                      <option value={`Now (${formatClinicTime(new Date())})`}>Now ({formatClinicTime(new Date())})</option>
+                      <option value={formatClinicTime(new Date(Date.now() + 15 * 60000))}>{formatClinicTime(new Date(Date.now() + 15 * 60000))}</option>
+                      <option value={formatClinicTime(new Date(Date.now() + 30 * 60000))}>{formatClinicTime(new Date(Date.now() + 30 * 60000))}</option>
+                    </select>
                   </div>
 
-                  {/* Reason Input */}
                   <input
                     type="text"
                     value={walkInReason}
                     onChange={e => setWalkInReason(e.target.value)}
                     placeholder="Chief complaint / pain"
-                    className="w-full px-2.5 py-1.5 text-xs font-medium border border-slate-200 rounded-lg focus:outline-none focus:border-teal-700 bg-slate-50/50"
+                    className="w-full px-2.5 py-1.5 text-xs font-medium border border-slate-200 rounded-lg focus:outline-none focus:border-sky-600 bg-slate-50/50"
                   />
 
-                  {/* Action buttons */}
                   <div className="flex items-center space-x-2 pt-1">
                     <button
                       type="button"
                       onClick={handleAddWalkInToStream}
-                      className="flex-1 py-1.5 bg-teal-800 hover:bg-teal-900 text-white rounded-lg text-xs font-bold transition cursor-pointer shadow-2xs"
+                      className="flex-1 py-1.5 bg-sky-700 hover:bg-sky-800 text-white rounded-lg text-xs font-bold transition cursor-pointer shadow-2xs"
                     >
                       + Add to Stream
                     </button>
@@ -2037,55 +2007,13 @@ ${clinician}`;
                 </div>
               )}
 
-              {/* Date Selector Header (Interactive) */}
-              <div className="flex items-center justify-between bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 shadow-2xs">
-                <button
-                  onClick={handlePrevDay}
-                  className="text-slate-400 hover:text-slate-800 p-0.5 rounded cursor-pointer transition"
-                  title="Previous Day"
-                >
-                  <ChevronLeft className="w-4 h-4" />
-                </button>
-                <div
-                  onClick={() => setCurrentDate(new Date())}
-                  className="flex items-center space-x-1.5 text-xs font-bold text-slate-800 cursor-pointer hover:text-teal-700 transition"
-                  title="Click to reset to today"
-                >
-                  <Calendar className="w-3.5 h-3.5 text-teal-700" />
-                  <span>{dateLabel}</span>
-                </div>
-                <button
-                  onClick={handleNextDay}
-                  className="text-slate-400 hover:text-slate-800 p-0.5 rounded cursor-pointer transition"
-                  title="Next Day"
-                >
-                  <ChevronRight className="w-4 h-4" />
-                </button>
-              </div>
-
-              {/* Subheader Counter & Walk-in Reopen Button */}
-              <div className="flex items-center justify-between text-[11px] font-bold tracking-wider text-slate-500 uppercase px-0.5">
-                <span>Encounter Stream</span>
-                <div className="flex items-center space-x-2">
-                  <span className="text-teal-800 font-mono font-bold">
-                    {encountersForDate.length} Patients • {encountersForDate.some(p => p.id === activePatientId) ? '1 In Chair' : '0 In Chair'}
-                  </span>
-                </div>
-              </div>
-
-              {/* Parsed from PMS status row */}
-              <div className="flex items-center justify-between text-[10px] text-slate-400 px-0.5 -mt-1 font-medium">
-                <span>Database Synchronized</span>
-                <span>{encountersForDate.length} patients loaded</span>
-              </div>
-
               {/* Patient Cards List */}
               <div className="space-y-2 pt-1">
                 {encountersForDate.length === 0 ? (
                   <div className="p-4 text-center border border-dashed border-slate-200 rounded-xl bg-slate-50 text-slate-500 text-xs my-2">
                     <Calendar className="w-5 h-5 mx-auto mb-1 text-slate-400" />
                     <p className="font-bold text-slate-700">No encounters for this date</p>
-                    <p className="text-[11px] text-slate-400 mt-0.5">Use + Walk-In or PMS Daysheet to schedule patients.</p>
+                    <p className="text-[11px] text-slate-400 mt-0.5">Use + Walk-In or Paste Schedule to load patients.</p>
                   </div>
                 ) : (
                   encountersForDate.map(p => {
@@ -2096,57 +2024,45 @@ ${clinician}`;
                       <div
                         key={p.id}
                         onClick={() => handleSelectPatient(p.id)}
-                        className={`p-3 rounded-xl border transition-all cursor-pointer relative shadow-2xs ${isActive
-                          ? 'bg-white border-teal-700 ring-2 ring-teal-700/20'
+                        className={`p-3.5 rounded-xl border transition-all cursor-pointer relative shadow-2xs ${isActive
+                          ? 'bg-sky-50/70 border-sky-500 ring-2 ring-sky-500/20 shadow-xs'
                           : 'bg-white border-slate-200 hover:border-slate-300'
                           }`}
                       >
-                        {/* Active Green Indicator Bar */}
+                        {/* Active Indicator Bar */}
                         {isActive && (
-                          <div className="absolute left-0 top-3 bottom-3 w-1.5 bg-teal-800 rounded-r-full" />
+                          <div className="absolute left-0 top-3 bottom-3 w-1 bg-[#0071E3] rounded-r-full" />
                         )}
 
                         <div className="flex items-start justify-between mb-1">
-                          <div className="text-[11px] font-mono text-slate-500">
+                          <div className="text-[11px] font-mono text-slate-500 font-tabular">
                             {p.time} • <span className="text-slate-700 font-bold">{p.operatory}</span>
                           </div>
 
                           {isActive ? (
-                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 ${
-                              !isMicStandby && !isPaused
-                                ? 'bg-rose-900 text-rose-100'
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 ${!isMicStandby && !isPaused
+                              ? 'bg-rose-100 text-rose-800 border border-rose-200'
+                              : isPaused
+                                ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                                : 'bg-sky-100 text-sky-800 border border-sky-200'
+                              }`}>
+                              <span className={`w-1.5 h-1.5 rounded-full ${!isMicStandby && !isPaused
+                                ? 'bg-rose-500 animate-ping'
                                 : isPaused
-                                ? 'bg-amber-900 text-amber-100'
-                                : 'bg-teal-900 text-teal-100'
-                            }`}>
-                              <span className={`w-1.5 h-1.5 rounded-full ${
-                                !isMicStandby && !isPaused
-                                  ? 'bg-rose-400 animate-ping'
-                                  : isPaused
-                                  ? 'bg-amber-400'
-                                  : 'bg-emerald-400'
-                              }`} />
-                              {!isMicStandby && !isPaused ? 'Recording' : isPaused ? 'Paused' : 'Active in Chair'}
-                            </span>
-                          ) : backgroundFinalizingIds.has(p.id) ? (
-                            <span className="bg-teal-50 text-teal-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-teal-300 flex items-center gap-1 shadow-2xs">
-                              <RefreshCw className="w-3 h-3 animate-spin text-teal-700" />
-                              Finalizing Note...
+                                  ? 'bg-amber-500'
+                                  : 'bg-sky-500'
+                                }`} />
+                              {!isMicStandby && !isPaused ? `Recording (${formatTimer(recordingSeconds)})` : isPaused ? 'Paused' : 'Active in Chair'}
                             </span>
                           ) : isCompleted ? (
-                            <span className="bg-slate-50 text-slate-700 text-[10px] font-semibold px-2 py-0.5 rounded-full border border-slate-200 flex items-center gap-1">
-                              <Check className="w-3 h-3 text-teal-700" />
-                              Completed
+                            <span className="bg-emerald-50 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-200 flex items-center gap-1">
+                              <Check className="w-3 h-3 text-emerald-600" />
+                              Done
                             </span>
                           ) : p.diarizedTranscript && p.diarizedTranscript.length > 0 ? (
-                            <span className="bg-emerald-50 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-300 flex items-center gap-1 shadow-2xs">
+                            <span className="bg-emerald-50 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-200 flex items-center gap-1">
                               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                               Live ({p.diarizedTranscript.length})
-                            </span>
-                          ) : p.id.startsWith('walkin-') ? (
-                            <span className="bg-amber-50 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-300 flex items-center gap-1">
-                              <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-                              Walk-In
                             </span>
                           ) : (
                             <span className="bg-slate-100 text-slate-600 text-[10px] font-semibold px-2 py-0.5 rounded-full">
@@ -2155,45 +2071,12 @@ ${clinician}`;
                           )}
                         </div>
 
-                        <h3 className={`text-sm font-bold tracking-tight mb-0.5 ${isActive ? 'text-slate-900 font-extrabold' : 'text-slate-800'}`}>
+                        <h3 className={`text-sm font-bold tracking-tight mb-0.5 ${isActive ? 'text-sky-950 font-extrabold' : 'text-slate-800'}`}>
                           {p.patientName}
                         </h3>
-                        <p className="text-xs text-slate-600 leading-relaxed mb-1 truncate">
+                        <p className="text-xs text-slate-600 leading-relaxed truncate">
                           {p.procedureText}
                         </p>
-
-                        {/* Real-Time Live Dialogue Preview for Colleague Operatory Awareness */}
-                        {p.diarizedTranscript && p.diarizedTranscript.length > 0 && (
-                          <div className="mt-1 text-[11px] text-slate-600 bg-slate-50/90 border border-slate-200/80 rounded-lg px-2 py-1 flex items-center space-x-1.5 truncate">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 flex-shrink-0 animate-ping" />
-                            <span className="text-teal-800 font-bold text-[10px] flex-shrink-0">Latest:</span>
-                            <span className="truncate italic text-[11px]">
-                              "{p.diarizedTranscript[p.diarizedTranscript.length - 1].text}"
-                            </span>
-                          </div>
-                        )}
-
-                        {/* Medical Alert Badges */}
-                        {p.alerts && p.alerts.length > 0 && (
-                          <div className="space-y-1 mt-1.5">
-                            {p.alerts.map((a, idx) => (
-                              <div
-                                key={idx}
-                                className={`text-[10px] font-bold px-2 py-0.5 rounded-md flex items-center space-x-1.5 ${a.type === 'allergy'
-                                  ? 'bg-rose-50 text-rose-800 border border-rose-200'
-                                  : 'bg-amber-50 text-amber-800 border border-amber-200'
-                                  }`}
-                              >
-                                {a.type === 'allergy' ? (
-                                  <AlertTriangle className="w-3 h-3 flex-shrink-0 text-rose-600" />
-                                ) : (
-                                  <Zap className="w-3 h-3 flex-shrink-0 text-amber-600" />
-                                )}
-                                <span className="truncate">{a.text}</span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
                       </div>
                     );
                   }))}
@@ -2201,296 +2084,139 @@ ${clinician}`;
             </div>
           </section>
 
-          {/* ─── COLUMN 2 & 3: CENTER STAGE (Hero + Audio Island + Odontogram + 2-Column Split) ─── */}
-          <main className="flex-1 flex flex-col overflow-y-auto p-6 space-y-4 bg-[#F5F5F7] custom-scrollbar">
+          {/* ─── PANE 2: APPLE CLINICAL DOCUMENT CANVAS (72%) ─── */}
+          <main className="flex-1 flex flex-col overflow-y-auto p-6 space-y-4 bg-[#FAFAFC] custom-scrollbar">
             {activeEncounter ? (
               <>
-                {/* Active Patient Hero Card */}
-                <div className="glass-apple rounded-2xl p-5 border border-slate-200/80 shadow-[0_4px_24px_rgba(0,0,0,0.03)] font-sans">
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-center space-x-3.5">
-                      <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-teal-800/30 flex-shrink-0 bg-slate-100 flex items-center justify-center shadow-inner">
-                        <img
-                          src="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=120&auto=format&fit=crop&q=80"
-                          alt={activeEncounter.patientName}
-                          className="w-full h-full object-cover"
-                          onError={(e: any) => {
-                            e.target.style.display = 'none';
-                          }}
-                        />
-                        <User className="w-6 h-6 text-slate-600" />
-                      </div>
-                      <div>
-                        <div className="flex items-center space-x-2.5">
-                          <h2 className="text-xl font-extrabold text-slate-900 tracking-tight">
-                            {activeEncounter.patientName}
-                          </h2>
-                          <span className="bg-[#E6F6F4] text-[#007A66] border border-[#00A389]/30 text-[10px] font-extrabold px-2.5 py-0.5 rounded-full flex items-center gap-1.5 shadow-2xs">
-                            Listening & Taking Notes
-                            <span className="w-1.5 h-1.5 rounded-full bg-[#00A389] animate-pulse" />
-                          </span>
-                        </div>
-                        <div className="flex items-center space-x-3 text-xs text-slate-500 font-medium mt-1">
-                          <span>Operatory: <strong className="text-slate-700">{activeEncounter.operatory || 'Chair 1'}</strong></span>
-                          <span>·</span>
-                          <span>Time: <strong className="text-slate-700 font-tabular">{activeEncounter.time}</strong></span>
-                          <span>·</span>
-                          <span className="capitalize">{activeEncounter.appointmentType.replace('_', ' ')}</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center space-x-2">
-                      {isMicStandby ? (
-                        <div className="flex items-center space-x-1.5 text-xs font-bold text-sky-800 bg-sky-50 border border-sky-200 px-3 py-1 rounded-full">
-                          <span className="w-2 h-2 rounded-full bg-sky-500" />
-                          <span>Standby (Press Space to Record)</span>
-                        </div>
-                      ) : isPaused ? (
-                        <div className="flex items-center space-x-1.5 text-xs font-bold text-amber-800 bg-amber-50 border border-amber-200 px-3 py-1 rounded-full">
-                          <span className="w-2 h-2 rounded-full bg-amber-500" />
-                          <span>Recording Paused</span>
-                        </div>
-                      ) : (
-                        <div className="flex items-center space-x-1.5 text-xs font-bold text-rose-800 bg-rose-50 border border-rose-200 px-3 py-1 rounded-full">
-                          <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
-                          <span>Listening & Taking Notes</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Prior Clinical Note Excerpt */}
-                  {activeEncounter.priorNote && (
-                    <div className="mt-3.5 pt-3 border-t border-slate-100 flex items-start space-x-3 text-xs text-slate-700 leading-relaxed bg-white/70 p-3.5 rounded-xl border border-slate-200/70">
-                      <div className="w-6 h-6 rounded-lg bg-[#E6F6F4] text-[#007A66] flex items-center justify-center font-mono font-bold text-[10px] flex-shrink-0 mt-0.5 border border-[#00A389]/20">
-                        EQ
-                      </div>
-                      <div>
-                        <span className="font-extrabold text-slate-700 text-[10px] uppercase tracking-wider block mb-0.5">
-                          {activeEncounter.priorNoteDate
-                            ? `PRIOR CLINICAL NOTE EXCERPT (${formatClinicDate(activeEncounter.priorNoteDate).toUpperCase()})`
-                            : 'PATIENT CLINICAL & DENTAL HISTORY'}
-                        </span>
-                        <p className="text-slate-600 text-xs italic">
-                          "{activeEncounter.priorNote}"
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Ambient Dynamic Operatory HUD Banner */}
-                <div className={`max-w-4xl mx-auto w-full px-4 py-2.5 rounded-2xl border flex items-center justify-between text-xs transition-all duration-300 shadow-2xs ${
-                  isSilenceWarning
-                    ? 'bg-amber-100 border-amber-300 text-amber-950 font-medium'
-                    : isMicStandby
-                    ? 'bg-sky-50/90 border-sky-200/80 text-sky-950'
-                    : isPaused
-                    ? 'bg-amber-50/90 border-amber-200/80 text-amber-950'
-                    : 'bg-emerald-50/90 border-emerald-200/80 text-emerald-950'
-                }`}>
-                  {isSilenceWarning ? (
-                    <div className="flex items-center justify-between w-full">
-                      <div className="flex items-center space-x-2.5 min-w-0">
-                        <AlertTriangle className="w-4 h-4 text-amber-700 flex-shrink-0 animate-bounce" />
-                        <span className="font-bold truncate text-amber-950">
-                          Quiet room detected: Pausing in {silenceSecondsRemaining}s to save battery and stop room noise.
-                        </span>
-                      </div>
-                      <div className="flex items-center space-x-2 flex-shrink-0 ml-3">
-                        <button
-                          type="button"
-                          onClick={handleKeepListening}
-                          className="px-3 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold shadow-sm transition active:scale-95 cursor-pointer flex items-center space-x-1.5"
-                        >
-                          <Check className="w-3.5 h-3.5" />
-                          <span>Keep Listening</span>
-                          <kbd className="hidden sm:inline-block px-1 py-0.2 text-[9px] font-mono text-amber-100 bg-amber-800/40 rounded">Space</kbd>
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <>
-                      <div className="flex items-center space-x-2.5 min-w-0">
-                        <Lightbulb className={`w-4 h-4 flex-shrink-0 ${
-                          isMicStandby ? 'text-sky-600' : isPaused ? 'text-amber-600' : 'text-emerald-600'
-                        }`} />
-                        <span className="font-semibold truncate">
-                          {isMicStandby
-                            ? 'Ready: Seat patient. Press [Spacebar] or click Start Audio to begin listening.'
-                            : isPaused
-                            ? 'Paused: Conversation is not being recorded. Press [Spacebar] to resume.'
-                            : 'Listening: Background noise filter quiets drills and room sounds. Speak naturally about teeth and treatment.'}
-                        </span>
-                      </div>
-                      <div className="flex items-center space-x-2 text-[11px] flex-shrink-0 ml-3">
-                        <button
-                          type="button"
-                          onClick={() => setShowDayGuide(true)}
-                          className="text-slate-600 hover:text-slate-900 font-bold underline cursor-pointer"
-                        >
-                          Day Guide & Shortcuts (?)
-                        </button>
-                      </div>
-                    </>
-                  )}
-                </div>
-
-                {/* Tactile Hardware Audio Recording Island (Apple Dynamic Island Slate Capsule) */}
-                <div className="bg-slate-950/95 text-white rounded-2xl px-6 py-3.5 shadow-2xl border border-white/10 backdrop-blur-2xl flex items-center justify-between max-w-4xl mx-auto w-full font-sans">
-                  {/* Recording Timer & Medical Status Badge */}
+                {/* Active Patient Header & Action Bar */}
+                <div className="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-xs flex items-center justify-between">
                   <div className="flex items-center space-x-3.5">
-                    {isMicStandby ? (
-                      <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-mono font-bold tracking-wider bg-sky-500/20 text-sky-300 border border-sky-500/40">
-                        <span className="w-2 h-2 rounded-full bg-sky-400 mr-1.5" />
-                        STANDBY
-                      </span>
-                    ) : isPaused ? (
-                      <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-mono font-bold tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/40">
-                        <span className="w-2 h-2 rounded-full bg-amber-400 mr-1.5" />
-                        PAUSED
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-mono font-bold tracking-wider bg-rose-500/20 text-rose-300 border border-rose-500/40">
-                        <span className="relative flex h-2 w-2 mr-1.5">
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75" />
-                          <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500" />
-                        </span>
-                        REC
-                      </span>
-                    )}
+                    <div className="w-11 h-11 rounded-full bg-sky-100 text-sky-800 flex items-center justify-center font-bold text-sm border border-sky-200 shadow-inner">
+                      {activeEncounter.patientName.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                    </div>
                     <div>
-                      <span className="text-sm font-mono font-bold tracking-wider text-white font-tabular">
-                        {formatTimer(recordingSeconds)}
-                      </span>
+                      <div className="flex items-center space-x-2.5">
+                        <h2 className="text-lg font-extrabold text-slate-900 tracking-tight">
+                          {activeEncounter.patientName}
+                        </h2>
+                        <span className="text-xs text-slate-500 font-medium">
+                          • DOB: {activeEncounter.dob || '14/05/1988'} • {activeEncounter.operatory || 'Op 1'}
+                        </span>
+                      </div>
+                      <div className="text-xs text-slate-500 font-medium mt-0.5">
+                        {activeEncounter.procedureText || 'Comprehensive Oral Examination & Scale'}
+                      </div>
                     </div>
                   </div>
 
-                  {/* Noise Filter (Interactive Toggle) */}
-                  <div
-                    onClick={() => setDspNoiseGateActive(prev => !prev)}
-                    className="flex items-center space-x-2 text-slate-300 text-xs font-medium cursor-pointer hover:bg-white/5 transition px-2.5 py-1 rounded-xl border border-transparent hover:border-white/10"
-                    title="Click to toggle background noise filter"
-                  >
-                    {dspNoiseGateActive ? (
-                      <Activity className="w-3.5 h-3.5 text-[#00C7BE]" />
-                    ) : (
-                      <VolumeX className="w-3.5 h-3.5 text-amber-400" />
-                    )}
-                    <span>
-                      Noise Filter:{' '}
-                      <strong className={dspNoiseGateActive ? 'text-[#00C7BE]' : 'text-amber-400'}>
-                        {dspNoiseGateActive ? 'On' : 'Off'}
-                      </strong>
+                  <div className="flex items-center space-x-2.5">
+                    <button
+                      onClick={handleNextPatient}
+                      title="Advance to next patient on schedule"
+                      className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-700 text-xs font-bold flex items-center space-x-1.5 transition cursor-pointer"
+                    >
+                      <ArrowRight className="w-3.5 h-3.5" />
+                      <span>Next Patient (⌘→)</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Ambient Audio HUD Bar */}
+                <div className="bg-white rounded-2xl p-3.5 border border-slate-200/90 shadow-xs flex items-center justify-between">
+                  <div className="flex items-center space-x-3">
+                    <div className={`w-3 h-3 rounded-full ${!isMicStandby && !isPaused
+                      ? 'bg-rose-500 animate-ping'
+                      : isPaused
+                        ? 'bg-amber-500'
+                        : 'bg-sky-500'
+                      }`} />
+                    <span className="text-xs font-bold text-slate-800">
+                      {!isMicStandby && !isPaused
+                        ? `Listening (${formatTimer(recordingSeconds)}) — Press Space to pause`
+                        : isPaused
+                          ? 'Paused — Press Space to resume'
+                          : 'Standby — Press Space to start listening'}
                     </span>
                   </div>
 
-                  {/* 60fps High-Performance Waveform Visualizer (Direct DOM refs) */}
-                  <div className="flex items-center space-x-1 h-6 px-4">
-                    {Array.from({ length: 13 }).map((_, i) => (
+                  {/* Waveform Visualizer */}
+                  <div className="flex items-center space-x-1 h-5 px-3">
+                    {Array.from({ length: 11 }).map((_, i) => (
                       <div
                         key={i}
                         ref={el => { waveformRefs.current[i] = el; }}
-                        style={{ height: '15%', opacity: isMicStandby || isPaused ? 0.35 : 1 }}
-                        className="w-1 bg-gradient-to-t from-[#00A389] to-[#6EE7B7] rounded-full transition-all duration-75"
+                        style={{ height: '20%', opacity: isMicStandby || isPaused ? 0.35 : 1 }}
+                        className="w-1 bg-[#0060BA] rounded-full transition-all duration-75"
                       />
                     ))}
                   </div>
 
-                  {/* Control Actions */}
-                  <div className="flex items-center space-x-2.5">
+                  <div className="flex items-center space-x-2">
                     {isMicStandby ? (
                       <button
                         onClick={handleStartAudio}
-                        className="px-4 py-1.5 rounded-xl bg-gradient-to-r from-[#00A389] to-[#00C7BE] hover:opacity-95 active:scale-95 text-slate-950 text-xs font-extrabold flex items-center space-x-1.5 transition shadow-lg shadow-[#00A389]/25 cursor-pointer border border-teal-300/40"
-                        title="Start active operatory listening (Spacebar)"
+                        className="px-3.5 py-1.5 rounded-xl bg-[#0060BA] hover:bg-[#004D96] active:scale-95 text-white text-xs font-bold flex items-center space-x-1.5 transition shadow-xs cursor-pointer"
                       >
-                        <Mic className="w-3.5 h-3.5 text-slate-950" />
+                        <Mic className="w-3.5 h-3.5" />
                         <span>Start Audio</span>
-                        <kbd className="hidden sm:inline-block px-1.5 py-0.5 text-[9px] font-mono font-bold bg-teal-600/30 text-teal-950 rounded border border-teal-400/40">Space</kbd>
+                        <kbd className="px-1 text-[9px] font-mono bg-sky-900/40 rounded">Space</kbd>
                       </button>
                     ) : (
-                      <>
-                        <button
-                          onClick={handleTogglePause}
-                          className="px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-200 text-xs font-bold flex items-center space-x-1.5 transition border border-slate-700 cursor-pointer"
-                          title={isPaused ? 'Resume recording (Spacebar)' : 'Pause recording (Spacebar)'}
-                        >
-                          {isPaused ? <Play className="w-3.5 h-3.5 text-emerald-400" /> : <Pause className="w-3.5 h-3.5 text-amber-400" />}
-                          <span>{isPaused ? 'Resume' : 'Pause'}</span>
-                          <kbd className="hidden sm:inline-block px-1 py-0.5 text-[9px] font-mono text-slate-400 bg-slate-900 rounded">Space</kbd>
-                        </button>
-                        <button
-                          onClick={handleStopAudioToStandby}
-                          className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition border border-slate-700 cursor-pointer"
-                          title="Halt recording and return to standby"
-                        >
-                          Stop
-                        </button>
-                      </>
+                      <button
+                        onClick={handleTogglePause}
+                        className="px-3.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-700 text-xs font-bold flex items-center space-x-1.5 transition cursor-pointer"
+                      >
+                        {isPaused ? <Play className="w-3.5 h-3.5 text-emerald-600" /> : <Pause className="w-3.5 h-3.5 text-amber-600" />}
+                        <span>{isPaused ? 'Resume' : 'Pause'}</span>
+                        <kbd className="px-1 text-[9px] font-mono bg-slate-200 rounded">Space</kbd>
+                      </button>
                     )}
 
                     <button
                       onClick={handleFinalizeNote}
                       disabled={isFinalizing}
-                      className="px-4 py-1.5 rounded-xl bg-[#0071E3] hover:bg-[#0077ED] active:scale-95 disabled:opacity-50 text-white text-xs font-bold flex items-center space-x-1.5 transition shadow-md shadow-[#0071E3]/25 border border-white/10 cursor-pointer"
-                      title="Finalize note for active patient"
+                      className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-bold flex items-center space-x-1.5 transition shadow-xs cursor-pointer disabled:opacity-50"
                     >
                       {isFinalizing ? (
                         <>
-                          <RefreshCw className="w-4 h-4 animate-spin" />
-                          <span>{isTranscribingNote ? 'Transcribing recording…' : 'Finalizing...'}</span>
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          <span>Generating...</span>
                         </>
                       ) : (
                         <>
-                          <CheckCircle2 className="w-4 h-4" />
-                          <span>Finalize Note</span>
+                          <Sparkles className="w-3.5 h-3.5" />
+                          <span>Generate Note (⌘↵)</span>
                         </>
                       )}
-                    </button>
-
-                    <button
-                      onClick={handleNextPatient}
-                      title="Auto-finalize current note in background and advance to next patient"
-                      className="px-4 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white text-xs font-bold flex items-center space-x-1.5 transition shadow-sm border border-emerald-400/30 cursor-pointer"
-                    >
-                      <ArrowRight className="w-4 h-4" />
-                      <span>Next Patient</span>
                     </button>
                   </div>
                 </div>
 
-                {/* Real-Time Interactive FDI Tooth Odontogram Strip (Apple Medical Grade) */}
-                <ChairsideOdontogram
-                  transcriptText={activeEncounter.diarizedTranscript?.map(t => t.text).join(' ') || ''}
-                  findingsText={`${activeEncounter.soap?.objective || ''} ${activeEncounter.soap?.assessment || ''}`}
-                />
+                {/* Silence Warning Alert Banner */}
+                {isSilenceWarning && (
+                  <div className="bg-amber-50 border border-amber-300 rounded-xl p-3 flex items-center justify-between text-xs text-amber-950 font-medium shadow-2xs">
+                    <div className="flex items-center space-x-2">
+                      <AlertTriangle className="w-4 h-4 text-amber-700 animate-bounce" />
+                      <span>Quiet room detected: Pausing in {silenceSecondsRemaining}s.</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleKeepListening}
+                      className="px-3 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition cursor-pointer"
+                    >
+                      Keep Listening (Space)
+                    </button>
+                  </div>
+                )}
 
-                {/* Split Stage: Ambient Transcription Feed (Left) & Clinical Note (Right) */}
+                {/* Main Split: Clinical Document (Left) + Live Speech Feed (Right) */}
                 <div className="grid grid-cols-12 gap-5 flex-1 items-start">
-                  {/* Left Column: Live Conversation */}
-                  <div className="col-span-7 glass-apple rounded-2xl p-5 border border-slate-200/80 shadow-[0_4px_24px_rgba(0,0,0,0.03)] space-y-3 font-sans">
+                  {/* Left: Live Conversation Feed */}
+                  <div className="col-span-6 bg-white rounded-2xl p-5 border border-slate-200/90 shadow-xs space-y-3 font-sans">
                     <div className="flex items-center justify-between border-b border-slate-100 pb-2">
                       <div className="flex items-center space-x-2">
-                        <span className={`w-2.5 h-2.5 rounded-full ${micListening ? 'bg-emerald-500 animate-pulse' : isMicStandby ? 'bg-sky-400' : 'bg-slate-400'}`} />
-                        <h3 className="text-sm font-bold text-slate-900">Live Conversation</h3>
-                        {micListening && (
-                          <span className="text-[10px] bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full font-bold border border-emerald-200 flex items-center gap-1">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
-                            Listening
-                          </span>
-                        )}
-                        {isMicStandby && (
-                          <span className="text-[10px] bg-sky-50 text-sky-700 px-2 py-0.5 rounded-full font-bold border border-sky-200">
-                            Standby
-                          </span>
-                        )}
-                        {micError && (
-                          <span className="text-[10px] bg-amber-50 text-amber-800 px-2 py-0.5 rounded-full font-bold border border-amber-200 truncate max-w-[220px]" title={micError}>
-                            {micError}
-                          </span>
-                        )}
+                        <span className={`w-2 h-2 rounded-full ${micListening ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`} />
+                        <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800">Live Conversation</h3>
                       </div>
                       <span className="text-[10px] text-slate-400 font-mono">
                         {activeEncounter.diarizedTranscript?.length || 0} Lines Recorded
@@ -2498,86 +2224,63 @@ ${clinician}`;
                     </div>
 
                     {/* Dialogue Stream */}
-                    <div className="space-y-3 text-xs leading-relaxed max-h-[420px] overflow-y-auto custom-scrollbar pr-1">
+                    <div className="space-y-2.5 text-xs leading-relaxed max-h-[420px] overflow-y-auto custom-scrollbar pr-1">
                       {activeEncounter.diarizedTranscript && activeEncounter.diarizedTranscript.length > 0 ? (
                         activeEncounter.diarizedTranscript.map((t, idx) => (
-                          <div key={idx} className="space-y-1 animate-in fade-in duration-150">
+                          <div key={idx} className="space-y-0.5">
                             {t.speaker && (
-                              <div className="flex items-center justify-between text-[11px] pt-1">
-                                <span className="font-bold text-slate-800">
-                                  {t.speaker}
-                                </span>
-                                {t.time && <span className="font-mono text-slate-400 text-[10px]">{t.time}</span>}
+                              <div className="flex items-center justify-between text-[10px] text-slate-400 font-semibold">
+                                <span>{t.speaker}</span>
+                                {t.time && <span className="font-mono">{t.time}</span>}
                               </div>
                             )}
-                            <div className={`p-3 rounded-xl text-slate-800 leading-relaxed font-sans ${!t.speaker
-                              ? 'bg-slate-50 text-slate-700 font-medium italic border border-slate-200/60'
-                              : 'bg-slate-50/80 border border-slate-200/80 shadow-2xs'
-                              }`}>
+                            <div className="p-2.5 rounded-xl bg-slate-50 text-slate-800 border border-slate-200/70 text-xs">
                               {renderAnnotatedText(t.text)}
                             </div>
                           </div>
                         ))
                       ) : (
-                        <div className="text-center py-8 text-slate-400">
-                          <Mic className="w-8 h-8 mx-auto mb-2 text-slate-300" />
+                        <div className="text-center py-10 text-slate-400">
+                          <Mic className="w-7 h-7 mx-auto mb-1 text-slate-300" />
                           <p className="font-semibold text-xs text-slate-600">
-                            {isMicStandby
-                              ? 'Microphone is in Standby'
-                              : isPaused
-                              ? 'Microphone is Paused'
-                              : 'Listening & Taking Notes'}
+                            {isMicStandby ? 'Microphone in Standby' : 'Listening naturally...'}
                           </p>
-                          <p className="font-medium text-[11px] text-slate-400 mt-1">
-                            {isMicStandby
-                              ? 'Click "Start Audio" or press Spacebar to begin listening.'
-                              : isPaused
-                              ? 'Press Spacebar or click "Resume" to continue listening.'
-                              : 'Listening to dentist, staff, and patient conversation...'}
+                          <p className="text-[11px] text-slate-400 mt-0.5">
+                            Speak clinical findings, tooth numbers, and procedures.
                           </p>
                         </div>
                       )}
 
-                      {/* Live Real-Time Interim Speech Bubble (Pulsing feedback while talking) */}
                       {interimTranscript && (
-                        <div className="space-y-1 animate-in fade-in duration-150">
-                          <div className="flex items-center space-x-1.5 text-[11px] pt-1 text-teal-700">
-                            <span className="w-2 h-2 rounded-full bg-teal-500 animate-ping" />
-                            <span className="font-bold">Live Spoken Words (Listening...)</span>
-                          </div>
-                          <div className="p-3 rounded-xl bg-teal-50/80 border border-teal-200 text-teal-900 leading-relaxed font-sans italic shadow-2xs">
-                            {interimTranscript}
-                          </div>
+                        <div className="p-2.5 rounded-xl bg-sky-50 text-sky-900 border border-sky-200 text-xs italic shadow-2xs">
+                          <span className="font-bold mr-1">Listening:</span> {interimTranscript}
                         </div>
                       )}
 
-                      {/* Auto-scroll anchor */}
                       <div ref={transcriptEndRef} />
                     </div>
 
-                    {/* Quick Clinical Dictation Chips (1-Click Fast Charting & Simulation) */}
-                    <div className="pt-1.5 border-t border-slate-100 flex items-center gap-1.5 overflow-x-auto custom-scrollbar pb-1 text-[11px]">
-                      <span className="text-slate-400 text-[10px] font-bold uppercase tracking-wider flex-shrink-0 mr-0.5">Quick:</span>
+                    {/* Quick Dictation Chips */}
+                    <div className="pt-2 border-t border-slate-100 flex items-center gap-1.5 overflow-x-auto custom-scrollbar pb-1 text-[11px]">
+                      <span className="text-slate-400 text-[10px] font-bold uppercase mr-0.5">Quick:</span>
                       {[
-                        '#14 recurrent caries excavated',
-                        '1.8mL 2% Lidocaine 1:100k epi infiltrated',
-                        'Restored with Filtek Supreme A2 composite',
-                        'Occlusion equilibrated in excursions',
-                        'Seated permanent zirconia crown'
+                        '#16 MO decay excavated',
+                        '1.8mL 2% Lidocaine infiltrated',
+                        'Scale & clean completed 114',
+                        '2x Bitewings taken 022'
                       ].map((chip, cIdx) => (
                         <button
                           key={cIdx}
                           type="button"
                           onClick={() => handleAppendTranscriptText(chip, 'Dentist')}
-                          className="px-2 py-0.5 bg-slate-100 hover:bg-teal-50 text-slate-700 hover:text-teal-800 border border-slate-200 hover:border-teal-300 rounded-lg whitespace-nowrap cursor-pointer transition text-[10px] font-medium flex-shrink-0"
-                          title={`Click to add: "${chip}"`}
+                          className="px-2 py-0.5 bg-slate-100 hover:bg-sky-50 text-slate-700 hover:text-sky-800 border border-slate-200 rounded-lg whitespace-nowrap cursor-pointer transition text-[10px] font-medium flex-shrink-0"
                         >
-                          + {chip.length > 25 ? chip.slice(0, 24) + '...' : chip}
+                          + {chip}
                         </button>
                       ))}
                     </div>
 
-                    {/* Quick Note Box */}
+                    {/* Quick Note Input Box */}
                     <div className="flex items-center space-x-2">
                       <input
                         type="text"
@@ -2589,8 +2292,8 @@ ${clinician}`;
                             setManualDialogueText('');
                           }
                         }}
-                        placeholder="Type a note, finding, or procedure..."
-                        className="flex-1 px-3.5 py-2 text-xs bg-slate-50/80 border border-slate-200/80 rounded-xl focus:outline-none focus:border-[#0071E3] focus:ring-2 focus:ring-[#0071E3]/15 transition font-sans"
+                        placeholder="Type finding or procedure..."
+                        className="flex-1 px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-sky-600"
                       />
                       <button
                         onClick={() => {
@@ -2599,22 +2302,22 @@ ${clinician}`;
                             setManualDialogueText('');
                           }
                         }}
-                        className="px-3.5 py-2 bg-[#0071E3] hover:bg-[#0077ED] active:scale-[0.98] text-white rounded-xl text-xs font-semibold transition flex items-center space-x-1.5 cursor-pointer shadow-xs"
+                        className="px-3 py-1.5 bg-[#0060BA] hover:bg-[#004D96] text-white rounded-xl text-xs font-bold transition cursor-pointer"
                       >
-                        <Send className="w-3.5 h-3.5" />
-                        <span>Add</span>
+                        Add
                       </button>
                     </div>
                   </div>
 
-                  {/* Right Column: Clinical Note */}
-                  <div className="col-span-5 glass-apple rounded-2xl p-5 border border-slate-200/80 shadow-[0_4px_24px_rgba(0,0,0,0.03)] space-y-3.5 font-sans">
+                  {/* Right: Apple Clinical Document */}
+                  <div className="col-span-6 bg-white rounded-2xl p-5 border border-slate-200/90 shadow-xs space-y-3.5 font-sans">
                     {/* Header & Verified Badge */}
-                    <div>
-                      <div className="flex items-center justify-between mb-1.5">
+                    {/* Header & Verified Badge */}
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
                         <div className="flex items-center space-x-2">
-                          <h3 className="text-sm font-semibold text-slate-900 tracking-tight">Clinical Note</h3>
-                          <span className="text-[10px] text-slate-400 font-medium">SOAP Format</span>
+                          <h3 className="text-sm font-bold text-slate-900 tracking-tight">Clinical Document</h3>
+                          <span className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md font-mono font-bold">SOAP</span>
                         </div>
                         <div className="flex items-center space-x-2">
                           {activeEncounter && soapSaveStatus[activeEncounter.id] === 'saving' ? (
@@ -2628,80 +2331,87 @@ ${clinician}`;
                               Saved to Chart
                             </span>
                           ) : null}
-                          <span className="bg-[#E6F6F4] text-[#007A66] text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-[#00A389]/20 flex items-center gap-1 shadow-2xs">
-                            <Check className="w-3 h-3 text-[#007A66]" />
-                            Transcribed from Audio
+                          <span className="bg-emerald-50 text-emerald-800 text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-emerald-200 flex items-center gap-1 shadow-2xs">
+                            <Check className="w-3 h-3 text-emerald-600" />
+                            Verified from Audio
                           </span>
                         </div>
                       </div>
-                      <p className="text-[11px] text-slate-500 font-medium flex items-center gap-1.5">
-                        <span className="w-1.5 h-1.5 rounded-full bg-[#007A66]" />
-                        Audio synced • Click any section below to edit directly
-                      </p>
 
-                      {/* Main Copy to PMS Action & Plain Text Trigger */}
-                      <div className="grid grid-cols-3 gap-2 mt-3.5">
-                        <button
-                          onClick={() => handleCopyPMS()}
-                          className={`col-span-2 py-2.5 px-3 rounded-xl font-semibold text-xs flex items-center justify-center space-x-1.5 transition-all shadow-xs cursor-pointer active:scale-[0.98] ${copiedNote
-                            ? 'bg-emerald-600 text-white'
-                            : 'bg-[#0071E3] hover:bg-[#0077ED] text-white'
-                            }`}
-                        >
-                          {copiedNote ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                          <span>{copiedNote ? 'Copied to Clipboard!' : 'Copy Note for PMS (⌘C)'}</span>
-                        </button>
+                      {/* Main Copy to PMS Action with Format Selector */}
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => handleCopyPMS()}
+                            className={`flex-1 py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center space-x-2 transition-all shadow-sm cursor-pointer active:scale-[0.98] ${copiedNote
+                              ? 'bg-emerald-600 text-white'
+                              : 'bg-[#0071E3] hover:bg-[#0077ED] text-white shadow-[#0071E3]/20'
+                              }`}
+                          >
+                            {copiedNote ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                            <span>
+                              {copiedNote
+                                ? `Copied for ${selectedPmsTarget === 'd4w' ? 'D4W' : selectedPmsTarget === 'exact' ? 'EXACT' : selectedPmsTarget === 'cliniko' ? 'Cliniko' : 'PMS'}!`
+                                : `Copy for ${selectedPmsTarget === 'd4w' ? 'Dental4Windows' : selectedPmsTarget === 'exact' ? 'EXACT' : selectedPmsTarget === 'cliniko' ? 'Cliniko' : 'PMS'} (⌘C)`}
+                            </span>
+                          </button>
 
-                        <button
-                          onClick={() => setShowPlainTextModal(true)}
-                          className="py-2.5 px-2 rounded-xl bg-slate-100 hover:bg-slate-200 active:scale-[0.98] text-slate-700 text-xs font-semibold border border-slate-200/80 transition flex items-center justify-center cursor-pointer"
-                        >
-                          Plain Text
-                        </button>
-                      </div>
+                          <select
+                            value={selectedPmsTarget}
+                            onChange={e => setSelectedPmsTarget(e.target.value as any)}
+                            className="h-10 px-2.5 bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-800 text-xs font-semibold rounded-xl outline-none cursor-pointer transition"
+                            title="Select target Practice Management Software format"
+                          >
+                            <option value="d4w">D4W</option>
+                            <option value="exact">EXACT</option>
+                            <option value="cliniko">Cliniko</option>
+                            <option value="generic">Plain Text</option>
+                          </select>
+                        </div>
 
-                      {/* Secondary Actions: Referral & Handover + Update Note */}
-                      <div className="grid grid-cols-2 gap-2 mt-2.5">
-                        <button
-                          type="button"
-                          onClick={() => setShowDeliverablesModal(true)}
-                          className="py-2 px-2.5 rounded-xl bg-indigo-50/80 hover:bg-indigo-100/90 text-indigo-700 active:scale-[0.98] text-xs font-bold border border-indigo-200/80 transition flex items-center justify-center space-x-1.5 cursor-pointer shadow-2xs"
-                          title="Generate specialist referral letters and patient post-op care instructions"
-                        >
-                          <FileText className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
-                          <span className="truncate">Referral & Handover</span>
-                        </button>
+                        {/* Secondary Actions: Referral & Handover + Update Note */}
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setShowDeliverablesModal(true)}
+                            className="py-2 px-2.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 active:scale-[0.98] text-xs font-bold border border-indigo-200 transition flex items-center justify-center space-x-1.5 cursor-pointer"
+                            title="Generate specialist referral letters and patient post-op care instructions"
+                          >
+                            <FileText className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                            <span className="truncate">Referral & Handover</span>
+                          </button>
 
-                        <button
-                          type="button"
-                          onClick={handleRegenerateFromConversation}
-                          disabled={isGeneratingFromConversation}
-                          title="Generate or update note using the full conversation captured"
-                          className="py-2 px-2.5 rounded-xl bg-[#E6F6F4] hover:bg-[#d8f0ed] active:scale-[0.98] text-[#00A389] text-xs font-semibold border border-[#00A389]/25 transition flex items-center justify-center space-x-1.5 cursor-pointer disabled:opacity-50"
-                        >
-                          {isGeneratingFromConversation ? (
-                            <>
-                              <RefreshCw className="w-3.5 h-3.5 animate-spin text-[#00A389] shrink-0" />
-                              <span className="truncate">Updating...</span>
-                            </>
-                          ) : (
-                            <>
-                              <Sparkles className="w-3.5 h-3.5 text-[#00A389] shrink-0" />
-                              <span className="truncate">Update Note</span>
-                            </>
-                          )}
-                        </button>
+                          <button
+                            type="button"
+                            onClick={handleRegenerateFromConversation}
+                            disabled={isGeneratingFromConversation}
+                            title="Generate or update note using the full conversation captured"
+                            className="py-2 px-2.5 rounded-xl bg-teal-50 hover:bg-teal-100 active:scale-[0.98] text-teal-800 text-xs font-bold border border-teal-200 transition flex items-center justify-center space-x-1.5 cursor-pointer disabled:opacity-50"
+                          >
+                            {isGeneratingFromConversation ? (
+                              <>
+                                <RefreshCw className="w-3.5 h-3.5 animate-spin text-teal-700 shrink-0" />
+                                <span className="truncate">Updating...</span>
+                              </>
+                            ) : (
+                              <>
+                                <Sparkles className="w-3.5 h-3.5 text-teal-700 shrink-0" />
+                                <span className="truncate">Update Note</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
                       </div>
                     </div>
 
                     {/* Structured Note Cards with Direct Inline Editing */}
-                    <div className="space-y-2.5 pt-1 text-xs max-h-[440px] overflow-y-auto custom-scrollbar pr-1">
+                    <div className="space-y-3 pt-1 text-xs max-h-[460px] overflow-y-auto custom-scrollbar pr-1">
                       {activeEncounter && (
                         <>
                           {/* Subjective */}
-                          <div className="bg-white/80 hover:bg-white focus-within:bg-white border border-slate-200/80 focus-within:border-[#0071E3] focus-within:ring-2 focus-within:ring-[#0071E3]/15 rounded-xl p-3.5 space-y-1.5 transition-all shadow-2xs group">
+                          <div className="bg-white hover:bg-slate-50/50 focus-within:bg-white border border-slate-200 focus-within:border-[#0071E3] focus-within:ring-2 focus-within:ring-[#0071E3]/15 rounded-xl p-3.5 space-y-1.5 transition-all shadow-2xs group">
                             <div className="flex items-center justify-between">
-                              <span className="text-[11px] font-bold text-slate-700 tracking-wider flex items-center gap-1.5 uppercase">
+                              <span className="text-[11px] font-bold text-slate-800 tracking-wider flex items-center gap-1.5 uppercase">
                                 <User className="w-3.5 h-3.5 text-[#0071E3]" />
                                 SUBJECTIVE (S):
                               </span>
@@ -2719,10 +2429,10 @@ ${clinician}`;
                           </div>
 
                           {/* Objective */}
-                          <div className="bg-white/80 hover:bg-white focus-within:bg-white border border-slate-200/80 focus-within:border-[#00A389] focus-within:ring-2 focus-within:ring-[#00A389]/15 rounded-xl p-3.5 space-y-1.5 transition-all shadow-2xs group">
+                          <div className="bg-white hover:bg-slate-50/50 focus-within:bg-white border border-slate-200 focus-within:border-teal-700 focus-within:ring-2 focus-within:ring-teal-700/15 rounded-xl p-3.5 space-y-1.5 transition-all shadow-2xs group">
                             <div className="flex items-center justify-between">
-                              <span className="text-[11px] font-bold text-slate-700 tracking-wider flex items-center gap-1.5 uppercase">
-                                <Activity className="w-3.5 h-3.5 text-[#00A389]" />
+                              <span className="text-[11px] font-bold text-slate-800 tracking-wider flex items-center gap-1.5 uppercase">
+                                <Activity className="w-3.5 h-3.5 text-teal-700" />
                                 OBJECTIVE (O):
                               </span>
                               <span className="text-[10px] text-slate-400 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity font-medium">
@@ -2739,9 +2449,9 @@ ${clinician}`;
                           </div>
 
                           {/* Assessment */}
-                          <div className="bg-white/80 hover:bg-white focus-within:bg-white border border-slate-200/80 focus-within:border-amber-500 focus-within:ring-2 focus-within:ring-amber-500/15 rounded-xl p-3.5 space-y-1.5 transition-all shadow-2xs group">
+                          <div className="bg-white hover:bg-slate-50/50 focus-within:bg-white border border-slate-200 focus-within:border-amber-500 focus-within:ring-2 focus-within:ring-amber-500/15 rounded-xl p-3.5 space-y-1.5 transition-all shadow-2xs group">
                             <div className="flex items-center justify-between">
-                              <span className="text-[11px] font-bold text-slate-700 tracking-wider flex items-center gap-1.5 uppercase">
+                              <span className="text-[11px] font-bold text-slate-800 tracking-wider flex items-center gap-1.5 uppercase">
                                 <Shield className="w-3.5 h-3.5 text-amber-500" />
                                 ASSESSMENT (A):
                               </span>
@@ -2759,9 +2469,9 @@ ${clinician}`;
                           </div>
 
                           {/* Plan & Procedure */}
-                          <div className="bg-white/80 hover:bg-white focus-within:bg-white border border-slate-200/80 focus-within:border-[#0071E3] focus-within:ring-2 focus-within:ring-[#0071E3]/15 rounded-xl p-3.5 space-y-1.5 transition-all shadow-2xs group">
+                          <div className="bg-white hover:bg-slate-50/50 focus-within:bg-white border border-slate-200 focus-within:border-[#0071E3] focus-within:ring-2 focus-within:ring-[#0071E3]/15 rounded-xl p-3.5 space-y-1.5 transition-all shadow-2xs group">
                             <div className="flex items-center justify-between">
-                              <span className="text-[11px] font-bold text-slate-700 tracking-wider flex items-center gap-1.5 uppercase">
+                              <span className="text-[11px] font-bold text-slate-800 tracking-wider flex items-center gap-1.5 uppercase">
                                 <Sparkles className="w-3.5 h-3.5 text-[#0071E3]" />
                                 PLAN & PROCEDURE (P):
                               </span>
@@ -2777,6 +2487,31 @@ ${clinician}`;
                               placeholder="Treatment rendered, materials/anesthesia used, post-op instructions..."
                             />
                           </div>
+
+                          {/* ADA Item Codes Matrix */}
+                          {activeEncounter.cdtCodes && activeEncounter.cdtCodes.length > 0 && (
+                            <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[10px] font-bold text-slate-700 tracking-wider uppercase flex items-center gap-1">
+                                  <Tag className="w-3 h-3 text-teal-700" />
+                                  ADA Billing Codes Detected ({activeEncounter.cdtCodes.length})
+                                </span>
+                              </div>
+                              <div className="flex flex-wrap gap-1.5">
+                                {activeEncounter.cdtCodes.map((item, idx) => (
+                                  <div
+                                    key={idx}
+                                    className="px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-xs font-mono text-slate-800 flex items-center space-x-1.5 shadow-2xs"
+                                    title={`${item.code}: ${item.desc}`}
+                                  >
+                                    <span className="font-bold text-teal-800">{item.code}</span>
+                                    <span className="text-[11px] font-sans text-slate-600 truncate max-w-[150px]">{item.desc}</span>
+                                    {item.fee && <span className="text-[10px] text-slate-400 font-semibold">{item.fee}</span>}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
                         </>
                       )}
                     </div>
@@ -2941,11 +2676,10 @@ ${clinician}`;
               <button
                 type="button"
                 onClick={() => setDeliverablesActiveTab('referral')}
-                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
-                  deliverablesActiveTab === 'referral'
-                    ? 'bg-indigo-600 text-white shadow-xs'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                }`}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${deliverablesActiveTab === 'referral'
+                  ? 'bg-indigo-600 text-white shadow-xs'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
               >
                 <FileText className="w-3.5 h-3.5" />
                 <span>Specialist Referral Letter</span>
@@ -2953,11 +2687,10 @@ ${clinician}`;
               <button
                 type="button"
                 onClick={() => setDeliverablesActiveTab('postop')}
-                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
-                  deliverablesActiveTab === 'postop'
-                    ? 'bg-indigo-600 text-white shadow-xs'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                }`}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${deliverablesActiveTab === 'postop'
+                  ? 'bg-indigo-600 text-white shadow-xs'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
               >
                 <Mail className="w-3.5 h-3.5" />
                 <span>Patient Post-Op Care Email</span>
@@ -3230,45 +2963,40 @@ ${clinician}`;
               <button
                 type="button"
                 onClick={() => setGuideActiveTab('phases')}
-                className={`px-3 py-1.5 rounded-xl transition ${
-                  guideActiveTab === 'phases' ? 'bg-teal-800 text-white shadow-2xs' : 'text-slate-600 hover:bg-slate-100'
-                }`}
+                className={`px-3 py-1.5 rounded-xl transition ${guideActiveTab === 'phases' ? 'bg-teal-800 text-white shadow-2xs' : 'text-slate-600 hover:bg-slate-100'
+                  }`}
               >
                 4-Phase Day Flow
               </button>
               <button
                 type="button"
                 onClick={() => setGuideActiveTab('hotkeys')}
-                className={`px-3 py-1.5 rounded-xl transition ${
-                  guideActiveTab === 'hotkeys' ? 'bg-teal-800 text-white shadow-2xs' : 'text-slate-600 hover:bg-slate-100'
-                }`}
+                className={`px-3 py-1.5 rounded-xl transition ${guideActiveTab === 'hotkeys' ? 'bg-teal-800 text-white shadow-2xs' : 'text-slate-600 hover:bg-slate-100'
+                  }`}
               >
                 Operatory Hotkeys
               </button>
               <button
                 type="button"
                 onClick={() => setGuideActiveTab('dictation')}
-                className={`px-3 py-1.5 rounded-xl transition ${
-                  guideActiveTab === 'dictation' ? 'bg-teal-800 text-white shadow-2xs' : 'text-slate-600 hover:bg-slate-100'
-                }`}
+                className={`px-3 py-1.5 rounded-xl transition ${guideActiveTab === 'dictation' ? 'bg-teal-800 text-white shadow-2xs' : 'text-slate-600 hover:bg-slate-100'
+                  }`}
               >
                 Dental Phonetics
               </button>
               <button
                 type="button"
                 onClick={() => setGuideActiveTab('pms')}
-                className={`px-3 py-1.5 rounded-xl transition ${
-                  guideActiveTab === 'pms' ? 'bg-teal-800 text-white shadow-2xs' : 'text-slate-600 hover:bg-slate-100'
-                }`}
+                className={`px-3 py-1.5 rounded-xl transition ${guideActiveTab === 'pms' ? 'bg-teal-800 text-white shadow-2xs' : 'text-slate-600 hover:bg-slate-100'
+                  }`}
               >
                 PMS 1-Click Paste
               </button>
               <button
                 type="button"
                 onClick={() => setGuideActiveTab('github')}
-                className={`px-3 py-1.5 rounded-xl transition flex items-center space-x-1.5 ${
-                  guideActiveTab === 'github' ? 'bg-teal-700 text-white shadow-2xs' : 'text-slate-600 hover:bg-slate-100'
-                }`}
+                className={`px-3 py-1.5 rounded-xl transition flex items-center space-x-1.5 ${guideActiveTab === 'github' ? 'bg-teal-700 text-white shadow-2xs' : 'text-slate-600 hover:bg-slate-100'
+                  }`}
               >
                 <Send className="w-3 h-3" />
                 <span>Request Feature (GitHub)</span>
@@ -3459,9 +3187,8 @@ ${clinician}`;
                   </div>
 
                   {guideGhResult && (
-                    <div className={`p-3 rounded-xl text-xs font-semibold flex items-center justify-between gap-2 ${
-                      guideGhResult.ok ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-rose-50 text-rose-800 border border-rose-200'
-                    }`}>
+                    <div className={`p-3 rounded-xl text-xs font-semibold flex items-center justify-between gap-2 ${guideGhResult.ok ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-rose-50 text-rose-800 border border-rose-200'
+                      }`}>
                       <div className="flex items-center gap-2">
                         {guideGhResult.ok ? <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" /> : <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />}
                         <span>{guideGhResult.ok ? `Issue #${guideGhResult.issueNumber} created directly in GitHub!` : guideGhResult.error}</span>

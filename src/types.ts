@@ -220,6 +220,7 @@ export interface GeneratedNotePayload {
 export interface Consultation {
   id: string;
   dentistId?: string;
+  dentistName?: string;
   /** Clinic this consultation was recorded in (stamped server-side). */
   clinicId?: string;
   /**

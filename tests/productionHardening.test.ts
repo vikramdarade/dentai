@@ -69,12 +69,17 @@ describe('Clinic-local time', () => {
   });
 });
 
-describe('Landing page claims & substantiation guard', () => {
-  it('prevents reintroduction of invented marketing metrics, ROI multiples, or fabricated dollar constants', () => {
-    const landingPath = path.resolve(__dirname, '../src/components/Landing.tsx');
+describe('Landing page & demo claims substantiation guards', () => {
+  const landingPath = path.resolve(__dirname, '../src/components/Landing.tsx');
+  const scenesPath = path.resolve(__dirname, '../src/demo/Scenes.tsx');
+  const demoScriptPath = path.resolve(__dirname, '../src/demo/demoScript.ts');
+  const pipelinePath = path.resolve(__dirname, '../src/components/TreatmentPipeline.tsx');
+  const serverPath = path.resolve(__dirname, '../server.ts');
+
+  it('prevents reintroduction of invented marketing metrics, ROI multiples, or fabricated dollar constants on landing page', () => {
     const content = fs.readFileSync(landingPath, 'utf8');
 
-    // Banned fabricated constants from §5 & §7
+    // Banned fabricated constants
     const bannedConstants = [
       '$34,800',
       '$18,400',
@@ -96,5 +101,79 @@ describe('Landing page claims & substantiation guard', () => {
 
     // Guard against bare inflated pipeline dollar amounts (e.g. $30,000+)
     expect(content).not.toMatch(/\$\d{2,},\d{3}/);
+  });
+
+  it('demo visuals carry no fabricated constants or PMS-verification claims', () => {
+    const content = fs.readFileSync(scenesPath, 'utf8');
+
+    const bannedTokens = [
+      '34800',
+      '18400',
+      '123.5x',
+      '$51,600',
+      '+$15k–$30k',
+      '+$15k-$30k',
+      '$99/mo',
+      '$99–$149',
+      '$99-$149',
+      'Universal PMS Bridge',
+      'Sync to D4W',
+      '9 verified in PMS',
+      'D4W #8491 Verified',
+      'Eliminate 100% of After-Hours Charting',
+      '15–20 min',
+      '1.5–2 Hours',
+    ];
+
+    for (const token of bannedTokens) {
+      expect(content).not.toContain(token);
+    }
+  });
+
+  it('never claims a PMS integration that does not exist', () => {
+    const surfaces = [landingPath, scenesPath, demoScriptPath];
+    const bannedPhrases = [
+      'Universal PMS Bridge',
+      'Sync to D4W',
+      'automatically update booking status',
+      'PMS Sync',
+    ];
+
+    for (const surface of surfaces) {
+      if (fs.existsSync(surface)) {
+        const content = fs.readFileSync(surface, 'utf8');
+        for (const phrase of bannedPhrases) {
+          expect(content).not.toContain(phrase);
+        }
+      }
+    }
+  });
+
+  it('never presents self-reported bookings as verified revenue', () => {
+    const surfaces = [landingPath, scenesPath, pipelinePath];
+    const bannedPatterns = [
+      /\bverified in PMS\b/i,
+      /\b#\d+\s+Verified\b/i,
+      /\bPMS-verified\b/i,
+    ];
+
+    for (const surface of surfaces) {
+      if (fs.existsSync(surface)) {
+        const content = fs.readFileSync(surface, 'utf8');
+        for (const pattern of bannedPatterns) {
+          expect(content).not.toMatch(pattern);
+        }
+      }
+    }
+  });
+
+  it('never computes an invented ROI multiple against a fixed denominator', () => {
+    const serverContent = fs.readFileSync(serverPath, 'utf8');
+    const pipelineContent = fs.readFileSync(pipelinePath, 'utf8');
+    const scenesContent = fs.readFileSync(scenesPath, 'utf8');
+
+    expect(serverContent).not.toMatch(/const\s+subscriptionCost\s*=\s*149\s*;/);
+    expect(pipelineContent).not.toMatch(/totalBookedValue\s*\/\s*149/);
+    expect(scenesContent).not.toContain('123.5x');
   });
 });

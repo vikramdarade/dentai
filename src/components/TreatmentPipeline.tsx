@@ -307,7 +307,7 @@ export default function TreatmentPipeline({
     return opportunities.reduce((acc, curr) => acc + (curr.estimatedFee || 0), 0);
   }, [opportunities]);
 
-  const roiMultiple = roiSummary?.netRoiMultiple ?? (totalBookedValue > 0 ? (totalBookedValue / 149).toFixed(1) : 0);
+  const roiMultiple = roiSummary?.netRoiMultiple ?? 0;
 
   // Pagination for high-scale performance
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
@@ -486,7 +486,7 @@ export default function TreatmentPipeline({
               ${(roiSummary?.verifiedBookedValue ?? totalBookedValue).toLocaleString()}
             </span>
             <div className="flex items-center gap-1.5 mt-1 text-[11px] text-slate-400 font-medium">
-              <span>{roiSummary?.verifiedBookedCount ?? opportunities.filter(o => o.pmsAppointmentId || o.status === 'booked' || o.status === 'completed').length} PMS-verified appointments</span>
+              <span>{roiSummary?.verifiedBookedCount ?? opportunities.filter(o => o.pmsAppointmentId || o.status === 'booked' || o.status === 'completed').length} booked appointments</span>
             </div>
           </div>
         </div>
@@ -1192,9 +1192,9 @@ export default function TreatmentPipeline({
                   </div>
                   <div>
                     <h3 className="text-base font-extrabold text-slate-900">
-                      PMS Appointment Verification
+                      Record PMS Appointment Reference
                     </h3>
-                    <p className="text-[11px] text-slate-400">Lock verified revenue onto practice ledger</p>
+                    <p className="text-[11px] text-slate-400">Attach PMS reference to practice ledger</p>
                   </div>
                 </div>
                 <button

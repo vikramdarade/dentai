@@ -460,7 +460,7 @@ export default function Landing({ onGetStarted }: LandingProps) {
                   <div className="flex items-center gap-2">
                     <span className="rounded-full bg-emerald-500/20 px-3 py-1 text-[11px] font-extrabold uppercase tracking-wider text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                      D4W #8491 Booked
+                      D4W #8491 Reference Logged
                     </span>
                   </div>
                 </div>
@@ -527,9 +527,9 @@ export default function Landing({ onGetStarted }: LandingProps) {
                   <ClipboardCheck className="h-5 w-5" />
                 </span>
                 <div>
-                  <h4 className="text-base font-extrabold text-white">Universal PMS Bridge (D4W, EXACT, Cliniko)</h4>
+                  <h4 className="text-base font-extrabold text-white">PMS-Ready Export (D4W, EXACT, Cliniko)</h4>
                   <p className="mt-1 text-sm text-slate-400 leading-relaxed">
-                    Zero risky database installs. Front-desk teams copy perfectly formatted appointment notes with 1 click into legacy desktop systems, while cloud PMS webhooks automatically update booking status.
+                    Zero risky database installs. Front-desk teams copy perfectly formatted appointment notes with 1 click into legacy desktop systems and cloud PMS workflows.
                   </p>
                 </div>
               </div>

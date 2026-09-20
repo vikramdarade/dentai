@@ -70,6 +70,9 @@ export interface ChairSession {
   clinicId?: string;
   dentistId?: string;
   dentistName?: string;
+  activeConsultationId?: string;
+  activePatientId?: string;
+  isClosed?: boolean;
   createdAt: number;
   expiresAt: number;
   token: string;

@@ -31,9 +31,12 @@
   --color-alert-coral: #E02E24;
   --color-clinical-amber: #D97706;
   
-  --color-surface-bg: #F5F5F7;
+  --color-surface-bg: #F8F9FA;
   --color-surface-card: #FFFFFF;
+  --color-surface-warm: #FAFAFC;
+  --color-surface-active: #EEF5FD;
   --color-surface-tint: #F1F5F9;
+  --color-border-subtle: #E2E8F0;
 
   /* Material-style semantic tokens referenced by classNames across components. */
   --color-surface: #FFFFFF;

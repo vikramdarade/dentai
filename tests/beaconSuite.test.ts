@@ -189,6 +189,7 @@ describe('Operatory Phone Beacon Server API', () => {
   it('receives resilient audio chunk uploads from the phone beacon', async () => {
     const res = await request(app)
       .post(`/api/beacon/chair/${createdChairId}/upload-chunk`)
+      .set('x-chair-token', chairToken)
       .send({
         chunkIndex: 0,
         chunkTotal: 1,

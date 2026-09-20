@@ -210,11 +210,11 @@ export const DEMO_SCENES: DemoScene[] = [
     id: 'treatment-pipeline',
     act: 'owner',
     kind: 'pipeline',
-    title: 'Closed-Loop Revenue Recovery & PMS Sync',
+    title: 'Treatment Pipeline & Recalls',
     narration:
-      'And here is DentAI\u2019s most powerful advantage for clinic owners: the Closed-Loop Treatment Revenue Engine. While the dentist speaks, DentAI extracts unscheduled treatment proposals — like Priya\u2019s tooth 16 crown valued at $1,650. Front desk teams generate patient-friendly estimates with ADA rebate codes in one click, and verify bookings directly in Dental4Windows, EXACT, or Cliniko. DentAI tracks verified recovered production on your ledger — proving over 100x return on investment on your subscription.',
+      'And here is DentAI\u2019s advantage for clinic owners: the Treatment Pipeline. While the dentist speaks, DentAI identifies unscheduled treatment proposals — like Priya\u2019s tooth 16 crown valued at $1,650. Front desk teams generate patient-friendly estimates with ADA rebate codes in one click, and record appointment references. DentAI tracks reported bookings on your practice ledger.',
     tts:
-      "And here is Dent-A-I's most powerful advantage for clinic owners: the Closed-Loop Treatment Revenue Engine. While the dentist speaks, Dent-A-I extracts unscheduled treatment proposals — like Priya's tooth 16 crown valued at sixteen hundred and fifty dollars. Front desk teams generate patient-friendly estimates with A D A rebate codes in one click, and verify bookings directly in Dental4Windows, EXACT, or Cliniko. Dent-A-I tracks verified recovered production on your ledger — proving over one hundred times return on investment on your subscription.",
+      "And here is Dent-A-I's advantage for clinic owners: the Treatment Pipeline. While the dentist speaks, Dent-A-I identifies unscheduled treatment proposals — like Priya's tooth 16 crown valued at sixteen hundred and fifty dollars. Front desk teams generate patient-friendly estimates with A D A rebate codes in one click, and record appointment references. Dent-A-I tracks reported bookings on your practice ledger.",
     duration: 23000,
   },
   {
