@@ -228,12 +228,12 @@ export default function ChairBeaconModal({
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="font-extrabold text-sm text-white">Operatory Phone Beacon</h3>
+                <h3 className="font-extrabold text-sm text-white">Surgery Phone Mic</h3>
                 <span className="px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-400/30 text-[10px] font-bold">
                   {roomName}
                 </span>
               </div>
-              <p className="text-xs text-slate-400">Zero-Touch Ambient Chairside Microphone</p>
+              <p className="text-xs text-slate-400">Zero-Touch Chairside Ambient Microphone</p>
             </div>
           </div>
 
@@ -441,7 +441,7 @@ export default function ChairBeaconModal({
         <div className="bg-white p-4 px-6 border-t border-slate-200 flex items-center justify-between text-xs text-slate-500">
           <div className="flex items-center gap-1.5">
             <ShieldCheck className="w-4 h-4 text-emerald-600" />
-            <span>Encrypted P2P Operatory Link &bull; APP 11 Compliant</span>
+            <span>Encrypted Chairside Link &bull; APP 11 Compliant</span>
           </div>
           <button
             onClick={onClose}

@@ -1174,7 +1174,7 @@ export default function ChairsideWorkspace({
   };
 
   // ─────────────────────────────────────────────────────────────
-  // 4. PMS DAYSHEET IMPORT (REAL MODAL & PARSER)
+  // 4. PMS DAYSHEET IMPORT (ROBUST PARSER WITH DOB SUPPORT)
   // ─────────────────────────────────────────────────────────────
   const [showDaysheetModal, setShowDaysheetModal] = useState(false);
   const [daysheetRawText, setDaysheetRawText] = useState('');
@@ -1184,6 +1184,78 @@ export default function ChairsideWorkspace({
     setShowDaysheetModal(true);
   };
 
+  const parseDaysheetLine = (line: string): {
+    time: string;
+    patientName: string;
+    dob: string;
+    procedure: string;
+  } => {
+    // 1. Extract Time: e.g. "09:00 AM", "9:30am", "14:15", "11:00"
+    let time = '';
+    const timeMatch = line.match(/\b(0?[1-9]|1[0-2]):[0-5][0-9]\s*(?:AM|PM|am|pm)?\b|\b([01]?[0-9]|2[0-3]):[0-5][0-9]\b/i);
+    if (timeMatch) {
+      time = timeMatch[0].trim();
+    } else {
+      time = formatClinicTime(new Date());
+    }
+
+    let remaining = line;
+    if (timeMatch) {
+      remaining = remaining.replace(timeMatch[0], ' ');
+    }
+
+    // 2. Extract DOB: e.g. "DOB: 14/05/1988", "14/05/1988", "14-05-1988", "(12/03/1975)", "14 May 1988"
+    let dob = '';
+    const prefixMatch = remaining.match(/(?:DOB|D\.O\.B\.|b\.)[:\s]*(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4})/i);
+    if (prefixMatch) {
+      dob = prefixMatch[1];
+      remaining = remaining.replace(prefixMatch[0], ' ');
+    } else {
+      const parenMatch = remaining.match(/\((\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4})\)/);
+      if (parenMatch) {
+        dob = parenMatch[1];
+        remaining = remaining.replace(parenMatch[0], ' ');
+      } else {
+        const namedMatch = remaining.match(/\b(\d{1,2}[\s\-](?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[\s\-]\d{2,4})\b/i);
+        if (namedMatch) {
+          dob = namedMatch[1];
+          remaining = remaining.replace(namedMatch[0], ' ');
+        } else {
+          const standaloneDate = remaining.match(/\b(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4})\b/);
+          if (standaloneDate) {
+            dob = standaloneDate[1];
+            remaining = remaining.replace(standaloneDate[0], ' ');
+          }
+        }
+      }
+    }
+
+    // 3. Clean up delimiter artifacts (| , - tab double-spaces)
+    const parts = remaining.split(/[\t|]|\s{2,}|(?<=[a-zA-Z\s])\s*[-–—]\s*(?=[a-zA-Z])/).map(s => s.trim()).filter(Boolean);
+    let patientName = 'Patient';
+    let procedure = 'General Dental Consultation';
+
+    if (parts.length >= 2) {
+      patientName = parts[0];
+      procedure = parts.slice(1).join(' • ');
+    } else if (parts.length === 1) {
+      const words = parts[0].split(/\s+/);
+      if (words.length >= 3) {
+        patientName = `${words[0]} ${words[1]}`;
+        procedure = words.slice(2).join(' ');
+      } else {
+        patientName = parts[0];
+      }
+    }
+
+    return {
+      time,
+      patientName: patientName.replace(/^[,\-–—\s]+|[,\-–—\s]+$/g, '') || 'Patient',
+      dob,
+      procedure: procedure.replace(/^[,\-–—\s]+|[,\-–—\s]+$/g, '') || 'General Dental Consultation'
+    };
+  };
+
   const handleParseAndImportDaysheet = async () => {
     if (!daysheetRawText.trim()) {
       setShowDaysheetModal(false);
@@ -1191,36 +1263,64 @@ export default function ChairsideWorkspace({
     }
 
     const lines = daysheetRawText.split('\n').map(l => l.trim()).filter(Boolean);
+    let firstConsultId: string | null = null;
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
-      const parts = line.split(/[\t,]| {2,}/);
-      const timeGuess = line.match(/\d{1,2}:\d{2}(\s?[AP]M)?/i)?.[0] || formatClinicTime(new Date());
-      const cleanName = parts.length > 1 ? parts[1].trim() : parts[0].replace(timeGuess, '').trim();
-      const procedure = parts.length > 2 ? parts[2].trim() : 'Dental Consultation & Treatment';
-
-      const names = cleanName.split(' ');
+      const parsed = parseDaysheetLine(line);
+      const names = parsed.patientName.split(' ');
       const firstName = names[0] || 'Patient';
       const lastName = names.slice(1).join(' ') || `${i + 1}`;
+      const consultId = `sched-${Date.now()}-${i}`;
 
-      // A daysheet row is a scheduled appointment, NOT a clinical record.
-      //
-      // This used to create a consultation per row carrying a synthesised
-      // transcript ("Imported from PMS daysheet for X."), an invented chief
-      // complaint, a treatmentPerformed value asserting treatment that had not
-      // happened yet, and a fabricated practitioner id
-      // (currentUser?.id || 'dentist-01'). The grounding check then cross-checked
-      // AI output against that invented transcript and reported it as verified.
-      //
-      // Only the schedule entry is created here. The clinical record is created
-      // by the consultation itself, from real speech.
+      if (!firstConsultId) {
+        firstConsultId = consultId;
+      }
+
+      const newConsultation: Consultation = {
+        id: consultId,
+        dentistId: currentUser?.id || 'dentist-01',
+        clinicId: activeClinicId || undefined,
+        firstName,
+        lastName,
+        dob: parsed.dob || '',
+        appointmentType: 'restorative',
+        templateId: 'standard',
+        date: currentDateStr,
+        time: parsed.time,
+        status: 'In Review',
+        patientSummary: '',
+        transcript: [],
+        findings: {
+          chiefComplaint: parsed.procedure,
+          history: '',
+          toothFindings: '',
+          findingsGingival: '',
+          diagnosis: '',
+          treatmentPerformed: '',
+          recommendations: '',
+          recallRequirements: '',
+          customSections: { operatory: `Room ${(i % 3) + 1}` },
+          adaCodes: []
+        }
+      };
+
+      if (onSaveConsultation) {
+        await onSaveConsultation(newConsultation);
+      }
+
       addScheduleItem({
-        time: timeGuess,
+        time: parsed.time,
         patientName: `${firstName} ${lastName}`,
-        procedureText: procedure,
+        dob: parsed.dob || '',
+        procedureText: parsed.procedure,
         appointmentType: 'restorative',
         templateId: 'standard'
       });
+    }
+
+    if (firstConsultId && !activePatientId) {
+      handleSelectPatient(firstConsultId);
     }
 
     setDaysheetRawText('');
@@ -1230,11 +1330,12 @@ export default function ChairsideWorkspace({
   };
 
   // ─────────────────────────────────────────────────────────────
-  // 5. QUICK WALK-IN ENTRY (SAVES DIRECTLY TO DATABASE)
+  // 5. QUICK WALK-IN ENTRY (WITH DOB & ROOM)
   // ─────────────────────────────────────────────────────────────
   const [showWalkInCard, setShowWalkInCard] = useState(false);
   const [walkInName, setWalkInName] = useState('');
-  const [walkInOperatory, setWalkInOperatory] = useState('Op 1');
+  const [walkInDob, setWalkInDob] = useState('');
+  const [walkInRoom, setWalkInRoom] = useState('Room 1');
   const [walkInTime, setWalkInTime] = useState(() => `Now (${formatClinicTime(new Date())})`);
   const [walkInReason, setWalkInReason] = useState('');
 
@@ -1255,7 +1356,7 @@ export default function ChairsideWorkspace({
       clinicId: activeClinicId || undefined,
       firstName,
       lastName,
-      dob: '',
+      dob: walkInDob.trim(),
       appointmentType: 'emergency',
       templateId: 'emergency',
       date: getClinicTodayIso(),
@@ -1274,7 +1375,7 @@ export default function ChairsideWorkspace({
         treatmentPerformed: '',
         recommendations: '',
         recallRequirements: '',
-        customSections: { operatory: walkInOperatory },
+        customSections: { operatory: walkInRoom },
         adaCodes: []
       }
     };
@@ -1285,13 +1386,17 @@ export default function ChairsideWorkspace({
 
     addScheduleItem({
       time: cleanTime,
-      patientName: walkInName.trim(),
-      procedureText: `Emergency • ${walkInReason}`,
+      patientName: `${firstName} ${lastName}`,
+      dob: walkInDob.trim(),
+      procedureText: `Emergency • ${walkInReason || 'Evaluation'}`,
       appointmentType: 'emergency',
       templateId: 'emergency'
     });
 
     handleSelectPatient(newConsultation.id);
+    setWalkInName('');
+    setWalkInDob('');
+    setWalkInReason('');
     setShowWalkInCard(false);
   };
 
@@ -1802,9 +1907,9 @@ ${clinician}`;
             <div>
               <div className="flex items-center space-x-2">
                 <span className="font-extrabold text-slate-900 text-sm tracking-tight">DentAI</span>
-                <span className="text-[10px] bg-sky-50 text-sky-800 font-bold px-1.5 py-0.2 rounded border border-sky-200">Operatory Scribe</span>
+                <span className="text-[10px] bg-sky-50 text-sky-800 font-bold px-1.5 py-0.2 rounded border border-sky-200">Dental Assistant AI</span>
               </div>
-              <div className="text-[10px] text-slate-400 font-semibold">{activeClinic?.clinicName || 'Chairside Medical Workspace'}</div>
+              <div className="text-[10px] text-slate-400 font-semibold">{activeClinic?.clinicName || 'Chairside Dental Practice'}</div>
             </div>
           </div>
 
@@ -1838,6 +1943,16 @@ ${clinician}`;
               <HelpCircle className="w-3.5 h-3.5 text-sky-600" />
               <span>Guide</span>
               <kbd className="text-[9px] font-mono font-bold bg-slate-100 text-slate-500 px-1 py-0.2 rounded border border-slate-200">?</kbd>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setShowDeliverablesModal(true)}
+              className="px-3 py-1.5 rounded-xl border border-slate-200 hover:border-indigo-600 bg-white hover:bg-indigo-50/50 text-slate-700 text-xs font-semibold flex items-center space-x-1.5 shadow-2xs transition cursor-pointer"
+              title="Generate specialist referral letters and patient post-op care instructions"
+            >
+              <FileText className="w-3.5 h-3.5 text-indigo-600" />
+              <span>Referral & Handover</span>
             </button>
 
             <button
@@ -1936,11 +2051,11 @@ ${clinician}`;
 
               {/* Quick Walk-In Entry Inline Card */}
               {showWalkInCard && (
-                <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-2xs space-y-2">
+                <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-xs space-y-2.5">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-1.5 text-xs font-bold text-slate-800">
                       <User className="w-3.5 h-3.5 text-sky-700" />
-                      <span>Quick Walk-In Entry</span>
+                      <span>Add Walk-In Patient</span>
                     </div>
                     <button
                       onClick={() => setShowWalkInCard(false)}
@@ -1954,21 +2069,31 @@ ${clinician}`;
                     type="text"
                     value={walkInName}
                     onChange={e => setWalkInName(e.target.value)}
-                    placeholder="Patient Name"
+                    placeholder="Patient Name (e.g. John Smith)"
                     className="w-full px-2.5 py-1.5 text-xs font-medium border border-slate-200 rounded-lg focus:outline-none focus:border-sky-600 bg-slate-50/50"
                   />
 
                   <div className="grid grid-cols-2 gap-1.5">
+                    <input
+                      type="text"
+                      value={walkInDob}
+                      onChange={e => setWalkInDob(e.target.value)}
+                      placeholder="DOB (DD/MM/YYYY)"
+                      className="w-full px-2.5 py-1 text-[11px] font-medium border border-slate-200 rounded-lg focus:outline-none focus:border-sky-600 bg-slate-50/50"
+                    />
+
                     <select
-                      value={walkInOperatory}
-                      onChange={e => setWalkInOperatory(e.target.value)}
+                      value={walkInRoom}
+                      onChange={e => setWalkInRoom(e.target.value)}
                       className="w-full px-2 py-1 text-[11px] font-medium border border-slate-200 rounded-lg bg-slate-50/50 text-slate-700"
                     >
-                      <option value="Op 1">Op 1</option>
-                      <option value="Op 2">Op 2</option>
-                      <option value="Op 3">Op 3</option>
+                      <option value="Room 1">Room 1</option>
+                      <option value="Room 2">Room 2</option>
+                      <option value="Room 3">Room 3</option>
                     </select>
+                  </div>
 
+                  <div className="grid grid-cols-1 gap-1.5">
                     <select
                       value={walkInTime}
                       onChange={e => setWalkInTime(e.target.value)}
@@ -1984,59 +2109,47 @@ ${clinician}`;
                     type="text"
                     value={walkInReason}
                     onChange={e => setWalkInReason(e.target.value)}
-                    placeholder="Chief complaint / pain"
+                    placeholder="Chief Complaint / Reason"
                     className="w-full px-2.5 py-1.5 text-xs font-medium border border-slate-200 rounded-lg focus:outline-none focus:border-sky-600 bg-slate-50/50"
                   />
 
-                  <div className="flex items-center space-x-2 pt-1">
-                    <button
-                      type="button"
-                      onClick={handleAddWalkInToStream}
-                      className="flex-1 py-1.5 bg-sky-700 hover:bg-sky-800 text-white rounded-lg text-xs font-bold transition cursor-pointer shadow-2xs"
-                    >
-                      + Add to Stream
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setShowWalkInCard(false)}
-                      className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-xs font-semibold transition cursor-pointer"
-                    >
-                      Cancel
-                    </button>
-                  </div>
+                  <button
+                    onClick={handleAddWalkInToStream}
+                    disabled={!walkInName.trim()}
+                    className="w-full py-1.5 rounded-lg bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white text-xs font-bold transition shadow-xs cursor-pointer"
+                  >
+                    + Add Walk-In Patient
+                  </button>
                 </div>
               )}
 
-              {/* Patient Cards List */}
-              <div className="space-y-2 pt-1">
+              {/* Patient Schedule List */}
+              <div className="space-y-2">
                 {encountersForDate.length === 0 ? (
-                  <div className="p-4 text-center border border-dashed border-slate-200 rounded-xl bg-slate-50 text-slate-500 text-xs my-2">
-                    <Calendar className="w-5 h-5 mx-auto mb-1 text-slate-400" />
-                    <p className="font-bold text-slate-700">No encounters for this date</p>
-                    <p className="text-[11px] text-slate-400 mt-0.5">Use + Walk-In or Paste Schedule to load patients.</p>
+                  <div className="p-4 text-center border border-dashed border-slate-200 rounded-xl bg-slate-50/50 space-y-2">
+                    <Calendar className="w-6 h-6 text-slate-400 mx-auto" />
+                    <p className="text-xs font-semibold text-slate-600">No appointments scheduled</p>
+                    <p className="text-[11px] text-slate-400">
+                      Use <strong>Paste Schedule</strong> or add a <strong>Walk-In</strong> to begin.
+                    </p>
                   </div>
                 ) : (
                   encountersForDate.map(p => {
                     const isActive = p.id === activePatientId;
-                    const isCompleted = p.status === 'ready';
+                    const isCompleted = p.status === 'ready' || (p.soap && Boolean(p.soap.subjective || p.soap.plan));
 
                     return (
                       <div
                         key={p.id}
                         onClick={() => handleSelectPatient(p.id)}
-                        className={`p-3.5 rounded-xl border transition-all cursor-pointer relative shadow-2xs ${isActive
-                          ? 'bg-sky-50/70 border-sky-500 ring-2 ring-sky-500/20 shadow-xs'
-                          : 'bg-white border-slate-200 hover:border-slate-300'
+                        className={`p-3 rounded-xl border transition cursor-pointer text-left ${isActive
+                          ? 'bg-sky-50/70 border-sky-300 ring-1 ring-sky-300/50 shadow-xs'
+                          : 'bg-white hover:bg-slate-50/80 border-slate-200'
                           }`}
                       >
-                        {/* Active Indicator Bar */}
-                        {isActive && (
-                          <div className="absolute left-0 top-3 bottom-3 w-1 bg-[#0071E3] rounded-r-full" />
-                        )}
-
                         <div className="flex items-start justify-between mb-1">
                           <div className="text-[11px] font-mono text-slate-500 font-tabular">
-                            {p.time} • <span className="text-slate-700 font-bold">{p.operatory}</span>
+                            {p.time} • <span className="text-slate-700 font-bold">{p.operatory?.replace(/Op /i, 'Room ') || 'Room 1'}</span>
                           </div>
 
                           {isActive ? (
@@ -2055,7 +2168,7 @@ ${clinician}`;
                               {!isMicStandby && !isPaused ? `Recording (${formatTimer(recordingSeconds)})` : isPaused ? 'Paused' : 'Active in Chair'}
                             </span>
                           ) : isCompleted ? (
-                            <span className="bg-emerald-50 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-200 flex items-center gap-1">
+                            <span className="bg-emerald-50 text-emerald-800 text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-emerald-200 flex items-center gap-1">
                               <Check className="w-3 h-3 text-emerald-600" />
                               Done
                             </span>
@@ -2100,7 +2213,7 @@ ${clinician}`;
                           {activeEncounter.patientName}
                         </h2>
                         <span className="text-xs text-slate-500 font-medium">
-                          • DOB: {activeEncounter.dob || '14/05/1988'} • {activeEncounter.operatory || 'Op 1'}
+                          • DOB: {activeEncounter.dob ? activeEncounter.dob : 'Not recorded'} • {activeEncounter.operatory?.replace(/Op /i, 'Room ') || 'Room 1'}
                         </span>
                       </div>
                       <div className="text-xs text-slate-500 font-medium mt-0.5">
@@ -2180,12 +2293,12 @@ ${clinician}`;
                       {isFinalizing ? (
                         <>
                           <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                          <span>Generating...</span>
+                          <span>Generating Note...</span>
                         </>
                       ) : (
                         <>
                           <Sparkles className="w-3.5 h-3.5" />
-                          <span>Generate Note (⌘↵)</span>
+                          <span>{activeEncounter?.status === 'ready' || (activeEncounter && editedSoapNotes[activeEncounter.id]) ? 'Regenerate Note (⌘↵)' : 'Generate Note (⌘↵)'}</span>
                         </>
                       )}
                     </button>
@@ -2338,70 +2451,21 @@ ${clinician}`;
                         </div>
                       </div>
 
-                      {/* Main Copy to PMS Action with Format Selector */}
-                      <div className="space-y-2">
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => handleCopyPMS()}
-                            className={`flex-1 py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center space-x-2 transition-all shadow-sm cursor-pointer active:scale-[0.98] ${copiedNote
-                              ? 'bg-emerald-600 text-white'
-                              : 'bg-[#0071E3] hover:bg-[#0077ED] text-white shadow-[#0071E3]/20'
-                              }`}
-                          >
-                            {copiedNote ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                            <span>
-                              {copiedNote
-                                ? `Copied for ${selectedPmsTarget === 'd4w' ? 'D4W' : selectedPmsTarget === 'exact' ? 'EXACT' : selectedPmsTarget === 'cliniko' ? 'Cliniko' : 'PMS'}!`
-                                : `Copy for ${selectedPmsTarget === 'd4w' ? 'Dental4Windows' : selectedPmsTarget === 'exact' ? 'EXACT' : selectedPmsTarget === 'cliniko' ? 'Cliniko' : 'PMS'} (⌘C)`}
-                            </span>
-                          </button>
-
-                          <select
-                            value={selectedPmsTarget}
-                            onChange={e => setSelectedPmsTarget(e.target.value as any)}
-                            className="h-10 px-2.5 bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-800 text-xs font-semibold rounded-xl outline-none cursor-pointer transition"
-                            title="Select target Practice Management Software format"
-                          >
-                            <option value="d4w">D4W</option>
-                            <option value="exact">EXACT</option>
-                            <option value="cliniko">Cliniko</option>
-                            <option value="generic">Plain Text</option>
-                          </select>
-                        </div>
-
-                        {/* Secondary Actions: Referral & Handover + Update Note */}
-                        <div className="grid grid-cols-2 gap-2">
-                          <button
-                            type="button"
-                            onClick={() => setShowDeliverablesModal(true)}
-                            className="py-2 px-2.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 active:scale-[0.98] text-xs font-bold border border-indigo-200 transition flex items-center justify-center space-x-1.5 cursor-pointer"
-                            title="Generate specialist referral letters and patient post-op care instructions"
-                          >
-                            <FileText className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
-                            <span className="truncate">Referral & Handover</span>
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={handleRegenerateFromConversation}
-                            disabled={isGeneratingFromConversation}
-                            title="Generate or update note using the full conversation captured"
-                            className="py-2 px-2.5 rounded-xl bg-teal-50 hover:bg-teal-100 active:scale-[0.98] text-teal-800 text-xs font-bold border border-teal-200 transition flex items-center justify-center space-x-1.5 cursor-pointer disabled:opacity-50"
-                          >
-                            {isGeneratingFromConversation ? (
-                              <>
-                                <RefreshCw className="w-3.5 h-3.5 animate-spin text-teal-700 shrink-0" />
-                                <span className="truncate">Updating...</span>
-                              </>
-                            ) : (
-                              <>
-                                <Sparkles className="w-3.5 h-3.5 text-teal-700 shrink-0" />
-                                <span className="truncate">Update Note</span>
-                              </>
-                            )}
-                          </button>
-                        </div>
-                      </div>
+                      {/* Main 1-Click Copy for PMS Action (Auto-adapted to clinic PMS) */}
+                      <button
+                        onClick={() => handleCopyPMS()}
+                        className={`w-full py-2.5 px-4 rounded-xl font-bold text-xs flex items-center justify-center space-x-2 transition-all shadow-sm cursor-pointer active:scale-[0.98] ${copiedNote
+                          ? 'bg-emerald-600 text-white shadow-emerald-600/20'
+                          : 'bg-[#0071E3] hover:bg-[#0077ED] text-white shadow-[#0071E3]/25'
+                          }`}
+                      >
+                        {copiedNote ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                        <span>
+                          {copiedNote
+                            ? `Copied for ${selectedPmsTarget === 'd4w' ? 'Dental4Windows' : selectedPmsTarget === 'exact' ? 'EXACT' : selectedPmsTarget === 'cliniko' ? 'Cliniko' : 'Practice Software'}!`
+                            : `Copy for ${selectedPmsTarget === 'd4w' ? 'Dental4Windows' : selectedPmsTarget === 'exact' ? 'EXACT' : selectedPmsTarget === 'cliniko' ? 'Cliniko' : 'Practice Software'} (⌘C)`}
+                        </span>
+                      </button>
                     </div>
 
                     {/* Structured Note Cards with Direct Inline Editing */}

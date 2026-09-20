@@ -12,6 +12,7 @@ export interface DayScheduleItem {
   id: string;
   time: string;
   patientName: string;
+  dob?: string;
   procedureText: string;
   appointmentType: AppointmentType;
   templateId: string;

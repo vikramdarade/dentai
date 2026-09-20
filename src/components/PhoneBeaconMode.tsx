@@ -405,8 +405,8 @@ export default function PhoneBeaconMode({ onExit }: PhoneBeaconModeProps) {
           </div>
 
           <div>
-            <h1 className="text-xl font-black text-white">DentAI Phone Beacon</h1>
-            <p className="text-xs text-slate-400 mt-1">Operatory Ambient Microphone Link</p>
+            <h1 className="text-xl font-black text-white">DentAI Phone Mic</h1>
+            <p className="text-xs text-slate-400 mt-1">Surgery Ambient Microphone Link</p>
           </div>
 
           <div className="bg-slate-900 rounded-3xl p-6 border border-slate-800 space-y-4 shadow-xl">
@@ -442,7 +442,7 @@ export default function PhoneBeaconMode({ onExit }: PhoneBeaconModeProps) {
           </div>
 
           <p className="text-[11px] text-slate-500 leading-relaxed">
-            Tip: You can also open your camera on this phone and scan the QR code displayed on the operatory PC to connect instantly.
+            Tip: You can also open your camera on this phone and scan the QR code displayed on the surgery PC to connect instantly.
           </p>
         </div>
       </div>
@@ -500,7 +500,7 @@ export default function PhoneBeaconMode({ onExit }: PhoneBeaconModeProps) {
           </h2>
           <p className="text-xs text-slate-400 leading-snug">
             {isRecording
-              ? 'Docked in stand or scrubs. Controlled remotely from Operatory PC.'
+              ? 'Docked in stand or scrubs. Controlled remotely from Surgery PC.'
               : 'Waiting for dentist or nurse to click Start on desktop.'}
           </p>
         </div>
@@ -535,7 +535,7 @@ export default function PhoneBeaconMode({ onExit }: PhoneBeaconModeProps) {
           <span>Infection Control Protocol</span>
         </div>
         <p className="text-[10px] text-slate-500">
-          Do not handle device while wearing surgical gloves. Session will finish automatically from operatory desk.
+          Do not handle device while wearing surgical gloves. Session will finish automatically from surgery desk.
         </p>
       </div>
     </div>

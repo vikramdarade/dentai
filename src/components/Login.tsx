@@ -780,7 +780,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                     </div>
                     <div className="space-y-1.5">
                       <h5 className="font-bold text-slate-800">Account Lockout Protection</h5>
-                      <p>For safety against brute-force attacks on operatory workstations, entering 5 consecutive incorrect PINs locks the profile for 15 minutes.</p>
+                      <p>For safety against brute-force attacks on clinic workstations, entering 5 consecutive incorrect PINs locks the profile for 15 minutes.</p>
                     </div>
                   </div>
                 )}
@@ -890,7 +890,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                           className="w-full h-9 px-2 bg-white border border-slate-200 rounded-xl text-xs font-medium focus:border-teal-600 outline-none"
                         >
                           <option value="feature-request">Feature Request</option>
-                          <option value="clinical-audio">Operatory Audio & DSP</option>
+                          <option value="clinical-audio">Surgery Audio & Voice</option>
                           <option value="dental-lexicon">Dental Lexicon & Codes</option>
                           <option value="pms-clipboard">PMS Clipboard & Export</option>
                           <option value="login-security">Login & Security</option>
@@ -904,7 +904,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                           className="w-full h-9 px-2 bg-white border border-slate-200 rounded-xl text-xs font-medium focus:border-teal-600 outline-none"
                         >
                           <option value="normal">Normal</option>
-                          <option value="high">High (Affects operatory)</option>
+                          <option value="high">High (Affects surgery workflow)</option>
                           <option value="urgent">Urgent</option>
                         </select>
                       </div>
@@ -914,7 +914,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                       <label className="text-[10px] font-bold uppercase text-slate-500 block mb-1">Clinical Context & Description</label>
                       <textarea
                         rows={3}
-                        placeholder="Describe the clinical workflow need, operatory observation, or feature idea..."
+                        placeholder="Describe the clinical workflow need, surgery observation, or feature idea..."
                         value={ghDescription}
                         onChange={(e) => setGhDescription(e.target.value)}
                         required
