@@ -58,6 +58,17 @@ describe('audio assembly', () => {
     expect(summary.contiguous).toBe(false);
   });
 
+  it('flags missing initial chunk 0 when recording begins late (header loss)', () => {
+    const summary = assembleAudioChunks([
+      { chunkIndex: 2, dataBase64: audioChunk(30, 3) },
+      { chunkIndex: 3, dataBase64: audioChunk(30, 4) }
+    ]);
+    // Chunks 0 and 1 were lost before connection; without chunk 0 container header is missing
+    expect(summary.missing).toEqual([0, 1]);
+    expect(summary.contiguous).toBe(false);
+  });
+
+
   it('concatenates decoded bytes, so padding inside a chunk cannot corrupt the stream', () => {
     // Two 1-byte chunks: each base64-encodes to 4 characters *with* its own
     // padding. Joining the base64 text would yield a corrupt stream; joining the

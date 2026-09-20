@@ -65,12 +65,19 @@
     - The application is a live pilot; never hardcode placeholder dates (e.g. static "18 Sep 2026") or demo seed records.
     - All date/time operations must use the clinic timezone utilities in `src/utils/date.ts` (`formatClinicDate`, `formatClinicTime`, `getClinicTodayIso`).
 
-14. **A Name Is Not a Patient Identity**:
+14. **Cross-Patient Boundary Isolation & Forced Standby**:
+    - Any patient transition (via Daysheet selection, "Next Patient" button, or `⌘→` hotkey) must **immediately halt active listening** (`recognitionRef.current.stop()`) and place the workspace into explicit **`STANDBY` mode (`isMicStandby = true`, timer reset to `00:00`, stop chime played)**.
+    - Never auto-start recording on a newly selected patient; recording must strictly require intentional, physical clinician initiation (`Spacebar` or `Start Audio`).
+    - Speech recognition buffers and live in-memory transcripts must remain strictly scoped by unique patient consultation ID (`localLiveTranscripts[targetId]`).
+    - The asynchronous handoff for the prior patient must dispatch an immutable snapshot of their transcript, ensuring subsequent room audio cannot contaminate the prior patient's chart.
+
+15. **A Name Is Not a Patient Identity**:
     - Never resolve prior history, merge records or attach a consultation from a name match. Use `src/lib/patients.ts` (`decidePatientResolution`, `patientNameKey`) and the registry (`patientStore`). Auto-match only on name + a second detail that *agrees*; anything else is `ambiguous` and needs a human, or a new record.
     - A missing `patientId` means "unknown patient". Never fall back to matching on the name, and never invent a DOB to force a match.
     - When recording live speech that cannot be diarized, label it `'Dialogue'`. Labelling it `'Dentist'` asserted a role the microphone never established and pushed patient-reported statements into the clinician-observed sections.
 
-15. **The Recording, Not the Browser Recogniser, Is the Transcript**:
+16. **The Recording, Not the Browser Recogniser, Is the Transcript**:
     - Notes must be generated from the transcribed recorded audio when it exists. Use `chooseNoteTranscript` and store its verdict as `transcriptProvenance` on the consultation.
     - Never truncate a recording to make it fit a transcription limit, and never silently drop a failed upload: refuse, or report the gap as a warning the clinician sees before signing.
     - Delete the raw audio once the transcript is persisted. Do not keep a "backup" copy of clinical voice.
+

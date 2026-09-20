@@ -117,11 +117,12 @@ export function assembleAudioChunks(chunks: AudioChunkLike[] | undefined | null)
     return { indexes: [], missing: [], bytes: 0, durationSecondsEstimate: 0, contiguous: true };
   }
 
-  const first = usable[0].index;
   const last = usable[usable.length - 1].index;
   const present = new Set(usable.map((u) => u.index));
   const missing: number[] = [];
-  for (let i = first; i <= last; i += 1) {
+  // Chunks are 0-indexed; chunk 0 carries the container header (EBML/Opus/MP4),
+  // so starting after 0 means the initial stream header was lost and cannot be decoded.
+  for (let i = 0; i <= last; i += 1) {
     if (!present.has(i)) missing.push(i);
   }
 

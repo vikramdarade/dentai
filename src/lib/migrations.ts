@@ -193,11 +193,68 @@ const baseline: Migration = {
       )
     `;
     await sql`CREATE INDEX IF NOT EXISTS idx_subscriptions_clinic ON subscriptions (clinic_id)`;
+    await sql`
+      CREATE TABLE IF NOT EXISTS patients (
+        id          TEXT PRIMARY KEY,
+        clinic_id   TEXT NOT NULL,
+        first_name  TEXT NOT NULL,
+        last_name   TEXT NOT NULL,
+        dob         TEXT NOT NULL DEFAULT '',
+        phone       TEXT,
+        name_key    TEXT NOT NULL,
+        created_by  TEXT,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+        archived_at TIMESTAMPTZ
+      )
+    `;
+    await sql`CREATE INDEX IF NOT EXISTS idx_patients_clinic_name ON patients (clinic_id, name_key)`;
+    await sql`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_patients_identity
+      ON patients (clinic_id, name_key, dob)
+      WHERE archived_at IS NULL AND dob <> ''
+    `;
+    await sql`ALTER TABLE consultations ADD COLUMN IF NOT EXISTS patient_id TEXT`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_consultations_patient ON consultations (patient_id)`;
+    await sql`
+      CREATE TABLE IF NOT EXISTS chair_sessions (
+        chair_id     TEXT PRIMARY KEY,
+        pin_code     TEXT NOT NULL,
+        room_name    TEXT NOT NULL,
+        clinic_id    TEXT,
+        dentist_id   TEXT,
+        dentist_name TEXT,
+        token        TEXT NOT NULL,
+        status       TEXT NOT NULL,
+        device_info  JSONB,
+        commands     JSONB NOT NULL DEFAULT '[]'::jsonb,
+        telemetry    JSONB NOT NULL,
+        created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+        expires_at   TIMESTAMPTZ NOT NULL,
+        updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+      )
+    `;
+    await sql`CREATE INDEX IF NOT EXISTS idx_chair_sessions_expires ON chair_sessions (expires_at)`;
+    await sql`
+      CREATE TABLE IF NOT EXISTS chair_audio_chunks (
+        chair_id    TEXT NOT NULL,
+        chunk_index INTEGER NOT NULL,
+        data_base64 TEXT,
+        size_bytes  INTEGER NOT NULL DEFAULT 0,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (chair_id, chunk_index)
+      )
+    `;
   },
   down: async (sql) => {
     // Reverses the baseline by dropping everything it created, children first.
     // Destructive by definition — this is why `down` is a deliberate command
     // and never runs automatically.
+    await sql`DROP TABLE IF EXISTS chair_audio_chunks`;
+    await sql`DROP TABLE IF EXISTS chair_sessions`;
+    await sql`DROP INDEX IF EXISTS idx_consultations_patient`;
+    await sql`ALTER TABLE consultations DROP COLUMN IF EXISTS patient_id`;
+    await sql`DROP TABLE IF EXISTS patients`;
     await sql`DROP TABLE IF EXISTS subscriptions`;
     await sql`DROP TABLE IF EXISTS recovery_tokens`;
     await sql`DROP TABLE IF EXISTS revoked_sessions`;
@@ -217,9 +274,6 @@ const baseline: Migration = {
  * 002 — custody and operability.
  *
  * Everything this round needs to exist in Postgres:
- *  - `practice_acceptances`: evidence that a *practice* accepted a specific
- *    version of the terms and the data-processing terms. Per-patient consent
- *    was already stored; the practice-level agreement was not.
  *  - `rate_limit_counters`: durable rate limiting (in-process counters are
  *    per-instance on serverless, so they bound nothing).
  *  - `mfa_credentials` / `mfa_recovery_codes`: real TOTP factors.
@@ -235,21 +289,6 @@ const custodyAndOperability: Migration = {
   name: 'custody_and_operability',
   checksum: 'custody-1',
   up: async (sql) => {
-    await sql`
-      CREATE TABLE IF NOT EXISTS practice_acceptances (
-        id               TEXT PRIMARY KEY,
-        clinic_id        TEXT NOT NULL,
-        terms_version    TEXT NOT NULL,
-        privacy_version  TEXT NOT NULL,
-        dpa_version      TEXT NOT NULL,
-        accepted_by_name TEXT NOT NULL,
-        accepted_by_email TEXT,
-        accepted_by_dentist_id TEXT,
-        accepted_at      TIMESTAMPTZ NOT NULL DEFAULT now()
-      )
-    `;
-    await sql`CREATE INDEX IF NOT EXISTS idx_practice_acceptances_clinic ON practice_acceptances (clinic_id, accepted_at DESC)`;
-
     await sql`
       CREATE TABLE IF NOT EXISTS rate_limit_counters (
         key        TEXT PRIMARY KEY,
@@ -332,115 +371,39 @@ const custodyAndOperability: Migration = {
     await sql`DROP TABLE IF EXISTS mfa_recovery_codes`;
     await sql`DROP TABLE IF EXISTS mfa_credentials`;
     await sql`DROP TABLE IF EXISTS rate_limit_counters`;
-    await sql`DROP TABLE IF EXISTS practice_acceptances`;
   },
 };
 
 /**
- * 003 — patient identity.
+ * 003 — practice acceptances.
  *
- * The registry that stops a patient's name being used as their identity (see
- * `src/lib/patients.ts`). Two additions:
- *
- *  - `patients`: one row per patient per clinic. `name_key` is the normalised
- *    name used to find *candidates*. The partial unique index on
- *    (clinic_id, name_key, dob) makes registering the same person twice
- *    idempotent when a date of birth is known, and deliberately allows duplicate
- *    names with no DOB — those cannot be told apart, and a duplicate record is
- *    the safe failure where a shared chart is not.
- *  - `consultations.patient_id`: links a record to the patient it belongs to.
- *    Nullable because records written before this migration have no link. The
- *    application must read a null `patient_id` as "patient unknown" and show no
- *    prior-visit history, rather than falling back to matching on the name —
- *    which is exactly the behaviour this migration exists to remove.
+ * Evidence that a practice accepted a specific version of the terms, privacy
+ * policy, and data-processing agreement (DPA).
  */
-const patientIdentity: Migration = {
+const practiceAcceptances: Migration = {
   version: 3,
-  name: 'patient_identity',
-  checksum: 'patients-1',
+  name: 'practice_acceptances',
+  checksum: 'practice-acceptances-1',
   up: async (sql) => {
     await sql`
-      CREATE TABLE IF NOT EXISTS patients (
-        id          TEXT PRIMARY KEY,
-        clinic_id   TEXT NOT NULL,
-        first_name  TEXT NOT NULL,
-        last_name   TEXT NOT NULL,
-        dob         TEXT NOT NULL DEFAULT '',
-        phone       TEXT,
-        name_key    TEXT NOT NULL,
-        created_by  TEXT,
-        created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-        updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-        archived_at TIMESTAMPTZ
+      CREATE TABLE IF NOT EXISTS practice_acceptances (
+        id TEXT PRIMARY KEY,
+        clinic_id TEXT NOT NULL REFERENCES clinics(id) ON DELETE CASCADE,
+        terms_version TEXT NOT NULL,
+        privacy_version TEXT NOT NULL,
+        dpa_version TEXT NOT NULL,
+        accepted_by_name TEXT NOT NULL,
+        accepted_by_email TEXT,
+        accepted_by_dentist_id TEXT,
+        accepted_at TIMESTAMPTZ NOT NULL DEFAULT now()
       )
     `;
-    await sql`CREATE INDEX IF NOT EXISTS idx_patients_clinic_name ON patients (clinic_id, name_key)`;
-    await sql`
-      CREATE UNIQUE INDEX IF NOT EXISTS idx_patients_identity
-      ON patients (clinic_id, name_key, dob)
-      WHERE archived_at IS NULL AND dob <> ''
-    `;
-    await sql`ALTER TABLE consultations ADD COLUMN IF NOT EXISTS patient_id TEXT`;
-    await sql`CREATE INDEX IF NOT EXISTS idx_consultations_patient ON consultations (patient_id)`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_practice_acceptances_clinic ON practice_acceptances (clinic_id, accepted_at DESC)`;
   },
   down: async (sql) => {
-    await sql`DROP INDEX IF EXISTS idx_consultations_patient`;
-    await sql`ALTER TABLE consultations DROP COLUMN IF EXISTS patient_id`;
-    await sql`DROP TABLE IF EXISTS patients`;
-  },
-};
-
-/**
- * 004 — durable chair-side beacon sessions.
- *
- * The beacon session state was a module-level `Map`, which on a serverless host
- * is per-instance: pairing succeeded on one instance and the next status poll
- * landed on another that had never heard of the chair. Audio chunks were pushed
- * into that same Map without bound.
- *
- * `chair_sessions` holds the small, hot state (status, telemetry, commands) and
- * `chair_audio_chunks` holds the audio separately, so a heartbeat never
- * re-serialises megabytes. Chunk rows are deleted with their session by the
- * sweeper, and the application caps the total accepted per session.
- */
-const durableChairSessions: Migration = {
-  version: 4,
-  name: 'durable_chair_sessions',
-  checksum: 'chair-sessions-1',
-  up: async (sql) => {
     await sql`
-      CREATE TABLE IF NOT EXISTS chair_sessions (
-        chair_id     TEXT PRIMARY KEY,
-        pin_code     TEXT NOT NULL,
-        room_name    TEXT NOT NULL,
-        clinic_id    TEXT,
-        dentist_id   TEXT,
-        dentist_name TEXT,
-        token        TEXT NOT NULL,
-        status       TEXT NOT NULL,
-        device_info  JSONB,
-        commands     JSONB NOT NULL DEFAULT '[]'::jsonb,
-        telemetry    JSONB NOT NULL,
-        created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-        expires_at   TIMESTAMPTZ NOT NULL,
-        updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
-      )
+      DROP TABLE IF EXISTS practice_acceptances CASCADE
     `;
-    await sql`CREATE INDEX IF NOT EXISTS idx_chair_sessions_expires ON chair_sessions (expires_at)`;
-    await sql`
-      CREATE TABLE IF NOT EXISTS chair_audio_chunks (
-        chair_id    TEXT NOT NULL,
-        chunk_index INTEGER NOT NULL,
-        data_base64 TEXT,
-        size_bytes  INTEGER NOT NULL DEFAULT 0,
-        created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-        PRIMARY KEY (chair_id, chunk_index)
-      )
-    `;
-  },
-  down: async (sql) => {
-    await sql`DROP TABLE IF EXISTS chair_audio_chunks`;
-    await sql`DROP TABLE IF EXISTS chair_sessions`;
   },
 };
 
@@ -448,8 +411,7 @@ const durableChairSessions: Migration = {
 export const MIGRATIONS: Migration[] = [
   baseline,
   custodyAndOperability,
-  patientIdentity,
-  durableChairSessions
+  practiceAcceptances
 ];
 
 export const LATEST_VERSION = MIGRATIONS[MIGRATIONS.length - 1].version;
@@ -519,7 +481,7 @@ export async function runMigrations(
 
   const applied = await listAppliedMigrations(sql);
   const active = new Map(
-    applied.filter((r) => !r.rolled_back_at).map((r) => [r.version, r])
+    applied.filter((r) => r.rolled_back_at === null).map((r) => [r.version, r])
   );
 
   // A recorded migration whose checksum changed means someone edited shipped
@@ -539,27 +501,31 @@ export async function runMigrations(
   const result: MigrateResult = { applied: [], skipped: [] };
   for (const migration of MIGRATIONS) {
     if (migration.version > target) break;
-    // Under `force`, only a migration whose recorded checksum has drifted is
-    // re-run (all statements are idempotent by design) and its record
-    // rewritten, so a tampered history is repaired instead of refusing
-    // forever. Unchanged migrations stay skipped, and without force an applied
-    // migration is always skipped.
+    const record = applied.find((item) => item.version === migration.version);
     const drifted =
-      options.force && active.get(migration.version)?.checksum !== migration.checksum;
-    if (active.has(migration.version) && !drifted) {
+      options.force && record?.checksum !== migration.checksum;
+
+    if (record?.rolled_back_at === null && !drifted) {
       result.skipped.push(migration.version);
       continue;
     }
+
     log(`Applying migration ${migration.version} — ${migration.name}`);
     await migration.up(sql);
     await sql`
       INSERT INTO schema_migrations (version, name, checksum, applied_at, rolled_back_at)
-      VALUES (${migration.version}, ${migration.name}, ${migration.checksum}, now(), NULL)
-      ON CONFLICT (version) DO UPDATE
-        SET name = EXCLUDED.name,
-            checksum = EXCLUDED.checksum,
-            applied_at = now(),
-            rolled_back_at = NULL
+      VALUES (
+        ${migration.version},
+        ${migration.name},
+        ${migration.checksum},
+        NOW(),
+        NULL
+      )
+      ON CONFLICT (version) DO UPDATE SET
+        name = EXCLUDED.name,
+        checksum = EXCLUDED.checksum,
+        applied_at = NOW(),
+        rolled_back_at = NULL
     `;
     result.applied.push(migration.version);
     log(`Applied migration ${migration.version} — ${migration.name}`);
@@ -575,25 +541,38 @@ export async function rollbackMigration(
   sql: SqlExecutor,
   version?: number,
   log: (message: string) => void = () => {}
-): Promise<Migration | null> {
+): Promise<MigrationRow | null> {
   await ensureMigrationTable(sql);
-  const applied = await listAppliedMigrations(sql);
-  const active = applied.filter((r) => !r.rolled_back_at);
-  if (active.length === 0) return null;
 
-  const targetVersion = version ?? active[active.length - 1].version;
-  const migration = MIGRATIONS.find((m) => m.version === targetVersion);
+  const applied = await listAppliedMigrations(sql);
+  const latest = [...applied]
+    .filter((migration) => migration.rolled_back_at === null)
+    .sort((a, b) => b.version - a.version)[0];
+
+  if (!latest) return null;
+
+  const targetVersion = version ?? latest.version;
+  const targetRecord = applied.find(
+    (m) => m.version === targetVersion && m.rolled_back_at === null
+  );
+  if (!targetRecord) return null;
+
+  const migration = MIGRATIONS.find((item) => item.version === targetVersion);
   if (!migration) {
-    throw new Error(`No migration is defined for version ${targetVersion}.`);
+    throw new Error(`Migration ${targetVersion} is recorded but not shipped`);
   }
 
   log(`Rolling back migration ${migration.version} — ${migration.name}`);
   await migration.down(sql);
+
   await sql`
-    UPDATE schema_migrations SET rolled_back_at = now() WHERE version = ${migration.version}
+    UPDATE schema_migrations
+       SET rolled_back_at = NOW()
+     WHERE version = ${migration.version}
   `;
+
   log(`Rolled back migration ${migration.version} — ${migration.name}`);
-  return migration;
+  return targetRecord;
 }
 
 /** Stable, human-readable status for health output and the CLI. */

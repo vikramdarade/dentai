@@ -29,6 +29,7 @@ interface LandingProps {
 const NAV_LINKS = [
   { href: '#how-it-works', label: 'How it works' },
   { href: '#revenue-engine', label: 'Revenue Engine' },
+  { href: '#pricing', label: 'Pricing' },
   { href: '#features', label: 'Features' },
   { href: '#formats', label: 'Formats' },
   { href: '#trust', label: 'Privacy & AI' },
@@ -420,14 +421,14 @@ export default function Landing({ onGetStarted }: LandingProps) {
               <span className="mt-1 inline-block text-xs font-semibold text-amber-400">24 active treatment plans</span>
             </div>
             <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-6 backdrop-blur-md">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-300">Verified Recovered Production</span>
+              <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-300">Recovered Production</span>
               <p className="mt-2 text-3xl font-black text-emerald-400">$18,400</p>
-              <span className="mt-1 inline-block text-xs font-semibold text-emerald-300">12 PMS-verified bookings</span>
+              <span className="mt-1 inline-block text-xs font-semibold text-emerald-300">12 booked treatments</span>
             </div>
             <div className="rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur-md">
               <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Practice ROI Multiple</span>
               <p className="mt-2 text-3xl font-black text-white">123.5x</p>
-              <span className="mt-1 inline-block text-xs font-semibold text-indigo-300">Verified on $149/mo plan</span>
+              <span className="mt-1 inline-block text-xs font-semibold text-indigo-300">Modeled on $149/mo plan</span>
             </div>
             <div className="rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur-md">
               <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Recapture Rate</span>
@@ -435,6 +436,11 @@ export default function Landing({ onGetStarted }: LandingProps) {
               <span className="mt-1 inline-block text-xs font-semibold text-slate-300">Avg booking velocity &lt; 48 hrs</span>
             </div>
           </div>
+
+          {/* Disclaimer for ROI and scorecard metrics */}
+          <p className="mt-3 text-center text-[11px] text-slate-400 italic">
+            * Illustrative practice recovery model based on average Australian ADA fee benchmarks and typical 4-chair practice volume.
+          </p>
 
           {/* 2-Column Feature Breakdown & Live Card Comp */}
           <div className="mt-12 grid grid-cols-1 items-center gap-10 lg:grid-cols-12">
@@ -454,7 +460,7 @@ export default function Landing({ onGetStarted }: LandingProps) {
                   <div className="flex items-center gap-2">
                     <span className="rounded-full bg-emerald-500/20 px-3 py-1 text-[11px] font-extrabold uppercase tracking-wider text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                      D4W #8491 Verified
+                      D4W #8491 Booked
                     </span>
                   </div>
                 </div>
@@ -533,9 +539,9 @@ export default function Landing({ onGetStarted }: LandingProps) {
                   <TrendingUp className="h-5 w-5" />
                 </span>
                 <div>
-                  <h4 className="text-base font-extrabold text-white">Verified Owner ROI Scorecard</h4>
+                  <h4 className="text-base font-extrabold text-white">Practice ROI Scorecard</h4>
                   <p className="mt-1 text-sm text-slate-400 leading-relaxed">
-                    Proves exact dollar yield recovered on the practice appointment ledger. Clinic owners see verified recovered production and net ROI multiples (40x–100x+) every single month.
+                    Proves exact dollar yield recovered on the practice appointment ledger. Clinic owners see recovered production and net ROI multiples (40x–100x+) every single month.
                   </p>
                 </div>
               </div>
@@ -744,6 +750,135 @@ export default function Landing({ onGetStarted }: LandingProps) {
                 ))}
               </ul>
             </motion.div>
+          </div>
+        </div>
+      </section>
+
+      {/* ---------- Transparent Practice Pricing ---------- */}
+      <section id="pricing" className="bg-[#FAF9F7] py-20 md:py-28 border-t border-slate-200/80">
+        <div className="mx-auto max-w-7xl px-5 md:px-8">
+          <div className="mx-auto flex max-w-3xl flex-col items-center text-center">
+            <SectionEyebrow>Transparent Practice Pricing</SectionEyebrow>
+            <h2 className="mt-5 text-3xl font-extrabold tracking-tight text-slate-900 md:text-4xl">
+              Honest pricing designed for Australian dental practices.
+            </h2>
+            <p className="mt-4 text-base leading-relaxed text-slate-500">
+              Free forever for solo practitioners and locums. Upgrade your clinic when you want centralized multi-chair compliance, team recall recovery, and priority AI queue.
+            </p>
+          </div>
+
+          <div className="mt-14 grid grid-cols-1 gap-8 md:grid-cols-2 max-w-4xl mx-auto">
+            {/* Solo Tier */}
+            <div className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm flex flex-col justify-between hover:shadow-md transition-all">
+              <div>
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xl font-black text-slate-800">Solo Plan</h3>
+                  <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-700">
+                    Free Forever
+                  </span>
+                </div>
+                <div className="mt-4">
+                  <span className="text-4xl font-black text-slate-900">$0</span>
+                  <span className="text-xs font-semibold text-slate-400 ml-1.5">AUD / month (No card needed)</span>
+                </div>
+                <p className="mt-3 text-xs leading-relaxed text-slate-500">
+                  Ideal for solo clinicians, associates, and locums wanting complete charting autonomy.
+                </p>
+
+                <ul className="mt-6 space-y-3 text-xs text-slate-600 font-medium">
+                  <li className="flex items-center gap-2.5">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
+                    <span><strong>1 Clinician seat</strong> (personal account)</span>
+                  </li>
+                  <li className="flex items-center gap-2.5">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
+                    <span><strong>15 AI notes per day</strong></span>
+                  </li>
+                  <li className="flex items-center gap-2.5">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
+                    <span>All 8 ADA procedure templates & SOAP format</span>
+                  </li>
+                  <li className="flex items-center gap-2.5">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
+                    <span>Offline draft engine (zero lost charts)</span>
+                  </li>
+                  <li className="flex items-center gap-2.5">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
+                    <span>Full record export (CSV & JSON)</span>
+                  </li>
+                </ul>
+              </div>
+
+              <button
+                onClick={onGetStarted}
+                className="mt-8 w-full rounded-2xl border border-slate-300 bg-white py-3 text-xs font-bold text-slate-800 hover:bg-slate-50 transition-all cursor-pointer shadow-sm"
+              >
+                Get Started Free
+              </button>
+            </div>
+
+            {/* Practice Tier */}
+            <div className="rounded-3xl border-2 border-indigo-600 bg-white p-8 shadow-xl flex flex-col justify-between relative overflow-hidden">
+              <div className="absolute top-0 right-0 bg-indigo-600 text-white text-[10px] font-black uppercase px-4 py-1.5 rounded-bl-2xl tracking-wider">
+                Recommended for Clinics
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xl font-black text-slate-900">Practice Plan</h3>
+                </div>
+                <div className="mt-4">
+                  <span className="text-4xl font-black text-indigo-600">$149</span>
+                  <span className="text-xs font-semibold text-slate-500 ml-1.5">AUD / month per practice</span>
+                </div>
+                <p className="mt-3 text-xs leading-relaxed text-slate-500">
+                  Full operatory revenue recovery and compliance suite for private dental practices.
+                </p>
+
+                <ul className="mt-6 space-y-3 text-xs text-slate-700 font-medium">
+                  <li className="flex items-center gap-2.5">
+                    <CheckCircle2 className="h-4 w-4 text-indigo-600 shrink-0" />
+                    <span><strong>Up to 6 Clinician seats</strong> included</span>
+                  </li>
+                  <li className="flex items-center gap-2.5">
+                    <CheckCircle2 className="h-4 w-4 text-indigo-600 shrink-0" />
+                    <span><strong>200 AI notes per day</strong></span>
+                  </li>
+                  <li className="flex items-center gap-2.5">
+                    <CheckCircle2 className="h-4 w-4 text-indigo-600 shrink-0" />
+                    <span><strong>Patient Recall Engine & Worklist</strong> (Hygiene & Perio)</span>
+                  </li>
+                  <li className="flex items-center gap-2.5">
+                    <CheckCircle2 className="h-4 w-4 text-indigo-600 shrink-0" />
+                    <span>Multi-chair compliance & practice-wide audit trails</span>
+                  </li>
+                  <li className="flex items-center gap-2.5">
+                    <CheckCircle2 className="h-4 w-4 text-indigo-600 shrink-0" />
+                    <span>Priority generation queue & template standards</span>
+                  </li>
+                  <li className="flex items-center gap-2.5">
+                    <CheckCircle2 className="h-4 w-4 text-indigo-600 shrink-0" />
+                    <span>Automated digital payment receipts & Stripe billing portal</span>
+                  </li>
+                </ul>
+              </div>
+
+              <button
+                onClick={onGetStarted}
+                className="mt-8 w-full rounded-2xl bg-indigo-600 py-3 text-xs font-bold text-white hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 shadow-md shadow-indigo-600/20 cursor-pointer"
+              >
+                <span>Start 14-Day Free Evaluation</span>
+                <ArrowRight className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-10 text-center text-xs text-slate-400 max-w-xl mx-auto">
+            Need custom data retention, 10+ chairs, or corporate group deployment?{' '}
+            <a href="mailto:support@dentai.com.au" className="font-semibold text-primary underline">
+              Contact us for group terms
+            </a>
+            .
           </div>
         </div>
       </section>

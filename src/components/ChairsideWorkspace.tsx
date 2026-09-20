@@ -21,6 +21,9 @@ import {
   X,
   Clipboard,
   MessageSquare,
+  LayoutDashboard,
+  TrendingUp,
+  Mail,
   ChevronDown,
   Send,
   RefreshCw,
@@ -48,6 +51,7 @@ import { AppointmentType, getTemplateById } from '../lib/dentalLibrary';
 import { generateOfflineDraft } from '../lib/draftEngine';
 import { normalizeSpokenDentalText } from '../lib/dentalPhoneticLexicon';
 import { formatClinicDate, formatClinicTime, getClinicTodayIso } from '../utils/date';
+import ChairsideOdontogram from './ChairsideOdontogram';
 
 interface ChairsideWorkspaceProps {
   currentUser: AuthUser | null;
@@ -124,6 +128,7 @@ export default function ChairsideWorkspace({
   activeClinicId,
   initialPatientId,
   onOpenHistoryHub,
+  onOpenPipeline,
   onLogout,
   onSaveConsultation
 }: ChairsideWorkspaceProps) {
@@ -1597,10 +1602,83 @@ VERIFICATION: Fully verified from patient conversation
   };
 
   // ─────────────────────────────────────────────────────────────
-  // 7. PLAIN TEXT MODAL STATE
+  // 7. PLAIN TEXT & DELIVERABLES MODAL STATE
   // ─────────────────────────────────────────────────────────────
   const [showPlainTextModal, setShowPlainTextModal] = useState(false);
   const [copiedPlainText, setCopiedPlainText] = useState(false);
+  const [showDeliverablesModal, setShowDeliverablesModal] = useState(false);
+  const [deliverablesActiveTab, setDeliverablesActiveTab] = useState<'referral' | 'postop'>('referral');
+  const [copiedDeliverable, setCopiedDeliverable] = useState<'referral' | 'postop' | null>(null);
+
+  const getReferralText = () => {
+    if (!activeEncounter) return '';
+    const patientName = activeEncounter.patientName || 'Patient';
+    const dob = activeEncounter.dob || 'On record';
+    const date = activeEncounter.date || getClinicTodayIso();
+    const reason = currentSoap.assessment || currentSoap.subjective || activeEncounter.procedureText || 'Specialist assessment and management';
+    const teeth = (currentSoap.objective + ' ' + (activeEncounter.procedureText || '')).match(/\b[1-4][1-8]\b/g)?.join(', ') || 'See examination';
+    const findings = currentSoap.objective || 'Clinical examination and findings documented in chart.';
+    const interim = currentSoap.plan || 'Emergency pain relief and temporisation provided.';
+    const clinician = dentistName || currentUser?.name || 'Attending Clinician';
+
+    return `CONFIDENTIAL SPECIALIST REFERRAL
+Date: ${date}
+Patient: ${patientName} (DOB: ${dob})
+Referring Clinician: ${clinician} (AHPRA Registered)
+
+Dear Colleague,
+
+Thank you for seeing ${patientName} regarding specialist assessment and management.
+
+Clinical Details:
+• Relevant Tooth / Site: ${teeth}
+• Reason for Referral: ${reason}
+• Clinical Findings & Examination: ${findings}
+• Interim Therapy Provided Today: ${interim}
+
+Please contact our rooms if additional radiographs or records are required. We would appreciate a brief report following your consultation.
+
+Kind regards,
+${clinician}`;
+  };
+
+  const getPostOpText = () => {
+    if (!activeEncounter) return '';
+    const patientName = activeEncounter.patientName || 'Patient';
+    const firstName = patientName.split(' ')[0] || 'Patient';
+    const clinician = dentistName || currentUser?.name || 'Your Dental Team';
+    const treatment = currentSoap.plan || activeEncounter.procedureText || 'Dental Treatment';
+
+    return `Subject: Post-Operative Care & Recovery Instructions — ${patientName}
+
+Dear ${firstName},
+
+Thank you for visiting our practice today. Here are your personalized post-treatment care instructions:
+
+Procedure Completed:
+${treatment}
+
+Immediate Care & What to Expect:
+1. Local Anaesthetic & Numbness:
+   • Numbness typically lasts 2 to 4 hours. Avoid chewing hot food, biting your lips, or chewing your tongue until full sensation returns.
+2. Discomfort & Pain Relief:
+   • Mild tenderness or aching around the treated site is normal as the anaesthetic wears off. Over-the-counter pain relief (such as Ibuprofen or Paracetamol, as medically appropriate for you) is recommended before feeling fully returns.
+3. Oral Hygiene & Healing:
+   • Continue gentle brushing around the area with a soft-bristle toothbrush. Avoid vigorous mouth rinsing or forceful spitting for the next 24 hours to protect the healing site.
+   • Avoid smoking, alcohol, and strenuous exercise for at least 24 to 48 hours.
+
+When to Contact Us Immediately:
+Please reach out to our clinic right away if you experience any of the following:
+• Continuous bleeding that persists after biting firmly on a clean gauze pack for 30 minutes
+• Rapidly increasing swelling or difficulty opening your mouth/swallowing
+• Severe, throbbing pain that is not alleviated by pain relief medication
+• Elevated temperature or fever
+
+We wish you a prompt and smooth recovery!
+
+Warm regards,
+${clinician}`;
+  };
 
   // ─────────────────────────────────────────────────────────────
   // 8. GLOBAL HANDS-FREE KEYBOARD SHORTCUTS (Spacebar, ⌘→, ⌘V, ⌘C)
@@ -1612,7 +1690,7 @@ VERIFICATION: Fully verified from patient conversation
       const isInput = targetTag === 'input' || targetTag === 'textarea';
 
       // ⌘→: Advance to Next Patient (hands-free transition without touching mouse)
-      if (!isInput && !showDaysheetModal && !showPlainTextModal && !showBatchTray && !showDayGuide) {
+      if (!isInput && !showDaysheetModal && !showPlainTextModal && !showBatchTray && !showDayGuide && !showDeliverablesModal) {
         if (isModifier && (e.key === 'ArrowRight' || e.key === 'Right')) {
           e.preventDefault();
           handleNextPatient();
@@ -1647,12 +1725,13 @@ VERIFICATION: Fully verified from patient conversation
         setShowBatchTray(false);
         setShowDaysheetModal(false);
         setShowPlainTextModal(false);
+        setShowDeliverablesModal(false);
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeEncounter, encountersForDate, consultations, dentistName, showDaysheetModal, showPlainTextModal, showBatchTray]);
+  }, [activeEncounter, encountersForDate, consultations, dentistName, showDaysheetModal, showPlainTextModal, showBatchTray, showDeliverablesModal]);
 
   // Entity annotator for live speech feed
   const renderAnnotatedText = (text: string) => {
@@ -1701,16 +1780,8 @@ VERIFICATION: Fully verified from patient conversation
           {/* Nav Icons */}
           <div className="flex flex-col items-center space-y-2 pt-2">
             <button
-              onClick={() => { }}
-              className="w-9 h-9 rounded-xl flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition cursor-pointer"
-              title="Overview"
-            >
-              <div className="w-2.5 h-2.5 rounded-full bg-slate-400" />
-            </button>
-
-            <button
               className="w-10 h-10 rounded-xl flex items-center justify-center bg-teal-800 text-white shadow-xs transition cursor-pointer"
-              title="Chairside Scribe"
+              title="Chairside Scribe (Active Operatory)"
             >
               <Activity className="w-5 h-5 text-teal-200" />
             </button>
@@ -1718,17 +1789,17 @@ VERIFICATION: Fully verified from patient conversation
             <button
               onClick={onOpenHistoryHub}
               className="w-9 h-9 rounded-xl flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition cursor-pointer"
-              title="Today's Notes"
+              title="Patient Records & History Hub"
             >
-              <FileText className="w-5 h-5" />
+              <LayoutDashboard className="w-5 h-5" />
             </button>
 
             <button
-              onClick={onOpenHistoryHub}
-              className="w-9 h-9 rounded-xl flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition cursor-pointer"
-              title="Audio & Vocab Settings"
+              onClick={() => onOpenPipeline?.()}
+              className="w-9 h-9 rounded-xl flex items-center justify-center text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition cursor-pointer"
+              title="Treatment Pipeline & Recall Worklist"
             >
-              <Sliders className="w-5 h-5" />
+              <TrendingUp className="w-5 h-5" />
             </button>
           </div>
         </div>
@@ -1746,9 +1817,6 @@ VERIFICATION: Fully verified from patient conversation
             title={!isMicStandby && !isPaused ? 'Active Recording' : isPaused ? 'Recording Paused' : 'Microphone Standby'}
           >
             <Mic className="w-4 h-4" />
-          </div>
-          <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-500">
-            <MessageSquare className="w-4 h-4" />
           </div>
           <button
             type="button"
@@ -2133,15 +2201,15 @@ VERIFICATION: Fully verified from patient conversation
             </div>
           </section>
 
-          {/* ─── COLUMN 2 & 3: CENTER STAGE (Hero + Audio Island + 2-Column Split) ─── */}
-          <main className="flex-1 flex flex-col overflow-y-auto p-6 space-y-4 bg-[#F8FAFC] custom-scrollbar">
+          {/* ─── COLUMN 2 & 3: CENTER STAGE (Hero + Audio Island + Odontogram + 2-Column Split) ─── */}
+          <main className="flex-1 flex flex-col overflow-y-auto p-6 space-y-4 bg-[#F5F5F7] custom-scrollbar">
             {activeEncounter ? (
               <>
                 {/* Active Patient Hero Card */}
-                <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-2xs">
+                <div className="glass-apple rounded-2xl p-5 border border-slate-200/80 shadow-[0_4px_24px_rgba(0,0,0,0.03)] font-sans">
                   <div className="flex items-start justify-between">
                     <div className="flex items-center space-x-3.5">
-                      <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-teal-800/30 flex-shrink-0 bg-slate-100 flex items-center justify-center">
+                      <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-teal-800/30 flex-shrink-0 bg-slate-100 flex items-center justify-center shadow-inner">
                         <img
                           src="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=120&auto=format&fit=crop&q=80"
                           alt={activeEncounter.patientName}
@@ -2157,10 +2225,17 @@ VERIFICATION: Fully verified from patient conversation
                           <h2 className="text-xl font-extrabold text-slate-900 tracking-tight">
                             {activeEncounter.patientName}
                           </h2>
-                          <span className="bg-teal-50 text-teal-800 border border-teal-200 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
+                          <span className="bg-[#E6F6F4] text-[#007A66] border border-[#00A389]/30 text-[10px] font-extrabold px-2.5 py-0.5 rounded-full flex items-center gap-1.5 shadow-2xs">
                             Listening & Taking Notes
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                            <span className="w-1.5 h-1.5 rounded-full bg-[#00A389] animate-pulse" />
                           </span>
+                        </div>
+                        <div className="flex items-center space-x-3 text-xs text-slate-500 font-medium mt-1">
+                          <span>Operatory: <strong className="text-slate-700">{activeEncounter.operatory || 'Chair 1'}</strong></span>
+                          <span>·</span>
+                          <span>Time: <strong className="text-slate-700 font-tabular">{activeEncounter.time}</strong></span>
+                          <span>·</span>
+                          <span className="capitalize">{activeEncounter.appointmentType.replace('_', ' ')}</span>
                         </div>
                       </div>
                     </div>
@@ -2187,8 +2262,8 @@ VERIFICATION: Fully verified from patient conversation
 
                   {/* Prior Clinical Note Excerpt */}
                   {activeEncounter.priorNote && (
-                    <div className="mt-3.5 pt-3 border-t border-slate-100 flex items-start space-x-3 text-xs text-slate-700 leading-relaxed bg-[#F8FAFC] p-3 rounded-xl border border-slate-200">
-                      <div className="w-6 h-6 rounded-lg bg-teal-100 text-teal-800 flex items-center justify-center font-mono font-bold text-[10px] flex-shrink-0 mt-0.5">
+                    <div className="mt-3.5 pt-3 border-t border-slate-100 flex items-start space-x-3 text-xs text-slate-700 leading-relaxed bg-white/70 p-3.5 rounded-xl border border-slate-200/70">
+                      <div className="w-6 h-6 rounded-lg bg-[#E6F6F4] text-[#007A66] flex items-center justify-center font-mono font-bold text-[10px] flex-shrink-0 mt-0.5 border border-[#00A389]/20">
                         EQ
                       </div>
                       <div>
@@ -2206,7 +2281,7 @@ VERIFICATION: Fully verified from patient conversation
                 </div>
 
                 {/* Ambient Dynamic Operatory HUD Banner */}
-                <div className={`max-w-4xl mx-auto w-full px-4 py-2.5 rounded-xl border flex items-center justify-between text-xs transition-all duration-300 shadow-2xs ${
+                <div className={`max-w-4xl mx-auto w-full px-4 py-2.5 rounded-2xl border flex items-center justify-between text-xs transition-all duration-300 shadow-2xs ${
                   isSilenceWarning
                     ? 'bg-amber-100 border-amber-300 text-amber-950 font-medium'
                     : isMicStandby
@@ -2262,22 +2337,22 @@ VERIFICATION: Fully verified from patient conversation
                   )}
                 </div>
 
-                {/* Tactile Hardware Audio Recording Island (Apple Medical Grade Slate Capsule) */}
-                <div className="bg-[#0F172A] text-white rounded-2xl px-6 py-3.5 shadow-xl border border-slate-700/80 backdrop-blur-md flex items-center justify-between max-w-4xl mx-auto w-full">
+                {/* Tactile Hardware Audio Recording Island (Apple Dynamic Island Slate Capsule) */}
+                <div className="bg-slate-950/95 text-white rounded-2xl px-6 py-3.5 shadow-2xl border border-white/10 backdrop-blur-2xl flex items-center justify-between max-w-4xl mx-auto w-full font-sans">
                   {/* Recording Timer & Medical Status Badge */}
                   <div className="flex items-center space-x-3.5">
                     {isMicStandby ? (
-                      <span className="inline-flex items-center px-2.5 py-1 rounded-md text-[10px] font-mono font-bold tracking-wider bg-sky-500/20 text-sky-300 border border-sky-500/40">
+                      <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-mono font-bold tracking-wider bg-sky-500/20 text-sky-300 border border-sky-500/40">
                         <span className="w-2 h-2 rounded-full bg-sky-400 mr-1.5" />
                         STANDBY
                       </span>
                     ) : isPaused ? (
-                      <span className="inline-flex items-center px-2.5 py-1 rounded-md text-[10px] font-mono font-bold tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                      <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-mono font-bold tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/40">
                         <span className="w-2 h-2 rounded-full bg-amber-400 mr-1.5" />
                         PAUSED
                       </span>
                     ) : (
-                      <span className="inline-flex items-center px-2.5 py-1 rounded-md text-[10px] font-mono font-bold tracking-wider bg-rose-500/20 text-rose-300 border border-rose-500/40">
+                      <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-mono font-bold tracking-wider bg-rose-500/20 text-rose-300 border border-rose-500/40">
                         <span className="relative flex h-2 w-2 mr-1.5">
                           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75" />
                           <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500" />
@@ -2286,7 +2361,7 @@ VERIFICATION: Fully verified from patient conversation
                       </span>
                     )}
                     <div>
-                      <span className="text-sm font-mono font-bold tracking-wider text-white">
+                      <span className="text-sm font-mono font-bold tracking-wider text-white font-tabular">
                         {formatTimer(recordingSeconds)}
                       </span>
                     </div>
@@ -2295,17 +2370,17 @@ VERIFICATION: Fully verified from patient conversation
                   {/* Noise Filter (Interactive Toggle) */}
                   <div
                     onClick={() => setDspNoiseGateActive(prev => !prev)}
-                    className="flex items-center space-x-2 text-slate-300 text-xs font-medium cursor-pointer hover:opacity-90 transition px-2.5 py-1 rounded-lg hover:bg-slate-800"
+                    className="flex items-center space-x-2 text-slate-300 text-xs font-medium cursor-pointer hover:bg-white/5 transition px-2.5 py-1 rounded-xl border border-transparent hover:border-white/10"
                     title="Click to toggle background noise filter"
                   >
                     {dspNoiseGateActive ? (
-                      <Activity className="w-3.5 h-3.5 text-teal-400" />
+                      <Activity className="w-3.5 h-3.5 text-[#00C7BE]" />
                     ) : (
                       <VolumeX className="w-3.5 h-3.5 text-amber-400" />
                     )}
                     <span>
                       Noise Filter:{' '}
-                      <strong className={dspNoiseGateActive ? 'text-teal-400' : 'text-amber-400'}>
+                      <strong className={dspNoiseGateActive ? 'text-[#00C7BE]' : 'text-amber-400'}>
                         {dspNoiseGateActive ? 'On' : 'Off'}
                       </strong>
                     </span>
@@ -2318,7 +2393,7 @@ VERIFICATION: Fully verified from patient conversation
                         key={i}
                         ref={el => { waveformRefs.current[i] = el; }}
                         style={{ height: '15%', opacity: isMicStandby || isPaused ? 0.35 : 1 }}
-                        className="w-1 bg-gradient-to-t from-teal-400 to-teal-200 rounded-full transition-all duration-75"
+                        className="w-1 bg-gradient-to-t from-[#00A389] to-[#6EE7B7] rounded-full transition-all duration-75"
                       />
                     ))}
                   </div>
@@ -2328,7 +2403,7 @@ VERIFICATION: Fully verified from patient conversation
                     {isMicStandby ? (
                       <button
                         onClick={handleStartAudio}
-                        className="px-4 py-1.5 rounded-xl bg-teal-500 hover:bg-teal-400 active:scale-95 text-slate-950 text-xs font-bold flex items-center space-x-1.5 transition border border-teal-300 cursor-pointer shadow-md shadow-teal-500/20"
+                        className="px-4 py-1.5 rounded-xl bg-gradient-to-r from-[#00A389] to-[#00C7BE] hover:opacity-95 active:scale-95 text-slate-950 text-xs font-extrabold flex items-center space-x-1.5 transition shadow-lg shadow-[#00A389]/25 cursor-pointer border border-teal-300/40"
                         title="Start active operatory listening (Spacebar)"
                       >
                         <Mic className="w-3.5 h-3.5 text-slate-950" />
@@ -2359,7 +2434,7 @@ VERIFICATION: Fully verified from patient conversation
                     <button
                       onClick={handleFinalizeNote}
                       disabled={isFinalizing}
-                      className="px-4 py-1.5 rounded-xl bg-teal-700 hover:bg-teal-600 active:scale-95 disabled:opacity-50 text-white text-xs font-bold flex items-center space-x-1.5 transition shadow-sm border border-teal-500 cursor-pointer"
+                      className="px-4 py-1.5 rounded-xl bg-[#0071E3] hover:bg-[#0077ED] active:scale-95 disabled:opacity-50 text-white text-xs font-bold flex items-center space-x-1.5 transition shadow-md shadow-[#0071E3]/25 border border-white/10 cursor-pointer"
                       title="Finalize note for active patient"
                     >
                       {isFinalizing ? (
@@ -2378,7 +2453,7 @@ VERIFICATION: Fully verified from patient conversation
                     <button
                       onClick={handleNextPatient}
                       title="Auto-finalize current note in background and advance to next patient"
-                      className="px-4 py-1.5 rounded-xl bg-emerald-700 hover:bg-emerald-600 active:scale-95 text-white text-xs font-bold flex items-center space-x-1.5 transition shadow-sm border border-emerald-500 cursor-pointer"
+                      className="px-4 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white text-xs font-bold flex items-center space-x-1.5 transition shadow-sm border border-emerald-400/30 cursor-pointer"
                     >
                       <ArrowRight className="w-4 h-4" />
                       <span>Next Patient</span>
@@ -2386,10 +2461,16 @@ VERIFICATION: Fully verified from patient conversation
                   </div>
                 </div>
 
+                {/* Real-Time Interactive FDI Tooth Odontogram Strip (Apple Medical Grade) */}
+                <ChairsideOdontogram
+                  transcriptText={activeEncounter.diarizedTranscript?.map(t => t.text).join(' ') || ''}
+                  findingsText={`${activeEncounter.soap?.objective || ''} ${activeEncounter.soap?.assessment || ''}`}
+                />
+
                 {/* Split Stage: Ambient Transcription Feed (Left) & Clinical Note (Right) */}
                 <div className="grid grid-cols-12 gap-5 flex-1 items-start">
                   {/* Left Column: Live Conversation */}
-                  <div className="col-span-7 bg-white border border-slate-200 rounded-2xl p-4 shadow-2xs space-y-3">
+                  <div className="col-span-7 glass-apple rounded-2xl p-5 border border-slate-200/80 shadow-[0_4px_24px_rgba(0,0,0,0.03)] space-y-3 font-sans">
                     <div className="flex items-center justify-between border-b border-slate-100 pb-2">
                       <div className="flex items-center space-x-2">
                         <span className={`w-2.5 h-2.5 rounded-full ${micListening ? 'bg-emerald-500 animate-pulse' : isMicStandby ? 'bg-sky-400' : 'bg-slate-400'}`} />
@@ -2509,7 +2590,7 @@ VERIFICATION: Fully verified from patient conversation
                           }
                         }}
                         placeholder="Type a note, finding, or procedure..."
-                        className="flex-1 px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:border-teal-700"
+                        className="flex-1 px-3.5 py-2 text-xs bg-slate-50/80 border border-slate-200/80 rounded-xl focus:outline-none focus:border-[#0071E3] focus:ring-2 focus:ring-[#0071E3]/15 transition font-sans"
                       />
                       <button
                         onClick={() => {
@@ -2518,7 +2599,7 @@ VERIFICATION: Fully verified from patient conversation
                             setManualDialogueText('');
                           }
                         }}
-                        className="px-3 py-1.5 bg-teal-800 hover:bg-teal-900 text-white rounded-lg text-xs font-bold transition flex items-center space-x-1 cursor-pointer shadow-2xs"
+                        className="px-3.5 py-2 bg-[#0071E3] hover:bg-[#0077ED] active:scale-[0.98] text-white rounded-xl text-xs font-semibold transition flex items-center space-x-1.5 cursor-pointer shadow-xs"
                       >
                         <Send className="w-3.5 h-3.5" />
                         <span>Add</span>
@@ -2527,11 +2608,14 @@ VERIFICATION: Fully verified from patient conversation
                   </div>
 
                   {/* Right Column: Clinical Note */}
-                  <div className="col-span-5 bg-white border border-slate-200 rounded-2xl p-4 shadow-2xs space-y-3">
+                  <div className="col-span-5 glass-apple rounded-2xl p-5 border border-slate-200/80 shadow-[0_4px_24px_rgba(0,0,0,0.03)] space-y-3.5 font-sans">
                     {/* Header & Verified Badge */}
                     <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <h3 className="text-sm font-extrabold text-slate-900 tracking-tight">Clinical Note</h3>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <div className="flex items-center space-x-2">
+                          <h3 className="text-sm font-semibold text-slate-900 tracking-tight">Clinical Note</h3>
+                          <span className="text-[10px] text-slate-400 font-medium">SOAP Format</span>
+                        </div>
                         <div className="flex items-center space-x-2">
                           {activeEncounter && soapSaveStatus[activeEncounter.id] === 'saving' ? (
                             <span className="text-[10px] text-amber-600 font-medium flex items-center gap-1">
@@ -2544,24 +2628,24 @@ VERIFICATION: Fully verified from patient conversation
                               Saved to Chart
                             </span>
                           ) : null}
-                          <span className="bg-teal-50 text-teal-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-teal-200 flex items-center gap-1">
-                            <Check className="w-3 h-3 text-teal-700" />
-                            Verified from Audio
+                          <span className="bg-[#E6F6F4] text-[#007A66] text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-[#00A389]/20 flex items-center gap-1 shadow-2xs">
+                            <Check className="w-3 h-3 text-[#007A66]" />
+                            Transcribed from Audio
                           </span>
                         </div>
                       </div>
                       <p className="text-[11px] text-slate-500 font-medium flex items-center gap-1.5">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#007A66]" />
                         Audio synced • Click any section below to edit directly
                       </p>
 
                       {/* Main Copy to PMS Action & Plain Text Trigger */}
-                      <div className="grid grid-cols-3 gap-2 mt-3">
+                      <div className="grid grid-cols-3 gap-2 mt-3.5">
                         <button
                           onClick={() => handleCopyPMS()}
-                          className={`col-span-2 py-2 px-3 rounded-xl font-bold text-xs flex items-center justify-center space-x-1.5 transition-all shadow-xs cursor-pointer ${copiedNote
+                          className={`col-span-2 py-2.5 px-3 rounded-xl font-semibold text-xs flex items-center justify-center space-x-1.5 transition-all shadow-xs cursor-pointer active:scale-[0.98] ${copiedNote
                             ? 'bg-emerald-600 text-white'
-                            : 'bg-teal-800 hover:bg-teal-900 text-white'
+                            : 'bg-[#0071E3] hover:bg-[#0077ED] text-white'
                             }`}
                         >
                           {copiedNote ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
@@ -2570,32 +2654,44 @@ VERIFICATION: Fully verified from patient conversation
 
                         <button
                           onClick={() => setShowPlainTextModal(true)}
-                          className="py-2 px-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold border border-slate-200 transition flex items-center justify-center cursor-pointer"
+                          className="py-2.5 px-2 rounded-xl bg-slate-100 hover:bg-slate-200 active:scale-[0.98] text-slate-700 text-xs font-semibold border border-slate-200/80 transition flex items-center justify-center cursor-pointer"
                         >
                           Plain Text
                         </button>
                       </div>
 
-                      {/* Immediate Recovery / Re-generate Button */}
-                      <button
-                        type="button"
-                        onClick={handleRegenerateFromConversation}
-                        disabled={isGeneratingFromConversation}
-                        title="Generate or update note using the full conversation captured"
-                        className="w-full mt-2 py-2 px-3 rounded-xl bg-teal-50 hover:bg-teal-100 text-teal-800 text-xs font-bold border border-teal-200 transition flex items-center justify-center space-x-1.5 cursor-pointer disabled:opacity-50"
-                      >
-                        {isGeneratingFromConversation ? (
-                          <>
-                            <RefreshCw className="w-3.5 h-3.5 animate-spin text-teal-700" />
-                            <span>Creating Note from Conversation...</span>
-                          </>
-                        ) : (
-                          <>
-                            <Sparkles className="w-3.5 h-3.5 text-teal-700" />
-                            <span>Create Note from Conversation</span>
-                          </>
-                        )}
-                      </button>
+                      {/* Secondary Actions: Referral & Handover + Update Note */}
+                      <div className="grid grid-cols-2 gap-2 mt-2.5">
+                        <button
+                          type="button"
+                          onClick={() => setShowDeliverablesModal(true)}
+                          className="py-2 px-2.5 rounded-xl bg-indigo-50/80 hover:bg-indigo-100/90 text-indigo-700 active:scale-[0.98] text-xs font-bold border border-indigo-200/80 transition flex items-center justify-center space-x-1.5 cursor-pointer shadow-2xs"
+                          title="Generate specialist referral letters and patient post-op care instructions"
+                        >
+                          <FileText className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                          <span className="truncate">Referral & Handover</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={handleRegenerateFromConversation}
+                          disabled={isGeneratingFromConversation}
+                          title="Generate or update note using the full conversation captured"
+                          className="py-2 px-2.5 rounded-xl bg-[#E6F6F4] hover:bg-[#d8f0ed] active:scale-[0.98] text-[#00A389] text-xs font-semibold border border-[#00A389]/25 transition flex items-center justify-center space-x-1.5 cursor-pointer disabled:opacity-50"
+                        >
+                          {isGeneratingFromConversation ? (
+                            <>
+                              <RefreshCw className="w-3.5 h-3.5 animate-spin text-[#00A389] shrink-0" />
+                              <span className="truncate">Updating...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Sparkles className="w-3.5 h-3.5 text-[#00A389] shrink-0" />
+                              <span className="truncate">Update Note</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
                     </div>
 
                     {/* Structured Note Cards with Direct Inline Editing */}
@@ -2603,10 +2699,10 @@ VERIFICATION: Fully verified from patient conversation
                       {activeEncounter && (
                         <>
                           {/* Subjective */}
-                          <div className="bg-slate-50/70 hover:bg-white focus-within:bg-white border border-slate-200 focus-within:border-teal-600 focus-within:ring-2 focus-within:ring-teal-600/15 rounded-xl p-3 space-y-1.5 transition-all group">
+                          <div className="bg-white/80 hover:bg-white focus-within:bg-white border border-slate-200/80 focus-within:border-[#0071E3] focus-within:ring-2 focus-within:ring-[#0071E3]/15 rounded-xl p-3.5 space-y-1.5 transition-all shadow-2xs group">
                             <div className="flex items-center justify-between">
                               <span className="text-[11px] font-bold text-slate-700 tracking-wider flex items-center gap-1.5 uppercase">
-                                <User className="w-3.5 h-3.5 text-teal-700" />
+                                <User className="w-3.5 h-3.5 text-[#0071E3]" />
                                 SUBJECTIVE (S):
                               </span>
                               <span className="text-[10px] text-slate-400 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity font-medium">
@@ -2623,10 +2719,10 @@ VERIFICATION: Fully verified from patient conversation
                           </div>
 
                           {/* Objective */}
-                          <div className="bg-slate-50/70 hover:bg-white focus-within:bg-white border border-slate-200 focus-within:border-teal-600 focus-within:ring-2 focus-within:ring-teal-600/15 rounded-xl p-3 space-y-1.5 transition-all group">
+                          <div className="bg-white/80 hover:bg-white focus-within:bg-white border border-slate-200/80 focus-within:border-[#00A389] focus-within:ring-2 focus-within:ring-[#00A389]/15 rounded-xl p-3.5 space-y-1.5 transition-all shadow-2xs group">
                             <div className="flex items-center justify-between">
                               <span className="text-[11px] font-bold text-slate-700 tracking-wider flex items-center gap-1.5 uppercase">
-                                <Activity className="w-3.5 h-3.5 text-teal-700" />
+                                <Activity className="w-3.5 h-3.5 text-[#00A389]" />
                                 OBJECTIVE (O):
                               </span>
                               <span className="text-[10px] text-slate-400 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity font-medium">
@@ -2637,16 +2733,16 @@ VERIFICATION: Fully verified from patient conversation
                               value={currentSoap.objective}
                               onChange={e => handleSoapChange('objective', e.target.value)}
                               rows={2}
-                              className="w-full bg-transparent text-slate-800 leading-relaxed text-[11px] font-sans resize-y focus:outline-none placeholder:text-slate-400"
+                              className="w-full bg-transparent text-slate-800 leading-relaxed text-[11px] font-sans resize-y focus:outline-none placeholder:text-slate-400 font-tabular"
                               placeholder="Clinical examination, diagnostic findings, tooth & gingival findings..."
                             />
                           </div>
 
                           {/* Assessment */}
-                          <div className="bg-slate-50/70 hover:bg-white focus-within:bg-white border border-slate-200 focus-within:border-teal-600 focus-within:ring-2 focus-within:ring-teal-600/15 rounded-xl p-3 space-y-1.5 transition-all group">
+                          <div className="bg-white/80 hover:bg-white focus-within:bg-white border border-slate-200/80 focus-within:border-amber-500 focus-within:ring-2 focus-within:ring-amber-500/15 rounded-xl p-3.5 space-y-1.5 transition-all shadow-2xs group">
                             <div className="flex items-center justify-between">
                               <span className="text-[11px] font-bold text-slate-700 tracking-wider flex items-center gap-1.5 uppercase">
-                                <Shield className="w-3.5 h-3.5 text-teal-700" />
+                                <Shield className="w-3.5 h-3.5 text-amber-500" />
                                 ASSESSMENT (A):
                               </span>
                               <span className="text-[10px] text-slate-400 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity font-medium">
@@ -2657,16 +2753,16 @@ VERIFICATION: Fully verified from patient conversation
                               value={currentSoap.assessment}
                               onChange={e => handleSoapChange('assessment', e.target.value)}
                               rows={2}
-                              className="w-full bg-transparent text-slate-800 leading-relaxed text-[11px] font-sans resize-y focus:outline-none placeholder:text-slate-400"
+                              className="w-full bg-transparent text-slate-800 leading-relaxed text-[11px] font-sans resize-y focus:outline-none placeholder:text-slate-400 font-tabular"
                               placeholder="Diagnosis, pulpal/periodontal prognosis..."
                             />
                           </div>
 
                           {/* Plan & Procedure */}
-                          <div className="bg-slate-50/70 hover:bg-white focus-within:bg-white border border-slate-200 focus-within:border-teal-600 focus-within:ring-2 focus-within:ring-teal-600/15 rounded-xl p-3 space-y-1.5 transition-all group">
+                          <div className="bg-white/80 hover:bg-white focus-within:bg-white border border-slate-200/80 focus-within:border-[#0071E3] focus-within:ring-2 focus-within:ring-[#0071E3]/15 rounded-xl p-3.5 space-y-1.5 transition-all shadow-2xs group">
                             <div className="flex items-center justify-between">
                               <span className="text-[11px] font-bold text-slate-700 tracking-wider flex items-center gap-1.5 uppercase">
-                                <Sparkles className="w-3.5 h-3.5 text-teal-700" />
+                                <Sparkles className="w-3.5 h-3.5 text-[#0071E3]" />
                                 PLAN & PROCEDURE (P):
                               </span>
                               <span className="text-[10px] text-slate-400 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity font-medium">
@@ -2677,7 +2773,7 @@ VERIFICATION: Fully verified from patient conversation
                               value={currentSoap.plan}
                               onChange={e => handleSoapChange('plan', e.target.value)}
                               rows={2}
-                              className="w-full bg-transparent text-slate-800 leading-relaxed text-[11px] font-sans resize-y focus:outline-none placeholder:text-slate-400"
+                              className="w-full bg-transparent text-slate-800 leading-relaxed text-[11px] font-sans resize-y focus:outline-none placeholder:text-slate-400 font-tabular"
                               placeholder="Treatment rendered, materials/anesthesia used, post-op instructions..."
                             />
                           </div>
@@ -2807,6 +2903,130 @@ VERIFICATION: Fully verified from patient conversation
                 {copiedPlainText ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
                 <span>{copiedPlainText ? 'Copied!' : 'Copy Plain Text'}</span>
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────
+          PATIENT DELIVERABLES & REFERRAL HANDOVER MODAL
+          ───────────────────────────────────────────────────────────── */}
+      {showDeliverablesModal && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl border border-slate-200 space-y-4 font-sans">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-700 flex items-center justify-center">
+                  <FileText className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">
+                    Patient Deliverables & Handover
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    {activeEncounter ? `${activeEncounter.patientName} • ${activeEncounter.procedureText}` : 'Active Patient'}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowDeliverablesModal(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Tab selection */}
+            <div className="flex items-center gap-2 border-b border-slate-100 pb-2">
+              <button
+                type="button"
+                onClick={() => setDeliverablesActiveTab('referral')}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                  deliverablesActiveTab === 'referral'
+                    ? 'bg-indigo-600 text-white shadow-xs'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                <FileText className="w-3.5 h-3.5" />
+                <span>Specialist Referral Letter</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setDeliverablesActiveTab('postop')}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                  deliverablesActiveTab === 'postop'
+                    ? 'bg-indigo-600 text-white shadow-xs'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                <Mail className="w-3.5 h-3.5" />
+                <span>Patient Post-Op Care Email</span>
+              </button>
+            </div>
+
+            {/* Notice */}
+            <div className="bg-amber-50 border border-amber-200/80 rounded-xl p-2.5 flex items-start gap-2 text-[11px] text-amber-800">
+              <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
+              <span>Grounded directly in this patient's clinical note and examination findings. Please review before sending.</span>
+            </div>
+
+            {/* Textarea */}
+            <textarea
+              readOnly
+              rows={12}
+              value={deliverablesActiveTab === 'referral' ? getReferralText() : getPostOpText()}
+              className="w-full p-3.5 text-xs font-mono border border-slate-200 rounded-xl bg-slate-50 leading-relaxed text-slate-800 select-all"
+            />
+
+            {/* Actions */}
+            <div className="flex items-center justify-between pt-2">
+              <div>
+                {deliverablesActiveTab === 'postop' && (
+                  <a
+                    href={`mailto:?subject=${encodeURIComponent(`Post-Operative Care Instructions — ${activeEncounter?.patientName || 'Patient'}`)}&body=${encodeURIComponent(getPostOpText())}`}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-xl transition cursor-pointer"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    <span>Open in Email App</span>
+                  </a>
+                )}
+              </div>
+
+              <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setShowDeliverablesModal(false)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition cursor-pointer"
+                >
+                  Close
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const text = deliverablesActiveTab === 'referral' ? getReferralText() : getPostOpText();
+                    if (navigator.clipboard) {
+                      navigator.clipboard.writeText(text);
+                    }
+                    setCopiedDeliverable(deliverablesActiveTab);
+                    setTimeout(() => setCopiedDeliverable(null), 2000);
+                  }}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition cursor-pointer shadow-sm flex items-center space-x-1.5"
+                >
+                  {copiedDeliverable === deliverablesActiveTab ? (
+                    <>
+                      <Check className="w-4 h-4" />
+                      <span>Copied to Clipboard!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-4 h-4" />
+                      <span>
+                        {deliverablesActiveTab === 'referral' ? 'Copy Referral Letter' : 'Copy Post-Op Email'}
+                      </span>
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         </div>

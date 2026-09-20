@@ -42,6 +42,7 @@ import {
   personalClinicName,
   sanitizeClinicName
 } from './src/lib/clinics';
+import { PLANS, type PlanId, resolveEntitlements } from './src/lib/plans';
 import {
   extractProposedTreatmentsFromFindings,
   lookupAdaFee,
@@ -79,6 +80,7 @@ import {
   dbListMembershipsForDentist,
   dbUpsertMembership,
   dbDeleteMembership,
+  dbCountActiveMembers,
   dbListConsultationsForClinic,
   dbListConsultationsByPatient,
   dbInsertNoteJob,
@@ -540,7 +542,7 @@ app.use((req, res, next) => {
 const apiLimiter = createDurableRateLimit(rateLimitDeps, {
   name: 'api',
   windowMs: 15 * 60 * 1000,
-  max: 100,
+  max: process.env.NODE_ENV === 'test' ? 10_000 : 100,
   message: 'Too many requests, please try again later.',
   // Job polling is the async fabric's own heartbeat: the client polls every
   // ~1.5s while a note generates, and each poll opportunistically ticks the
@@ -2725,12 +2727,35 @@ app.post('/api/clinics/:id/members/:dentistId/approve', authenticateToken, async
 
     let clinic: any | null = null;
     let approved = false;
+
+    // Enforce practice seat allowance
+    const subscription = await subscriptionStore.forClinic(clinicId);
+    const entitlements = resolveEntitlements(subscription);
+
     if (dbEnabled) {
       clinic = await dbGetClinicById(clinicId);
       if (!clinic) return res.status(404).json({ error: 'Clinic not found.' });
       if (clinic.ownerDentistId !== req.dentist.id) {
         return res.status(403).json({ error: 'Only the clinic owner can approve members.' });
       }
+
+      const activeCount = await dbCountActiveMembers(clinicId);
+      if (activeCount >= entitlements.seats) {
+        logAudit('clinic_member_approval_blocked_seat_limit', req.dentist.id, {
+          clinicId,
+          memberDentistId,
+          plan: entitlements.plan,
+          seats: entitlements.seats,
+          activeCount,
+        });
+        return res.status(409).json({
+          error: `This practice has reached its limit of ${entitlements.seats} clinician seat(s) on the ${entitlements.planName} plan. Upgrade your plan or deactivate an existing member to approve access.`,
+          code: 'SEAT_LIMIT_REACHED',
+          seats: entitlements.seats,
+          activeCount,
+        });
+      }
+
       await dbUpsertMembership(clinicId, memberDentistId, 'active');
       approved = true;
     } else {
@@ -2740,7 +2765,25 @@ app.post('/api/clinics/:id/members/:dentistId/approve', authenticateToken, async
       if (clinic.ownerDentistId !== req.dentist.id) {
         return res.status(403).json({ error: 'Only the clinic owner can approve members.' });
       }
+
       clinic.members = clinic.members || [];
+      const activeCount = clinic.members.filter((m: any) => m.status === 'active').length;
+      if (activeCount >= entitlements.seats) {
+        logAudit('clinic_member_approval_blocked_seat_limit', req.dentist.id, {
+          clinicId,
+          memberDentistId,
+          plan: entitlements.plan,
+          seats: entitlements.seats,
+          activeCount,
+        });
+        return res.status(409).json({
+          error: `This practice has reached its limit of ${entitlements.seats} clinician seat(s) on the ${entitlements.planName} plan. Upgrade your plan or deactivate an existing member to approve access.`,
+          code: 'SEAT_LIMIT_REACHED',
+          seats: entitlements.seats,
+          activeCount,
+        });
+      }
+
       const member = clinic.members.find((m: any) => m.dentistId === memberDentistId);
       if (!member) return res.status(404).json({ error: 'Membership request not found.' });
       member.status = 'active';

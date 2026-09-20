@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import {
-  X, Copy, RefreshCw, ShieldCheck, Check, AlertCircle, Loader2, Building2, Pencil, CheckCircle2, XCircle
+  X, Copy, RefreshCw, ShieldCheck, Check, AlertCircle, Loader2, Building2, Pencil, CheckCircle2, XCircle, CreditCard
 } from 'lucide-react';
 import { ClinicMembership, ClinicMemberSummary } from '../lib/clinics';
+import BillingModal from './BillingModal';
 
 interface ClinicMembersModalProps {
   clinic: ClinicMembership;
@@ -23,6 +24,7 @@ export default function ClinicMembersModal({ clinic, authToken, onClose, onChang
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [renameMode, setRenameMode] = useState(false);
   const [renameValue, setRenameValue] = useState(clinic.clinicName);
+  const [showBillingModal, setShowBillingModal] = useState(false);
   const [renameBusy, setRenameBusy] = useState(false);
   const [renameError, setRenameError] = useState<string | null>(null);
 
@@ -150,9 +152,14 @@ export default function ClinicMembersModal({ clinic, authToken, onClose, onChang
             </div>
             <div className="flex flex-col">
               <h3 className="text-base font-extrabold text-slate-800 leading-tight">{clinicName}</h3>
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                Clinic management · Owner
-              </span>
+              <div className="flex items-center gap-2 mt-0.5">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  Clinic management · Owner
+                </span>
+                <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100">
+                  {active.length} active seat{active.length === 1 ? '' : 's'}
+                </span>
+              </div>
             </div>
           </div>
           <button
@@ -166,9 +173,21 @@ export default function ClinicMembersModal({ clinic, authToken, onClose, onChang
 
         <div className="px-6 py-5 flex flex-col gap-6">
           {error && (
-            <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs font-semibold">
-              <AlertCircle className="w-4 h-4 shrink-0" />
-              <span>{error}</span>
+            <div className="flex flex-col gap-2 p-3.5 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 text-xs font-semibold">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 text-amber-600" />
+                <span>{error}</span>
+              </div>
+              {(error.toLowerCase().includes('seat') || error.toLowerCase().includes('plan')) && (
+                <button
+                  type="button"
+                  onClick={() => setShowBillingModal(true)}
+                  className="self-start mt-1 px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-sm"
+                >
+                  <CreditCard className="w-3.5 h-3.5" />
+                  <span>Upgrade Plan to Add Seats</span>
+                </button>
+              )}
             </div>
           )}
 
@@ -366,6 +385,22 @@ export default function ClinicMembersModal({ clinic, authToken, onClose, onChang
           </section>
         </div>
       </motion.div>
+
+      {showBillingModal && (
+        <BillingModal
+          isOpen={showBillingModal}
+          onClose={() => {
+            setShowBillingModal(false);
+            loadMembers();
+          }}
+          activeClinic={clinic}
+          authToken={authToken}
+          onPlanUpdated={() => {
+            loadMembers();
+            onChanged();
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -131,16 +131,22 @@ dentai/
 10. **Receptionist-friendly UI language (zero jargon).**
     - Copy must be readable by a receptionist or dental assistant. Use *"Live Conversation"*, *"Lines Recorded"*, *"Listening & Taking Notes"*, *"Verified from Audio"*, *"Noise Filter"*, *"End of Day Notes"*, *"Hands-Free Keyboard Shortcuts"*.
 
-11. **A patient's name is not their identity.**
+11. **Cross-Patient Boundary Isolation & Forced Standby.**
+    - Switching patients immediately stops speech recognition, resets recording duration, and engages `STANDBY` mode (`isMicStandby = true`, timer reset to `00:00`, stop chime played).
+    - Recording never auto-starts on an incoming patient; it strictly requires physical clinician activation.
+    - Live transcript buffers remain segregated by consultation ID (`localLiveTranscripts[consultationId]`), and asynchronous handoffs use immutable data snapshots.
+
+12. **A patient's name is not their identity.**
    - Never resolve, merge or display prior clinical history from a name match. Two patients called John Smith at one practice used to share a chart, so one patient's treatment appeared as the other's history — a clinical safety problem, not a data-quality nit.
    - Use `src/lib/patients.ts`: `decidePatientResolution` returns `matched` only when the name *and* a second detail (DOB, or phone) agree, `ambiguous` when a human must confirm, and `create` otherwise. A record with no `patientId` means "unknown patient" — never fall back to the name.
    - Conflicts win: a mismatched DOB is decisive even when the phone number matches (family phones are shared). Never invent a DOB to make a match work.
 
-12. **The recording is the source of truth for the transcript, not live speech recognition.**
+13. **The recording is the source of truth for the transcript, not live speech recognition.**
    - Notes were generated from the browser Web Speech API: no dental vocabulary, no diarization, and it silently drops audio. The recorded audio is uploaded (beacon phone, or the cockpit's own slices) and transcribed server-side with speaker roles; live speech is the fallback and is labelled unattributed.
    - `chooseNoteTranscript` decides, and its verdict is recorded on the consultation as `transcriptProvenance` — a note built from non-diarized speech is not the same evidence as one built from recorded audio.
    - Long recordings are refused rather than truncated, and a refused or partial upload is surfaced as a warning. Do not silently transcribe part of an appointment.
    - Transcribed audio is deleted once the transcript is persisted (data minimisation). Do not "keep a backup copy" of raw clinical voice.
 
-13. **Reverse-proxy trust must be declared.**
+14. **Reverse-proxy trust must be declared.**
     - Per-address rate limiting keys on `req.ip`. Behind a platform edge that is the edge's address unless the hop count is set, so every practice would share one bucket. `app.set('trust proxy', <hops>)` — a hop count, never `true` (trusting every hop lets a client spoof `X-Forwarded-For`). Override with `DENTAI_TRUST_PROXY_HOPS`.
+

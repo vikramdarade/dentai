@@ -97,7 +97,8 @@ describe('Plans and entitlements', () => {
   it('maps legacy tier values onto plans', () => {
     expect(planFromTier('practice')).toBe('practice');
     expect(planFromTier('legacy-pro')).toBe('trial');
-    expect(describePlan('solo')).toContain('A$149');
+    expect(describePlan('practice')).toContain('A$149');
+    expect(describePlan('solo')).toContain('Free Forever');
   });
 });
 

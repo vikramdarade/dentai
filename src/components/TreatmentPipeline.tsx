@@ -34,6 +34,8 @@ import { TreatmentOpportunity, TreatmentStatus, PracticeRoiSummary, Consultation
 import { ClinicMembership } from '../lib/clinics';
 import { extractProposedTreatmentsFromFindings } from '../lib/adaFees';
 import { generateTreatmentEstimate, FormattedTreatmentEstimate } from '../lib/treatmentEstimate';
+import { extractRecallItems, RecallOpportunity } from '../lib/recallEngine';
+import { formatClinicDate } from '../utils/date';
 import PatientRoadmapPrototype from './PatientRoadmapPrototype';
 
 interface TreatmentPipelineProps {
@@ -98,6 +100,23 @@ export default function TreatmentPipeline({
   const [copiedText, setCopiedText] = useState<boolean>(false);
   const [actionSuccessMessage, setActionSuccessMessage] = useState<string | null>(null);
   const [showRoadmapPrototype, setShowRoadmapPrototype] = useState<boolean>(false);
+  const [pipelineTab, setPipelineTab] = useState<'treatments' | 'recalls'>('treatments');
+  const [recallFilter, setRecallFilter] = useState<'all' | 'due_now' | 'overdue' | 'upcoming'>('all');
+
+  const recallItems = useMemo(() => {
+    return extractRecallItems(consultations);
+  }, [consultations]);
+
+  const filteredRecalls = useMemo(() => {
+    return recallItems.filter(item => {
+      if (recallFilter !== 'all' && item.status !== recallFilter) return false;
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        return item.patientName.toLowerCase().includes(q) || item.recallInterval.toLowerCase().includes(q);
+      }
+      return true;
+    });
+  }, [recallItems, recallFilter, searchQuery]);
 
   const DECLINE_PRESETS = [
     { id: 'cost', label: 'Cost / Financial Constraint', desc: 'Out of pocket expense or lack of private health cover' },
@@ -199,7 +218,7 @@ export default function TreatmentPipeline({
         fetchRoi();
         showNotification(
           pmsMeta?.pmsAppointmentId
-            ? `Verified in PMS (${(pmsMeta.pmsType || 'PMS').toUpperCase()} #${pmsMeta.pmsAppointmentId})! Production locked.`
+            ? `Booked in PMS (${(pmsMeta.pmsType || 'PMS').toUpperCase()} #${pmsMeta.pmsAppointmentId})! Production scheduled.`
             : newStatus === 'booked'
             ? 'Treatment marked as Booked! Practice production updated.'
             : newStatus === 'contacted'
@@ -392,6 +411,48 @@ export default function TreatmentPipeline({
         </div>
       </div>
 
+      {/* View Switcher Tabs: Treatment Pipeline vs Patient Recall Worklist */}
+      <div className="flex items-center gap-2 border-b border-slate-200 pb-3">
+        <button
+          onClick={() => setPipelineTab('treatments')}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-extrabold transition-all cursor-pointer ${
+            pipelineTab === 'treatments'
+              ? 'bg-slate-900 text-white shadow-sm'
+              : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+          }`}
+        >
+          <DollarSign className="w-4 h-4 text-emerald-400" />
+          <span>Treatment Pipeline</span>
+          <span className={`px-2 py-0.5 rounded-full text-[10px] ${
+            pipelineTab === 'treatments' ? 'bg-slate-800 text-slate-200' : 'bg-slate-100 text-slate-600'
+          }`}>
+            {opportunities.length}
+          </span>
+        </button>
+
+        <button
+          onClick={() => setPipelineTab('recalls')}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-extrabold transition-all cursor-pointer ${
+            pipelineTab === 'recalls'
+              ? 'bg-slate-900 text-white shadow-sm'
+              : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+          }`}
+        >
+          <Calendar className="w-4 h-4 text-indigo-400" />
+          <span>Patient Recall Worklist</span>
+          <span className={`px-2 py-0.5 rounded-full text-[10px] ${
+            pipelineTab === 'recalls' ? 'bg-indigo-950 text-indigo-200' : 'bg-slate-100 text-slate-600'
+          }`}>
+            {recallItems.length}
+          </span>
+          {recallItems.filter(r => r.status === 'overdue' || r.status === 'due_now').length > 0 && (
+            <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
+          )}
+        </button>
+      </div>
+
+      {pipelineTab === 'treatments' && (
+        <div className="space-y-6">
       {/* Executive Scorecard Metric Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Card 1: Unscheduled Opportunity Value */}
@@ -415,7 +476,7 @@ export default function TreatmentPipeline({
         {/* Card 2: Booked Production (Verified Recovered Revenue) */}
         <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-200/80 flex flex-col justify-between">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-500">Verified Recovered Production</span>
+            <span className="text-xs font-bold text-slate-500">Booked Production</span>
             <div className="w-9 h-9 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center border border-emerald-100">
               <TrendingUp className="w-4 h-4" />
             </div>
@@ -542,7 +603,7 @@ export default function TreatmentPipeline({
             }`}
           >
             <CheckCircle2 className="w-3.5 h-3.5" />
-            <span>PMS-Verified Only ({opportunities.filter(o => o.pmsAppointmentId || o.pmsSyncStatus === 'verified' || o.pmsSyncStatus === 'auto_synced').length})</span>
+            <span>PMS-Booked Only ({opportunities.filter(o => o.pmsAppointmentId || o.pmsSyncStatus === 'verified' || o.pmsSyncStatus === 'auto_synced').length})</span>
           </button>
         </div>
       </div>
@@ -715,7 +776,7 @@ export default function TreatmentPipeline({
               <button
                 onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                 disabled={currentPage === totalPages}
-                className="px-3 py-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 cursor-pointer"
+                className="px-3.5 py-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 cursor-pointer"
               >
                 <span>Next</span>
                 <ChevronRight className="w-3.5 h-3.5" />
@@ -724,6 +785,212 @@ export default function TreatmentPipeline({
           </div>
         )}
       </div>
+        </div>
+      )}
+
+      {pipelineTab === 'recalls' && (
+        <div className="space-y-6">
+          {/* Recall Summary Metric Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* Card 1: Total Active Recalls */}
+            <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-200/80 flex flex-col justify-between">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-500">Active Patient Recalls</span>
+                <div className="w-9 h-9 rounded-2xl bg-indigo-50 text-primary flex items-center justify-center border border-indigo-100">
+                  <Calendar className="w-4 h-4" />
+                </div>
+              </div>
+              <div className="mt-4">
+                <span className="text-3xl font-black text-slate-800 tracking-tight">
+                  {recallItems.length}
+                </span>
+                <div className="flex items-center gap-1.5 mt-1 text-[11px] text-slate-400 font-medium">
+                  <span>From clinical consultations</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Card 2: Overdue Recalls */}
+            <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-200/80 flex flex-col justify-between">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-500">Overdue Recalls</span>
+                <div className="w-9 h-9 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center border border-rose-100">
+                  <AlertCircle className="w-4 h-4" />
+                </div>
+              </div>
+              <div className="mt-4">
+                <span className="text-3xl font-black text-rose-600 tracking-tight">
+                  {recallItems.filter(r => r.status === 'overdue').length}
+                </span>
+                <div className="flex items-center gap-1.5 mt-1 text-[11px] text-slate-400 font-medium">
+                  <span>Passed recommended interval (&gt;14 days)</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Card 3: Due Now */}
+            <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-200/80 flex flex-col justify-between">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-500">Due Now (30-Day Window)</span>
+                <div className="w-9 h-9 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center border border-amber-100">
+                  <Clock className="w-4 h-4" />
+                </div>
+              </div>
+              <div className="mt-4">
+                <span className="text-3xl font-black text-amber-600 tracking-tight">
+                  {recallItems.filter(r => r.status === 'due_now').length}
+                </span>
+                <div className="flex items-center gap-1.5 mt-1 text-[11px] text-slate-400 font-medium">
+                  <span>Current recall outreach target</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Card 4: Periodontal Maintenance */}
+            <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-200/80 flex flex-col justify-between">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-500">Perio / 3-Month Maintenance</span>
+                <div className="w-9 h-9 rounded-2xl bg-teal-50 text-teal-600 flex items-center justify-center border border-teal-100">
+                  <ShieldCheck className="w-4 h-4" />
+                </div>
+              </div>
+              <div className="mt-4">
+                <span className="text-3xl font-black text-slate-800 tracking-tight">
+                  {recallItems.filter(r => r.urgency === 'periodontal').length}
+                </span>
+                <div className="flex items-center gap-1.5 mt-1 text-[11px] text-slate-400 font-medium">
+                  <span>High-compliance clinical protocol</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Search and Recall Filter Pills */}
+          <div className="bg-white rounded-3xl p-4 shadow-sm border border-slate-200/80 space-y-3">
+            <div className="flex flex-col md:flex-row gap-3">
+              <div className="relative flex-1">
+                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
+                <input
+                  type="text"
+                  placeholder="Search patient name or recall interval..."
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all"
+                />
+              </div>
+
+              <div className="flex items-center gap-1 overflow-x-auto pb-1 md:pb-0">
+                {[
+                  { id: 'all', label: `All Recalls (${recallItems.length})` },
+                  { id: 'due_now', label: `Due Now (${recallItems.filter(r => r.status === 'due_now').length})` },
+                  { id: 'overdue', label: `Overdue (${recallItems.filter(r => r.status === 'overdue').length})` },
+                  { id: 'upcoming', label: `Upcoming (${recallItems.filter(r => r.status === 'upcoming').length})` }
+                ].map(tab => (
+                  <button
+                    key={tab.id}
+                    onClick={() => setRecallFilter(tab.id as any)}
+                    className={`px-3 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+                      recallFilter === tab.id
+                        ? 'bg-primary text-white shadow-sm'
+                        : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-200/60'
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Recall Worklist Cards */}
+          <div className="space-y-3">
+            {filteredRecalls.length === 0 ? (
+              <div className="bg-white rounded-3xl p-12 text-center border border-slate-200/80 shadow-sm">
+                <Calendar className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                <h3 className="text-sm font-bold text-slate-700">No recall opportunities match your filter</h3>
+                <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
+                  Recall intervals from consultation notes will automatically populate here to keep hygiene chairs filled.
+                </p>
+              </div>
+            ) : (
+              filteredRecalls.map((recall) => {
+                const statusStyles = recall.status === 'overdue'
+                  ? 'bg-rose-50 text-rose-700 border-rose-200'
+                  : recall.status === 'due_now'
+                  ? 'bg-amber-50 text-amber-700 border-amber-200'
+                  : 'bg-slate-50 text-slate-600 border-slate-200';
+
+                const statusLabel = recall.status === 'overdue'
+                  ? 'Overdue'
+                  : recall.status === 'due_now'
+                  ? 'Due Now'
+                  : 'Upcoming';
+
+                return (
+                  <motion.div
+                    key={recall.id}
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200/80 hover:border-slate-300 transition-all flex flex-col md:flex-row md:items-center justify-between gap-4"
+                  >
+                    <div className="space-y-2 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-extrabold text-sm text-slate-800">
+                          {recall.patientName}
+                        </span>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${statusStyles}`}>
+                          {statusLabel}
+                        </span>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                          recall.urgency === 'periodontal'
+                            ? 'bg-teal-50 text-teal-700 border-teal-200'
+                            : recall.urgency === 'urgent'
+                            ? 'bg-red-50 text-red-700 border-red-200'
+                            : 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                        }`}>
+                          {recall.urgency === 'periodontal' ? 'Periodontal Review' : recall.urgency === 'urgent' ? 'Urgent Review' : 'Preventative Hygiene'}
+                        </span>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500 font-medium">
+                        <div className="flex items-center gap-1.5">
+                          <Clock className="w-3.5 h-3.5 text-slate-400" />
+                          <span>Recommended Interval: <strong className="text-slate-700">{recall.recallInterval}</strong></span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                          <span>Target Due Date: <strong className="text-slate-700">{formatClinicDate(recall.dueDate)}</strong></span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <span>Last Visit: {formatClinicDate(recall.consultationDate)}</span>
+                        </div>
+                      </div>
+
+                      <div className="bg-slate-50 rounded-xl p-3 border border-slate-100 text-xs text-slate-600 italic">
+                        "{recall.suggestedMessage}"
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 self-start md:self-center">
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(recall.suggestedMessage);
+                          setActionSuccessMessage(`Patient reminder for ${recall.patientName} copied to clipboard!`);
+                          setTimeout(() => setActionSuccessMessage(null), 3000);
+                        }}
+                        className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm cursor-pointer whitespace-nowrap"
+                      >
+                        <Copy className="w-3.5 h-3.5" />
+                        <span>Copy Patient Reminder</span>
+                      </button>
+                    </div>
+                  </motion.div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Patient Treatment Estimate & Health Fund Rebate Modal */}
       <AnimatePresence>
