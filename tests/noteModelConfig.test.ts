@@ -22,9 +22,9 @@ import {
  * clinician's chairside time per note, and they should have to say so here.
  */
 describe('note generation thinking level', () => {
-  it('defaults to minimal so a consult is not billed reasoning latency it cannot use', () => {
-    expect(DEFAULT_NOTE_THINKING_LEVEL).toBe('minimal');
-    expect(resolveNoteThinkingLevel({})).toBe('minimal');
+  it('defaults to medium so complex dental consultations have full reasoning capability', () => {
+    expect(DEFAULT_NOTE_THINKING_LEVEL).toBe('medium');
+    expect(resolveNoteThinkingLevel({})).toBe('medium');
   });
 
   it('honours an explicit operator override', () => {
@@ -34,9 +34,9 @@ describe('note generation thinking level', () => {
 
   it('falls back to the default instead of throwing on a junk value', () => {
     // A typo in an environment variable must not take note generation down.
-    expect(resolveNoteThinkingLevel({ DENTAI_THINKING_LEVEL: 'ultra' })).toBe('minimal');
-    expect(resolveNoteThinkingLevel({ DENTAI_THINKING_LEVEL: '' })).toBe('minimal');
-    expect(resolveNoteThinkingLevel({ DENTAI_THINKING_LEVEL: '  ' })).toBe('minimal');
+    expect(resolveNoteThinkingLevel({ DENTAI_THINKING_LEVEL: 'ultra' })).toBe('medium');
+    expect(resolveNoteThinkingLevel({ DENTAI_THINKING_LEVEL: '' })).toBe('medium');
+    expect(resolveNoteThinkingLevel({ DENTAI_THINKING_LEVEL: '  ' })).toBe('medium');
   });
 
   it('only ever produces a level the API accepts', () => {

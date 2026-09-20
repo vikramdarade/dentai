@@ -45,13 +45,12 @@ export const THINKING_LEVELS: readonly ThinkingLevelName[] = ['minimal', 'low', 
 /**
  * Default thinking level for clinical note generation.
  *
- * `minimal` is correct here and not a shortcut: the task is transcription
- * grounding + schema filling against a fixed template, with the anti-fabrication
- * rules supplied explicitly in the system instruction. Adding reasoning effort
- * buys latency, not accuracy; the clinical-eval gate is what protects accuracy
- * (`bun run eval:notes`), and it is run against real generations.
+ * `medium` is essential for AHPRA-grade medicolegal defensibility: multi-turn operatory
+ * encounters require chain-of-thought clinical reasoning to disambiguate FDI tooth numbers,
+ * distinguish patient symptoms from clinician findings, map vitality tests and materials,
+ * and ensure 100% verbatim capture without omission or fabrication.
  */
-export const DEFAULT_NOTE_THINKING_LEVEL: ThinkingLevelName = 'minimal';
+export const DEFAULT_NOTE_THINKING_LEVEL: ThinkingLevelName = 'medium';
 
 /** Resolves the configured thinking level, ignoring junk values rather than crashing a consult. */
 export function resolveNoteThinkingLevel(env: Record<string, string | undefined> = process.env): ThinkingLevelName {
