@@ -460,7 +460,7 @@ export default function Landing({ onGetStarted }: LandingProps) {
                   <div className="flex items-center gap-2">
                     <span className="rounded-full bg-emerald-500/20 px-3 py-1 text-[11px] font-extrabold uppercase tracking-wider text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                      D4W #8491 Booked
+                      D4W #8491 Reference Logged
                     </span>
                   </div>
                 </div>

@@ -51,12 +51,11 @@ export const THINKING_LEVELS: readonly ThinkingLevelName[] = ['minimal', 'low', 
  * Accuracy-first, by explicit founder direction (2026-09-20): the note must be
  * faithful to what was said — AHPRA-grade, defensible under legal review — and
  * a lower reasoning level measurably lost fidelity in the pilot (fabricated
- * terminology and dropped findings). `medium` is the level the model ran at
- * before the latency fix, which is the era the pilot called accurate.
- *
- * The latency cost is real and bounded: generation runs under NOTE_TIMEOUTS and
- * the client offers the offline draft when a generation exceeds its budget. An
- * operator who needs the seconds back can still set DENTAI_THINKING_LEVEL.
+ * terminology and dropped findings). Multi-turn operatory encounters need full
+ * reasoning to disambiguate FDI tooth numbers, separate patient symptoms from
+ * clinician findings, and map vitality tests and materials without omission or
+ * fabrication. `medium` is the level the model ran at before the latency fix,
+ * which is the era the pilot called accurate.
  */
 export const DEFAULT_NOTE_THINKING_LEVEL: ThinkingLevelName = 'medium';
 

@@ -48,8 +48,26 @@ Values themselves live in the host's environment settings (never in Git, never i
 |---|---|---|
 | `STRIPE_SECRET_KEY` | Charges cards and opens the billing portal | Until it is set, checkout reports that billing is not configured rather than pretending to succeed |
 | `STRIPE_WEBHOOK_SECRET` | Verifies Stripe webhook signatures | **Fails closed**: without it `/api/billing/webhook` returns `503` and will not activate anything. This is the control that stops a hand-crafted POST conferring a free paid tier |
+| `DENTAI_PMS_WEBHOOK_SECRET` | Verifies inbound PMS booking webhook signatures (`POST /api/webhooks/pms-booking`) | **Fails closed**: without it the webhook endpoint returns `503 WEBHOOK_NOT_CONFIGURED`. Prevents unauthenticated mutation of clinical treatment records. |
 | `RESEND_API_KEY` | Sends invitations, recovery codes and receipts | Without it, `send()` reports "not configured" — the invite is still recorded, nothing is silently discarded |
 | `DENTAI_EMAIL_FROM` | The From address those emails use | Must be a verified sender domain, e.g. `DentAI <hello@yourdomain.com.au>` |
+
+### Inbound PMS Webhook Signing Format (`POST /api/webhooks/pms-booking`)
+
+Inbound webhooks must supply an `x-dentai-signature` header:
+- Header: `x-dentai-signature: t=<unix_timestamp_seconds>,v1=<hex_hmac_sha256>`
+- Signed message: `<unix_timestamp_seconds>.<raw_body_string>`
+- Example curl:
+```bash
+TIMESTAMP=$(date +%s)
+BODY='{"opportunityId":"consult-123-tx-crown-16","clinicId":"clinic-456","pmsAppointmentId":"D4W-8899","pmsType":"d4w"}'
+SIG=$(echo -n "${TIMESTAMP}.${BODY}" | openssl dgst -sha256 -hmac "$DENTAI_PMS_WEBHOOK_SECRET" | sed 's/^.* //')
+
+curl -X POST https://<app>/api/webhooks/pms-booking \
+  -H "Content-Type: application/json" \
+  -H "x-dentai-signature: t=${TIMESTAMP},v1=${SIG}" \
+  -d "$BODY"
+```
 
 Emails are sent at the moment the action happens, so a missing key produces a clear operator error. Neither integration charges you anything until it is switched on — activation is a deliberate act, and `/api/ops/billing/activate` exists for the first cohort who pay by invoice.
 

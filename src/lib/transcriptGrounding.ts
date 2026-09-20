@@ -212,7 +212,8 @@ export function verifyTranscriptGrounding(
   // 3. Verify Procedures
   for (const proc of DENTAL_PROCEDURES) {
     if (normalizedNote.includes(proc)) {
-      const found = normalizedTranscript.includes(proc);
+      const stem = proc === 'restoration' ? 'restor' : proc === 'extraction' ? 'extract' : proc === 'filling' ? 'fill' : proc;
+      const found = normalizedTranscript.includes(proc) || normalizedTranscript.includes(stem);
       entities.push({
         category: 'procedure',
         term: proc.charAt(0).toUpperCase() + proc.slice(1),

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Calendar,
   Clock,
@@ -36,7 +36,8 @@ import {
   getTodayDateStr,
   mergeScheduleItems,
   calculateDailyProduction,
-  generateSafeUuid
+  generateSafeUuid,
+  parseTimeToMinutes
 } from '../lib/dayScheduleStorage';
 import { AppointmentType, APPOINTMENT_TYPES, getAppointmentTypeLabel } from '../lib/dentalLibrary';
 import TopSurgeryBar from './TopSurgeryBar';
@@ -527,18 +528,26 @@ export default function DayScheduleQueue({
     try {
       await navigator.clipboard.writeText(text);
       setCopiedId(item.id);
+      const updated = updateScheduleItem(item.id, { status: 'done' });
+      setItems(updated);
       setTimeout(() => setCopiedId(null), 2500);
     } catch {
       setCopiedId(item.id);
+      const updated = updateScheduleItem(item.id, { status: 'done' });
+      setItems(updated);
     }
   };
 
+  const sortedItems = useMemo(() => {
+    return [...items].sort((a, b) => parseTimeToMinutes(a.time) - parseTimeToMinutes(b.time));
+  }, [items]);
+
   const handleExpressCopyNext = () => {
-    const uncopied = items.find(i => i.status === 'ready' && copiedId !== i.id);
+    const uncopied = sortedItems.find(i => (i.status === 'ready' || i.status === 'note_generated') && i.clinicalNote && copiedId !== i.id);
     if (uncopied) {
       handleCopyNote(uncopied);
     } else {
-      const firstReady = items.find(i => i.status === 'ready');
+      const firstReady = sortedItems.find(i => (i.status === 'ready' || i.status === 'note_generated') && i.clinicalNote);
       if (firstReady) handleCopyNote(firstReady);
     }
   };
@@ -559,6 +568,7 @@ export default function DayScheduleQueue({
       procedureText: walkInReason.trim(),
       appointmentType: walkInType,
       templateId: walkInType === 'emergency' ? 'soap' : 'standard',
+      status: 'ready',
       source: 'manual'
     });
 
@@ -568,11 +578,13 @@ export default function DayScheduleQueue({
   };
 
   // Metrics
-  const totalCount = items.length;
-  const readyCount = items.filter(i => i.status === 'ready').length;
-  const processingCount = items.filter(i => i.status === 'processing').length;
-  const pendingCount = items.filter(i => i.status === 'scheduled').length;
-  const dailyProduction = calculateDailyProduction(items);
+  const totalCount = sortedItems.length;
+  const doneCount = sortedItems.filter(i => i.status === 'done').length;
+  const noteGeneratedCount = sortedItems.filter(i => (i.status === 'ready' || i.status === 'note_generated') && i.clinicalNote && i.status !== 'done').length;
+  const readyCount = noteGeneratedCount + doneCount;
+  const processingCount = sortedItems.filter(i => i.status === 'processing').length;
+  const pendingCount = sortedItems.filter(i => (i.status === 'scheduled' || i.status === 'ready') && !i.clinicalNote).length;
+  const dailyProduction = calculateDailyProduction(sortedItems);
 
   return (
     <div className="w-full max-w-5xl mx-auto px-4 py-6 font-sans relative">
@@ -753,7 +765,7 @@ export default function DayScheduleQueue({
       )}
 
       {/* Schedule Items List */}
-      {items.length === 0 ? (
+      {sortedItems.length === 0 ? (
         <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center">
           <Calendar className="w-12 h-12 text-slate-300 mx-auto mb-3" />
           <h3 className="text-base font-bold text-slate-700">No Appointments Queued for Today</h3>
@@ -770,11 +782,13 @@ export default function DayScheduleQueue({
         </div>
       ) : (
         <div className="space-y-3">
-          {items.map((item, index) => {
+          {sortedItems.map((item, index) => {
             const isRecordingThis = recordingItem?.id === item.id || item.status === 'recording';
-            const isReady = item.status === 'ready';
+            const isDone = item.status === 'done';
+            const isNoteGenerated = (item.status === 'ready' || item.status === 'note_generated') && Boolean(item.clinicalNote);
             const isProcessing = item.status === 'processing';
-            const isFailed = item.status === 'failed';
+            const isFailed = item.status === 'failed' || item.status === 'recreate';
+            const isReadyToRecord = (item.status === 'ready' || item.status === 'scheduled') && !item.clinicalNote && !isRecordingThis;
 
             return (
               <motion.div
@@ -786,10 +800,14 @@ export default function DayScheduleQueue({
                 className={`bg-white rounded-2xl border transition-all p-4.5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
                   isRecordingThis
                     ? 'border-red-400 ring-2 ring-red-100 shadow-md bg-red-50/[0.1]'
-                    : isReady
+                    : isDone
+                    ? 'border-slate-200/80 bg-slate-50/[0.3] shadow-2xs'
+                    : isNoteGenerated
                     ? 'border-emerald-200 hover:border-emerald-300 bg-emerald-50/[0.15]'
                     : isProcessing
                     ? 'border-amber-200 bg-amber-50/[0.15]'
+                    : isFailed
+                    ? 'border-rose-200 bg-rose-50/[0.15]'
                     : 'border-slate-200/80 hover:border-slate-300 shadow-xs'
                 }`}
               >
@@ -862,12 +880,34 @@ export default function DayScheduleQueue({
                   {isProcessing && (
                     <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800">
                       <RotateCw className="w-3.5 h-3.5 animate-spin text-amber-600" />
-                      Writing Note...
+                      Generating Note...
                     </span>
                   )}
 
-                  {isReady && (
+                  {isDone && (
                     <div className="flex items-center gap-2">
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold bg-emerald-50 text-emerald-800 border border-emerald-200 shadow-2xs">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                        Done
+                      </span>
+                      <button
+                        onClick={() => handleCopyNote(item)}
+                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-all cursor-pointer"
+                        title="Copy note again"
+                      >
+                        <Copy className="w-3.5 h-3.5" />
+                        Copy Again
+                      </button>
+                    </div>
+                  )}
+
+                  {isNoteGenerated && !isDone && (
+                    <div className="flex items-center gap-2">
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold bg-teal-50 text-teal-800 border border-teal-200">
+                        <Sparkles className="w-3.5 h-3.5 text-teal-600" />
+                        Note Generated
+                      </span>
+
                       {/* Progressive Confidence Verification Badge */}
                       {item.isFullyGrounded !== false ? (
                         <span
@@ -875,7 +915,7 @@ export default function DayScheduleQueue({
                           title="Transcript-grounded: All teeth, treatments, and findings transcribed from audio dialogue"
                         >
                           <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-                          Transcribed from Audio ✓
+                          Verified from Audio ✓
                         </span>
                       ) : (
                         <button
@@ -885,7 +925,7 @@ export default function DayScheduleQueue({
                           title="Click to review spoken dialogue vs note"
                         >
                           <AlertCircle className="w-3.5 h-3.5 text-amber-600" />
-                          Review Spoken Dialogue ({item.groundingScore ?? 0}%)
+                          Review ({item.groundingScore ?? 0}%)
                         </button>
                       )}
 
@@ -904,7 +944,7 @@ export default function DayScheduleQueue({
                             ? 'bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300'
                             : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300'
                         }`}
-                        title="Copy note to clipboard for D4W / Praktika"
+                        title="Copy note to clipboard for PMS"
                       >
                         {copiedId === item.id ? (
                           <>
@@ -914,7 +954,7 @@ export default function DayScheduleQueue({
                         ) : (
                           <>
                             <Copy className="w-3.5 h-3.5 text-emerald-600" />
-                            Copy Note
+                            Copy to PMS
                           </>
                         )}
                       </button>
@@ -929,7 +969,7 @@ export default function DayScheduleQueue({
                     </div>
                   )}
 
-                  {item.status === 'scheduled' && !isRecordingThis && (
+                  {isReadyToRecord && (
                     <button
                       onClick={() => handleRecordClick(item)}
                       className="inline-flex items-center gap-1.5 px-4 py-2 bg-primary hover:bg-primary-container text-white rounded-xl text-xs font-bold transition-all active:scale-95 shadow-xs cursor-pointer"
@@ -942,11 +982,11 @@ export default function DayScheduleQueue({
                   {item.status === 'recording' && !recordingItem && (
                     <button
                       onClick={() => {
-                        const updated = updateScheduleItem(item.id, { status: 'scheduled' });
+                        const updated = updateScheduleItem(item.id, { status: 'ready' });
                         setItems(updated);
                       }}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded-xl text-xs font-bold transition-all cursor-pointer"
-                      title="Reset status back to scheduled"
+                      title="Reset status back to ready"
                     >
                       <RotateCw className="w-3.5 h-3.5" />
                       Reset
@@ -956,10 +996,11 @@ export default function DayScheduleQueue({
                   {isFailed && (
                     <button
                       onClick={() => startInPlaceRecording(item)}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                      title="Click to recreate note"
                     >
                       <RotateCw className="w-3.5 h-3.5" />
-                      Retry
+                      Recreate
                     </button>
                   )}
 

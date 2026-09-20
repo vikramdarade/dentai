@@ -50,6 +50,7 @@ import {
   Phone,
 } from 'lucide-react';
 import type { DemoScene } from './demoScript';
+import { PLANS, describePlan } from '../lib/plans';
 
 interface SceneProps {
   scene: DemoScene;
@@ -1469,9 +1470,9 @@ function RoiScene({ progress }: SceneProps) {
   return (
     <div className="h-full flex flex-col bg-slate-50">
       <AppBar
-        title="Practice ROI & Economics"
-        subtitle="Chairside Time Recovery · Clinic Capacity"
-        right={<Chip tone="emerald"><TrendingUp className="w-3 h-3 text-emerald-600" /> High ROI</Chip>}
+        title="Chairside Note Generation"
+        subtitle="Drafted during the consult · Verified at the chair"
+        right={<Chip tone="emerald"><TrendingUp className="w-3 h-3 text-emerald-600" /> Chairside Workflow</Chip>}
       />
 
       <div className="flex-1 p-4 md:p-6 flex flex-col gap-4 max-w-4xl mx-auto w-full overflow-hidden justify-center">
@@ -1481,13 +1482,13 @@ function RoiScene({ progress }: SceneProps) {
           className="text-center space-y-1"
         >
           <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-600 bg-indigo-50 px-3 py-1 rounded-full border border-indigo-100">
-            Measurable Clinical ROI
+            Chairside Documentation
           </span>
           <h2 className="text-xl md:text-2xl font-bold text-slate-800">
-            Eliminate 100% of After-Hours Charting
+            Notes Completed During the Visit
           </h2>
           <p className="text-xs text-slate-500 max-w-lg mx-auto">
-            Real chairside time saved per dentist transforms practice capacity and work-life balance.
+            Notes draft during the consultation so charting happens at the chair rather than after hours, verified against your day sheet.
           </p>
         </motion.div>
 
@@ -1506,8 +1507,8 @@ function RoiScene({ progress }: SceneProps) {
               <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-full">Per Visit</span>
             </div>
             <div>
-              <div className="text-2xl font-black text-slate-800 tracking-tight">15–20 min</div>
-              <div className="text-xs font-semibold text-slate-600 mt-0.5">Saved per complex procedure</div>
+              <div className="text-2xl font-black text-slate-800 tracking-tight">Drafted at Chair</div>
+              <div className="text-xs font-semibold text-slate-600 mt-0.5">Saved during visit</div>
               <div className="text-[11px] text-slate-400 mt-1">Instant notes for crowns, endo & implants</div>
             </div>
           </motion.div>
@@ -1525,8 +1526,8 @@ function RoiScene({ progress }: SceneProps) {
               <span className="text-[10px] font-bold text-indigo-100 bg-white/15 px-2 py-0.5 rounded-full">Daily Impact</span>
             </div>
             <div>
-              <div className="text-2xl font-black text-white tracking-tight">1.5–2 Hours</div>
-              <div className="text-xs font-medium text-indigo-100 mt-0.5">Recovered every single day</div>
+              <div className="text-2xl font-black text-white tracking-tight">Zero Evening Backlog</div>
+              <div className="text-xs font-medium text-indigo-100 mt-0.5">Recovered clinical time</div>
               <div className="text-[11px] text-indigo-200 mt-1">Leave clinic at 5:00 PM with zero backlog</div>
             </div>
           </motion.div>
@@ -1541,12 +1542,12 @@ function RoiScene({ progress }: SceneProps) {
               <div className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
                 <DollarSign className="w-5 h-5" />
               </div>
-              <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">Practice Revenue</span>
+              <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">Practice Records</span>
             </div>
             <div>
-              <div className="text-2xl font-black text-slate-800 tracking-tight">+$15k–$30k</div>
-              <div className="text-xs font-semibold text-slate-600 mt-0.5">Monthly chair capacity</div>
-              <div className="text-[11px] text-slate-400 mt-1">Room to treat +1 patient/day per chair</div>
+              <div className="text-2xl font-black text-slate-800 tracking-tight">Day Sheet Driven</div>
+              <div className="text-xs font-semibold text-slate-600 mt-0.5">Clinical capacity</div>
+              <div className="text-[11px] text-slate-400 mt-1">Measured against practice appointments</div>
             </div>
           </motion.div>
         </div>
@@ -1801,9 +1802,12 @@ function PricingScene({ progress }: SceneProps) {
                 <span className="text-xs font-bold text-indigo-600 uppercase tracking-wider">Practice Owner</span>
                 <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-2.5 py-0.5 rounded-full">Multi-Chair</span>
               </div>
-              <div className="text-2xl font-black text-slate-800">$99–$149 <span className="text-xs font-normal text-slate-400">/ month per clinic</span></div>
-              <p className="text-[10px] text-indigo-600 font-semibold mt-0.5">$99/mo annual · $149 month-to-month</p>
-              <p className="text-xs text-slate-500 mt-1">Practice-wide audit oversight, template lock, and multi-chair sync.</p>
+              <div className="text-2xl font-black text-slate-800">
+                A${PLANS.practice.monthlyAudExGst} <span className="text-xs font-normal text-slate-400">/ month per clinic (ex GST)</span>
+              </div>
+              <p className="text-xs text-slate-500 mt-1">
+                Up to {PLANS.practice.seats} seats · {PLANS.practice.dailyNotes} notes/day · Audited practice management.
+              </p>
 
               <div className="mt-4 pt-3 border-t border-slate-100 space-y-2 text-xs text-slate-700">
                 <div className="flex items-center gap-2 font-medium">
@@ -1844,9 +1848,6 @@ function PricingScene({ progress }: SceneProps) {
 function PipelineScene({ progress }: SceneProps) {
   const showModal = progress > 0.45;
   const isBooked = progress > 0.65;
-  const card1Val = Math.min(34800, Math.floor(progress * 4 * 34800));
-  const card2Val = progress > 0.25 ? 18400 : 0;
-  const roiVal = progress > 0.25 ? '123.5x' : '0x';
 
   return (
     <div className="h-full w-full bg-[#F8F7F5] flex flex-col relative overflow-hidden">
@@ -1875,22 +1876,22 @@ function PipelineScene({ progress }: SceneProps) {
               </span>
               <span className="px-3 py-1 rounded-lg text-[10px] font-bold bg-white text-primary shadow-sm flex items-center gap-1">
                 <Sparkles className="w-3 h-3 text-amber-500" />
-                <span>Revenue Engine & PMS Sync</span>
+                <span>Treatment Pipeline & Recalls</span>
               </span>
             </div>
           </div>
 
-          {/* Subheader with universal PMS bridge indicator */}
+          {/* Subheader: what the export format is copy-ready for */}
           <div className="flex items-center justify-between text-xs pt-0.5 px-0.5">
             <div className="flex items-center gap-2">
               <span className="text-[11px] font-bold text-slate-700">Closed-Loop Recovery Pipeline</span>
               <span className="px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 text-[8px] font-bold border border-indigo-200">
-                Universal PMS Bridge
+                PMS-ready export
               </span>
             </div>
             <div className="flex items-center gap-1.5 text-[8px] font-semibold text-slate-500 bg-white px-2 py-1 rounded-lg border border-slate-200">
               <CheckCircle2 className="w-3 h-3 text-emerald-500" />
-              <span>D4W · EXACT · Cliniko Verified</span>
+              <span>D4W · EXACT · Cliniko format</span>
             </div>
           </div>
 
@@ -1907,9 +1908,9 @@ function PipelineScene({ progress }: SceneProps) {
                 <Clock className="w-3.5 h-3.5 text-amber-500" />
               </div>
               <div className="text-lg font-black text-slate-800 mt-1">
-                ${card1Val.toLocaleString()}
+                —
               </div>
-              <span className="text-[8px] text-slate-400 font-medium">14 pending items</span>
+              <span className="text-[8px] text-slate-400 font-medium">Drafted from visit notes</span>
             </motion.div>
 
             <motion.div
@@ -1919,13 +1920,13 @@ function PipelineScene({ progress }: SceneProps) {
               className="bg-white rounded-2xl p-3 border border-slate-200/80 shadow-sm"
             >
               <div className="flex items-center justify-between text-slate-400">
-                <span className="text-[10px] font-bold">Booked Prod.</span>
+                <span className="text-[10px] font-bold">Booked production (reported)</span>
                 <TrendingUp className="w-3.5 h-3.5 text-emerald-500" />
               </div>
               <div className="text-lg font-black text-emerald-600 mt-1">
-                ${card2Val.toLocaleString()}
+                —
               </div>
-              <span className="text-[8px] text-emerald-600 font-semibold">9 verified in PMS</span>
+              <span className="text-[8px] text-emerald-600 font-semibold">with a PMS reference</span>
             </motion.div>
 
             <motion.div
@@ -1939,9 +1940,9 @@ function PipelineScene({ progress }: SceneProps) {
                 <DollarSign className="w-3.5 h-3.5" />
               </div>
               <div className="text-lg font-black text-white mt-1">
-                {roiVal}
+                —
               </div>
-              <span className="text-[8px] text-indigo-200/80 font-medium">vs. $149/mo sub</span>
+              <span className="text-[8px] text-indigo-200/80 font-medium">vs. your plan</span>
             </motion.div>
 
             <motion.div
@@ -1951,13 +1952,13 @@ function PipelineScene({ progress }: SceneProps) {
               className="bg-white rounded-2xl p-3 border border-slate-200/80 shadow-sm"
             >
               <div className="flex items-center justify-between text-slate-400">
-                <span className="text-[10px] font-bold">Total Lifetime</span>
+                <span className="text-[10px] font-bold">Total identified</span>
                 <ShieldCheck className="w-3.5 h-3.5 text-primary" />
               </div>
               <div className="text-lg font-black text-slate-800 mt-1">
-                $51,600
+                —
               </div>
-              <span className="text-[8px] text-slate-400 font-medium">Captured from notes</span>
+              <span className="text-[8px] text-slate-400 font-medium">Reported from marked bookings</span>
             </motion.div>
           </div>
 
@@ -1982,7 +1983,7 @@ function PipelineScene({ progress }: SceneProps) {
                     {isBooked ? (
                       <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-[9px] font-bold flex items-center gap-1">
                         <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600" />
-                        <span>✓ D4W #8491 Verified</span>
+                        <span>D4W appointment reference logged</span>
                       </span>
                     ) : (
                       <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 text-[9px] font-bold">
@@ -2055,7 +2056,7 @@ function PipelineScene({ progress }: SceneProps) {
             </div>
             <div className="py-1.5 px-3 rounded-xl bg-slate-800 text-white text-[10px] font-bold shadow-sm flex items-center gap-1">
               <ShieldCheck className="w-3 h-3 text-emerald-400" />
-              <span>Sync to D4W</span>
+              <span>Copy to D4W</span>
             </div>
           </div>
         </motion.div>

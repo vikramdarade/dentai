@@ -81,10 +81,11 @@ describe('Product claims guard — no claim may exceed what the code does', () =
       .readFileSync(path.resolve(__dirname, '..', rel), 'utf8')
       .replace(/\/\*[\s\S]*?\*\//g, '')
       .replace(/^\s*\/\/.*$/gm, '');
+
   it('prevents reintroduction of invented marketing metrics, ROI multiples, or fabricated dollar constants', () => {
     const content = readSurface('src/components/Landing.tsx');
 
-    // Banned fabricated constants from §5 & §7
+    // Banned fabricated constants
     const bannedConstants = [
       '$34,800',
       '$18,400',
@@ -124,12 +125,15 @@ describe('Product claims guard — no claim may exceed what the code does', () =
       'src/components/LegalPage.tsx',
       'src/demo/demoScript.ts',
       'src/components/TreatmentPipeline.tsx',
+      'src/demo/Scenes.tsx',
     ];
     const banned = [
       'verify bookings directly',
       'directly in Dental4Windows',
+      'Universal PMS Bridge',
       'PMS Bridge',
       'PMS Sync',
+      'Sync to D4W',
       'automatically update booking status',
       'two-way sync',
     ];
@@ -152,6 +156,7 @@ describe('Product claims guard — no claim may exceed what the code does', () =
       'src/components/Landing.tsx',
       'src/components/TreatmentPipeline.tsx',
       'src/demo/demoScript.ts',
+      'src/demo/Scenes.tsx',
     ];
     const banned = [
       'Verified Recovered Revenue',
@@ -160,11 +165,19 @@ describe('Product claims guard — no claim may exceed what the code does', () =
       'PMS-verified',
       'on your ledger',
     ];
+    // Structural variants: "#8491 Verified", "verified in PMS".
+    const bannedPatterns = [
+      /\bverified in PMS\b/i,
+      /\b#\d+\s+Verified\b/i,
+    ];
 
     for (const file of surfaces) {
       const fileContent = readSurface(file);
       for (const token of banned) {
         expect(fileContent, `${file} must not claim: ${token}`).not.toContain(token);
+      }
+      for (const pattern of bannedPatterns) {
+        expect(fileContent, `${file} must not claim: ${pattern}`).not.toMatch(pattern);
       }
     }
   });
@@ -209,43 +222,41 @@ describe('Product claims guard — no claim may exceed what the code does', () =
    */
   it('never divides booked value by a hardcoded plan price', () => {
     const pipeline = readSurface('src/components/TreatmentPipeline.tsx');
+    const server = fs.readFileSync(path.resolve(__dirname, '..', 'server.ts'), 'utf8');
+    const scenes = readSurface('src/demo/Scenes.tsx');
+
     expect(pipeline).not.toMatch(/\/\s*149\b/);
     expect(pipeline).not.toMatch(/subscriptionCost\s*=\s*[0-9]/);
+    expect(server).not.toMatch(/const\s+subscriptionCost\s*=\s*149\s*;/);
+    expect(scenes).not.toContain('123.5x');
   });
 
   /**
-   * PENDING — not yet enforced. The demo VISUALS still carry the fabricated
-   * constants the landing-page guard above bans, plus PMS-verification claims
-   * removed everywhere else:
-   *
-   *   Scenes.tsx:1847-1849  Math.min(34800, …)  ·  18400  ·  '123.5x'
-   *   Scenes.tsx:1928       "9 verified in PMS"
-   *   Scenes.tsx:1985       "✓ D4W #8491 Verified"
-   *   Scenes.tsx:2058       "Sync to D4W"
-   *   Scenes.tsx:1878,1888,1893  "Revenue Engine & PMS Sync" · "Universal PMS
-   *                              Bridge" · "D4W · EXACT · Cliniko Verified"
-   *   Scenes.tsx:1486,1501,1528,1547  "Eliminate 100% of After-Hours Charting" ·
-   *                              "15–20 min" · "1.5–2 Hours … every single day" ·
-   *                              "+$15k–$30k"
-   *
-   * The replacement patch is written out in
-   * docs/reviews/claims-fix-applied-and-pending.md. `src/demo/Scenes.tsx` is 2,125
-   * lines and the editor available for that pass could not reach past ~64 KB of a
-   * file, so the fix needs a session that can write the whole file. When it lands:
-   * enable this test and add 'src/demo/Scenes.tsx' to the `surfaces` arrays above.
+   * The demo VISUALS once carried the same fabricated constants and
+   * PMS-verification claims banned everywhere else. The Scenes.tsx rewrite landed
+   * with the accuracy merge, so this guard now runs for real — keep it running.
    */
-  it.skip('PENDING: demo visuals carry no fabricated constants or PMS-verification claims', () => {
+  it('demo visuals carry no fabricated constants or PMS-verification claims', () => {
     const scenes = readSurface('src/demo/Scenes.tsx');
-    const pending = [
+    const banned = [
       '34800',
       '18400',
       '123.5x',
+      '$51,600',
+      '+$15k–$30k',
+      '+$15k-$30k',
+      '$99/mo',
+      '$99–$149',
+      '$99-$149',
       '9 verified in PMS',
+      'D4W #8491 Verified',
       'Universal PMS Bridge',
       'Sync to D4W',
-      '+$15k–$30k',
+      'Eliminate 100% of After-Hours Charting',
+      '15–20 min',
+      '1.5–2 Hours',
     ];
-    for (const token of pending) {
+    for (const token of banned) {
       expect(scenes, `src/demo/Scenes.tsx must not claim: ${token}`).not.toContain(token);
     }
   });

@@ -1076,6 +1076,7 @@ export default function App() {
           authToken={authToken}
           consultations={visibleConsultations}
           activeClinicId={activeClinicId}
+          activeClinic={activeClinic}
           initialPatientId={selectedConsultation?.id || null}
           onOpenHistoryHub={() => {
             setHubInitialTab('records');

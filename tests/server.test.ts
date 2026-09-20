@@ -906,8 +906,14 @@ describe('DentAI Server - Mocked Unit Tests', () => {
     const telemetry = await request(app).get('/api/telemetry');
     expect(telemetry.status).toBe(401);
 
-    const ops = await request(app).get('/api/ops/telemetry');
-    expect(ops.status).toBe(503); // ops surface disabled until DENTAI_OPS_SECRET is set
+    const prevSecret = process.env.DENTAI_OPS_SECRET;
+    delete process.env.DENTAI_OPS_SECRET;
+    try {
+      const ops = await request(app).get('/api/ops/telemetry');
+      expect(ops.status).toBe(503); // ops surface disabled until DENTAI_OPS_SECRET is set
+    } finally {
+      if (prevSecret !== undefined) process.env.DENTAI_OPS_SECRET = prevSecret;
+    }
   });
 
   it('drains the note queue on a scheduled (ops-authenticated) request', async () => {

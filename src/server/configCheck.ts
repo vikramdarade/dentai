@@ -172,6 +172,13 @@ export const ENV_REQUIREMENTS: EnvRequirement[] = [
     impact: 'Email is disabled unless both this and RESEND_API_KEY are set.',
     howTo: 'e.g. DentAI <notifications@yourdomain.com.au> (SPF/DKIM/DMARC configured).',
   },
+  {
+    key: 'DENTAI_API_RATE_LIMIT',
+    severity: 'optional',
+    purpose: 'Global API rate limit per 15-minute window (default: 1500 in prod, 10000 in dev/test).',
+    impact: 'Defaults to 1500 requests per 15 minutes per session or IP address.',
+    howTo: 'Integer, e.g. 2000 or 3000.',
+  },
 ];
 
 export interface ConfigFinding {

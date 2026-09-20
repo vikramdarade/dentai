@@ -42,7 +42,7 @@ import {
   personalClinicName,
   sanitizeClinicName
 } from './src/lib/clinics';
-import { PLANS, type PlanId, resolveEntitlements } from './src/lib/plans';
+import { PLANS, isPlanId, type PlanId, resolveEntitlements } from './src/lib/plans';
 import {
   extractProposedTreatmentsFromFindings,
   lookupAdaFee,
@@ -53,6 +53,8 @@ import type {
   TreatmentStatus,
   PracticeRoiSummary
 } from './src/types';
+import { verifyPmsWebhookSignature, checkAndRecordWebhookReplay } from './src/server/pmsWebhookAuth';
+import { evaluateChunkIngestion } from './src/lib/standbyPolicy';
 import { logger } from './logger';
 import fs from 'fs';
 import crypto from 'crypto';
@@ -567,29 +569,61 @@ app.use((req, res, next) => {
 });
 
 /*
- * API rate limiting (100 requests / 15 minutes per address).
+ * API rate limiting.
  *
- * Durable: the counters live in the shared store, so twenty serverless
- * instances share one budget instead of each getting its own. See
- * src/server/durableRateLimit.ts.
+ * Configurable via DENTAI_API_RATE_LIMIT (default: 1,500 requests / 15 mins
+ * in production, 10,000 in development/test).
+ *
+ * Scoped per authenticated session (Bearer token hash) when signed in, so
+ * multiple clinicians sharing one clinic NAT IP address do not exhaust
+ * each other's quota. Unauthenticated requests fall back to client IP.
+ *
+ * Durable: the counters live in the shared store, so serverless instances
+ * share one budget instead of each getting its own. See src/server/durableRateLimit.ts.
  */
+const envApiRateLimit = Number(process.env.DENTAI_API_RATE_LIMIT);
+const defaultApiRateLimit =
+  process.env.NODE_ENV === 'test' || process.env.NODE_ENV === 'development' ? 10_000 : 1_500;
+const apiRateLimitMax =
+  Number.isFinite(envApiRateLimit) && envApiRateLimit > 0 ? envApiRateLimit : defaultApiRateLimit;
+
 const apiLimiter = createDurableRateLimit(rateLimitDeps, {
   name: 'api',
   windowMs: 15 * 60 * 1000,
-  max: process.env.NODE_ENV === 'test' ? 10_000 : 100,
+  max: apiRateLimitMax,
   message: 'Too many requests, please try again later.',
+  keyOf: (req) => {
+    // If the request carries an Authorization header, partition the rate limit
+    // by session so clinicians behind a shared clinic NAT IP do not exhaust
+    // each other's request allowance.
+    const auth = req.headers?.['authorization'];
+    if (typeof auth === 'string' && auth.startsWith('Bearer ')) {
+      const token = auth.slice(7).trim();
+      if (token) {
+        return `auth:${crypto.createHash('sha256').update(token).digest('hex').slice(0, 16)}`;
+      }
+    }
+    return req.ip || req.socket?.remoteAddress || 'unknown';
+  },
   // Job polling is the async fabric's own heartbeat: the client polls every
   // ~1.5s while a note generates, and each poll opportunistically ticks the
-  // worker. Counting polls here would spend the dentist's entire 100-request
+  // worker. Counting polls here would spend the dentist's entire request
   // window mid-consult; the POST that enqueues is still metered.
-  skip: (req) =>
-    (req.method === 'GET' && /^\/api\/notes\/jobs\/[0-9a-fA-F-]+$/.test(req.originalUrl || '')) ||
-    // The chair-side phone beacon polls while a dentist is mid-appointment and
-    // carries a chair token, not a session. Metering its heartbeat would spend
-    // the dentist's whole request window during a procedure, so it is exempt —
-    // while the call that enqueues work and every other route stays metered.
-    (req.method === 'GET' && /^\/api\/beacon\/chair\/[^/]+\/status$/.test(req.originalUrl || '')) ||
-    (req.method === 'POST' && /^\/api\/beacon\/chair\/[^/]+\/telemetry$/.test(req.originalUrl || '')),
+  skip: (req) => {
+    // Strip query strings to ensure clean path matching per workspace guidelines
+    const path = (req.originalUrl || '').split('?')[0];
+    return (
+      (req.method === 'GET' && /^\/api\/notes\/jobs\/[0-9a-fA-F-]+$/.test(path)) ||
+      // The chair-side phone beacon polls while a dentist is mid-appointment and
+      // carries a chair token, not a session. Metering its heartbeat would spend
+      // the dentist's whole request window during a procedure, so it is exempt —
+      // while the call that enqueues work and every other route stays metered.
+      (req.method === 'GET' && /^\/api\/beacon\/chair\/[^/]+\/status$/.test(path)) ||
+      (req.method === 'POST' && /^\/api\/beacon\/chair\/[^/]+\/telemetry$/.test(path)) ||
+      (req.method === 'GET' && path === '/api/health') ||
+      path.startsWith('/api/ops/')
+    );
+  },
 });
 
 app.use('/api/', apiLimiter);
@@ -3770,21 +3804,74 @@ app.patch('/api/pipeline/:id', authenticateToken, async (req: any, res) => {
 // Inbound PMS Booking Webhook (Cliniko, Core Practice, or Zapier integration)
 app.post('/api/webhooks/pms-booking', async (req: any, res) => {
   try {
-    const { opportunityId, pmsType = 'cliniko', pmsAppointmentId, patientName, bookedAt = new Date().toISOString(), clinicId } = req.body;
+    const webhookSecret = process.env.DENTAI_PMS_WEBHOOK_SECRET;
+    if (!webhookSecret || !webhookSecret.trim()) {
+      logger.warn('Inbound PMS booking webhook received but DENTAI_PMS_WEBHOOK_SECRET is not configured.');
+      return res.status(503).json({ error: 'Webhook not configured.', code: 'WEBHOOK_NOT_CONFIGURED' });
+    }
 
-    if (!pmsAppointmentId && !opportunityId) {
-      return res.status(400).json({ error: 'Missing required parameters: opportunityId or pmsAppointmentId required.' });
+    const signatureHeader = req.headers['x-dentai-signature'] as string | undefined;
+    const rawPayload = req.rawBody;
+    const sigResult = verifyPmsWebhookSignature({
+      secret: webhookSecret,
+      header: signatureHeader,
+      payload: rawPayload
+    });
+
+    if (!sigResult.ok) {
+      const reason = (sigResult as any).reason;
+      logger.warn(`Inbound PMS booking webhook signature rejected: ${reason}`);
+      logAudit('pms_webhook_rejected', 'system', { reason });
+      return res.status(401).json({ error: 'Invalid signature.', code: 'INVALID_SIGNATURE' });
+    }
+
+    // Replay / idempotency guard
+    const eventId =
+      (req.headers['x-dentai-event-id'] as string) ||
+      (signatureHeader ? signatureHeader.split('v1=')[1] : undefined);
+    if (eventId && checkAndRecordWebhookReplay(eventId)) {
+      logger.warn('Inbound PMS booking webhook duplicate/replay detected.');
+      return res.status(200).json({ success: true, duplicate: true, message: 'Event already processed.' });
+    }
+
+    const {
+      opportunityId,
+      pmsType = 'cliniko',
+      pmsAppointmentId,
+      bookedAt: rawBookedAt,
+      clinicId
+    } = req.body || {};
+
+    if (!opportunityId || typeof opportunityId !== 'string' || !opportunityId.trim()) {
+      return res.status(400).json({ error: 'Missing required opportunityId parameter.', code: 'OPPORTUNITY_ID_REQUIRED' });
+    }
+
+    if (!clinicId || typeof clinicId !== 'string' || !clinicId.trim()) {
+      return res.status(400).json({ error: 'Missing required clinicId parameter.', code: 'CLINIC_ID_REQUIRED' });
+    }
+
+    // Validate ISO timestamp, defaulting securely to server receipt time
+    let bookedAt = new Date().toISOString();
+    if (rawBookedAt && typeof rawBookedAt === 'string') {
+      const parsed = Date.parse(rawBookedAt);
+      if (!isNaN(parsed)) {
+        bookedAt = new Date(parsed).toISOString();
+      }
     }
 
     let foundOpp: TreatmentOpportunity | null = null;
     let targetConsult: any = null;
 
     if (dbEnabled) {
-      const fastConsultId = opportunityId && opportunityId.includes('-tx-') ? opportunityId.split('-tx-')[0] : null;
-      const allConsults = clinicId ? await dbListConsultationsForClinic(clinicId) : [];
+      const fastConsultId = opportunityId.includes('-tx-') ? opportunityId.split('-tx-')[0] : null;
+      const allConsults = await dbListConsultationsForClinic(clinicId);
       const searchPool = fastConsultId ? allConsults.filter((c: any) => c.id === fastConsultId) : allConsults;
 
       for (const c of searchPool) {
+        if (c.clinicId && c.clinicId !== clinicId) {
+          continue;
+        }
+
         const items = c.findings?.proposedTreatments || extractProposedTreatmentsFromFindings({
           findings: c.findings,
           patientName: `${c.firstName} ${c.lastName}`,
@@ -3792,9 +3879,7 @@ app.post('/api/webhooks/pms-booking', async (req: any, res) => {
           clinicId: c.clinicId,
           consultationId: c.id
         });
-        const match = opportunityId
-          ? items.find((i: any) => i.id === opportunityId)
-          : items.find((i: any) => patientName && `${c.firstName} ${c.lastName}`.toLowerCase().includes(patientName.toLowerCase().trim()));
+        const match = items.find((i: any) => i.id === opportunityId);
 
         if (match) {
           match.status = 'booked';
@@ -3812,12 +3897,17 @@ app.post('/api/webhooks/pms-booking', async (req: any, res) => {
       }
     } else {
       const data = await readConsultationsDb();
-      const fastConsultId = opportunityId && opportunityId.includes('-tx-') ? opportunityId.split('-tx-')[0] : null;
+      const fastConsultId = opportunityId.includes('-tx-') ? opportunityId.split('-tx-')[0] : null;
       const searchPool = fastConsultId
         ? data.consultations.filter((c: any) => c.id === fastConsultId)
         : data.consultations;
 
       for (const c of searchPool) {
+        // Enforce clinic boundary: consultation must match request's clinicId
+        if (c.clinicId && c.clinicId !== clinicId) {
+          continue;
+        }
+
         const items = c.findings?.proposedTreatments || extractProposedTreatmentsFromFindings({
           findings: c.findings,
           patientName: `${c.firstName} ${c.lastName}`,
@@ -3825,9 +3915,7 @@ app.post('/api/webhooks/pms-booking', async (req: any, res) => {
           clinicId: c.clinicId,
           consultationId: c.id
         });
-        const match = opportunityId
-          ? items.find((i: any) => i.id === opportunityId)
-          : items.find((i: any) => patientName && `${c.firstName} ${c.lastName}`.toLowerCase().includes(patientName.toLowerCase().trim()));
+        const match = items.find((i: any) => i.id === opportunityId);
 
         if (match) {
           match.status = 'booked';
@@ -3853,7 +3941,8 @@ app.post('/api/webhooks/pms-booking', async (req: any, res) => {
       opportunityId: foundOpp.id,
       pmsType,
       pmsAppointmentId,
-      consultationId: targetConsult?.id
+      consultationId: targetConsult?.id,
+      clinicId
     });
 
     res.json({ success: true, opportunity: foundOpp });
@@ -3963,8 +4052,22 @@ app.get('/api/pipeline/roi', authenticateToken, async (req: any, res) => {
       ? Number((daysToBookTotal / daysToBookCount).toFixed(1))
       : 0;
 
-    const subscriptionCost = 149;
-    const netRoiMultiple = totalBookedValue > 0
+    // The multiple must divide by what THIS clinic actually pays. This was a
+    // hardcoded 149, which told a free Solo clinic it was realising a return
+    // against a subscription it does not have, and gave a Group/annual/GST
+    // customer the Practice price. No cost => no multiple, not an invented one.
+    let subscriptionCost = 0;
+    if (clinicId) {
+      try {
+        const subscription = await subscriptionStore.forClinic(clinicId);
+        const plan = isPlanId(subscription?.plan) ? subscription.plan : null;
+        subscriptionCost = plan ? PLANS[plan].monthlyAudExGst : 0;
+      } catch (subErr: any) {
+        logger.warn('Could not resolve the plan price for the ROI summary:', subErr?.message || subErr);
+      }
+    }
+    const netRoiMultiple =
+      subscriptionCost > 0 && totalBookedValue > 0
       ? Number((totalBookedValue / subscriptionCost).toFixed(1))
       : 0;
 
@@ -4086,15 +4189,14 @@ MANDATORY CLINICAL RULES:
    - #16 (MOD): DB cusp fracture & recurrent secondary caries | Cold (+ lingered >15s), TTP (+), EPT 62/80 | Rec: Endodontic therapy followed by full ceramic crown (ADA 611)
    - #24 (MO): Primary carious lesion into mid-dentin | Cold (+ normal), TTP (-) | Rec: 2-surface composite resin (ADA 532)
    - #36: Defective occlusal margin on existing amalgam | Asymptomatic | Rec: Monitor at recall
-   At the end of toothFindings, if general teeth are sound, add: "Remaining Dentition: Sound enamel, stable existing restorations, no active caries detected."
+   Do NOT synthesize findings for unexamined teeth. Document strictly what was examined.
 2. FDI NOTATION EXCLUSIVITY: Use the FDI two-digit system exclusively (quadrants 1-4: 11-18, 21-28, 31-38, 41-48) whenever any tooth is referenced. Map spoken forms ("tooth one six", "tooth 16", "sixteen", "thirty three", "forty seven") to the correct two-digit FDI form.
 3. ACCENT & PHONETIC RESILIENCY: Correct phonetic errors contextually (e.g. "tooth category"/"feeling" -> filling/composite restoration; "tooth dirty tree" -> tooth 33; "root can all" -> root canal treatment; "pulp it is" -> pulpitis; "pocket depths tree two tree" -> 3-2-3 mm pocket depths).
 4. SECTIONAL BOUNDARIES: Keep toothFindings strictly for teeth. Periodontal findings (BPE scores, pocket depths, bleeding on probing, calculus) must sit in findingsGingival / objective. Oral cancer soft tissue screening (lips, tongue, floor of mouth, palate) must sit in examination / history.
 5. SPELLING: Use Australian/British English (en-AU): colour, anaesthetic, minimise, programme, haemorrhage.
 6. NO FABRICATION, AND NO OMISSION (CRITICAL CLINICAL SAFETY): Extract ONLY what the intake form and transcript support. NEVER invent a diagnosis, treatment, drug, radiograph, test result or recall interval that was not stated, and never guess a tooth number. But omission is equally a documentation failure: record EVERY finding, tooth, surface, test, material and instruction that WAS stated, however briefly or informally, in the section the template defines for it. Leave a section empty only when the encounter genuinely does not support it — never because the wording was casual, the detail seemed minor, or the surrounding speech was unclear. When speech is unclear, record it neutrally and precisely as stated rather than dropping it.
-7. FREEFORM PROCEDURAL NARRATIVE: For treatmentPerformed (when treatment was done today), write a natural, fluid clinical narrative recording: Informed consent confirmed, Local Anaesthesia (drug, volume, adrenaline, technique e.g. IANB/infiltration, aspiration negative, profound anaesthesia achieved), Moisture control/isolation (rubber dam placed, clamp number, stable seal), Cavity prep & caries excavation under magnification, Materials used & incremental placement, Occlusion checked with articulating paper & polished, and patient disposition.
-8. INTEGRATED AHPRA SECTION 133 INFORMED CONSENT: In recommendations / plan, whenever future treatment is diagnosed or procedure performed, automatically include a concise, legally robust consent clause:
-   "Informed Consent: Discussed diagnosis, procedural stages, risks (post-op sensitivity, irreversible pulpitis, restoration failure), alternative options (extraction, monitoring), and itemized ADA schedule fees. Patient understood and provided informed consent to proceed."
+7. FREEFORM PROCEDURAL NARRATIVE: For treatmentPerformed (when treatment was done today), write a natural, fluid clinical narrative recording what was actually performed: informed consent confirmed, local anaesthesia (drug, volume, concentration, adrenaline, technique e.g. IANB/infiltration, aspiration negative, profound anaesthesia achieved if stated), isolation (rubber dam/cotton rolls), preparation & caries excavation under magnification, materials used & incremental placement, occlusion checked with articulating paper & polished, and patient disposition. Never invent unmentioned steps, clamp numbers, or drugs.
+8. INFORMED CONSENT (AHPRA SECTION 133 STANDARD): In recommendations / plan, record the informed consent discussion based strictly on the procedural stages, risks, alternative treatment options (e.g. restoration vs endodontics vs extraction vs monitoring), costs, and patient understanding that were verbally communicated and agreed upon during the consult. Never invent risks or options that were not mentioned.
 9. ADA ITEM CODES: In adaCodes, list Australian Dental Association 3-digit item numbers that were actually mentioned or clearly performed, as a comma-separated string e.g. "011 - Comprehensive oral examination, 022 - Intraoral periapical radiograph (Tooth 16), 414 - Pulp extirpation (Tooth 16)".
 10. SPECIALIST REFERRAL: If the clinician mentions referring the patient to a dental specialist (Endodontist, Periodontist, Oral & Maxillofacial Surgeon, Orthodontist, Prosthodontist, Paediatric), set specialistReferral.required to true and generate a peer-to-peer referral letter in letterText using Australian clinical formatting. If NO referral is discussed, set specialistReferral.required to false.
 11. PATIENT CONSENT & CARE: In patientConsent, provide an AHPRA-compliant layperson summary of treatment, options discussed, risks of no treatment, post-operative home care instructions, and red-flag warning signs.
@@ -4513,29 +4615,39 @@ app.post('/api/generate-notes', authenticateToken, async (req: express.Request, 
  * and returns a ready-to-record day roster.
  * =========================================================================== */
 
-const SCHEDULE_PARSE_PROMPT = `You are an elite dental practice management assistant specialized in Australian dental software (Dental4Windows / D4W, Praktika, Exact, Dental Master).
-Analyze this daily appointment book schedule screenshot.
+const SCHEDULE_PARSE_PROMPT = `You are an elite dental practice management assistant specialized in Australian dental software (Dental4Windows / D4W, Exact, Praktika, Dental Master, Oasis).
+Analyze this daily appointment book schedule screenshot (such as a D4W column or Exact day view).
 Extract all scheduled patient appointments in chronological order.
 
 MANDATORY RULES:
-1. Extract patient full names. Normalize names from "Last, First" or "LAST FIRST" to natural "First Last" format (e.g. "SMITH, SARAH" -> "Sarah Smith", "O'Connor, Liam" -> "Liam O'Connor").
-2. Extract the appointment start time in 24-hour "HH:MM" format (e.g. "08:30", "09:15", "14:00").
-3. Extract the procedure description/notes (e.g. "Check & Clean", "Comp Exam", "Prep #16 Crown", "Toothache / Emergency", "Filling #24").
-4. Map the procedure description to the most appropriate DentAI appointmentType value from this exact set:
-   - "examination" (Check-up, comprehensive exam, periodic exam, consult)
-   - "scale_clean" (Hygiene, scale and clean, prophy, periodontal debridement)
-   - "emergency" (Toothache, trauma, broken tooth, emergency pain relief, swelling)
-   - "restorative" (Fillings, composite, amalgam, restoration)
-   - "endodontic" (Root canal treatment, RCT, extirpation, pulp capping)
-   - "surgical" (Extraction, surgical removal, suture removal)
-   - "prosthodontic" (Crown, bridge, veneer, denture, impression, insert)
-   - "paediatric" (Child exam, fissure sealants, CDBS)
-5. Assign a default templateId:
+1. Extract patient full names. 
+   - Strip leading honorific titles like "Master", "Mrs", "Miss", "Ms", "Mr", "Dr" (e.g. "Master Tran, Justin" -> "Justin Tran", "Mrs Pugh, Lorraine" -> "Lorraine Pugh", "Ms Wolswinkel, Elke (Elke)" -> "Elke Wolswinkel").
+   - Normalize names from "Last, First" or "LAST FIRST" to natural "First Last" format (e.g. "Tran, Justin" -> "Justin Tran", "Perrett, Ryder" -> "Ryder Perrett", "Tannen, Raphael (Raph)" -> "Raphael Tannen").
+   - Remove trailing bracketed nicknames if redundant.
+2. Extract the appointment start time in 24-hour "HH:MM" format (e.g. "08:30", "09:40", "11:30", "13:00", "14:15", "16:00") based on slot position or timestamps.
+3. Extract DOB (Date of Birth) if present in notes or card in DD/MM/YYYY format, or empty string "" if not visible. NEVER invent a DOB.
+4. Extract the procedure description/notes:
+   - "26 + 18 exo" -> "Extraction of tooth #26 & #18"
+   - "Check up and clean" -> "Comprehensive Examination & Hygiene Clean"
+   - "Fillings" -> "Restorative Composite Fillings"
+   - "CDBS" -> "Child Dental Benefits Schedule (CDBS) Dental Care"
+   - "Stage 2" -> "Stage 2 Prosthodontic Treatment"
+   - "s/c | SS" -> "Scale & Clean / Hygiene Debridement"
+5. Map the procedure description to the most appropriate DentAI appointmentType:
+   - "surgical" (Extractions, exo, surgical removal, wisdom teeth)
+   - "scale_clean" (Hygiene, scale and clean, s/c, prophy, debridement)
+   - "restorative" (Fillings, composite, resin, amalgam)
+   - "paediatric" (CDBS, child exam, young patient check)
+   - "examination" (Check up, comprehensive exam, periodic review, consult)
+   - "emergency" (Toothache, trauma, broken tooth, emergency pain)
+   - "endodontic" (Root canal, RCT, extirpation)
+   - "prosthodontic" (Crown, bridge, stage 2, veneer, denture, insert)
+6. Assign templateId:
    - "concise" for scale_clean or simple examinations
-   - "soap" for emergency / pain visits
+   - "soap" for emergency visits
    - "standard" for all other procedures
-6. Ignore empty slots, lunch breaks, staff meetings, lab collection notes, or blank rows.
-7. Return ONLY a single JSON object matching:
+7. Ignore lunch breaks, empty slots, HealthEngine open slots, or blank rows.
+8. Return ONLY a single JSON object matching:
 {
   "provider": "Dr. Name if visible, or empty string",
   "date": "YYYY-MM-DD or today's date",
@@ -4543,6 +4655,7 @@ MANDATORY RULES:
     {
       "time": "HH:MM",
       "patientName": "First Last",
+      "dob": "DD/MM/YYYY or empty string",
       "procedureText": "Reason / procedure description",
       "appointmentType": "examination" | "scale_clean" | "emergency" | "restorative" | "endodontic" | "surgical" | "prosthodontic" | "paediatric",
       "templateId": "standard" | "concise" | "soap"
@@ -4571,12 +4684,13 @@ app.post('/api/schedule/parse-image', authenticateToken, async (req: any, res) =
 
     // Fallback appointments for offline/preview resilience
     const fallbackAppointments = [
-      { time: '09:00', patientName: 'Sarah Jenkins', procedureText: 'Comprehensive Exam & Bitewings', appointmentType: 'examination', templateId: 'standard' },
-      { time: '09:45', patientName: 'David Miller', procedureText: 'Tooth #16 Ceramic Crown Prep', appointmentType: 'prosthodontic', templateId: 'standard' },
-      { time: '10:45', patientName: 'Liam O\'Connor', procedureText: 'Emergency: Severe Lower Molar Toothache', appointmentType: 'emergency', templateId: 'soap' },
-      { time: '11:30', patientName: 'Emma Watson', procedureText: 'Adult Hygiene Scale & Prophylaxis', appointmentType: 'scale_clean', templateId: 'concise' },
-      { time: '13:30', patientName: 'Michael Chang', procedureText: 'Tooth #24 MO Resin Composite', appointmentType: 'restorative', templateId: 'standard' },
-      { time: '14:15', patientName: 'Chloe Bennett', procedureText: 'Periodic Check & Fluoride', appointmentType: 'examination', templateId: 'standard' }
+      { time: '09:00', patientName: 'Justin Tran', dob: '', procedureText: 'CDBS Paediatric Examination & Clean', appointmentType: 'paediatric', templateId: 'standard' },
+      { time: '09:40', patientName: 'Ryan Tran', dob: '', procedureText: 'CDBS Paediatric Examination & Clean', appointmentType: 'paediatric', templateId: 'standard' },
+      { time: '11:30', patientName: 'Lorraine Pugh', dob: '', procedureText: 'Stage 2 Prosthodontic Prep', appointmentType: 'prosthodontic', templateId: 'standard' },
+      { time: '13:00', patientName: 'Silvia Gallardo', dob: '', procedureText: 'Hygiene Scale & Prophylaxis', appointmentType: 'scale_clean', templateId: 'concise' },
+      { time: '14:00', patientName: 'Elke Wolswinkel', dob: '', procedureText: 'Surgical Extraction Tooth #26 & #18', appointmentType: 'surgical', templateId: 'standard' },
+      { time: '15:00', patientName: 'Raphael Tannen', dob: '', procedureText: 'Comprehensive Check-up and Clean', appointmentType: 'examination', templateId: 'standard' },
+      { time: '15:40', patientName: 'Harrid Chhoeum', dob: '', procedureText: 'CDBS Restorative Composite Fillings', appointmentType: 'restorative', templateId: 'standard' }
     ];
 
     if (!apiKey || apiKey === 'MY_GEMINI_API_KEY') {
@@ -4630,6 +4744,7 @@ app.post('/api/schedule/parse-image', authenticateToken, async (req: any, res) =
       const cleanAppointments = rawList.map((app: any) => ({
         time: String(app.time || '09:00').trim(),
         patientName: String(app.patientName || 'Unknown Patient').trim(),
+        dob: String(app.dob || '').trim(),
         procedureText: String(app.procedureText || 'Dental Consultation').trim(),
         appointmentType: isValidAppointmentType(app.appointmentType) ? app.appointmentType : 'examination',
         templateId: ['standard', 'concise', 'soap'].includes(app.templateId) ? app.templateId : 'standard'
@@ -4988,7 +5103,28 @@ app.post('/api/beacon/chair/:chairId/upload-chunk', async (req, res) => {
       return res.status(404).json({ error: 'Chair session not found.' });
     }
 
-    const { chunkIndex = 0, dataBase64, audioData, sizeBytes = 0 } = req.body || {};
+    const token =
+      (req.headers['x-chair-token'] as string) ||
+      (req.headers['authorization']?.startsWith('Bearer ') ? req.headers['authorization'].slice(7) : undefined) ||
+      req.body?.token;
+
+    if (!token || !verifyChairToken(token)) {
+      return res.status(401).json({ error: 'Valid chair token required.', code: 'INVALID_CHAIR_TOKEN' });
+    }
+
+    const { chunkIndex = 0, dataBase64, audioData, sizeBytes = 0, consultationId } = req.body || {};
+
+    // Enforce patient & session boundary: refuse late chunks after patient switch or closure
+    const verdict = evaluateChunkIngestion(session, consultationId);
+    if (verdict.action === 'refuse') {
+      return res.status(409).json({
+        success: false,
+        saved: false,
+        code: verdict.code,
+        error: verdict.reason
+      });
+    }
+
     const encoded =
       typeof dataBase64 === 'string' ? dataBase64 : typeof audioData === 'string' ? audioData : undefined;
 

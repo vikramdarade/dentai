@@ -7,6 +7,7 @@ import {
   lookupAdaFee,
   extractProposedTreatmentsFromFindings
 } from '../src/lib/adaFees';
+import { signPmsWebhookPayload } from '../src/server/pmsWebhookAuth';
 
 // Set test environment before importing server
 process.env.NODE_ENV = 'test';
@@ -18,6 +19,7 @@ const { app, invalidateDbCache } = await import('../server.ts');
 const dbPath = path.join(__dirname, '..', 'data', 'consultations.json');
 const usersDbPath = path.join(__dirname, '..', 'data', 'users.json');
 const clinicsDbPath = path.join(__dirname, '..', 'data', 'clinics.json');
+const subscriptionsDbPath = path.join(__dirname, '..', 'data', 'subscriptions.json');
 const auditDbPath = path.join(__dirname, '..', 'data', 'audit.json');
 
 describe('Treatment Revenue Moat & ADA Valuation Engine', () => {
@@ -26,12 +28,14 @@ describe('Treatment Revenue Moat & ADA Valuation Engine', () => {
   let dbBackup: string | null = null;
   let usersDbBackup: string | null = null;
   let clinicsDbBackup: string | null = null;
+  let subscriptionsDbBackup: string | null = null;
   let auditDbBackup: string | null = null;
 
   beforeAll(async () => {
     if (fs.existsSync(dbPath)) dbBackup = fs.readFileSync(dbPath, 'utf-8');
     if (fs.existsSync(usersDbPath)) usersDbBackup = fs.readFileSync(usersDbPath, 'utf-8');
     if (fs.existsSync(clinicsDbPath)) clinicsDbBackup = fs.readFileSync(clinicsDbPath, 'utf-8');
+    if (fs.existsSync(subscriptionsDbPath)) subscriptionsDbBackup = fs.readFileSync(subscriptionsDbPath, 'utf-8');
     if (fs.existsSync(auditDbPath)) auditDbBackup = fs.readFileSync(auditDbPath, 'utf-8');
 
     // Register a test dentist
@@ -54,6 +58,11 @@ describe('Treatment Revenue Moat & ADA Valuation Engine', () => {
       fs.writeFileSync(clinicsDbPath, clinicsDbBackup);
     } else if (fs.existsSync(clinicsDbPath)) {
       fs.unlinkSync(clinicsDbPath);
+    }
+    if (subscriptionsDbBackup !== null) {
+      fs.writeFileSync(subscriptionsDbPath, subscriptionsDbBackup);
+    } else if (fs.existsSync(subscriptionsDbPath)) {
+      fs.unlinkSync(subscriptionsDbPath);
     }
     if (auditDbBackup !== null) fs.writeFileSync(auditDbPath, auditDbBackup);
     invalidateDbCache();
@@ -248,10 +257,9 @@ describe('Treatment Revenue Moat & ADA Valuation Engine', () => {
       expect(roiRes.status).toBe(200);
       expect(roiRes.body.totalBookedValue).toBeGreaterThanOrEqual(1650);
       expect(roiRes.body.bookedCount).toBeGreaterThanOrEqual(1);
-      expect(roiRes.body.subscriptionCost).toBe(149);
-
-      // Booked production ($1,650) / subscription ($149) = ~11.1x ROI
-      expect(roiRes.body.netRoiMultiple).toBeGreaterThanOrEqual(10);
+      // For a solo/unsubscribed clinic, subscriptionCost is 0 and netRoiMultiple is 0 (truthful reporting, no invented $149)
+      expect(roiRes.body.subscriptionCost).toBe(0);
+      expect(roiRes.body.netRoiMultiple).toBe(0);
     });
 
     it('rejects invalid status on PATCH /api/pipeline/:id with 400', async () => {
@@ -446,15 +454,25 @@ describe('Treatment Revenue Moat & ADA Valuation Engine', () => {
       expect(postRes.status).toBe(201);
       const freshOppId = postRes.body.findings.proposedTreatments[0].id;
 
-      // Simulate inbound webhook from Cliniko / Cloud PMS
+      // Simulate inbound signed webhook from Cliniko / Cloud PMS
+      const webhookSecret = 'test_pipeline_webhook_secret_key';
+      process.env.DENTAI_PMS_WEBHOOK_SECRET = webhookSecret;
+
+      const webhookBody = {
+        opportunityId: freshOppId,
+        clinicId: postRes.body.clinicId || 'personal',
+        pmsType: 'cliniko',
+        pmsAppointmentId: 'CLINIKO-APP-5521',
+        bookedAt: new Date().toISOString()
+      };
+      const rawBody = JSON.stringify(webhookBody);
+      const sig = signPmsWebhookPayload(webhookSecret, rawBody);
+
       const webhookRes = await request(app)
         .post('/api/webhooks/pms-booking')
-        .send({
-          opportunityId: freshOppId,
-          pmsType: 'cliniko',
-          pmsAppointmentId: 'CLINIKO-APP-5521',
-          bookedAt: new Date().toISOString()
-        });
+        .set('Content-Type', 'application/json')
+        .set('x-dentai-signature', sig)
+        .send(webhookBody);
 
       expect(webhookRes.status).toBe(200);
       expect(webhookRes.body.opportunity.status).toBe('booked');
