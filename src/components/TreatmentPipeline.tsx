@@ -307,7 +307,13 @@ export default function TreatmentPipeline({
     return opportunities.reduce((acc, curr) => acc + (curr.estimatedFee || 0), 0);
   }, [opportunities]);
 
-  const roiMultiple = roiSummary?.netRoiMultiple ?? (totalBookedValue > 0 ? (totalBookedValue / 149).toFixed(1) : 0);
+  // The multiple is the reported booked value divided by what THIS clinic pays.
+  // The client is not told the plan price (ClinicMembership carries no plan), so
+  // the only figure it can honestly show is the one the server computed from the
+  // subscription. This used to fall back to `totalBookedValue / 149` — a
+  // hardcoded Practice price that invented a return for a clinic paying nothing.
+  // With no summary there is no denominator, so show no multiple.
+  const roiMultiple = roiSummary?.netRoiMultiple ?? 0;
 
   // Pagination for high-scale performance
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
@@ -473,10 +479,20 @@ export default function TreatmentPipeline({
           </div>
         </div>
 
-        {/* Card 2: Booked Production (Verified Recovered Revenue) */}
+        {/*
+         * Card 2: booked production AS REPORTED BY THE PRACTICE.
+         *
+         * This used to be labelled "Verified Recovered Revenue" / "PMS-verified
+         * appointments", which claimed a verification the product does not perform:
+         * the fee is an estimate we generated, `status` is set by the practice's own
+         * staff, and a "PMS appointment reference" is typed in by hand (there is no
+         * PMS integration). The label is the part an accountant acts on, so it now
+         * says what the number actually is. Do not restore "verified" here without a
+         * real PMS read-back; tests/productionHardening.test.ts fails if you do.
+         */}
         <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-200/80 flex flex-col justify-between">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-500">Booked Production</span>
+            <span className="text-xs font-bold text-slate-500">Booked Production (reported)</span>
             <div className="w-9 h-9 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center border border-emerald-100">
               <TrendingUp className="w-4 h-4" />
             </div>
@@ -486,12 +502,18 @@ export default function TreatmentPipeline({
               ${(roiSummary?.verifiedBookedValue ?? totalBookedValue).toLocaleString()}
             </span>
             <div className="flex items-center gap-1.5 mt-1 text-[11px] text-slate-400 font-medium">
-              <span>{roiSummary?.verifiedBookedCount ?? opportunities.filter(o => o.pmsAppointmentId || o.status === 'booked' || o.status === 'completed').length} PMS-verified appointments</span>
+              {/* Counts only items carrying a PMS reference. It used to fall back to
+                  every `status === 'booked'` item, which labelled an unreferenced
+                  entry "PMS-verified". */}
+              <span>{roiSummary?.verifiedBookedCount ?? opportunities.filter(o => o.pmsAppointmentId || o.pmsSyncStatus === 'verified' || o.pmsSyncStatus === 'auto_synced').length} with a PMS appointment reference</span>
             </div>
+            <p className="mt-1 text-[10px] leading-snug text-slate-400">
+              Estimated fees for the items your team marked booked. Reconcile against your own ledger.
+            </p>
           </div>
         </div>
 
-        {/* Card 3: Closed-Loop ROI Multiple */}
+        {/* Card 3: ROI multiple, computed against the practice's own plan price */}
         <div className="bg-gradient-to-br from-indigo-900 to-slate-900 text-white rounded-3xl p-5 shadow-md flex flex-col justify-between relative overflow-hidden">
           <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/20 rounded-full blur-2xl pointer-events-none" />
           <div className="flex items-center justify-between relative z-10">
@@ -502,11 +524,16 @@ export default function TreatmentPipeline({
           </div>
           <div className="mt-4 relative z-10">
             <span className="text-3xl font-black text-white tracking-tight">
-              {Number(roiMultiple) > 0 ? `${roiMultiple}x` : '0x'}
+              {Number(roiMultiple) > 0 ? `${roiMultiple}x` : '—'}
             </span>
             <div className="flex items-center gap-1.5 mt-1 text-[11px] text-indigo-200/80 font-medium">
               <span>{roiSummary?.conversionRatePct ?? (totalIdentifiedValue > 0 ? ((totalBookedValue / totalIdentifiedValue) * 100).toFixed(1) : 0)}% conversion rate</span>
             </div>
+            {Number(roiMultiple) === 0 && (
+              <p className="mt-1 text-[10px] leading-snug text-indigo-200/70">
+                A multiple needs your plan price and some reported bookings.
+              </p>
+            )}
           </div>
         </div>
 
@@ -603,7 +630,7 @@ export default function TreatmentPipeline({
             }`}
           >
             <CheckCircle2 className="w-3.5 h-3.5" />
-            <span>PMS-Booked Only ({opportunities.filter(o => o.pmsAppointmentId || o.pmsSyncStatus === 'verified' || o.pmsSyncStatus === 'auto_synced').length})</span>
+            <span>PMS reference only ({opportunities.filter(o => o.pmsAppointmentId || o.pmsSyncStatus === 'verified' || o.pmsSyncStatus === 'auto_synced').length})</span>
           </button>
         </div>
       </div>
@@ -1192,9 +1219,9 @@ export default function TreatmentPipeline({
                   </div>
                   <div>
                     <h3 className="text-base font-extrabold text-slate-900">
-                      PMS Appointment Verification
+                      Record PMS Appointment Reference
                     </h3>
-                    <p className="text-[11px] text-slate-400">Lock verified revenue onto practice ledger</p>
+                    <p className="text-[11px] text-slate-400">Record the booking against this treatment item</p>
                   </div>
                 </div>
                 <button

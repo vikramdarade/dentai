@@ -10,8 +10,11 @@
  * we already define. The dentist is standing at the chair waiting for it, and
  * every note paid the medium-reasoning latency tax with nothing to show for it.
  *
- * Pilot feedback was "the note generation was slow". This is the fix: pin the
- * thinking level to `minimal` unless an operator deliberately opts out.
+ * Pilot feedback was "the note generation was slow". The thinking level was
+ * pinned to `minimal` for latency (2026-09-17) — and the same pilot then
+ * reported fabricated terminology and dropped findings, which is a worse
+ * failure than waiting. The default is now `medium` (accuracy-first); latency
+ * is bounded by NOTE_TIMEOUTS and the offline draft path.
  *
  * Kept as a pure function so the regression guard is a unit test rather than a
  * comment nobody reads (tests/noteModelConfig.test.ts).
@@ -45,13 +48,17 @@ export const THINKING_LEVELS: readonly ThinkingLevelName[] = ['minimal', 'low', 
 /**
  * Default thinking level for clinical note generation.
  *
- * `minimal` is correct here and not a shortcut: the task is transcription
- * grounding + schema filling against a fixed template, with the anti-fabrication
- * rules supplied explicitly in the system instruction. Adding reasoning effort
- * buys latency, not accuracy; the clinical-eval gate is what protects accuracy
- * (`bun run eval:notes`), and it is run against real generations.
+ * Accuracy-first, by explicit founder direction (2026-09-20): the note must be
+ * faithful to what was said — AHPRA-grade, defensible under legal review — and
+ * a lower reasoning level measurably lost fidelity in the pilot (fabricated
+ * terminology and dropped findings). `medium` is the level the model ran at
+ * before the latency fix, which is the era the pilot called accurate.
+ *
+ * The latency cost is real and bounded: generation runs under NOTE_TIMEOUTS and
+ * the client offers the offline draft when a generation exceeds its budget. An
+ * operator who needs the seconds back can still set DENTAI_THINKING_LEVEL.
  */
-export const DEFAULT_NOTE_THINKING_LEVEL: ThinkingLevelName = 'minimal';
+export const DEFAULT_NOTE_THINKING_LEVEL: ThinkingLevelName = 'medium';
 
 /** Resolves the configured thinking level, ignoring junk values rather than crashing a consult. */
 export function resolveNoteThinkingLevel(env: Record<string, string | undefined> = process.env): ThinkingLevelName {

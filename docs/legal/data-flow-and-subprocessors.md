@@ -38,7 +38,8 @@ Nothing else is collected. There is no advertising or analytics SDK in the app.
 | Path | Destination | Region | Notes |
 |---|---|---|---|
 | Note drafting (primary) | Vertex AI / Gemini (`@google/genai`) | `GCP_REGION`, default `australia-southeast1` | Transcript + intake sent; draft returned. Google does not train on this data under the Vertex/paid API terms. |
-| Note drafting (fallback key) | Gemini API with `GEMINI_FALLBACK_API_KEY` | Google default | Only used when the primary path fails. Same data. |
+| Note drafting (**primary path when no GCP project is set**) | Gemini API with `GEMINI_API_KEY`, `vertexai: false` | **Google default — no region guarantee** | `server.ts` uses this whenever `GCP_PROJECT_ID` is unset, which the application does **not** prevent. It is not a failure fallback: it is the route a deployment without a GCP project takes for every note. |
+| Note drafting (fallback on failure) | Gemini API with `GEMINI_FALLBACK_API_KEY` | Google default | Only used when the primary route fails. Same data. |
 | Note drafting (offline) | The clinician's own browser | Device | `src/lib/draftEngine.ts` — deterministic, nothing leaves the device. Flagged `needsReview`. |
 | On-device model (beta) | The clinician's own browser (WebGPU) | Device | `src/lib/onDeviceModel.ts`; model weights downloaded from a CDN. |
 | Live transcription | Browser SpeechRecognition engine, or the clinic's typing | Device / browser vendor | Where the browser engine is used, audio handling is the browser vendor's. A practice that requires no audio to leave the device should type or paste the transcript. |
@@ -53,7 +54,7 @@ you change it.
 
 | Sub-processor | Purpose | Data | Location |
 |---|---|---|---|
-| Google Cloud / Gemini API | AI note drafting | Consultation transcript + intake | Australia southeast (default) |
+| Google Cloud / Gemini API | AI note drafting | Consultation transcript + intake | Australia southeast **only when `GCP_PROJECT_ID` is set**; otherwise Google default. Verify this before telling a practice it is Australia-only — see the note under "Where it goes". |
 | Neon (or your Postgres host) | Database | All records and the access log | Must be set to Sydney |
 | Vercel | Hosting and static assets | Request metadata | Must be set to Sydney |
 | Slack / Teams / Discord (optional) | Operational alerts | Error messages only | Vendor default |
@@ -69,5 +70,12 @@ you change it.
    local development. Production must run on Postgres.
 3. **Keep AI in an Australian region** unless the practice has been told and has
    agreed otherwise in writing.
+
+   This is a setting, not a control. `GCP_PROJECT_ID` is declared `required` in
+   `src/server/configCheck.ts`, but only `fatal` findings stop a boot, so a
+   production deployment without it starts normally and drafts every note through
+   the global Gemini endpoint. Before promising a practice Australian-only
+   processing, confirm `GCP_PROJECT_ID` is set in production — or make the check
+   `fatal`. Do not describe the region as sovereign until one of those is true.
 4. **Record the engine on every note** (`noteOrigin`) so any draft's processing
    path is reconstructable after the fact.

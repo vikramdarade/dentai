@@ -185,14 +185,18 @@ describe('choosing the note transcript', () => {
     expect(choice.warnings).toEqual([]);
   });
 
-  it('flags a diarized transcript that is much shorter than what was heard', () => {
+  it('falls back to the fuller live transcript when the diarized one lost most of what was said', () => {
     const choice = chooseNoteTranscript({
       live,
       diarized: [{ sender: 'Patient', text: 'It hurts' }]
     });
-    expect(choice.source).toBe('server-diarized');
+    // Completeness beats attribution: a thin diarized transcript would silently
+    // drop findings from the clinical record, so the fuller live transcript is
+    // selected and the reason is escalated to the warnings.
+    expect(choice.source).toBe('browser-live');
     expect(choice.needsReview).toBe(true);
     expect(choice.warnings.join(' ')).toMatch(/less text than the live transcript/i);
+    expect(choice.warnings.join(' ')).toMatch(/fuller live transcript was used/i);
   });
 
   it('flags an incomplete upload', () => {

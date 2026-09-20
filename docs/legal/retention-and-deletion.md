@@ -5,6 +5,23 @@ get them back or have them destroyed?". This is the policy you apply; the
 defaults are in `src/lib/compliance.ts` (`DEFAULT_RETENTION_YEARS`) and are
 recorded on each consultation.
 
+## Enforcement state — read before quoting the table below
+
+The schedule below is the **policy**, and the horizon is stamped on every
+consultation at save time. It is not currently applied automatically: the sweep
+(`src/server/retention.ts`) is **off unless `DENTAI_RETENTION_ENABLED=true`**, and
+dry-run even then unless `DENTAI_RETENTION_DRY_RUN` is explicitly false
+(`src/lib/retentionPolicy.ts`). `src/server/configCheck.ts` states the
+consequence in its own words:
+
+> "The 7-year retention promise in the privacy notice stays unexecuted; the sweep
+> only reports."
+
+So today deletion is **manual** — use the procedures at the end of this file.
+Until the sweep is enabled, do not tell a practice or a patient that records are
+deleted automatically on a schedule. To close the gap: run one dry sweep, read the
+report, then enable it and note the date here.
+
 ## Default schedule
 
 | Data | Default retention | Why |

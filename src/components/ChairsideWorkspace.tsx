@@ -49,7 +49,6 @@ import {
 import { AuthUser } from '../utils/storage';
 import { AppointmentType, getTemplateById } from '../lib/dentalLibrary';
 import { generateOfflineDraft } from '../lib/draftEngine';
-import { normalizeSpokenDentalText } from '../lib/dentalPhoneticLexicon';
 import { formatClinicDate, formatClinicTime, getClinicTodayIso } from '../utils/date';
 import ChairsideOdontogram from './ChairsideOdontogram';
 
@@ -933,7 +932,10 @@ export default function ChairsideWorkspace({
     async (text: string, sender: 'Dentist' | 'Patient' | 'Dialogue' = 'Dentist') => {
     if (!text.trim() || !activeEncounterRef.current) return;
 
-    const normalized = normalizeSpokenDentalText(text.trim());
+    // Verbatim capture: the persisted record keeps exactly what was spoken.
+    // Lexicon correction must never rewrite the source of record — it belongs
+    // to the model prompt or the display layer (medicolegal fidelity).
+    const normalized = text.trim();
     if (!normalized) return;
 
     // Reset silence timer on any voiced speech
@@ -1075,17 +1077,17 @@ export default function ChairsideWorkspace({
             isSilenceWarningRef.current = false;
           }
 
-          const normInterim = normalizeSpokenDentalText(interim.trim());
-          setInterimTranscript(normInterim);
+          const pendingInterim = interim.trim();
+          setInterimTranscript(pendingInterim);
 
           // Squelch lingering interim: auto-commit if speaker pauses for >1.5s
           if (interimTimerRef.current) clearTimeout(interimTimerRef.current);
           interimTimerRef.current = setTimeout(() => {
             if (interim.trim()) {
-              const norm = normalizeSpokenDentalText(interim.trim());
-              const isNoise = /^(sh+|ah+|um+|zz+|ss+|hh+|ff+|th+)(\s+(sh+|ah+|um+|zz+|ss+|hh+|ff+|th+))*$/i.test(norm);
-              if (norm && !isNoise) {
-                handleAppendTranscriptText(norm, 'Dialogue');
+              const spoken = interim.trim();
+              const isNoise = /^(sh+|ah+|um+|zz+|ss+|hh+|ff+|th+)(\s+(sh+|ah+|um+|zz+|ss+|hh+|ff+|th+))*$/i.test(spoken);
+              if (spoken && !isNoise) {
+                handleAppendTranscriptText(spoken, 'Dialogue');
               }
               setInterimTranscript('');
             }

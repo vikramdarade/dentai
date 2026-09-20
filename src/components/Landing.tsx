@@ -396,20 +396,20 @@ export default function Landing({ onGetStarted }: LandingProps) {
             <div className="inline-flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-4 py-1.5 backdrop-blur-md">
               <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
               <span className="text-[11px] font-extrabold uppercase tracking-[0.18em] text-emerald-300">
-                Closed-Loop Revenue Recovery Engine
+                Treatment Pipeline & Recall Worklist
               </span>
             </div>
             <h2 className="mt-6 text-3xl font-extrabold tracking-tight text-white md:text-5xl">
               Turn unbooked chairside treatment into{' '}
               <span className="bg-gradient-to-r from-emerald-400 to-teal-200 bg-clip-text text-transparent">
-                verified practice revenue.
+                treatment you can follow up.
               </span>
             </h2>
             <p className="mt-4 text-base leading-relaxed text-slate-300 md:text-lg">
               Proposed crowns, fillings, and endodontics discussed in operatory chairs are frequently lost to
               patient hesitation and forgotten follow-ups. DentAI extracts unscheduled treatment plans,
-              formats patient estimates with private health fund rebate codes, and tracks confirmed bookings
-              directly in your clinical appointment workflow.
+              formats patient estimates with ADA item codes, and keeps those proposals and their recalls on a
+              worklist your front desk can work through — with the booked value reported back to you.
             </p>
           </div>
 
@@ -527,9 +527,9 @@ export default function Landing({ onGetStarted }: LandingProps) {
                   <ClipboardCheck className="h-5 w-5" />
                 </span>
                 <div>
-                  <h4 className="text-base font-extrabold text-white">Universal PMS Bridge (D4W, EXACT, Cliniko)</h4>
+                  <h4 className="text-base font-extrabold text-white">PMS-ready export (D4W, EXACT, Cliniko)</h4>
                   <p className="mt-1 text-sm text-slate-400 leading-relaxed">
-                    Zero risky database installs. Front-desk teams copy perfectly formatted appointment notes with 1 click into legacy desktop systems, while cloud PMS webhooks automatically update booking status.
+                    Zero risky database installs. Front-desk teams copy a fully formatted progress note with one click straight into your existing desktop PMS. There is no direct PMS integration — your team pastes the note, and records the booking here so the worklist stays current.
                   </p>
                 </div>
               </div>
@@ -539,7 +539,7 @@ export default function Landing({ onGetStarted }: LandingProps) {
                   <TrendingUp className="h-5 w-5" />
                 </span>
                 <div>
-                  <h4 className="text-base font-extrabold text-white">Practice Treatment & Recall Ledger</h4>
+                  <h4 className="text-base font-extrabold text-white">Practice Treatment & Recall Worklist</h4>
                   <p className="mt-1 text-sm text-slate-400 leading-relaxed">
                     Surfaces unscheduled treatment plans and overdue patient recalls derived directly from consultation records — turning missed follow-ups into booked appointments on your own schedule.
                   </p>

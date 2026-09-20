@@ -16,6 +16,8 @@
  * still a valid transcript.
  */
 
+import crypto from 'crypto';
+
 type Middleware = (req: any, res: any, next: (err?: any) => void) => any;
 
 const MAX_ENTRIES = 5_000;
@@ -91,6 +93,45 @@ export function clinicalHorizonFilter<T extends { sender?: string; text: string 
   // to capture closing patient instructions ("rinse gently", "see reception for your next appointment")
   const cutoffIndex = Math.min(transcript.length, lastClinicalIndex + 16);
   return transcript.slice(0, cutoffIndex);
+}
+
+export interface HorizonFilterStats {
+  /** Utterances in the raw transcript. */
+  total: number;
+  /** Utterances that survive the filter. */
+  kept: number;
+  /** Utterances the filter removes from the generation input. */
+  dropped: number;
+}
+
+/**
+ * What clinicalHorizonFilter would trim, without trimming.
+ *
+ * Recorded with every generation so a trim is never silent: the audit trail
+ * shows how many utterances the generation input dropped, and the stored
+ * verbatim record stays complete regardless.
+ */
+export function clinicalHorizonFilterStats<T extends { sender?: string; text: string }>(
+  transcript: T[]
+): HorizonFilterStats {
+  const total = Array.isArray(transcript) ? transcript.length : 0;
+  const kept = Array.isArray(transcript) ? clinicalHorizonFilter(transcript).length : 0;
+  return { total, kept, dropped: Math.max(0, total - kept) };
+}
+
+/**
+ * Stable, short fingerprint of a transcript's verbatim content.
+ *
+ * Recorded with every generation so a note can always be tied back to the
+ * exact spoken record that produced it — the provenance a medicolegal review
+ * asks for. Sender labels are included: the same words attributed differently
+ * is a different record.
+ */
+export function transcriptFingerprint(transcript: Array<{ sender?: string; text: string }>): string {
+  const canonical = (transcript || [])
+    .map((entry) => `${String(entry?.sender ?? '')}\u001f${String(entry?.text ?? '')}`)
+    .join('\u001e');
+  return crypto.createHash('sha256').update(canonical).digest('hex').slice(0, 16);
 }
 
 export interface ValidationProblem {

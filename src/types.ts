@@ -23,6 +23,24 @@ export interface TranscriptProvenance {
   warnings?: string[];
 }
 
+/**
+ * How a note was generated, recorded with the consultation so a later reviewer
+ * can tie the draft back to the exact verbatim record that produced it.
+ *
+ * `transcriptHash` is the fingerprint of the RAW transcript captured at the
+ * chair — not the trimmed generation input — so the spoken source is always
+ * identifiable. `horizonDropped` is how many utterances the generation input
+ * trimmed relative to that raw record; a trim is never silent.
+ */
+export interface NoteGenerationProvenance {
+  modelId?: string;
+  thinkingLevel?: string;
+  transcriptHash?: string | null;
+  utterancesRaw?: number;
+  horizonDropped?: number;
+  generatedAt?: string;
+}
+
 export interface TranscriptItem {
   sender: 'Dentist' | 'Patient' | 'Dialogue' | 'Clinical Comment';
   text: string;
@@ -276,6 +294,8 @@ export interface Consultation {
    * is what lets `/api/transcribe` avoid paying twice for the same recording.
    */
   transcriptProvenance?: TranscriptProvenance;
+  /** How the AI draft was generated — the provenance a medicolegal review asks for. */
+  generationProvenance?: NoteGenerationProvenance;
   /** AI-assist consent captured at intake (required for new records). */
   consent?: ConsultationConsent;
   /** Append-only revision trail (server-maintained). */

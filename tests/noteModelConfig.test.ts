@@ -15,16 +15,20 @@ import {
  * table lists `gemini-3.6-flash` as "On (medium)". Note generation is a
  * structured extraction job (read a transcript we already have, fill a schema we
  * already define), so the reasoning effort bought latency and nothing else.
- * Pilot feedback was that note generation was slow; the thinking level was the
- * dominant cause because it is invisible in the model name.
+ * The thinking level was pinned to `minimal` for latency (2026-09-17). The same
+ * pilot then reported fabricated terminology and dropped findings — a worse
+ * failure than waiting — so the default was restored to `medium` on
+ * 2026-09-20, by explicit founder direction: accuracy first, no compromises.
+ * Latency is bounded by NOTE_TIMEOUTS and the offline draft path.
  *
- * If someone raises this default, they are deliberately spending seconds of a
- * clinician's chairside time per note, and they should have to say so here.
+ * If someone lowers this default for latency again, they are deliberately
+ * spending accuracy — the thing this product is legally required to keep — and
+ * they should have to say so here, with eval evidence that accuracy held.
  */
 describe('note generation thinking level', () => {
-  it('defaults to minimal so a consult is not billed reasoning latency it cannot use', () => {
-    expect(DEFAULT_NOTE_THINKING_LEVEL).toBe('minimal');
-    expect(resolveNoteThinkingLevel({})).toBe('minimal');
+  it('defaults to medium: accuracy-first by founder direction (2026-09-20)', () => {
+    expect(DEFAULT_NOTE_THINKING_LEVEL).toBe('medium');
+    expect(resolveNoteThinkingLevel({})).toBe('medium');
   });
 
   it('honours an explicit operator override', () => {
@@ -34,9 +38,9 @@ describe('note generation thinking level', () => {
 
   it('falls back to the default instead of throwing on a junk value', () => {
     // A typo in an environment variable must not take note generation down.
-    expect(resolveNoteThinkingLevel({ DENTAI_THINKING_LEVEL: 'ultra' })).toBe('minimal');
-    expect(resolveNoteThinkingLevel({ DENTAI_THINKING_LEVEL: '' })).toBe('minimal');
-    expect(resolveNoteThinkingLevel({ DENTAI_THINKING_LEVEL: '  ' })).toBe('minimal');
+    expect(resolveNoteThinkingLevel({ DENTAI_THINKING_LEVEL: 'ultra' })).toBe('medium');
+    expect(resolveNoteThinkingLevel({ DENTAI_THINKING_LEVEL: '' })).toBe('medium');
+    expect(resolveNoteThinkingLevel({ DENTAI_THINKING_LEVEL: '  ' })).toBe('medium');
   });
 
   it('only ever produces a level the API accepts', () => {

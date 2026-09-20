@@ -160,10 +160,14 @@ export const DEMO_SCENES: DemoScene[] = [
     id: 'roi',
     act: 'dentist',
     kind: 'roi',
-    title: 'Chairside ROI & time saved',
+    title: 'Chairside workflow & time',
+    // No minutes-saved figure here on purpose. The only pilot feedback on record is
+    // that note generation was slow, and the edit-rate metric that would evidence a
+    // time saving cannot currently measure editing (see the funnel). State the
+    // mechanism, not a number nobody has measured.
     narration:
-      'DentAI transforms clinic economics. By eliminating manual charting, dentists save 15 to 20 minutes per complex procedure — recovering up to two hours every single day. That means finishing on time with zero night-time charting, or seeing one extra patient each day.',
-    tts: 'Dent-A-I transforms clinic economics. By eliminating manual charting, dentists save fifteen to twenty minutes per complex procedure — recovering up to two hours every single day. That means finishing on time with zero night-time charting, or seeing one extra patient each day.',
+      'DentAI drafts the note from the appointment itself, so charting happens during the visit rather than after it. The note is ready for review before the patient leaves the chair - no night-time charting, and the time you get back is something you can read off your own day sheet.',
+    tts: 'Dent-A-I drafts the note from the appointment itself, so charting happens during the visit rather than after it. The note is ready for review before the patient leaves the chair - no night time charting, and the time you get back is something you can read off your own day sheet.',
     duration: 18000,
   },
   {
@@ -210,12 +214,19 @@ export const DEMO_SCENES: DemoScene[] = [
     id: 'treatment-pipeline',
     act: 'owner',
     kind: 'pipeline',
-    title: 'Closed-Loop Revenue Recovery & PMS Sync',
+    title: 'Treatment Pipeline & Recall Worklist',
+    // NOTE: this narration is spoken aloud to clinics, so it states only what the
+    // product does today. There is no PMS integration — bookings are recorded by
+    // the practice, and the recovered-production figure is the sum of the
+    // estimates we generate for the items the practice marks as booked. Do not
+    // reintroduce "tracks verified recovered production", "directly in D4W/EXACT/
+    // Cliniko" or an ROI multiple here; tests/productionHardening.test.ts fails if
+    // you do.
     narration:
-      'And here is DentAI\u2019s most powerful advantage for clinic owners: the Closed-Loop Treatment Revenue Engine. While the dentist speaks, DentAI extracts unscheduled treatment proposals — like Priya\u2019s tooth 16 crown valued at $1,650. Front desk teams generate patient-friendly estimates with ADA rebate codes in one click, and verify bookings directly in Dental4Windows, EXACT, or Cliniko. DentAI tracks verified recovered production on your ledger — proving over 100x return on investment on your subscription.',
+      'And here is the part clinic owners care about most: the Treatment Pipeline. While the dentist speaks, DentAI lists unscheduled treatment proposals - for example a tooth 16 crown, priced from a benchmark ADA fee table. The front desk generates a patient-friendly estimate with ADA item codes in one click, copies it into the practice\u2019s existing PMS, and records the booking here. The recovered-production figure is the sum of what your team marks as booked, so verify it against your own books.',
     tts:
-      "And here is Dent-A-I's most powerful advantage for clinic owners: the Closed-Loop Treatment Revenue Engine. While the dentist speaks, Dent-A-I extracts unscheduled treatment proposals — like Priya's tooth 16 crown valued at sixteen hundred and fifty dollars. Front desk teams generate patient-friendly estimates with A D A rebate codes in one click, and verify bookings directly in Dental4Windows, EXACT, or Cliniko. Dent-A-I tracks verified recovered production on your ledger — proving over one hundred times return on investment on your subscription.",
-    duration: 23000,
+      "And here is the part clinic owners care about most: the Treatment Pipeline. While the dentist speaks, Dent-A-I lists unscheduled treatment proposals - for example a tooth sixteen crown, priced from a benchmark A D A fee table. The front desk generates a patient friendly estimate with A D A item codes in one click, copies it into the practice's existing P M S, and records the booking here. The recovered production figure is the sum of what your team marks as booked, so verify it against your own books.",
+    duration: 26000,
   },
   {
     id: 'switcher',

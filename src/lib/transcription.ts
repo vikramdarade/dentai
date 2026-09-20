@@ -343,24 +343,32 @@ export function chooseNoteTranscript(input: {
         'The recorded audio was not uploaded in full, so some of what was said may be missing from this transcript.'
       );
     }
-    if (liveWords > 0 && diarizedWords < liveWords * 0.6) {
-      warnings.push(
-        'Audio transcription produced noticeably less text than the live transcript (possibly missing speech). Check the recording before signing.'
-      );
-    }
-    const share = attributedShare(diarized);
-    if (share < 0.5) {
-      warnings.push(
-        'Who was speaking could not be determined for most of this recording, so patient-reported and clinician-observed statements may be mixed.'
-      );
-    }
 
-    return {
-      transcript: diarized.map((i) => ({ sender: i.sender, text: String(i.text).trim() })),
-      source: 'server-diarized',
-      warnings,
-      needsReview: warnings.length > 0
-    };
+    // Completeness beats attribution. A diarized transcript that lost more than
+    // 40% of the live transcript's content would silently thin the clinical
+    // record — the one failure this function exists to prevent — so in that
+    // case the fuller live transcript is selected and the warning is escalated
+    // from advice to the stated selection reason.
+    const diarizedIsMateriallyShorter = liveWords > 0 && diarizedWords < liveWords * 0.6;
+    if (diarizedIsMateriallyShorter) {
+      warnings.push(
+        'Audio transcription produced noticeably less text than the live transcript (possibly missing speech), so the fuller live transcript was used for this note. Check the recording before signing.'
+      );
+    } else {
+      const share = attributedShare(diarized);
+      if (share < 0.5) {
+        warnings.push(
+          'Who was speaking could not be determined for most of this recording, so patient-reported and clinician-observed statements may be mixed.'
+        );
+      }
+
+      return {
+        transcript: diarized.map((i) => ({ sender: i.sender, text: String(i.text).trim() })),
+        source: 'server-diarized',
+        warnings,
+        needsReview: warnings.length > 0
+      };
+    }
   }
 
   if (live.length > 0) {

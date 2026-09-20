@@ -8,7 +8,6 @@ import { SAMPLE_TRANSCRIPTS, getSampleForType } from '../lib/sampleTranscripts';
 import { generateOfflineDraft } from '../lib/draftEngine';
 import { generateWithOnDeviceModel, type OnDeviceResult } from '../lib/onDeviceModel';
 import { normalizedToPayload } from '../lib/normalizeNoteOutput';
-import { normalizeSpokenDentalText } from '../lib/dentalPhoneticLexicon';
 import { OPERATORY_AUDIO_DEFAULTS } from '../lib/operatoryAudioFilter';
 import { chooseNoteTranscript } from '../lib/transcription';
 import { isTranscriptionFailure, requestTranscription } from '../lib/transcribeClient';
@@ -372,7 +371,10 @@ export default function LiveRecording({
           const result = event.results[i];
           if (result.isFinal) {
             const rawText = result[0].transcript.trim();
-            const text = normalizeSpokenDentalText(rawText);
+            // Verbatim capture: the stored record keeps exactly what was spoken.
+            // Terminology correction belongs to the model or the display layer —
+            // never to the persisted transcript (medicolegal fidelity).
+            const text = rawText;
             if (text) {
               setTranscript((prev) => [...prev, { sender: 'Dialogue', text }]);
               setItemTimes((prev) => [...prev, secondsRef.current]);
@@ -381,7 +383,9 @@ export default function LiveRecording({
             interim += result[0].transcript;
           }
         }
-        setInterimTranscript(normalizeSpokenDentalText(interim));
+        // Interim display shows the raw recognition too, so what the clinician
+        // sees is always what will be committed to the record.
+        setInterimTranscript(interim);
       };
 
       recognitionRef.current = rec;
@@ -573,8 +577,8 @@ export default function LiveRecording({
 
   const handleAppendPhrase = (sender: 'Dentist' | 'Patient' | 'Dialogue' | 'Clinical Comment', text: string) => {
     if (!text.trim()) return;
-    const normalizedText = normalizeSpokenDentalText(text);
-    setTranscript((prev) => [...prev, { sender, text: normalizedText }]);
+    // Verbatim capture — the record keeps the spoken words, not a rewritten version.
+    setTranscript((prev) => [...prev, { sender, text }]);
     setItemTimes((prev) => [...prev, secondsRef.current]);
   };
 

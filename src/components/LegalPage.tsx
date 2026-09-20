@@ -129,9 +129,10 @@ export default function LegalPage({ page, onExit }: LegalPageProps) {
 
             <Section title="Retention and deletion">
               <p>
-                Records are retained for the practice's retention period (default seven years for adult patients, in line
-                with Australian dental record-keeping expectations) and then deleted or de-identified. A practice can
-                export its records, and can request deletion of a clinician account or a patient record by contacting{' '}
+                Records carry the practice's retention period (default seven years for adult patients, in line with
+                Australian dental record-keeping expectations). Deletion or de-identification at the end of that period
+                is carried out on request, not automatically — a practice can export its records, and can request
+                deletion of a clinician account or a patient record by contacting{' '}
                 {LEGAL_ENTITY.contactEmail}. Deleting a clinician account signs them out and removes their access; it does
                 not delete the practice's patient records.
               </p>
