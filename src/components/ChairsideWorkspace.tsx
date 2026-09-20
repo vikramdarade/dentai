@@ -46,7 +46,7 @@ import {
   uploadAudioSegment
 } from '../lib/transcribeClient';
 import { AuthUser } from '../utils/storage';
-import { AppointmentType, getTemplateById } from '../lib/dentalLibrary';
+import { AppointmentType, getTemplateById, APPOINTMENT_TYPES } from '../lib/dentalLibrary';
 import { generateOfflineDraft } from '../lib/draftEngine';
 import { normalizeSpokenDentalText } from '../lib/dentalPhoneticLexicon';
 import { formatClinicDate, formatClinicTime, getClinicTodayIso } from '../utils/date';
@@ -1625,6 +1625,21 @@ export default function ChairsideWorkspace({
     setShowWalkInCard(false);
   };
 
+  const handleUpdateAppointmentType = (targetId: string, newType: AppointmentType) => {
+    const typeInfo = APPOINTMENT_TYPES.find(t => t.value === newType);
+    const newTemplateId = typeInfo?.defaultTemplateId || 'standard';
+    
+    const targetConsult = consultations.find(c => c.id === targetId);
+    if (targetConsult && onSaveConsultation) {
+      const updatedConsult: Consultation = {
+        ...targetConsult,
+        appointmentType: newType,
+        templateId: newTemplateId
+      };
+      onSaveConsultation(updatedConsult);
+    }
+  };
+
   // ─────────────────────────────────────────────────────────────
   // 6. ASYNCHRONOUS NOTE FINALIZATION & NON-BLOCKING HANDOFF
   // ─────────────────────────────────────────────────────────────
@@ -2485,8 +2500,44 @@ ${clinician}`;
                           • DOB: {activeEncounter.dob ? activeEncounter.dob : 'Not recorded'} • {activeEncounter.operatory?.replace(/Op /i, 'Room ') || 'Room 1'}
                         </span>
                       </div>
-                      <div className="text-xs text-slate-500 font-medium mt-0.5">
-                        {activeEncounter.procedureText || 'Comprehensive Oral Examination & Scale'}
+
+                      {/* Interactive Procedure & Note Template Selector */}
+                      <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Type:</span>
+                          <select
+                            value={activeEncounter.appointmentType || 'examination'}
+                            onChange={e => handleUpdateAppointmentType(activeEncounter.id, e.target.value as AppointmentType)}
+                            className="px-2 py-0.5 text-xs font-semibold rounded-lg bg-sky-50 text-sky-800 border border-sky-200 focus:outline-none focus:ring-1 focus:ring-sky-500 cursor-pointer"
+                          >
+                            {APPOINTMENT_TYPES.map(t => (
+                              <option key={t.value} value={t.value}>
+                                {t.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {/* Fast 1-click pills */}
+                        <div className="flex items-center gap-1 flex-wrap">
+                          {APPOINTMENT_TYPES.map(t => {
+                            const isSelected = (activeEncounter.appointmentType || 'examination') === t.value;
+                            return (
+                              <button
+                                key={t.value}
+                                type="button"
+                                onClick={() => handleUpdateAppointmentType(activeEncounter.id, t.value)}
+                                className={`px-2 py-0.5 text-[10px] font-bold rounded-md transition cursor-pointer ${
+                                  isSelected
+                                    ? 'bg-[#0060BA] text-white shadow-2xs'
+                                    : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
+                                }`}
+                              >
+                                {t.short}
+                              </button>
+                            );
+                          })}
+                        </div>
                       </div>
                     </div>
                   </div>

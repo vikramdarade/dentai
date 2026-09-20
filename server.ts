@@ -1247,6 +1247,9 @@ speaker-attribution rule in your instructions. Expect speech-to-text errors in t
 numbers, drug names and materials; correct them contextually, but never invent
 content to fill a gap.
 
+=== OPERATORY ACOUSTIC & BACKGROUND NOISE FILTERING ===
+This operatory audio may contain background music (YouTube/radio), waiting room TV, or ambient room chatter. Discard all non-clinical background noise, lyrics, and off-topic banter. Focus exclusively on the dentist-patient clinical examination, diagnoses, tooth findings, and procedures.
+
 === ABSOLUTE GROUNDING RULE ===
 Document only teeth (FDI 11-48), surfaces, tests, materials, drugs and treatments
 that appear in the transcript or intake data below — never an unspoken tooth
@@ -4144,6 +4147,7 @@ MANDATORY CLINICAL RULES:
 9. ADA ITEM CODES: In adaCodes, list Australian Dental Association 3-digit item numbers that were actually mentioned or clearly performed, as a comma-separated string e.g. "011 - Comprehensive oral examination, 022 - Intraoral periapical radiograph (Tooth 16), 414 - Pulp extirpation (Tooth 16)".
 10. SPECIALIST REFERRAL: If the clinician mentions referring the patient to a dental specialist (Endodontist, Periodontist, Oral & Maxillofacial Surgeon, Orthodontist, Prosthodontist, Paediatric), set specialistReferral.required to true and generate a peer-to-peer referral letter in letterText using Australian clinical formatting. If NO referral is discussed, set specialistReferral.required to false.
 11. PATIENT CONSENT & CARE: In patientConsent, provide an AHPRA-compliant layperson summary of treatment, options discussed, risks of no treatment, post-operative home care instructions, and red-flag warning signs.
+12. OPERATORY BACKGROUND NOISE & MUSIC FILTERING (MANDATORY): Clinical operatories frequently have background music (YouTube, radio, Spotify), waiting room TV, receptionist chatter, or non-clinical banter audible on the microphone. You must strictly isolate and transcribe ONLY the genuine clinician-patient dialogue and clinical dictation. Discard and completely ignore all background music lyrics, television broadcast audio, YouTube videos, off-topic staff banter, and non-clinical ambient room noise. Never document song lyrics, TV broadcast content, or casual social chat into any clinical section.
 `;
 
 
