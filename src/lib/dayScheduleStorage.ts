@@ -2,11 +2,14 @@ import { AppointmentType } from './dentalLibrary';
 import { getClinicTodayIso } from '../utils/date';
 
 export type ScheduleItemStatus =
+  | 'ready'
   | 'scheduled'
   | 'recording'
   | 'processing'
-  | 'ready'
-  | 'failed';
+  | 'note_generated'
+  | 'recreate'
+  | 'failed'
+  | 'done';
 
 export interface DayScheduleItem {
   id: string;
@@ -159,14 +162,14 @@ export function updateScheduleItem(
 }
 
 export function addScheduleItem(
-  item: Omit<DayScheduleItem, 'id' | 'status'>,
+  item: Omit<DayScheduleItem, 'id' | 'status'> & { status?: ScheduleItemStatus },
   dateStr = getTodayDateStr()
 ): DayScheduleItem {
   const current = loadTodaySchedule(dateStr);
   const newItem: DayScheduleItem = {
     ...item,
     id: `sched_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-    status: 'scheduled'
+    status: item.status || 'ready'
   };
   const updated = [...current, newItem].sort((a, b) => parseTimeToMinutes(a.time) - parseTimeToMinutes(b.time));
   saveTodaySchedule(updated, dateStr);
@@ -259,7 +262,7 @@ export function mergeScheduleItems(
     const existingMatch = existingMap.get(fp);
     if (existingMatch) {
       // RULE 1: Never overwrite in-progress, completed, or already-synthesized consults
-      if (['recording', 'processing', 'ready'].includes(existingMatch.status)) {
+      if (['recording', 'processing', 'note_generated', 'ready', 'done'].includes(existingMatch.status)) {
         mergedResult.push(existingMatch);
       } else {
         // RULE 2: For scheduled appointments, merge updated procedure descriptions
@@ -276,7 +279,7 @@ export function mergeScheduleItems(
       mergedResult.push({
         ...incomingItem,
         id: incomingItem.id || `sched_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-        status: incomingItem.status || 'scheduled',
+        status: incomingItem.status || 'ready',
         source: 'snip'
       });
     }

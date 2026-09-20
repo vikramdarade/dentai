@@ -33,9 +33,10 @@ import {
   Camera,
   Image as ImageIcon,
   Trash2,
-  UploadCloud
+  UploadCloud,
+  RotateCw
 } from 'lucide-react';
-import { addScheduleItem, parseTimeToMinutes } from '../lib/dayScheduleStorage';
+import { addScheduleItem, parseTimeToMinutes, ScheduleItemStatus } from '../lib/dayScheduleStorage';
 import { Consultation, TranscriptItem, ClinicalFindings } from '../types';
 import { chooseNoteTranscript, type TranscriptSource } from '../lib/transcription';
 import {
@@ -77,7 +78,7 @@ export interface PatientEncounter {
   procedureText: string;
   appointmentType: AppointmentType;
   templateId: string;
-  status: 'scheduled' | 'recording' | 'processing' | 'ready' | 'failed';
+  status: ScheduleItemStatus;
   age?: number;
   dob?: string;
   team?: string;
@@ -177,6 +178,11 @@ export default function ChairsideWorkspace({
 
   // Real-time optimistic ambient transcript state (0ms latency, zero-lag UI feedback)
   const [localLiveTranscripts, setLocalLiveTranscripts] = useState<Record<string, { sender: string; text: string; time?: string }[]>>({});
+  const [copiedEncounterIds, setCopiedEncounterIds] = useState<Set<string>>(() => new Set());
+  const [failedEncounterIds, setFailedEncounterIds] = useState<Set<string>>(() => new Set());
+  const [isPaused, setIsPaused] = useState(false);
+  const [isMicStandby, setIsMicStandby] = useState(true); // Apple Medical Standard: Starts in explicit STANDBY (00:00)
+  const [backgroundFinalizingIds, setBackgroundFinalizingIds] = useState<Set<string>>(new Set());
 
   // True while the recorded audio is being transcribed for the note. Surfaced so
   // the "finalising" wait is explained rather than looking like a stall.
@@ -294,6 +300,21 @@ export default function ChairsideWorkspace({
         fee: '$180.00'
       })) || [];
 
+      let encounterStatus: ScheduleItemStatus = 'ready';
+      if (copiedEncounterIds.has(c.id)) {
+        encounterStatus = 'done';
+      } else if (c.id === activePatientId && !isMicStandby && !isPaused) {
+        encounterStatus = 'recording';
+      } else if (backgroundFinalizingIds.has(c.id)) {
+        encounterStatus = 'processing';
+      } else if (failedEncounterIds.has(c.id)) {
+        encounterStatus = 'recreate';
+      } else if (c.status === 'Completed' || (c.findings?.treatmentPerformed || c.findings?.toothFindings || c.findings?.chiefComplaint)) {
+        encounterStatus = 'note_generated';
+      } else {
+        encounterStatus = 'ready';
+      }
+
       return {
         id: c.id,
         consultationId: c.id,
@@ -304,7 +325,7 @@ export default function ChairsideWorkspace({
         procedureText,
         appointmentType: c.appointmentType || 'restorative',
         templateId: c.templateId || 'standard',
-        status: c.status === 'Completed' ? 'ready' : (c.id === activePatientId ? 'recording' : 'scheduled'),
+        status: encounterStatus,
         dob: c.dob || '',
         priorNote,
         priorNoteDate,
@@ -314,7 +335,7 @@ export default function ChairsideWorkspace({
         cdtCodes
       };
     });
-  }, [consultations, activePatientId, dentistName, localLiveTranscripts]);
+  }, [consultations, activePatientId, dentistName, localLiveTranscripts, isMicStandby, isPaused, backgroundFinalizingIds, copiedEncounterIds, failedEncounterIds]);
 
   // Filter encounters for the selected day sheet date (Pure genuine data sorted chronologically by time)
   const encountersForDate: PatientEncounter[] = useMemo(() => {
@@ -380,12 +401,9 @@ export default function ChairsideWorkspace({
   // 3. LIVE AUDIO RECORDING, DSP ACOUSTIC SQUELCH & WEBAUDIO GRAPH
   // ─────────────────────────────────────────────────────────────
   const [isRecording] = useState(true);
-  const [isPaused, setIsPaused] = useState(false);
-  const [isMicStandby, setIsMicStandby] = useState(true); // Apple Medical Standard: Starts in explicit STANDBY (00:00)
   const [recordingSeconds, setRecordingSeconds] = useState(0); // Anchored at 00:00 until clinician initiates
   const [manualDialogueText, setManualDialogueText] = useState('');
   const [isFinalizing, setIsFinalizing] = useState(false);
-  const [backgroundFinalizingIds, setBackgroundFinalizingIds] = useState<Set<string>>(new Set());
   const [copiedNote, setCopiedNote] = useState(false);
   const [dspNoiseGateActive, setDspNoiseGateActive] = useState(true);
   const [showBatchTray, setShowBatchTray] = useState(false);
@@ -1830,7 +1848,7 @@ export default function ChairsideWorkspace({
 
   // Completed Encounters for End-of-Day Batch Tray
   const completedEncounters = useMemo(() => {
-    return encountersForDate.filter(p => p.status === 'ready');
+    return encountersForDate.filter(p => p.status === 'note_generated' || p.status === 'done' || p.status === 'ready');
   }, [encountersForDate]);
 
   const [selectedPmsTarget, setSelectedPmsTarget] = useState<'d4w' | 'exact' | 'cliniko' | 'generic'>('d4w');
@@ -1892,13 +1910,17 @@ VERIFICATION: Verified from patient conversation
 ============================`;
   };
 
-  // Copy Note for PMS
+  // Copy Note for PMS (Transitions status to 'Done')
   const handleCopyPMS = (consultToCopy?: Consultation) => {
+    const target = consultToCopy || consultations.find(c => c.id === activeEncounter?.id);
     const noteText = getFormattedNoteText(consultToCopy);
     if (!noteText) return;
 
     if (navigator.clipboard) {
       navigator.clipboard.writeText(noteText);
+    }
+    if (target?.id) {
+      setCopiedEncounterIds(prev => new Set(prev).add(target.id));
     }
     setCopiedNote(true);
     setTimeout(() => setCopiedNote(false), 2500);
@@ -1916,6 +1938,11 @@ VERIFICATION: Verified from patient conversation
 
     if (allNotesText && navigator.clipboard) {
       navigator.clipboard.writeText(allNotesText);
+      setCopiedEncounterIds(prev => {
+        const next = new Set(prev);
+        completedEncounters.forEach(p => next.add(p.id));
+        return next;
+      });
       setAllBatchCopied(true);
       setTimeout(() => setAllBatchCopied(false), 2500);
     }
@@ -2344,34 +2371,56 @@ ${clinician}`;
                             {p.time} • <span className="text-slate-700 font-bold">{p.operatory?.replace(/Op /i, 'Room ') || 'Room 1'}</span>
                           </div>
 
-                          {isActive ? (
-                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 ${!isMicStandby && !isPaused
-                              ? 'bg-rose-100 text-rose-800 border border-rose-200'
-                              : isPaused
-                                ? 'bg-amber-100 text-amber-800 border border-amber-200'
-                                : 'bg-sky-100 text-sky-800 border border-sky-200'
-                              }`}>
-                              <span className={`w-1.5 h-1.5 rounded-full ${!isMicStandby && !isPaused
-                                ? 'bg-rose-500 animate-ping'
-                                : isPaused
-                                  ? 'bg-amber-500'
-                                  : 'bg-sky-500'
-                                }`} />
-                              {!isMicStandby && !isPaused ? `Recording (${formatTimer(recordingSeconds)})` : isPaused ? 'Paused' : 'Active in Chair'}
+                          {p.status === 'done' ? (
+                            <span className="bg-emerald-50 text-emerald-800 text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-emerald-200 flex items-center gap-1 shadow-2xs">
+                              <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                              <span>Done</span>
                             </span>
-                          ) : isCompleted ? (
-                            <span className="bg-emerald-50 text-emerald-800 text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-emerald-200 flex items-center gap-1">
-                              <Check className="w-3 h-3 text-emerald-600" />
-                              Done
+                          ) : p.status === 'recording' || (isActive && !isMicStandby && !isPaused) ? (
+                            <span className="bg-rose-100 text-rose-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-rose-200 flex items-center gap-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-ping" />
+                              <span>Recording ({formatTimer(recordingSeconds)})</span>
+                            </span>
+                          ) : p.status === 'processing' ? (
+                            <span className="bg-amber-50 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-200 flex items-center gap-1">
+                              <RefreshCw className="w-3 h-3 text-amber-600 animate-spin" />
+                              <span>Generating Note...</span>
+                            </span>
+                          ) : p.status === 'recreate' ? (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                executeBackgroundNoteFinalization(p.id, false);
+                              }}
+                              className="bg-rose-50 hover:bg-rose-100 text-rose-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-rose-200 flex items-center gap-1 transition-colors cursor-pointer"
+                              title="Note generation had an issue. Click to recreate note."
+                            >
+                              <RotateCw className="w-3 h-3 text-rose-600" />
+                              <span>Recreate</span>
+                            </button>
+                          ) : p.status === 'note_generated' ? (
+                            <span className="bg-teal-50 text-teal-800 text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-teal-200 flex items-center gap-1">
+                              <Sparkles className="w-3 h-3 text-teal-600" />
+                              <span>Note Generated</span>
+                            </span>
+                          ) : isActive && isPaused ? (
+                            <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-200 flex items-center gap-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                              <span>Paused</span>
+                            </span>
+                          ) : isActive ? (
+                            <span className="bg-sky-100 text-sky-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-sky-200 flex items-center gap-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-sky-500" />
+                              <span>In Chair</span>
                             </span>
                           ) : p.diarizedTranscript && p.diarizedTranscript.length > 0 ? (
                             <span className="bg-emerald-50 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-200 flex items-center gap-1">
                               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                              Live ({p.diarizedTranscript.length})
+                              <span>Live ({p.diarizedTranscript.length})</span>
                             </span>
                           ) : (
                             <span className="bg-slate-100 text-slate-600 text-[10px] font-semibold px-2 py-0.5 rounded-full">
-                              {p.id === encountersForDate.find(o => o.id !== activePatientId && o.status !== 'ready')?.id ? 'Up Next' : 'Scheduled'}
+                              {p.id === encountersForDate.find(o => o.id !== activePatientId && o.status !== 'done' && o.status !== 'note_generated')?.id ? 'Up Next' : 'Ready'}
                             </span>
                           )}
                         </div>

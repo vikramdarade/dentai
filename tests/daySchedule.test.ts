@@ -89,7 +89,7 @@ describe('Day Schedule Queue Storage & Helpers', () => {
     // Chronologically sorted by time
     expect(items[0].patientName).toBe('Sarah Connor');
     expect(items[0].time).toBe('08:30');
-    expect(items[0].status).toBe('scheduled');
+    expect(items[0].status).toBe('ready');
     expect(items[1].patientName).toBe('Emma Watson');
     expect(items[1].time).toBe('10:00');
   });
@@ -128,20 +128,24 @@ describe('Day Schedule Queue Storage & Helpers', () => {
     expect(items[4].patientName).toBe('Patient 5 (16:45)');
   });
 
-  it('updates appointment status as the clinical workflow progresses', () => {
+  it('updates appointment status as the clinical workflow progresses: ready -> recording -> processing -> note_generated -> recreate -> done', () => {
     const item = addScheduleItem({
       time: '09:15',
       patientName: 'David Miller',
       procedureText: 'Tooth #16 Crown Prep',
       appointmentType: 'prosthodontic',
-      templateId: 'standard'
+      templateId: 'standard',
+      status: 'ready'
     }, testDate);
 
-    // Transition to recording
+    // Initial state: ready
+    expect(item.status).toBe('ready');
+
+    // 1. Transition to recording (live audio session)
     let updated = updateScheduleItem(item.id, { status: 'recording' }, testDate);
     expect(updated.find(i => i.id === item.id)?.status).toBe('recording');
 
-    // Transition to background synthesis
+    // 2. Transition to processing / note synthesis
     updated = updateScheduleItem(item.id, {
       status: 'processing',
       jobId: 'job_123',
@@ -151,16 +155,32 @@ describe('Day Schedule Queue Storage & Helpers', () => {
     expect(processingItem?.status).toBe('processing');
     expect(processingItem?.jobId).toBe('job_123');
 
-    // Transition to ready for PMS paste
+    // 3. Transition to note_generated / ready
     updated = updateScheduleItem(item.id, {
-      status: 'ready',
+      status: 'note_generated',
       clinicalNote: 'Tooth #16 Crown Prep Completed.',
       adaCodes: ['611']
     }, testDate);
-    const readyItem = updated.find(i => i.id === item.id);
-    expect(readyItem?.status).toBe('ready');
-    expect(readyItem?.clinicalNote).toContain('Tooth #16 Crown Prep');
-    expect(readyItem?.adaCodes).toEqual(['611']);
+    const generatedItem = updated.find(i => i.id === item.id);
+    expect(generatedItem?.status).toBe('note_generated');
+    expect(generatedItem?.clinicalNote).toContain('Tooth #16 Crown Prep');
+    expect(generatedItem?.adaCodes).toEqual(['611']);
+
+    // 4. Test error / recreate state on failure
+    updated = updateScheduleItem(item.id, {
+      status: 'recreate',
+      error: 'Microphone was silent'
+    }, testDate);
+    const recreateItem = updated.find(i => i.id === item.id);
+    expect(recreateItem?.status).toBe('recreate');
+    expect(recreateItem?.error).toBe('Microphone was silent');
+
+    // 5. Transition to done when copied to PMS
+    updated = updateScheduleItem(item.id, {
+      status: 'done'
+    }, testDate);
+    const doneItem = updated.find(i => i.id === item.id);
+    expect(doneItem?.status).toBe('done');
   });
 
   it('deletes an appointment from the queue', () => {
