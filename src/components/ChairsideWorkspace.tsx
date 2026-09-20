@@ -169,10 +169,16 @@ export default function ChairsideWorkspace({
   }, [currentDate]);
 
   const handlePrevDay = () => {
+    setIsMicStandby(true);
+    setIsPaused(false);
+    setRecordingSeconds(0);
     setCurrentDate(prev => new Date(prev.getFullYear(), prev.getMonth(), prev.getDate() - 1));
   };
 
   const handleNextDay = () => {
+    setIsMicStandby(true);
+    setIsPaused(false);
+    setRecordingSeconds(0);
     setCurrentDate(prev => new Date(prev.getFullYear(), prev.getMonth(), prev.getDate() + 1));
   };
 
@@ -300,6 +306,15 @@ export default function ChairsideWorkspace({
         fee: '$180.00'
       })) || [];
 
+      // A consultation only has a generated note if actual clinical findings or treatment
+      // were synthesized/documented, not merely an imported appointment reason.
+      const hasActualGeneratedNote = Boolean(
+        c.noteOrigin ||
+        (c.findings?.treatmentPerformed && c.findings.treatmentPerformed.trim().length > 0) ||
+        (c.findings?.diagnosis && c.findings.diagnosis.trim().length > 0) ||
+        (c.findings?.adaCodes && c.findings.adaCodes.length > 0)
+      );
+
       let encounterStatus: ScheduleItemStatus = 'ready';
       if (copiedEncounterIds.has(c.id)) {
         encounterStatus = 'done';
@@ -309,7 +324,7 @@ export default function ChairsideWorkspace({
         encounterStatus = 'processing';
       } else if (failedEncounterIds.has(c.id)) {
         encounterStatus = 'recreate';
-      } else if (c.status === 'Completed' || (c.findings?.treatmentPerformed || c.findings?.toothFindings || c.findings?.chiefComplaint)) {
+      } else if (hasActualGeneratedNote) {
         encounterStatus = 'note_generated';
       } else {
         encounterStatus = 'ready';
@@ -2355,7 +2370,6 @@ ${clinician}`;
                 ) : (
                   encountersForDate.map(p => {
                     const isActive = p.id === activePatientId;
-                    const isCompleted = p.status === 'ready' || (p.soap && Boolean(p.soap.subjective || p.soap.plan));
 
                     return (
                       <div
