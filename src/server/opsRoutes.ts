@@ -32,6 +32,21 @@ export interface OpsRouteDeps {
   drainQueue: () => Promise<number>;
   /** Constant-time comparison, reusing the session-signature helper. */
   constantTimeEquals: (a: string, b: string) => boolean;
+  /**
+   * Builds a durable per-address limiter for the operator routes.
+   *
+   * Passed in rather than created here because the shared counter lives in the
+   * same store as the rest of the app's limits. A limiter is applied to every
+   * operator route, in addition to the app-wide `/api/` limiter: these endpoints
+   * accept a shared secret and a brute-force attempt should be throttled at the
+   * route, not only by a global ceiling.
+   */
+  createRateLimit: (options: {
+    name: string;
+    windowMs?: number;
+    max?: number;
+    message?: string;
+  }) => (req: any, res: any, next: (err?: any) => void) => any;
   /** Migration/schema version reported in health output. */
   schemaVersion: string;
   /**
@@ -188,6 +203,20 @@ export function registerOpsRoutes(app: any, deps: OpsRouteDeps): void {
   const requireOps = createOpsGuard(deps);
 
   /**
+   * Operator routes are throttled per address, before authentication.
+   *
+   * Deliberately generous: the console polls the funnel and telemetry, and a
+   * founder refreshing a dashboard must never be locked out. It exists to stop a
+   * secret-guessing loop, not to meter normal use, so the test suite skips it.
+   */
+  const opsRateLimit = deps.createRateLimit({
+    name: 'ops-routes',
+    windowMs: 60_000,
+    max: process.env.NODE_ENV === 'test' ? 10_000 : 60,
+    message: 'Too many operator requests from this address. Wait a moment and try again.',
+  });
+
+  /**
    * Public liveness/readiness probe.
    * 200 = serving; 503 = serving but degraded (database unreachable).
    */
@@ -216,7 +245,7 @@ export function registerOpsRoutes(app: any, deps: OpsRouteDeps): void {
   });
 
   /** Process-instance metrics plus queue depth, for the operator only. */
-  app.get('/api/ops/telemetry', requireOps, async (_req: any, res: any) => {
+  app.get('/api/ops/telemetry', opsRateLimit, requireOps, async (_req: any, res: any) => {
     let openNoteJobs: number | null = null;
     try {
       openNoteJobs = deps.dbEnabled ? await deps.countOpenNoteJobs() : null;
@@ -236,7 +265,7 @@ export function registerOpsRoutes(app: any, deps: OpsRouteDeps): void {
    * Drain the note queue now, authenticated with the operator secret.
    * For a human or an external pinger (see docs/runbooks/queue-scheduling.md).
    */
-  app.post('/api/ops/drain', requireOps, async (_req: any, res: any) => {
+  app.post('/api/ops/drain', opsRateLimit, requireOps, async (_req: any, res: any) => {
     const openNoteJobs = await deps.drainQueue();
     res.json({ ok: true, openNoteJobs });
   });

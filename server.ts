@@ -408,6 +408,27 @@ const recordGovernance = createRecordGovernance({
 });
 app.use('/api', recordGovernance);
 
+/**
+ * Limiter factory for the operator endpoint modules.
+ *
+ * Built from the same durable store as the credential limiters, so a per-address
+ * operator limit survives serverless instances instead of being per-process —
+ * and, unlike the app-wide `/api/` ceiling, it throttles a secret-guessing loop
+ * at the route that accepts the secret.
+ */
+const opsLimiterFactory = (options: {
+  name: string;
+  windowMs?: number;
+  max?: number;
+  message?: string;
+}) =>
+  createDurableRateLimit(rateLimitDeps, {
+    name: options.name,
+    windowMs: options.windowMs ?? 60_000,
+    max: options.max ?? 60,
+    message: options.message,
+  });
+
 registerOpsRoutes(app, {
   logger,
   dbEnabled,
@@ -415,6 +436,7 @@ registerOpsRoutes(app, {
   countOpenNoteJobs: dbCountOpenNoteJobs,
   drainQueue,
   constantTimeEquals: signaturesMatch,
+  createRateLimit: opsLimiterFactory,
   schemaVersion: SCHEMA_VERSION,
   // Counts only. /api/health is public, so it must never name a missing secret.
   configuration: () => ({
@@ -1021,6 +1043,7 @@ registerOpsActionRoutes(app, {
   logger,
   requireOps,
   constantTimeEquals: signaturesMatch,
+  createRateLimit: opsLimiterFactory,
   configuration: {
     environment: configuration.environment,
     readiness: configuration.readiness,

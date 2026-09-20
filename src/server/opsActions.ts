@@ -130,6 +130,13 @@ export interface OpsActionDeps {
   requireOps: (req: any, res: any, next: (err?: any) => void) => any;
   /** Constant-time comparison, shared with createOpsGuard and the console sign-in. */
   constantTimeEquals: (a: string, b: string) => boolean;
+  /** Durable per-address limiter, applied to every operator route (see opsRoutes). */
+  createRateLimit: (options: {
+    name: string;
+    windowMs?: number;
+    max?: number;
+    message?: string;
+  }) => (req: any, res: any, next: (err?: any) => void) => any;
   configuration: {
     environment: string;
     readiness: string;
@@ -166,14 +173,28 @@ export interface OpsActionDeps {
 }
 
 export function registerOpsActionRoutes(app: any, deps: OpsActionDeps): void {
-  app.get('/api/ops/config', deps.requireOps, (_req: any, res: any) => {
+  /**
+   * Operator routes are throttled per address, before authentication.
+   *
+   * The console sign-in accepts a shared secret, so an unthrottled endpoint is a
+   * brute-force target. The ceiling is generous because the console loads several
+   * endpoints per page view.
+   */
+  const opsRateLimit = deps.createRateLimit({
+    name: 'ops-actions',
+    windowMs: 60_000,
+    max: process.env.NODE_ENV === 'test' ? 10_000 : 60,
+    message: 'Too many operator requests from this address. Wait a moment and try again.',
+  });
+
+  app.get('/api/ops/config', opsRateLimit, opsRateLimit, deps.requireOps, (_req: any, res: any) => {
     // Values are never returned — only whether a variable is set and what its
     // absence costs. This endpoint is how a founder checks a deployment from a
     // phone without a terminal.
     res.json(deps.configuration);
   });
 
-  app.get('/api/ops/clinics', deps.requireOps, async (_req: any, res: any) => {
+  app.get('/api/ops/clinics', opsRateLimit, deps.requireOps, async (_req: any, res: any) => {
     try {
       const clinics = await deps.clinicOverview();
       res.json({ clinics, count: clinics.length });
@@ -183,7 +204,7 @@ export function registerOpsActionRoutes(app: any, deps: OpsActionDeps): void {
     }
   });
 
-  app.get('/api/ops/funnel', deps.requireOps, async (_req: any, res: any) => {
+  app.get('/api/ops/funnel', opsRateLimit, deps.requireOps, async (_req: any, res: any) => {
     try {
       if (!deps.funnelMetrics) {
         return res.status(501).json({ error: 'Funnel analytics not available in this environment.' });
@@ -205,7 +226,7 @@ export function registerOpsActionRoutes(app: any, deps: OpsActionDeps): void {
    * operator secret — so it cannot be forged or edited, it expires on its own,
    * and rotating DENTAI_OPS_SECRET revokes every existing session.
    */
-  app.post('/api/ops/console/session', async (req: any, res: any) => {
+  app.post('/api/ops/console/session', opsRateLimit, async (req: any, res: any) => {
     const expected = process.env.DENTAI_OPS_SECRET || '';
     if (!expected) {
       return res.status(503).json({
@@ -238,7 +259,7 @@ export function registerOpsActionRoutes(app: any, deps: OpsActionDeps): void {
   });
 
   /** Ends the operator session early, without waiting for the cookie to expire. */
-  app.post('/api/ops/console/logout', (_req: any, res: any) => {
+  app.post('/api/ops/console/logout', opsRateLimit, (_req: any, res: any) => {
     res.clearCookie(OPS_SESSION_COOKIE, { path: '/api/ops' });
     res.json({ ok: true });
   });
@@ -409,7 +430,7 @@ export function registerOpsActionRoutes(app: any, deps: OpsActionDeps): void {
    * renders the sign-in form when there is no valid session. It carries no data
    * of its own — every metric behind it is still guarded.
    */
-  app.get('/api/ops/console', (req: any, res: any) => {
+  app.get('/api/ops/console', opsRateLimit, (req: any, res: any) => {
     const expected = process.env.DENTAI_OPS_SECRET || '';
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.setHeader('Cache-Control', 'no-store');
@@ -428,7 +449,7 @@ export function registerOpsActionRoutes(app: any, deps: OpsActionDeps): void {
     return res.send(consoleHtml());
   });
 
-  app.get('/api/ops/audit', deps.requireOps, async (req: any, res: any) => {
+  app.get('/api/ops/audit', opsRateLimit, deps.requireOps, async (req: any, res: any) => {
     try {
       const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 1000);
       const events = await deps.auditEntries(limit);
@@ -443,7 +464,7 @@ export function registerOpsActionRoutes(app: any, deps: OpsActionDeps): void {
    * Verifies the access-log hash chain so an operator can *show* a practice
    * that the record is intact, rather than assert it.
    */
-  app.get('/api/ops/audit/verify', deps.requireOps, async (req: any, res: any) => {
+  app.get('/api/ops/audit/verify', opsRateLimit, deps.requireOps, async (req: any, res: any) => {
     try {
       const limit = Math.min(Math.max(Number(req.query.limit) || 20000, 1), 100000);
       const entries = await deps.auditEntries(limit);
@@ -475,7 +496,7 @@ export function registerOpsActionRoutes(app: any, deps: OpsActionDeps): void {
     }
   });
 
-  app.post('/api/ops/retention/run', deps.requireOps, async (req: any, res: any) => {
+  app.post('/api/ops/retention/run', opsRateLimit, deps.requireOps, async (req: any, res: any) => {
     try {
       const confirm = req.body?.confirm === true;
       const result = await deps.runRetention({ confirm });
@@ -492,7 +513,7 @@ export function registerOpsActionRoutes(app: any, deps: OpsActionDeps): void {
     }
   });
 
-  app.post('/api/ops/billing/activate', deps.requireOps, async (req: any, res: any) => {
+  app.post('/api/ops/billing/activate', opsRateLimit, deps.requireOps, async (req: any, res: any) => {
     try {
       const { clinicId, plan } = req.body || {};
       if (typeof clinicId !== 'string' || !clinicId.trim()) {
@@ -518,7 +539,7 @@ export function registerOpsActionRoutes(app: any, deps: OpsActionDeps): void {
     }
   });
 
-  app.post('/api/ops/support/recovery', deps.requireOps, async (req: any, res: any) => {
+  app.post('/api/ops/support/recovery', opsRateLimit, deps.requireOps, async (req: any, res: any) => {
     try {
       const { dentistId } = req.body || {};
       if (typeof dentistId !== 'string' || !dentistId.trim()) {
@@ -546,7 +567,7 @@ export function registerOpsActionRoutes(app: any, deps: OpsActionDeps): void {
     }
   });
 
-  app.post('/api/ops/support/lock', deps.requireOps, async (req: any, res: any) => {
+  app.post('/api/ops/support/lock', opsRateLimit, deps.requireOps, async (req: any, res: any) => {
     try {
       const { dentistId, unlock } = req.body || {};
       if (typeof dentistId !== 'string' || !dentistId.trim()) {

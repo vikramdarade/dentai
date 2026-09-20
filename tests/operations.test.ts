@@ -504,6 +504,9 @@ describe('Operator adoption funnel & quality telemetry', () => {
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
       requireOps,
       constantTimeEquals: (a: string, b: string) => a === b,
+      // A pass-through: the limiter itself is exercised by its own suite, and
+      // throttling here would make this test's assertions order-dependent.
+      createRateLimit: () => (_req: any, _res: any, next: any) => next(),
       configuration: { environment: 'test', readiness: 'ready', summary: '', blocking: [], advisories: [], configured: [] },
       clinicOverview: async () => [],
       funnelMetrics: async () => ({

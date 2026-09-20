@@ -55,10 +55,12 @@ Setup:
 often, it **fails the deployment outright** ("Hobby accounts are limited to
 daily cron jobs. This cron expression would run more than once per day."). A
 `*/1 * * * *` schedule committed on 16 Sep 2026 silently stopped every Vercel
-deploy until it was replaced. The daily `0 2 * * *` entry (2am UTC, timing
-±1h on Hobby) is therefore only a fallback sweep; minute-level durability on
-Hobby comes from Option 2. On Vercel Pro, restore `*/1 * * * *` and retire the
-pinger.
+deploy until it was replaced, and it happened again on 20 Sep 2026 with
+`0 * * * *` — so this value has now broken deployments twice. **Do not make it
+more frequent unless the account is on Pro.** The daily `0 2 * * *` entry
+(2am UTC, timing ±1h on Hobby) is therefore only a fallback sweep;
+minute-level durability on Hobby comes from Option 2. On Vercel Pro, restore
+`*/1 * * * *` and retire the pinger.
 
 ## Option 2 — Any external pinger (plan-independent; the Hobby default)
 
