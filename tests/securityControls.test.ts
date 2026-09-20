@@ -273,6 +273,80 @@ describe('Durable rate limiting', () => {
     expect(secondPassed).toBe(false);
     expect(warn).toHaveBeenCalled();
   });
+
+  it('partitions budget by Bearer token session so shared clinic IPs do not collide', async () => {
+    const store = {
+      hit: vi.fn(async (key: string) => ({ hits: 1, expiresAt: Date.now() + 60_000 })),
+      reset: vi.fn(async () => {}),
+    };
+    const keyOf = (req: any) => {
+      const auth = req.headers?.['authorization'];
+      if (typeof auth === 'string' && auth.startsWith('Bearer ')) {
+        const token = auth.slice(7).trim();
+        if (token) {
+          return `auth:${crypto.createHash('sha256').update(token).digest('hex').slice(0, 16)}`;
+        }
+      }
+      return req.ip || 'unknown';
+    };
+
+    const limiter = createDurableRateLimit(
+      { store, logger: { warn: vi.fn() } },
+      { name: 'session_test', windowMs: 60_000, max: 1, keyOf }
+    );
+
+    // Clinician 1 on shared clinic NAT IP (192.168.1.1)
+    const res1 = makeRes();
+    let p1 = false;
+    await limiter({ ip: '192.168.1.1', headers: { authorization: 'Bearer token-dr-smith' } }, res1, () => {
+      p1 = true;
+    });
+    expect(p1).toBe(true);
+
+    // Clinician 2 on same shared clinic NAT IP (192.168.1.1)
+    const res2 = makeRes();
+    let p2 = false;
+    await limiter({ ip: '192.168.1.1', headers: { authorization: 'Bearer token-dr-jones' } }, res2, () => {
+      p2 = true;
+    });
+    expect(p2).toBe(true);
+
+    // Both had distinct keys in the store
+    expect(store.hit).toHaveBeenCalledWith(expect.stringMatching(/^session_test:auth:/), 60_000);
+    const keys = store.hit.mock.calls.map((c) => c[0]);
+    expect(keys[0]).not.toEqual(keys[1]);
+  });
+
+  it('skips routes matching path even when query string is attached', async () => {
+    const store = {
+      hit: vi.fn(async () => ({ hits: 1, expiresAt: Date.now() + 60_000 })),
+      reset: vi.fn(async () => {}),
+    };
+    const limiter = createDurableRateLimit(
+      { store, logger: { warn: vi.fn() } },
+      {
+        name: 'skip_test',
+        windowMs: 60_000,
+        max: 1,
+        skip: (req) => {
+          const path = (req.originalUrl || '').split('?')[0];
+          return req.method === 'GET' && /^\/api\/notes\/jobs\/[0-9a-fA-F-]+$/.test(path);
+        },
+      }
+    );
+
+    const res = makeRes();
+    let passed = false;
+    await limiter(
+      { method: 'GET', originalUrl: '/api/notes/jobs/1234-abcd?refresh=true&t=999', ip: '10.0.0.9' },
+      res,
+      () => {
+        passed = true;
+      }
+    );
+    expect(passed).toBe(true);
+    expect(store.hit).not.toHaveBeenCalled();
+  });
 });
 
 describe('Stripe webhook verification', () => {

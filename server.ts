@@ -545,29 +545,61 @@ app.use((req, res, next) => {
 });
 
 /*
- * API rate limiting (100 requests / 15 minutes per address).
+ * API rate limiting.
  *
- * Durable: the counters live in the shared store, so twenty serverless
- * instances share one budget instead of each getting its own. See
- * src/server/durableRateLimit.ts.
+ * Configurable via DENTAI_API_RATE_LIMIT (default: 1,500 requests / 15 mins
+ * in production, 10,000 in development/test).
+ *
+ * Scoped per authenticated session (Bearer token hash) when signed in, so
+ * multiple clinicians sharing one clinic NAT IP address do not exhaust
+ * each other's quota. Unauthenticated requests fall back to client IP.
+ *
+ * Durable: the counters live in the shared store, so serverless instances
+ * share one budget instead of each getting its own. See src/server/durableRateLimit.ts.
  */
+const envApiRateLimit = Number(process.env.DENTAI_API_RATE_LIMIT);
+const defaultApiRateLimit =
+  process.env.NODE_ENV === 'test' || process.env.NODE_ENV === 'development' ? 10_000 : 1_500;
+const apiRateLimitMax =
+  Number.isFinite(envApiRateLimit) && envApiRateLimit > 0 ? envApiRateLimit : defaultApiRateLimit;
+
 const apiLimiter = createDurableRateLimit(rateLimitDeps, {
   name: 'api',
   windowMs: 15 * 60 * 1000,
-  max: process.env.NODE_ENV === 'test' ? 10_000 : 100,
+  max: apiRateLimitMax,
   message: 'Too many requests, please try again later.',
+  keyOf: (req) => {
+    // If the request carries an Authorization header, partition the rate limit
+    // by session so clinicians behind a shared clinic NAT IP do not exhaust
+    // each other's request allowance.
+    const auth = req.headers?.['authorization'];
+    if (typeof auth === 'string' && auth.startsWith('Bearer ')) {
+      const token = auth.slice(7).trim();
+      if (token) {
+        return `auth:${crypto.createHash('sha256').update(token).digest('hex').slice(0, 16)}`;
+      }
+    }
+    return req.ip || req.socket?.remoteAddress || 'unknown';
+  },
   // Job polling is the async fabric's own heartbeat: the client polls every
   // ~1.5s while a note generates, and each poll opportunistically ticks the
-  // worker. Counting polls here would spend the dentist's entire 100-request
+  // worker. Counting polls here would spend the dentist's entire request
   // window mid-consult; the POST that enqueues is still metered.
-  skip: (req) =>
-    (req.method === 'GET' && /^\/api\/notes\/jobs\/[0-9a-fA-F-]+$/.test(req.originalUrl || '')) ||
-    // The chair-side phone beacon polls while a dentist is mid-appointment and
-    // carries a chair token, not a session. Metering its heartbeat would spend
-    // the dentist's whole request window during a procedure, so it is exempt —
-    // while the call that enqueues work and every other route stays metered.
-    (req.method === 'GET' && /^\/api\/beacon\/chair\/[^/]+\/status$/.test(req.originalUrl || '')) ||
-    (req.method === 'POST' && /^\/api\/beacon\/chair\/[^/]+\/telemetry$/.test(req.originalUrl || '')),
+  skip: (req) => {
+    // Strip query strings to ensure clean path matching per workspace guidelines
+    const path = (req.originalUrl || '').split('?')[0];
+    return (
+      (req.method === 'GET' && /^\/api\/notes\/jobs\/[0-9a-fA-F-]+$/.test(path)) ||
+      // The chair-side phone beacon polls while a dentist is mid-appointment and
+      // carries a chair token, not a session. Metering its heartbeat would spend
+      // the dentist's whole request window during a procedure, so it is exempt —
+      // while the call that enqueues work and every other route stays metered.
+      (req.method === 'GET' && /^\/api\/beacon\/chair\/[^/]+\/status$/.test(path)) ||
+      (req.method === 'POST' && /^\/api\/beacon\/chair\/[^/]+\/telemetry$/.test(path)) ||
+      (req.method === 'GET' && path === '/api/health') ||
+      path.startsWith('/api/ops/')
+    );
+  },
 });
 
 app.use('/api/', apiLimiter);
