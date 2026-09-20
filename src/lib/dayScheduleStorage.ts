@@ -85,6 +85,22 @@ export function getTodayDateStr(): string {
   return getClinicTodayIso();
 }
 
+/**
+ * Normalizes appointment time into total minutes from midnight for accurate chronological sorting.
+ * e.g. "09:15" -> 555, "9:30 AM" -> 570, "1:15 PM" -> 795, "14:00" -> 840
+ */
+export function parseTimeToMinutes(timeStr: string): number {
+  if (!timeStr || typeof timeStr !== 'string') return 9999;
+  const match = timeStr.match(/(\d{1,2}):(\d{2})\s*(am|pm)?/i);
+  if (!match) return 9999;
+  let hour = parseInt(match[1], 10);
+  const min = parseInt(match[2], 10);
+  const meridian = match[3]?.toLowerCase();
+  if (meridian === 'pm' && hour < 12) hour += 12;
+  if (meridian === 'am' && hour === 12) hour = 0;
+  return hour * 60 + min;
+}
+
 export function loadTodaySchedule(dateStr = getTodayDateStr()): DayScheduleItem[] {
   try {
     const raw = getStorageItem(`${STORAGE_KEY_PREFIX}${dateStr}`);
@@ -92,8 +108,8 @@ export function loadTodaySchedule(dateStr = getTodayDateStr()): DayScheduleItem[
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
 
-    // Auto-sanitize existing items in storage (e.g. if adaCodes were stored as objects)
-    return parsed.map((item: any) => {
+    // Auto-sanitize and sort chronologically by time from earliest to latest
+    const list = parsed.map((item: any) => {
       if (!item || typeof item !== 'object') return null;
       let sanitizedCodes: string[] = [];
       if (Array.isArray(item.adaCodes)) {
@@ -108,6 +124,8 @@ export function loadTodaySchedule(dateStr = getTodayDateStr()): DayScheduleItem[
         adaCodes: sanitizedCodes
       };
     }).filter(Boolean) as DayScheduleItem[];
+
+    return list.sort((a, b) => parseTimeToMinutes(a.time) - parseTimeToMinutes(b.time));
   } catch (err) {
     console.error('Failed to load today schedule from storage:', err);
     return [];
@@ -116,7 +134,8 @@ export function loadTodaySchedule(dateStr = getTodayDateStr()): DayScheduleItem[
 
 export function saveTodaySchedule(items: DayScheduleItem[], dateStr = getTodayDateStr()): void {
   try {
-    setStorageItem(`${STORAGE_KEY_PREFIX}${dateStr}`, JSON.stringify(items));
+    const sorted = [...items].sort((a, b) => parseTimeToMinutes(a.time) - parseTimeToMinutes(b.time));
+    setStorageItem(`${STORAGE_KEY_PREFIX}${dateStr}`, JSON.stringify(sorted));
   } catch (err) {
     console.error('Failed to save today schedule to storage:', err);
   }
@@ -134,8 +153,9 @@ export function updateScheduleItem(
     }
     return item;
   });
-  saveTodaySchedule(updated, dateStr);
-  return updated;
+  const sorted = updated.sort((a, b) => parseTimeToMinutes(a.time) - parseTimeToMinutes(b.time));
+  saveTodaySchedule(sorted, dateStr);
+  return sorted;
 }
 
 export function addScheduleItem(
@@ -148,7 +168,7 @@ export function addScheduleItem(
     id: `sched_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
     status: 'scheduled'
   };
-  const updated = [...current, newItem].sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+  const updated = [...current, newItem].sort((a, b) => parseTimeToMinutes(a.time) - parseTimeToMinutes(b.time));
   saveTodaySchedule(updated, dateStr);
   return newItem;
 }
@@ -267,8 +287,8 @@ export function mergeScheduleItems(
     mergedResult.push(remaining);
   }
 
-  // Sort chronologically by start time
-  return mergedResult.sort((a, b) => normalizeStartTime(a.time).localeCompare(normalizeStartTime(b.time)));
+  // Sort chronologically by start time from earliest to latest
+  return mergedResult.sort((a, b) => parseTimeToMinutes(a.time) - parseTimeToMinutes(b.time));
 }
 
 /**

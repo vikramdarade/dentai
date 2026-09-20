@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Calendar,
   Clock,
@@ -36,7 +36,8 @@ import {
   getTodayDateStr,
   mergeScheduleItems,
   calculateDailyProduction,
-  generateSafeUuid
+  generateSafeUuid,
+  parseTimeToMinutes
 } from '../lib/dayScheduleStorage';
 import { AppointmentType, APPOINTMENT_TYPES, getAppointmentTypeLabel } from '../lib/dentalLibrary';
 import TopSurgeryBar from './TopSurgeryBar';
@@ -533,12 +534,16 @@ export default function DayScheduleQueue({
     }
   };
 
+  const sortedItems = useMemo(() => {
+    return [...items].sort((a, b) => parseTimeToMinutes(a.time) - parseTimeToMinutes(b.time));
+  }, [items]);
+
   const handleExpressCopyNext = () => {
-    const uncopied = items.find(i => i.status === 'ready' && copiedId !== i.id);
+    const uncopied = sortedItems.find(i => i.status === 'ready' && copiedId !== i.id);
     if (uncopied) {
       handleCopyNote(uncopied);
     } else {
-      const firstReady = items.find(i => i.status === 'ready');
+      const firstReady = sortedItems.find(i => i.status === 'ready');
       if (firstReady) handleCopyNote(firstReady);
     }
   };
@@ -568,11 +573,11 @@ export default function DayScheduleQueue({
   };
 
   // Metrics
-  const totalCount = items.length;
-  const readyCount = items.filter(i => i.status === 'ready').length;
-  const processingCount = items.filter(i => i.status === 'processing').length;
-  const pendingCount = items.filter(i => i.status === 'scheduled').length;
-  const dailyProduction = calculateDailyProduction(items);
+  const totalCount = sortedItems.length;
+  const readyCount = sortedItems.filter(i => i.status === 'ready').length;
+  const processingCount = sortedItems.filter(i => i.status === 'processing').length;
+  const pendingCount = sortedItems.filter(i => i.status === 'scheduled').length;
+  const dailyProduction = calculateDailyProduction(sortedItems);
 
   return (
     <div className="w-full max-w-5xl mx-auto px-4 py-6 font-sans relative">
@@ -753,7 +758,7 @@ export default function DayScheduleQueue({
       )}
 
       {/* Schedule Items List */}
-      {items.length === 0 ? (
+      {sortedItems.length === 0 ? (
         <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center">
           <Calendar className="w-12 h-12 text-slate-300 mx-auto mb-3" />
           <h3 className="text-base font-bold text-slate-700">No Appointments Queued for Today</h3>
@@ -770,7 +775,7 @@ export default function DayScheduleQueue({
         </div>
       ) : (
         <div className="space-y-3">
-          {items.map((item, index) => {
+          {sortedItems.map((item, index) => {
             const isRecordingThis = recordingItem?.id === item.id || item.status === 'recording';
             const isReady = item.status === 'ready';
             const isProcessing = item.status === 'processing';

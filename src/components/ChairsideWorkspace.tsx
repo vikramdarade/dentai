@@ -35,7 +35,7 @@ import {
   Trash2,
   UploadCloud
 } from 'lucide-react';
-import { addScheduleItem } from '../lib/dayScheduleStorage';
+import { addScheduleItem, parseTimeToMinutes } from '../lib/dayScheduleStorage';
 import { Consultation, TranscriptItem, ClinicalFindings } from '../types';
 import { chooseNoteTranscript, type TranscriptSource } from '../lib/transcription';
 import {
@@ -316,12 +316,14 @@ export default function ChairsideWorkspace({
     });
   }, [consultations, activePatientId, dentistName, localLiveTranscripts]);
 
-  // Filter encounters for the selected day sheet date (Pure genuine data)
+  // Filter encounters for the selected day sheet date (Pure genuine data sorted chronologically by time)
   const encountersForDate: PatientEncounter[] = useMemo(() => {
-    return patientEncounters.filter(p => {
-      const orig = consultations.find(c => c.id === p.id);
-      return orig?.date === currentDateStr;
-    });
+    return patientEncounters
+      .filter(p => {
+        const orig = consultations.find(c => c.id === p.id);
+        return orig?.date === currentDateStr;
+      })
+      .sort((a, b) => parseTimeToMinutes(a.time) - parseTimeToMinutes(b.time));
   }, [patientEncounters, consultations, currentDateStr]);
 
   // Self-healing & real-time multi-browser operatory synchronization:

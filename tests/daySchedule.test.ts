@@ -20,7 +20,8 @@ import {
   normalizePatientName,
   generateSlotFingerprint,
   mergeScheduleItems,
-  calculateDailyProduction
+  calculateDailyProduction,
+  parseTimeToMinutes
 } from '../src/lib/dayScheduleStorage';
 import { verifyTranscriptGrounding, extractToothNumbers } from '../src/lib/transcriptGrounding';
 import { isPmsPreviewEnabled } from '../src/utils/previewMode';
@@ -91,6 +92,40 @@ describe('Day Schedule Queue Storage & Helpers', () => {
     expect(items[0].status).toBe('scheduled');
     expect(items[1].patientName).toBe('Emma Watson');
     expect(items[1].time).toBe('10:00');
+  });
+
+  it('correctly parses 12-hour and 24-hour time strings to minutes from midnight', () => {
+    expect(parseTimeToMinutes('08:30')).toBe(510);
+    expect(parseTimeToMinutes('09:00')).toBe(540);
+    expect(parseTimeToMinutes('9:30 AM')).toBe(570);
+    expect(parseTimeToMinutes('11:45 am')).toBe(705);
+    expect(parseTimeToMinutes('12:00 PM')).toBe(720);
+    expect(parseTimeToMinutes('12:30 PM')).toBe(750);
+    expect(parseTimeToMinutes('1:15 PM')).toBe(795);
+    expect(parseTimeToMinutes('14:30')).toBe(870);
+    expect(parseTimeToMinutes('5:00 pm')).toBe(1020);
+    expect(parseTimeToMinutes('invalid')).toBe(9999);
+    expect(parseTimeToMinutes('')).toBe(9999);
+  });
+
+  it('strictly sorts multiple appointments from earliest to latest regardless of entry order', () => {
+    const appointments = [
+      { time: '2:15 PM', patientName: 'Patient 4 (14:15)', procedureText: 'Exam', appointmentType: 'examination' as const, templateId: 'std' },
+      { time: '08:30', patientName: 'Patient 1 (08:30)', procedureText: 'Exam', appointmentType: 'examination' as const, templateId: 'std' },
+      { time: '11:00 AM', patientName: 'Patient 3 (11:00)', procedureText: 'Exam', appointmentType: 'examination' as const, templateId: 'std' },
+      { time: '09:15', patientName: 'Patient 2 (09:15)', procedureText: 'Exam', appointmentType: 'examination' as const, templateId: 'std' },
+      { time: '4:45 PM', patientName: 'Patient 5 (16:45)', procedureText: 'Exam', appointmentType: 'examination' as const, templateId: 'std' }
+    ];
+
+    for (const app of appointments) {
+      addScheduleItem(app, testDate);
+    }
+
+    const items = loadTodaySchedule(testDate);
+    expect(items.length).toBe(5);
+    expect(items.map(i => i.time)).toEqual(['08:30', '09:15', '11:00 AM', '2:15 PM', '4:45 PM']);
+    expect(items[0].patientName).toBe('Patient 1 (08:30)');
+    expect(items[4].patientName).toBe('Patient 5 (16:45)');
   });
 
   it('updates appointment status as the clinical workflow progresses', () => {
