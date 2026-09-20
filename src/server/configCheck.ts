@@ -68,10 +68,17 @@ export const ENV_REQUIREMENTS: EnvRequirement[] = [
     howTo: 'Google AI Studio API key, restricted to the Generative Language API.',
   },
   {
+    key: 'DENTAI_ABN',
+    severity: 'required',
+    purpose: 'Australian Business Number (ABN) displayed on tax invoices and receipts.',
+    impact: 'Tax invoices cannot be issued legally under Australian GST law without a valid supplier ABN.',
+    howTo: '11-digit Australian Business Number, e.g. "12 345 678 901".',
+  },
+  {
     key: 'GCP_PROJECT_ID',
-    severity: 'recommended',
+    severity: 'required',
     purpose: 'Enables the Vertex AI route, which is the Australian-region path.',
-    impact: 'Generation uses the global Gemini endpoint, so content may be processed outside Australia — which the privacy notice discloses, but practices will ask about.',
+    impact: 'Generation uses the global Gemini endpoint, so content may be processed outside Australia — which contradicts sovereign processing commitments.',
     howTo: 'GCP project with Vertex AI enabled in australia-southeast1.',
   },
   {
@@ -83,16 +90,16 @@ export const ENV_REQUIREMENTS: EnvRequirement[] = [
   },
   {
     key: 'DENTAI_DISABLE_PROFILE_DIRECTORY',
-    severity: 'recommended',
+    severity: 'required',
     purpose: 'Hides the staff directory (GET /api/auth/profiles).',
-    impact: 'Every clinician name and id is enumerable by anyone who can reach the sign-in screen. Set to true for any real deployment.',
+    impact: 'Every clinician name and id is enumerable by anyone who can reach the sign-in screen. Must be set for production governance.',
     howTo: 'Set to "true".',
   },
   {
     key: 'DENTAI_REQUIRE_CONSENT',
-    severity: 'recommended',
+    severity: 'required',
     purpose: 'Refuses to store a transcript without recorded patient consent.',
-    impact: 'Records can be saved without the AI-assist consent being captured — the gap is logged, but the privacy basis is weaker.',
+    impact: 'Records can be saved without the AI-assist consent being captured — violating privacy disclosures.',
     howTo: 'Set to "true" once all clinicians are on the current client build.',
   },
   {

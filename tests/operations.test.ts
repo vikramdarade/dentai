@@ -1,4 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
+import express from 'express';
+import request from 'supertest';
 import {
   PLANS,
   describePlan,
@@ -6,6 +8,7 @@ import {
   planFromTier,
   resolveEntitlements,
 } from '../src/lib/plans';
+import { registerOpsActionRoutes } from '../src/server/opsActions';
 import { checkConfiguration, describeConfiguration } from '../src/server/configCheck';
 import { createAlerter, evaluateAlerts, DEFAULT_THRESHOLDS } from '../src/server/alerting';
 import {
@@ -129,6 +132,7 @@ describe('Configuration readiness', () => {
       ERROR_WEBHOOK_URL: 'https://hooks.example/x',
       DENTAI_DISABLE_PROFILE_DIRECTORY: 'true',
       DENTAI_REQUIRE_CONSENT: 'true',
+      DENTAI_ABN: '12 345 678 901',
       DENTAI_DAILY_NOTE_LIMIT: '60',
       DENTAI_DAILY_TOKEN_LIMIT: '200000',
     };
@@ -475,5 +479,69 @@ describe('Clinical accuracy gate', () => {
     expect(summary.fixtures).toBe(2);
     expect(summary.passed).toBe(1);
     expect(summary.safetyFailures).toBe(1);
+  });
+});
+
+describe('Operator adoption funnel & quality telemetry', () => {
+  it('requires operational authentication and exposes zero PHI', async () => {
+    const app = express();
+    app.use(express.json());
+    const requireOps = (req: any, res: any, next: any) => {
+      const configured = process.env.DENTAI_OPS_SECRET;
+      if (!configured) return res.status(503).json({ error: 'OPS_DISABLED' });
+      const secret = req.headers['x-dentai-ops-secret'];
+      if (secret !== configured) return res.status(401).json({ error: 'Unauthorised' });
+      next();
+    };
+    registerOpsActionRoutes(app, {
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      requireOps,
+      configuration: { environment: 'test', readiness: 'ready', summary: '', blocking: [], advisories: [], configured: [] },
+      clinicOverview: async () => [],
+      funnelMetrics: async () => ({
+        stages: { signups: 10, generatedFirstNote: 8, savedFirstNote: 7, day2Return: 5, invitedColleague: 3, upgraded: 2 },
+        qualitySignals: {
+          totalNotes: 25,
+          generatedNotes: 20,
+          editedNotes: 4,
+          editRate: 0.2,
+          browserLiveNotes: 5,
+          serverDiarizedNotes: 15,
+          liveFallbackShare: 0.25,
+        },
+      }),
+      auditEntries: async () => [],
+      runRetention: vi.fn() as any,
+      activatePlan: vi.fn() as any,
+      issueRecoveryToken: vi.fn() as any,
+      lockAccount: vi.fn() as any,
+      logAudit: vi.fn(),
+      operatorName: () => 'ops-tester',
+    });
+
+    delete process.env.DENTAI_OPS_SECRET;
+    const unconf = await request(app).get('/api/ops/funnel');
+    expect(unconf.status).toBe(503);
+
+    process.env.DENTAI_OPS_SECRET = 'correct-ops-secret';
+    const wrong = await request(app).get('/api/ops/funnel').set('x-dentai-ops-secret', 'wrong');
+    expect(wrong.status).toBe(401);
+
+    const right = await request(app).get('/api/ops/funnel').set('x-dentai-ops-secret', 'correct-ops-secret');
+    expect(right.status).toBe(200);
+    expect(right.body.stages.signups).toBe(10);
+    expect(right.body.stages.upgraded).toBe(2);
+    expect(right.body.qualitySignals.editRate).toBe(0.2);
+    expect(right.body.qualitySignals.liveFallbackShare).toBe(0.25);
+
+    // ZERO PHI in the response:
+    const serialized = JSON.stringify(right.body).toLowerCase();
+    expect(serialized).not.toContain('patient');
+    expect(serialized).not.toContain('firstname');
+    expect(serialized).not.toContain('lastname');
+    expect(serialized).not.toContain('dob');
+    expect(serialized).not.toContain('transcript');
+    expect(serialized).not.toContain('teeth');
+    expect(serialized).not.toContain('diagnosis');
   });
 });

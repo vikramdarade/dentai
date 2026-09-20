@@ -222,7 +222,17 @@ export interface ApplyEventDeps {
   logger: BillingLogger;
   /** Called when a clinic's plan changed, so caches can be dropped. */
   onChanged?: (clinicId: string) => void;
+  sendReceiptEmail?: (params: {
+    clinicId: string;
+    practiceName: string;
+    planName: string;
+    amountAud: number;
+    periodEnd: string;
+    invoiceUrl?: string;
+    customerEmail?: string;
+  }) => Promise<void>;
 }
+
 
 export interface ApplyEventResult {
   handled: boolean;
@@ -238,10 +248,25 @@ function timestampToIso(seconds: unknown): string | null {
   return new Date(value * 1000).toISOString();
 }
 
-function planFromMetadata(object: Record<string, any>, fallback: PlanId = 'trial'): PlanId {
-  const fromMetadata = object?.metadata?.plan;
-  if (isPlanId(fromMetadata)) return fromMetadata;
-  return fallback;
+export function clinicIdFromObject(object: Record<string, any>): string {
+  const meta = object?.metadata;
+  const fromMeta = meta?.clinic_id || meta?.clinicId;
+  if (fromMeta && typeof fromMeta === 'string' && fromMeta.trim()) {
+    return fromMeta.trim();
+  }
+  const clientRef = object?.client_reference_id;
+  if (clientRef && typeof clientRef === 'string' && clientRef.trim()) {
+    return clientRef.trim();
+  }
+  return '';
+}
+
+export function planFromMetadata(object: Record<string, any>, fallback?: PlanId): PlanId | null {
+  const meta = object?.metadata;
+  const fromMeta = meta?.plan;
+  if (isPlanId(fromMeta)) return fromMeta;
+  if (fallback && isPlanId(fallback)) return fallback;
+  return null;
 }
 
 /** Applies a verified event. Idempotent: a replayed event id is ignored. */
@@ -290,32 +315,55 @@ export async function applyStripeEvent(
 
   switch (event.type) {
     case 'checkout.session.completed': {
-      const clinicId = String(object.metadata?.clinicId || '');
+      const clinicId = clinicIdFromObject(object);
       if (!clinicId) {
-        deps.logger.warn('Stripe checkout completed without a clinicId in metadata; ignoring.', {
+        deps.logger.warn('Stripe checkout completed without a clinicId in metadata or client_reference_id; ignoring.', {
           eventId: event.id,
         });
         await deps.events.record({ id: event.id, clinicId: null, kind: event.type, detail: {} });
         break;
       }
+      const plan = planFromMetadata(object);
+      if (!plan) {
+        deps.logger.error('Stripe checkout completed with unresolvable plan; refusing to default to free plan.', {
+          eventId: event.id,
+          metadata: object.metadata,
+        });
+        throw new Error(`Stripe checkout completed without a valid plan for clinic ${clinicId}`);
+      }
+      const currentPeriodEnd = object.current_period_end
+        ? timestampToIso(object.current_period_end)
+        : object.expires_at
+          ? timestampToIso(object.expires_at)
+          : new Date(Date.now() + 30 * 86400000).toISOString();
+
       await writeSubscription(clinicId, {
-        plan: planFromMetadata(object, 'solo'),
+        plan,
         status: 'active',
         stripeCustomerId: object.customer ? String(object.customer) : null,
         stripeSubscriptionId: object.subscription ? String(object.subscription) : null,
+        currentPeriodEnd,
       });
-      return { handled: true, clinicId, plan: planFromMetadata(object, 'solo'), message: 'Checkout completed.' };
+      return { handled: true, clinicId, plan, message: 'Checkout completed.' };
     }
 
     case 'customer.subscription.created':
     case 'customer.subscription.updated':
     case 'customer.subscription.deleted': {
-      const plan = planFromMetadata(object, 'solo');
+      const plan = planFromMetadata(object);
+      if (!plan && event.type !== 'customer.subscription.deleted') {
+        deps.logger.error('Subscription event has no valid plan in metadata.', {
+          eventId: event.id,
+          metadata: object.metadata,
+        });
+        throw new Error(`Subscription event ${event.id} has no resolvable plan`);
+      }
+      const resolvedPlan = plan || 'practice';
       const status =
         event.type === 'customer.subscription.deleted'
           ? 'canceled'
           : String(object.status || 'active');
-      let clinicId = String(object.metadata?.clinicId || '');
+      let clinicId = clinicIdFromObject(object);
       if (!clinicId && object.customer) {
         const existing = await deps.store.byStripeCustomerId(String(object.customer));
         clinicId = existing?.clinicId || '';
@@ -328,14 +376,14 @@ export async function applyStripeEvent(
         break;
       }
       await writeSubscription(clinicId, {
-        plan,
+        plan: resolvedPlan,
         status,
         stripeCustomerId: object.customer ? String(object.customer) : null,
         stripeSubscriptionId: String(object.id || ''),
         currentPeriodEnd: timestampToIso(object.current_period_end),
         cancelAtPeriodEnd: !!object.cancel_at_period_end,
       });
-      return { handled: true, clinicId, plan, message: `Subscription ${status}.` };
+      return { handled: true, clinicId, plan: resolvedPlan, message: `Subscription ${status}.` };
     }
 
     case 'invoice.paid':
@@ -348,12 +396,37 @@ export async function applyStripeEvent(
         break;
       }
       const status = event.type === 'invoice.paid' ? 'active' : 'past_due';
+      const plan = isPlanId(existing.plan) ? existing.plan : 'practice';
+      const currentPeriodEnd = timestampToIso(object.lines?.data?.[0]?.period?.end || object.period_end);
       await writeSubscription(existing.clinicId, {
-        plan: isPlanId(existing.plan) ? existing.plan : 'solo',
+        plan,
         status,
         stripeCustomerId: customerId,
         stripeSubscriptionId: existing.stripeSubscriptionId,
+        currentPeriodEnd,
       });
+
+      if (event.type === 'invoice.paid' && deps.sendReceiptEmail) {
+        const amountPaidCents = Number(object.amount_paid ?? object.total ?? 16390);
+        const amountAud = amountPaidCents / 100;
+        const periodEndStr = object.lines?.data?.[0]?.period?.end
+          ? timestampToIso(object.lines.data[0].period.end) || ''
+          : '';
+        try {
+          await deps.sendReceiptEmail({
+            clinicId: existing.clinicId,
+            practiceName: object.customer_name || existing.clinicId,
+            planName: PLANS[plan]?.name || 'Practice',
+            amountAud,
+            periodEnd: periodEndStr || 'Next billing cycle',
+            invoiceUrl: object.hosted_invoice_url || object.invoice_pdf || undefined,
+            customerEmail: object.customer_email || undefined,
+          });
+        } catch (emailErr: any) {
+          deps.logger.warn('Could not dispatch tax invoice email:', { message: emailErr?.message });
+        }
+      }
+
       return { handled: true, clinicId: existing.clinicId, message: `Invoice ${status}.` };
     }
 
@@ -438,6 +511,15 @@ export interface BillingRoutesDeps {
   logAudit: (event: string, dentistId: string, detail?: Record<string, any>) => void | Promise<void>;
   env?: Record<string, string | undefined>;
   fetchImpl?: typeof fetch;
+  sendReceiptEmail?: (params: {
+    clinicId: string;
+    practiceName: string;
+    planName: string;
+    amountAud: number;
+    periodEnd: string;
+    invoiceUrl?: string;
+    customerEmail?: string;
+  }) => Promise<void>;
 }
 
 /** Owner-only helper shared by the billing routes. */
@@ -517,21 +599,34 @@ export function registerBillingRoutes(app: any, deps: BillingRoutesDeps): void {
       const params = new URLSearchParams();
       params.append('mode', 'subscription');
       params.append('payment_method_types[0]', 'card');
-      params.append('line_items[0][price_data][currency]', 'aud');
-      params.append('line_items[0][price_data][product_data][name]', 'DentAI Practice Plan');
-      params.append(
-        'line_items[0][price_data][product_data][description]',
-        'Up to 6 clinician seats, priority queue, team recall worklist, 7-year retention'
-      );
-      params.append('line_items[0][price_data][unit_amount]', '14900'); // A$149.00
-      params.append('line_items[0][price_data][recurring][interval]', 'month');
+
+      const stripePriceId = env.STRIPE_PRICE_PRACTICE || process.env.STRIPE_PRICE_PRACTICE;
+      if (stripePriceId) {
+        params.append('line_items[0][price]', stripePriceId);
+      } else {
+        params.append('line_items[0][price_data][currency]', 'aud');
+        params.append('line_items[0][price_data][product_data][name]', 'DentAI Practice Plan');
+        params.append(
+          'line_items[0][price_data][product_data][description]',
+          'Up to 6 clinician seats, priority queue, team recall worklist, 7-year retention'
+        );
+        params.append('line_items[0][price_data][unit_amount]', '16390'); // A$163.90 inc GST ($149 ex GST)
+        params.append('line_items[0][price_data][tax_behavior]', 'inclusive');
+        params.append('line_items[0][price_data][recurring][interval]', 'month');
+      }
       params.append('line_items[0][quantity]', '1');
+      params.append('automatic_tax[enabled]', 'true');
+      params.append('tax_id_collection[enabled]', 'true');
       params.append('success_url', `${origin}/#/billing?status=success&session_id={CHECKOUT_SESSION_ID}`);
       params.append('cancel_url', `${origin}/#/billing?status=cancelled`);
       params.append('client_reference_id', clinic.clinicId);
       params.append('metadata[clinic_id]', clinic.clinicId);
       params.append('metadata[dentist_id]', req.dentist.id);
       params.append('metadata[plan]', plan);
+      params.append('subscription_data[metadata][clinic_id]', clinic.clinicId);
+      params.append('subscription_data[metadata][dentist_id]', req.dentist.id);
+      params.append('subscription_data[metadata][plan]', plan);
+
 
       const resp = await fetchImpl('https://api.stripe.com/v1/checkout/sessions', {
         method: 'POST',
@@ -627,7 +722,8 @@ export function registerBillingRoutes(app: any, deps: BillingRoutesDeps): void {
    */
   app.post('/api/billing/webhook', async (req: any, res: any) => {
     try {
-      if (!webhookSecret) {
+      const activeWebhookSecret = (deps.env || process.env).STRIPE_WEBHOOK_SECRET || webhookSecret;
+      if (!activeWebhookSecret) {
         deps.logger.warn('Stripe webhook received but STRIPE_WEBHOOK_SECRET is not set; refusing.');
         return res.status(503).json({
           error: 'Billing webhook is not configured on this deployment.',
@@ -640,7 +736,7 @@ export function registerBillingRoutes(app: any, deps: BillingRoutesDeps): void {
       const signature = verifyStripeSignature({
         payload: rawPayload,
         header: req.headers['stripe-signature'],
-        secret: webhookSecret,
+        secret: activeWebhookSecret,
       });
 
       if (!signature.ok) {
@@ -658,6 +754,7 @@ export function registerBillingRoutes(app: any, deps: BillingRoutesDeps): void {
         events: deps.events,
         logger: deps.logger,
         onChanged: (clinicId) => deps.entitlements.invalidate(clinicId),
+        sendReceiptEmail: deps.sendReceiptEmail,
       });
 
       if (result.clinicId) {

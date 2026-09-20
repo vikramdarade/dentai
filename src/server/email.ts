@@ -229,25 +229,34 @@ export function receiptEmail(params: {
   periodEnd: string;
   invoiceUrl?: string;
   abn?: string;
+  gstAud?: number;
+  customerAbn?: string;
 }): RenderedEmail {
   const abn = params.abn || process.env.DENTAI_ABN || '';
-  const header = abn ? `PAYMENT RECEIPT — DentAI (ABN: ${abn})` : 'PAYMENT RECEIPT — DentAI';
+  const header = abn ? `TAX INVOICE / RECEIPT - DentAI (ABN: ${abn})` : 'TAX INVOICE / RECEIPT - DentAI';
+
+  const gst = params.gstAud !== undefined ? params.gstAud : +(params.amountAud / 11).toFixed(2);
+  const subtotal = +(params.amountAud - gst).toFixed(2);
 
   const paragraphs = [
     header,
     `Customer: ${params.practiceName}`,
+    ...(params.customerAbn ? [`Customer ABN: ${params.customerAbn}`] : []),
     `Subscription: ${params.planName} Plan (current period ends ${params.periodEnd})`,
-    `Total Paid: A$${params.amountAud.toFixed(2)} AUD`,
-    'This receipt confirms your monthly subscription payment. You can view past payments or update billing details anytime via the practice billing portal.',
+    `Subtotal (ex GST): A$${subtotal.toFixed(2)} AUD`,
+    `GST (10%): A$${gst.toFixed(2)} AUD`,
+    `Total Paid (inc GST): A$${params.amountAud.toFixed(2)} AUD`,
+    'This tax invoice / receipt confirms your monthly subscription payment. You can view past payments or download PDF tax invoices anytime via the practice billing portal.',
   ];
   return {
-    subject: `Payment Receipt — DentAI ${params.planName} for ${params.practiceName}`,
-    text: paragraphs.join('\n\n') + (params.invoiceUrl ? `\n\nReceipt: ${params.invoiceUrl}` : ''),
-    html: layout('Payment Receipt', paragraphs, params.invoiceUrl
-      ? { label: 'View Receipt in Stripe', url: params.invoiceUrl }
+    subject: `Tax Invoice / Receipt - DentAI ${params.planName} for ${params.practiceName}`,
+    text: paragraphs.join('\n\n') + (params.invoiceUrl ? `\n\nTax Invoice: ${params.invoiceUrl}` : ''),
+    html: layout('Tax Invoice / Receipt', paragraphs, params.invoiceUrl
+      ? { label: 'View Tax Invoice in Stripe', url: params.invoiceUrl }
       : undefined),
   };
 }
+
 
 export function accessChangedEmail(params: {
   name: string;

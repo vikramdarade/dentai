@@ -68,3 +68,33 @@ describe('Clinic-local time', () => {
     expect(getClinicDayKey(new Date('2026-09-06T14:30:00Z'), 'Australia/Sydney')).toBe('2026-09-07');
   });
 });
+
+describe('Landing page claims & substantiation guard', () => {
+  it('prevents reintroduction of invented marketing metrics, ROI multiples, or fabricated dollar constants', () => {
+    const landingPath = path.resolve(__dirname, '../src/components/Landing.tsx');
+    const content = fs.readFileSync(landingPath, 'utf8');
+
+    // Banned fabricated constants from §5 & §7
+    const bannedConstants = [
+      '$34,800',
+      '$18,400',
+      '123.5x',
+      '52.8%',
+      '100x+',
+      '40x–100x+',
+      '40x-100x+',
+      '14-day evaluation',
+      '14-Day Free Evaluation',
+    ];
+
+    for (const token of bannedConstants) {
+      expect(content).not.toContain(token);
+    }
+
+    // Guard against bare exaggerated ROI multiple claims (e.g. 100x ROI, 50x practice ROI)
+    expect(content).not.toMatch(/\b\d+x\+?\s*(practice\s*)?ROI/i);
+
+    // Guard against bare inflated pipeline dollar amounts (e.g. $30,000+)
+    expect(content).not.toMatch(/\$\d{2,},\d{3}/);
+  });
+});

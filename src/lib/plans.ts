@@ -42,20 +42,20 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
     id: 'trial',
     name: 'Trial',
     dailyNotes: 15,
-    dailyTokens: 60_000,
+    dailyTokens: 150_000,
     seats: 1,
     monthlyAudExGst: 0,
     features: [
       'Full note generation and template library',
       'Offline draft engine when quota is exhausted',
-      '14-day evaluation, one clinician',
+      'Evaluation access, one clinician',
     ],
   },
   solo: {
     id: 'solo',
     name: 'Solo',
     dailyNotes: 15,
-    dailyTokens: 60_000,
+    dailyTokens: 150_000,
     seats: 1,
     monthlyAudExGst: 0,
     features: [
@@ -69,7 +69,7 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
     id: 'practice',
     name: 'Practice',
     dailyNotes: 200,
-    dailyTokens: 750_000,
+    dailyTokens: 2_000_000,
     seats: 6,
     monthlyAudExGst: 149,
     features: [

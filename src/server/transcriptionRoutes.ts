@@ -48,6 +48,9 @@ export interface TranscriptionRouteDeps {
   chairStore: ChairSessionStore;
   resolveClinicScope: (dentistId: string, requestedClinicId?: unknown) => Promise<string | undefined>;
   recordUsageEvent: (scopeId: string, dentistId: string, kind: string, tokens: number) => Promise<void>;
+  resolveDailyLimits?: (scopeId: string) => Promise<{ notes: number; tokens: number }>;
+  getUsageCountToday?: (scopeId: string) => Promise<number>;
+  getTokensUsedToday?: (scopeId: string) => Promise<number>;
   loadConsultation: (id: string, dentistId: string) => Promise<any | null>;
   updateConsultation?: (id: string, dentistId: string, consultation: any) => Promise<boolean>;
   logAudit: (event: string, dentistId: string, detail?: Record<string, any>) => void | Promise<void>;
@@ -268,6 +271,38 @@ export function registerTranscriptionRoutes(app: any, deps: TranscriptionRouteDe
         });
       }
 
+      // Pre-flight quota check: refuse before spending model tokens if clinic is capped
+      const scopeId = (await deps.resolveClinicScope(dentistId, sessionClinicId)) || dentistId;
+      if (deps.resolveDailyLimits && deps.getUsageCountToday && deps.getTokensUsedToday) {
+        try {
+          const limits = await deps.resolveDailyLimits(scopeId);
+          const usedNotes = await deps.getUsageCountToday(scopeId);
+          if (usedNotes >= limits.notes) {
+            await Promise.resolve(
+              deps.logAudit('transcription_metered_daily_limit', dentistId, { scopeId, usedNotes, limit: limits.notes })
+            ).catch(() => {});
+            return res.status(429).json({
+              ok: false,
+              code: 'QUOTA_DAILY',
+              error: `This clinic has reached its daily allowance of ${limits.notes} AI notes. Audio transcription is paused; live recognition and offline drafting remain available.`,
+            });
+          }
+          const tokensUsed = await deps.getTokensUsedToday(scopeId);
+          if (tokensUsed >= limits.tokens) {
+            await Promise.resolve(
+              deps.logAudit('transcription_metered_token_cap', dentistId, { scopeId, tokensUsed, limit: limits.tokens })
+            ).catch(() => {});
+            return res.status(429).json({
+              ok: false,
+              code: 'QUOTA_TOKENS',
+              error: `This clinic has reached its daily AI processing token budget. Audio transcription is paused; live recognition and offline drafting remain available.`,
+            });
+          }
+        } catch (meterErr: any) {
+          deps.logger.error('Metering pre-flight check failed in transcription:', meterErr?.message || meterErr);
+        }
+      }
+
       const mimeType = normalizeMime(
         req.body?.mimeType ?? (chairTelemetry?.audioMimeType as string | undefined),
         DEFAULT_AUDIO_MIME
@@ -299,12 +334,19 @@ export function registerTranscriptionRoutes(app: any, deps: TranscriptionRouteDe
       // Metering: audio input is billed, so it is spent from the clinic's
       // allowance like any other generation.
       try {
-        const scopeId = await deps.resolveClinicScope(dentistId, sessionClinicId);
         if (scopeId) {
           await deps.recordUsageEvent(scopeId, dentistId, 'ai_transcription', outcome.approxTokens);
         }
       } catch (meterError: any) {
-        deps.logger.warn('Could not record transcription usage', { message: meterError?.message });
+        deps.logger.error('Could not record transcription usage; spend under-counted:', {
+          error: meterError?.message || String(meterError),
+          scopeId,
+          dentistId,
+          approxTokens: outcome.approxTokens,
+        });
+        await Promise.resolve(
+          deps.logAudit('usage_recording_failed', dentistId, { scopeId, kind: 'ai_transcription', tokens: outcome.approxTokens })
+        ).catch(() => {});
       }
 
       let persisted = false;

@@ -303,8 +303,8 @@ import {
   registerBillingRoutes
 } from './src/server/billing';
 import { createLoginMfaGuard, registerMfaRoutes } from './src/server/mfa';
-import { createEmailer, recoveryCodeEmail } from './src/server/email';
-import { registerOpsActionRoutes } from './src/server/opsActions';
+import { createEmailer, recoveryCodeEmail, receiptEmail } from './src/server/email';
+import { registerOpsActionRoutes, type FunnelMetrics } from './src/server/opsActions';
 import {
   assertStartupConfiguration,
   checkConfiguration,
@@ -460,6 +460,9 @@ registerTranscriptionRoutes(app, {
   chairStore: chairSessionStore,
   resolveClinicScope,
   recordUsageEvent,
+  resolveDailyLimits,
+  getTokensUsedToday,
+  getUsageCountToday,
   // Ownership is checked before the transcript is handed back, so the lookup is
   // scoped to the caller's own records rather than filtered afterwards.
   loadConsultation: async (id: string, dentistId: string) => {
@@ -769,6 +772,129 @@ async function clinicOverviewRows(): Promise<Array<Record<string, any>>> {
   });
 }
 
+/**
+ * Computes adoption funnel stages and honest quality signals from real data.
+ * Contains ZERO patient health information (PHI) — strictly aggregate metrics.
+ */
+async function computeFunnelMetrics(): Promise<FunnelMetrics> {
+  const [dentists, clinics, subscriptions, consultations, usageData] = await Promise.all([
+    dbEnabled ? dbGetDentists().catch(() => []) : readUsersDb().then((d: any) => d.dentists || []).catch(() => []),
+    dbEnabled ? dbListClinics().catch(() => []) : readClinicsDb().then((d: any) => d.clinics || []).catch(() => []),
+    dbEnabled
+      ? dbListSubscriptions().catch(() => [])
+      : readDb('dentai:subscriptions', path.resolve(DATA_DIR, 'subscriptions.json'), { subscriptions: [] })
+          .then((d: any) => d.subscriptions || [])
+          .catch(() => []),
+    (async () => {
+      if (dbEnabled) {
+        const cls = await dbListClinics().catch(() => []);
+        const results: any[] = [];
+        const seen = new Set<string>();
+        for (const cl of cls) {
+          const list = await dbListConsultationsForClinic(cl.id).catch(() => []);
+          for (const c of list) {
+            if (!seen.has(c.id)) {
+              seen.add(c.id);
+              results.push(c);
+            }
+          }
+        }
+        return results;
+      }
+      return (await readConsultationsDb()).consultations || [];
+    })(),
+    readUsageDb().catch(() => ({ events: [] }))
+  ]);
+
+  const signups = dentists.length;
+
+  const generatorDentistIds = new Set<string>();
+  const saverDentistIds = new Set<string>();
+  const dentistActiveDays = new Map<string, Set<string>>();
+
+  for (const e of (usageData.events || [])) {
+    if (!e.dentistId) continue;
+    if (e.kind === 'ai_note' || e.kind === 'ai_transcription') {
+      generatorDentistIds.add(e.dentistId);
+    }
+    const day = e.day || (e.createdAt ? e.createdAt.slice(0, 10) : null);
+    if (day) {
+      if (!dentistActiveDays.has(e.dentistId)) dentistActiveDays.set(e.dentistId, new Set());
+      dentistActiveDays.get(e.dentistId)!.add(day);
+    }
+  }
+
+  let totalNotes = consultations.length;
+  let generatedNotes = 0;
+  let editedNotes = 0;
+  let browserLiveNotes = 0;
+  let serverDiarizedNotes = 0;
+
+  for (const c of consultations) {
+    if (c.dentistId) {
+      generatorDentistIds.add(c.dentistId);
+      saverDentistIds.add(c.dentistId);
+      const day = c.date || (c.createdAt ? c.createdAt.slice(0, 10) : null);
+      if (day) {
+        if (!dentistActiveDays.has(c.dentistId)) dentistActiveDays.set(c.dentistId, new Set());
+        dentistActiveDays.get(c.dentistId)!.add(day);
+      }
+    }
+
+    const isGenerated = Boolean(c.noteOrigin || (Array.isArray(c.revisions) && c.revisions.some((r: any) => r.engine)));
+    if (isGenerated) generatedNotes++;
+
+    if (Array.isArray(c.revisions) && c.revisions.length > 1) {
+      editedNotes++;
+    }
+
+    const source = c.transcriptProvenance?.source;
+    if (source === 'browser-live') {
+      browserLiveNotes++;
+    } else if (source === 'server-diarized') {
+      serverDiarizedNotes++;
+    }
+  }
+
+  let day2Return = 0;
+  for (const days of dentistActiveDays.values()) {
+    if (days.size >= 2) day2Return++;
+  }
+
+  const invitedColleague = clinics.filter((cl: any) => {
+    const members = Array.isArray(cl.members) ? cl.members : [];
+    return members.length > 1;
+  }).length;
+
+  const upgraded = subscriptions.filter((s: any) => s.plan && s.plan !== 'trial' && s.status === 'active').length;
+
+  const denominator = generatedNotes > 0 ? generatedNotes : totalNotes;
+  const editRate = denominator > 0 ? Number((editedNotes / denominator).toFixed(4)) : 0;
+
+  const totalDiarizable = browserLiveNotes + serverDiarizedNotes;
+  const liveFallbackShare = totalDiarizable > 0 ? Number((browserLiveNotes / totalDiarizable).toFixed(4)) : 0;
+
+  return {
+    stages: {
+      signups,
+      generatedFirstNote: generatorDentistIds.size,
+      savedFirstNote: saverDentistIds.size,
+      day2Return,
+      invitedColleague,
+      upgraded
+    },
+    qualitySignals: {
+      totalNotes,
+      generatedNotes,
+      editedNotes,
+      editRate,
+      browserLiveNotes,
+      serverDiarizedNotes,
+      liveFallbackShare
+    }
+  };
+}
+
 /** "Accepts" for the practice agreement, gated on the practice owner.
  *  Registered here so the export route can share the same gate instance. */
 const agreementGate = registerPracticeAgreementRoutes(app, {
@@ -813,7 +939,21 @@ registerBillingRoutes(app, {
   events: billingEventStore,
   entitlements,
   membershipsFor: (dentistId) => listMembershipsFor(dentistId),
-  logAudit
+  logAudit,
+  sendReceiptEmail: async (params) => {
+    if (!params.customerEmail) return;
+    try {
+      const rendered = receiptEmail(params);
+      await emailer.send({
+        to: params.customerEmail,
+        subject: rendered.subject,
+        text: rendered.text,
+        html: rendered.html,
+      });
+    } catch (err: any) {
+      logger.warn('Failed to send tax invoice email:', { message: err?.message });
+    }
+  },
 });
 
 /** The MFA service is kept so the sign-in handler can enforce the second factor. */
@@ -847,6 +987,7 @@ registerOpsActionRoutes(app, {
     configured: configuration.configured
   },
   clinicOverview: clinicOverviewRows,
+  funnelMetrics: computeFunnelMetrics,
   auditEntries: auditEntriesForOps,
   runRetention: async ({ confirm }) =>
     runRetentionSweep({

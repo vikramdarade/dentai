@@ -202,7 +202,7 @@ export default function Landing({ onGetStarted }: LandingProps) {
                 <BadgeCheck className="h-4 w-4 text-emerald-500" /> No credit card
               </span>
               <span className="flex items-center gap-1.5">
-                <BadgeCheck className="h-4 w-4 text-emerald-500" /> 100x+ practice ROI
+                <BadgeCheck className="h-4 w-4 text-emerald-500" /> Verified from audio
               </span>
               <span className="flex items-center gap-1.5">
                 <BadgeCheck className="h-4 w-4 text-emerald-500" /> First note in minutes
@@ -406,40 +406,40 @@ export default function Landing({ onGetStarted }: LandingProps) {
               </span>
             </h2>
             <p className="mt-4 text-base leading-relaxed text-slate-300 md:text-lg">
-              Over $30,000+ in proposed crowns, fillings, and endodontics is discussed in operatory chairs
-              every month, only to be lost to patient hesitation and forgotten follow-ups. DentAI extracts
-              unbooked treatment plans, generates patient estimates with private health fund rebate codes,
-              and verifies confirmed bookings directly in your PMS appointment book.
+              Proposed crowns, fillings, and endodontics discussed in operatory chairs are frequently lost to
+              patient hesitation and forgotten follow-ups. DentAI extracts unscheduled treatment plans,
+              formats patient estimates with private health fund rebate codes, and tracks confirmed bookings
+              directly in your clinical appointment workflow.
             </p>
           </div>
 
-          {/* Executive Scorecards */}
+          {/* Clinical Workflow & Audit Proof */}
           <div className="mt-14 grid grid-cols-2 gap-4 lg:grid-cols-4">
             <div className="rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur-md">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Unscheduled Pipeline</span>
-              <p className="mt-2 text-3xl font-black text-white">$34,800</p>
-              <span className="mt-1 inline-block text-xs font-semibold text-amber-400">24 active treatment plans</span>
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Chairside Speech</span>
+              <p className="mt-2 text-2xl font-black text-white">Live Audio</p>
+              <span className="mt-1 inline-block text-xs font-semibold text-amber-400">Ambient consultation capture</span>
             </div>
             <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-6 backdrop-blur-md">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-300">Recovered Production</span>
-              <p className="mt-2 text-3xl font-black text-emerald-400">$18,400</p>
-              <span className="mt-1 inline-block text-xs font-semibold text-emerald-300">12 booked treatments</span>
+              <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-300">ADA Note Draft</span>
+              <p className="mt-2 text-2xl font-black text-emerald-400">Zero Typing</p>
+              <span className="mt-1 inline-block text-xs font-semibold text-emerald-300">Structured clinical findings</span>
             </div>
             <div className="rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur-md">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Practice ROI Multiple</span>
-              <p className="mt-2 text-3xl font-black text-white">123.5x</p>
-              <span className="mt-1 inline-block text-xs font-semibold text-indigo-300">Modeled on $149/mo plan</span>
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Clinician Review</span>
+              <p className="mt-2 text-2xl font-black text-white">Dentist Signed</p>
+              <span className="mt-1 inline-block text-xs font-semibold text-indigo-300">Append-only revision audit</span>
             </div>
             <div className="rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur-md">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Recapture Rate</span>
-              <p className="mt-2 text-3xl font-black text-white">52.8%</p>
-              <span className="mt-1 inline-block text-xs font-semibold text-slate-300">Avg booking velocity &lt; 48 hrs</span>
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Practice PMS</span>
+              <p className="mt-2 text-2xl font-black text-white">1-Click Export</p>
+              <span className="mt-1 inline-block text-xs font-semibold text-slate-300">D4W, EXACT, Cliniko clipboard</span>
             </div>
           </div>
 
-          {/* Disclaimer for ROI and scorecard metrics */}
+          {/* Evidence verification note */}
           <p className="mt-3 text-center text-[11px] text-slate-400 italic">
-            * Illustrative practice recovery model based on average Australian ADA fee benchmarks and typical 4-chair practice volume.
+            Every clinical note is grounded directly in recorded room audio and verified by the attending dentist before signing.
           </p>
 
           {/* 2-Column Feature Breakdown & Live Card Comp */}
@@ -539,9 +539,9 @@ export default function Landing({ onGetStarted }: LandingProps) {
                   <TrendingUp className="h-5 w-5" />
                 </span>
                 <div>
-                  <h4 className="text-base font-extrabold text-white">Practice ROI Scorecard</h4>
+                  <h4 className="text-base font-extrabold text-white">Practice Treatment & Recall Ledger</h4>
                   <p className="mt-1 text-sm text-slate-400 leading-relaxed">
-                    Proves exact dollar yield recovered on the practice appointment ledger. Clinic owners see recovered production and net ROI multiples (40x–100x+) every single month.
+                    Surfaces unscheduled treatment plans and overdue patient recalls derived directly from consultation records — turning missed follow-ups into booked appointments on your own schedule.
                   </p>
                 </div>
               </div>
@@ -867,7 +867,7 @@ export default function Landing({ onGetStarted }: LandingProps) {
                 onClick={onGetStarted}
                 className="mt-8 w-full rounded-2xl bg-indigo-600 py-3 text-xs font-bold text-white hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 shadow-md shadow-indigo-600/20 cursor-pointer"
               >
-                <span>Start 14-Day Free Evaluation</span>
+                <span>Start Free Evaluation</span>
                 <ArrowRight className="h-4 w-4" />
               </button>
             </div>

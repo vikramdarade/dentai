@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { PLANS, isPlanId, isSeatAvailable } from '../src/lib/plans';
 import { calculateRecallDueDate, extractRecallItems } from '../src/lib/recallEngine';
 import fs from 'fs';
@@ -10,7 +10,7 @@ describe('Commercial Plans & Entitlements', () => {
     expect(solo).toBeDefined();
     expect(solo.monthlyAudExGst).toBe(0);
     expect(solo.dailyNotes).toBe(15);
-    expect(solo.dailyTokens).toBe(60_000);
+    expect(solo.dailyTokens).toBe(150_000);
     expect(solo.seats).toBe(1);
     expect(solo.features.some((f) => f.toLowerCase().includes('free'))).toBe(true);
   });
@@ -20,7 +20,7 @@ describe('Commercial Plans & Entitlements', () => {
     expect(practice).toBeDefined();
     expect(practice.monthlyAudExGst).toBe(149);
     expect(practice.dailyNotes).toBe(200);
-    expect(practice.dailyTokens).toBe(750_000);
+    expect(practice.dailyTokens).toBe(2_000_000);
     expect(practice.seats).toBe(6);
     expect(practice.features.some((f) => f.toLowerCase().includes('seat') || f.toLowerCase().includes('clinician'))).toBe(true);
   });
@@ -285,4 +285,237 @@ describe('Billing & Member Approval API Integration', () => {
     expect(approveRes.body.code).toBe('SEAT_LIMIT_REACHED');
     expect(approveRes.body.seats).toBe(1);
   });
+
+  it('fulfils checkout.session.completed carrying checkout-generated metadata (clinic_id, plan) and flips entitlements to Practice (6 seats)', async () => {
+    const { applyStripeEvent, createEntitlementResolver } = await import('../src/server/billing');
+    const subscriptions = new Map<string, any>();
+    const processedEvents = new Set<string>();
+
+    const store = {
+      forClinic: async (clinicId: string) => subscriptions.get(clinicId) ?? null,
+      byStripeSubscriptionId: async (id: string) =>
+        [...subscriptions.values()].find((s) => s.stripeSubscriptionId === id) ?? null,
+      byStripeCustomerId: async (id: string) =>
+        [...subscriptions.values()].find((s) => s.stripeCustomerId === id) ?? null,
+      upsert: async (record: any) => {
+        subscriptions.set(record.clinicId, record);
+      },
+    };
+
+    const events = {
+      has: async (id: string) => processedEvents.has(id),
+      record: async (event: any) => {
+        processedEvents.add(event.id);
+      },
+    };
+
+    const logger = { info: () => {}, warn: () => {}, error: () => {} };
+    const entitlementsResolver = createEntitlementResolver({ store: store as any, logger: logger as any });
+    const onChanged = (cid: string) => entitlementsResolver.invalidate(cid);
+
+    const deps = { store: store as any, events: events as any, logger: logger as any, onChanged };
+
+    // This is the EXACT payload created by POST /api/billing/checkout:
+    // params.append('client_reference_id', clinic.clinicId);
+    // params.append('metadata[clinic_id]', clinic.clinicId);
+    // params.append('metadata[dentist_id]', req.dentist.id);
+    // params.append('metadata[plan]', 'practice');
+    const event = {
+      id: 'evt_checkout_live_123',
+      type: 'checkout.session.completed',
+      data: {
+        object: {
+          id: 'cs_test_session_123',
+          customer: 'cus_au_dentist_123',
+          subscription: 'sub_practice_123',
+          client_reference_id: 'clinic-north-sydney-1',
+          metadata: {
+            clinic_id: 'clinic-north-sydney-1',
+            dentist_id: 'dentist-sydney-1',
+            plan: 'practice',
+          },
+        },
+      },
+    };
+
+    // Before checkout fulfilment, entitlements resolve to trial (1 seat)
+    const before = await entitlementsResolver.resolve('clinic-north-sydney-1');
+    expect(before.plan).toBe('trial');
+    expect(before.seats).toBe(1);
+
+    const result = await applyStripeEvent(event as any, deps);
+
+    // REGRESSION ASSERTIONS:
+    expect(result.handled).toBe(true);
+    expect(result.clinicId).toBe('clinic-north-sydney-1');
+    expect(result.plan).toBe('practice');
+
+    const sub = subscriptions.get('clinic-north-sydney-1');
+    expect(sub).toBeDefined();
+    expect(sub.plan).toBe('practice');
+    expect(sub.status).toBe('active');
+    expect(sub.seats).toBe(6);
+    expect(sub.stripeCustomerId).toBe('cus_au_dentist_123');
+    expect(sub.stripeSubscriptionId).toBe('sub_practice_123');
+
+    // Entitlements must now be flipped to Practice (6 seats)
+    const after = await entitlementsResolver.resolve('clinic-north-sydney-1');
+    expect(after.plan).toBe('practice');
+    expect(after.seats).toBe(6);
+  });
+
+  it('rejects duplicate webhook event IDs (idempotency guard)', async () => {
+    const { applyStripeEvent } = await import('../src/server/billing');
+    const processedEvents = new Set<string>(['evt_already_processed_999']);
+
+    const deps = {
+      store: { upsert: vi.fn(), byStripeSubscriptionId: vi.fn(), forClinic: vi.fn() } as any,
+      events: {
+        has: async (id: string) => processedEvents.has(id),
+        record: vi.fn(),
+      } as any,
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } as any,
+    };
+
+    const event = {
+      id: 'evt_already_processed_999',
+      type: 'checkout.session.completed',
+      data: {
+        object: {
+          client_reference_id: 'clinic-1',
+          metadata: { clinic_id: 'clinic-1', plan: 'practice' },
+        },
+      },
+    };
+
+    const res = await applyStripeEvent(event as any, deps);
+    expect(res.handled).toBe(false);
+    expect(res.duplicate).toBe(true);
+    expect(deps.store.upsert).not.toHaveBeenCalled();
+  });
+
+  it('refuses to default to free solo plan when plan is missing or invalid on checkout.session.completed', async () => {
+    const { applyStripeEvent } = await import('../src/server/billing');
+
+    const deps = {
+      store: { upsert: vi.fn(), byStripeSubscriptionId: vi.fn(), forClinic: vi.fn() } as any,
+      events: {
+        has: async () => false,
+        record: vi.fn(),
+      } as any,
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } as any,
+    };
+
+    const event = {
+      id: 'evt_corrupted_plan_404',
+      type: 'checkout.session.completed',
+      data: {
+        object: {
+          client_reference_id: 'clinic-victim-1',
+          metadata: { clinic_id: 'clinic-victim-1', plan: 'invalid_unrecognized_plan' },
+        },
+      },
+    };
+
+    await expect(applyStripeEvent(event as any, deps)).rejects.toThrow(/without a valid plan/);
+    expect(deps.store.upsert).not.toHaveBeenCalled();
+  });
+
+  it('generates an Australian GST-compliant tax invoice email on invoice.paid', async () => {
+    const { receiptEmail } = await import('../src/server/email');
+
+    const invoice = receiptEmail({
+      practiceName: 'North Sydney Dental Practice',
+      planName: 'Practice',
+      amountAud: 163.90,
+      periodEnd: '2026-10-20T00:00:00.000Z',
+      invoiceUrl: 'https://stripe.com/invoice/inv_test_123',
+      abn: '51 824 753 556',
+      customerAbn: '98 765 432 109',
+    });
+
+    expect(invoice.subject).toContain('Tax Invoice / Receipt');
+    expect(invoice.text).toContain('TAX INVOICE / RECEIPT - DentAI (ABN: 51 824 753 556)');
+    expect(invoice.text).toContain('Customer: North Sydney Dental Practice');
+    expect(invoice.text).toContain('Customer ABN: 98 765 432 109');
+    expect(invoice.text).toContain('Subtotal (ex GST): A$149.00 AUD');
+    expect(invoice.text).toContain('GST (10%): A$14.90 AUD');
+    expect(invoice.text).toContain('Total Paid (inc GST): A$163.90 AUD');
+    expect(invoice.text).toContain('Tax Invoice: https://stripe.com/invoice/inv_test_123');
+  });
+
+  it('handles signed HTTP POST /api/billing/webhook and flips clinic entitlements', async () => {
+    const request = (await import('supertest')).default;
+    const { app } = await import('../server.ts');
+    const crypto = await import('crypto');
+
+    const testWebhookSecret = 'whsec_test_suite_secret_123';
+    process.env.STRIPE_WEBHOOK_SECRET = testWebhookSecret;
+
+    // Register clinic owner
+    const ownerName = `Dr. Webhook Owner ${Math.random().toString(36).substring(7)}`;
+    const ownerReg = await request(app)
+      .post('/api/auth/register')
+      .send({ name: ownerName, specialty: 'General Dentistry', pin: '5192' });
+    expect(ownerReg.status).toBe(201);
+    const ownerToken = ownerReg.body.token;
+
+    const ownerClinics = await request(app)
+      .get('/api/clinics/mine')
+      .set('Authorization', `Bearer ${ownerToken}`);
+    const clinicId = ownerClinics.body[0].clinicId;
+
+    // Verify initial billing status is trial (1 seat)
+    const initialStatus = await request(app)
+      .get('/api/billing/status')
+      .set('Authorization', `Bearer ${ownerToken}`);
+    expect(initialStatus.body.entitlements.plan).toBe('trial');
+    expect(initialStatus.body.entitlements.seats).toBe(1);
+
+    const eventPayload = JSON.stringify({
+      id: `evt_test_http_${Date.now()}`,
+      type: 'checkout.session.completed',
+      data: {
+        object: {
+          id: `cs_test_http_${Date.now()}`,
+          customer: `cus_test_${Date.now()}`,
+          subscription: `sub_test_${Date.now()}`,
+          client_reference_id: clinicId,
+          metadata: {
+            clinic_id: clinicId,
+            plan: 'practice',
+          },
+        },
+      },
+    });
+
+    const timestamp = Math.floor(Date.now() / 1000);
+    const sig = crypto
+      .createHmac('sha256', testWebhookSecret)
+      .update(`${timestamp}.${eventPayload}`)
+      .digest('hex');
+    const stripeHeader = `t=${timestamp},v1=${sig}`;
+
+    const webhookRes = await request(app)
+      .post('/api/billing/webhook')
+      .set('Content-Type', 'application/json')
+      .set('stripe-signature', stripeHeader)
+      .send(eventPayload);
+
+    expect(webhookRes.status).toBe(200);
+    expect(webhookRes.body.received).toBe(true);
+    expect(webhookRes.body.handled).toBe(true);
+    expect(webhookRes.body.clinicId).toBe(clinicId);
+    expect(webhookRes.body.plan).toBe('practice');
+
+    // Verify billing status is now flipped to Practice (6 seats)
+    const updatedStatus = await request(app)
+      .get('/api/billing/status')
+      .set('Authorization', `Bearer ${ownerToken}`);
+    expect(updatedStatus.body.entitlements.plan).toBe('practice');
+    expect(updatedStatus.body.entitlements.seats).toBe(6);
+  });
 });
+
+
+

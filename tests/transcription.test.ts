@@ -597,4 +597,38 @@ describe('/api/transcribe routes', () => {
     expect(res.body.ok).toBe(true);
     expect(store.listAudioChunks).toHaveBeenCalledWith(consultationAudioKey('consult-1'));
   });
+
+  it('refuses transcription and avoids calling AI model when clinic is at quota limit (pre-flight metering check)', async () => {
+    const getClient = vi.fn();
+    const app = express();
+    app.use(express.json());
+
+    registerTranscriptionRoutes(app, {
+      logger: { info: () => {}, warn: () => {}, error: () => {} },
+      authenticate: (_req: any, _res: any, next: any) => {
+        _req.dentist = { id: 'dentist-capped-1' };
+        next();
+      },
+      model: 'gemini-3.6-flash',
+      getClient,
+      chairStore: {
+        get: async () => ({ dentistId: 'dentist-capped-1', clinicId: 'clinic-capped', telemetry: {} }) as any,
+        listAudioChunks: async () => [{ chunkIndex: 0, dataBase64: audioChunk(40 * SECOND) }],
+      } as any,
+      resolveClinicScope: async () => 'clinic-capped',
+      resolveDailyLimits: async () => ({ notes: 15, tokens: 150_000 }),
+      getUsageCountToday: async () => 15, // ALREADY AT LIMIT
+      getTokensUsedToday: async () => 50_000,
+      recordUsageEvent: async () => {},
+      loadConsultation: async () => null,
+      logAudit: vi.fn(),
+    });
+
+    const res = await request(app).post('/api/transcribe').send({ chairId: 'chair-abc123' });
+    expect(res.status).toBe(429);
+    expect(res.body.ok).toBe(false);
+    expect(res.body.code).toBe('QUOTA_DAILY');
+    expect(res.body.error).toContain('daily allowance');
+    expect(getClient).not.toHaveBeenCalled();
+  });
 });
