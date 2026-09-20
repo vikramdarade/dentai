@@ -16,6 +16,8 @@
  * protected replacement is `/api/ops/telemetry`.
  */
 
+import crypto from 'crypto';
+
 export interface OpsRouteDeps {
   logger: {
     info: (message: string, context?: Record<string, any>) => void;
@@ -50,6 +52,20 @@ export interface OpsRouteDeps {
 
 const STARTED_AT = Date.now();
 
+/**
+ * The operator session cookie.
+ *
+ * A browser cannot send a custom header on navigation, so the console cannot be
+ * authenticated with `x-dentai-ops-secret` alone. Rather than accept the secret
+ * as a query parameter — which puts it in browser history, `Referer` headers and
+ * the platform's access logs — the console exchanges the secret once, in a POST
+ * body, for a short-lived signed cookie.
+ */
+export const OPS_SESSION_COOKIE = 'dentai_ops_session';
+
+/** An operator session is deliberately short: re-authentication is one paste. */
+export const OPS_SESSION_TTL_MS = 60 * 60 * 1000;
+
 /** Reads the operational secret from either accepted header. */
 export function readOpsSecret(headers: Record<string, any>): string {
   return (
@@ -60,11 +76,87 @@ export function readOpsSecret(headers: Record<string, any>): string {
   );
 }
 
+/** Constant-time compare that tolerates different lengths. */
+function timingSafeEquals(a: string, b: string): boolean {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
+/** Reads one cookie value. Hand-rolled so no dependency is added for this. */
+export function readCookie(headers: Record<string, any>, name: string): string {
+  const raw = headers?.cookie;
+  if (typeof raw !== 'string' || !raw) return '';
+  for (const part of raw.split(';')) {
+    const eq = part.indexOf('=');
+    if (eq === -1) continue;
+    if (part.slice(0, eq).trim() !== name) continue;
+    try {
+      return decodeURIComponent(part.slice(eq + 1).trim());
+    } catch {
+      return '';
+    }
+  }
+  return '';
+}
+
+/**
+ * Issues a session token: `<payload>.<hmac>`, signed with the operator secret.
+ *
+ * The signature is what makes the cookie safe to hold in a browser — it cannot
+ * be minted or edited without the secret, and it expires on its own. The secret
+ * itself is never placed in the cookie, so a leaked cookie does not reveal it
+ * and can be revoked by rotating DENTAI_OPS_SECRET.
+ */
+export function createOpsSession(
+  secret: string,
+  now: number = Date.now()
+): { token: string; expiresAt: number } {
+  const expiresAt = now + OPS_SESSION_TTL_MS;
+  const payload = Buffer.from(
+    JSON.stringify({ exp: expiresAt, nonce: crypto.randomBytes(8).toString('hex') })
+  ).toString('base64url');
+  const signature = crypto.createHmac('sha256', secret).update(payload).digest('base64url');
+  return { token: `${payload}.${signature}`, expiresAt };
+}
+
+/** Verifies a session token's signature and expiry. Never throws. */
+export function verifyOpsSession(
+  token: string,
+  secret: string,
+  now: number = Date.now()
+): boolean {
+  if (!token || !secret) return false;
+  const parts = token.split('.');
+  if (parts.length !== 2) return false;
+  const [payload, signature] = parts;
+  const expected = crypto.createHmac('sha256', secret).update(payload).digest('base64url');
+  if (!timingSafeEquals(signature, expected)) return false;
+  try {
+    const claims = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+    return typeof claims?.exp === 'number' && claims.exp > now;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Builds the operator guard so other route modules (opsActions) enforce exactly
  * the same rule as this file, rather than re-implementing it and drifting.
+ *
+ * Two credentials are accepted, and only two:
+ *   1. the operator secret in a header — for `curl`, cron and the test suite;
+ *   2. a valid, unexpired session cookie — for the console in a browser.
+ * The secret is never accepted from a query parameter.
  */
-export function createOpsGuard(deps: Pick<OpsRouteDeps, 'constantTimeEquals' | 'logger'>) {
+export function createOpsGuard(
+  deps: Pick<OpsRouteDeps, 'constantTimeEquals'> & {
+    // Only `warn` is used here, and saying so keeps a caller from having to
+    // construct a whole logger to reuse the guard in a test.
+    logger: { warn: (message: string, context?: Record<string, any>) => void };
+  }
+) {
   return (req: any, res: any, next: (err?: any) => void) => {
     const expected = process.env.DENTAI_OPS_SECRET || '';
     if (!expected) {
@@ -74,30 +166,26 @@ export function createOpsGuard(deps: Pick<OpsRouteDeps, 'constantTimeEquals' | '
       });
     }
     const provided = readOpsSecret(req.headers || {});
-    if (!provided || !deps.constantTimeEquals(provided, expected)) {
-      deps.logger.warn('Rejected operator request with an invalid secret', { url: req.originalUrl });
-      return res.status(401).json({ error: 'Operational secret required.' });
+    if (provided && deps.constantTimeEquals(provided, expected)) {
+      return next();
     }
-    return next();
+    const session = readCookie(req.headers || {}, OPS_SESSION_COOKIE);
+    if (session && verifyOpsSession(session, expected)) {
+      return next();
+    }
+    deps.logger.warn('Rejected operator request with an invalid secret', { url: req.originalUrl });
+    return res.status(401).json({
+      error: 'Operational secret required.',
+      code: 'OPS_SECRET_REQUIRED',
+      hint: 'Sign in at GET /api/ops/console, or send x-dentai-ops-secret.',
+    });
   };
 }
 
 export function registerOpsRoutes(app: any, deps: OpsRouteDeps): void {
-  const requireOps = (req: any, res: any, next: (err?: any) => void) => {
-    const expected = process.env.DENTAI_OPS_SECRET || '';
-    if (!expected) {
-      return res.status(503).json({
-        error: 'Operational endpoints are disabled. Set DENTAI_OPS_SECRET to enable them.',
-        code: 'OPS_DISABLED',
-      });
-    }
-    const provided = readOpsSecret(req.headers || {});
-    if (!provided || !deps.constantTimeEquals(provided, expected)) {
-      deps.logger.warn('Rejected operator request with an invalid secret', { url: req.originalUrl });
-      return res.status(401).json({ error: 'Operational secret required.' });
-    }
-    return next();
-  };
+  // Delegated rather than re-implemented, so the session-cookie rule and the
+  // header rule cannot drift apart between the two operator modules.
+  const requireOps = createOpsGuard(deps);
 
   /**
    * Public liveness/readiness probe.

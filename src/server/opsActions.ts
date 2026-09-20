@@ -25,7 +25,80 @@
 
 import { verifyAuditChain } from '../lib/auditChain';
 import { isPlanId, PLANS, type PlanId } from '../lib/plans';
+import {
+  createOpsSession,
+  OPS_SESSION_COOKIE,
+  OPS_SESSION_TTL_MS,
+  readCookie,
+  verifyOpsSession,
+} from './opsRoutes';
 import type { RetentionSweepResult } from './retention';
+
+/**
+ * The console sign-in screen.
+ *
+ * Served to anyone who can reach the URL (it holds no data), and it posts the
+ * secret in a request body — never in the query string, which is where a secret
+ * ends up in browser history, in `Referer` headers and in platform access logs.
+ */
+function consoleSignInPage(message: string, disabled = false): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>DentAI Operator Sign-In</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body { font-family: system-ui, -apple-system, sans-serif; max-width: 420px; margin: 80px auto; padding: 0 20px; line-height: 1.5; color: #1e293b; background: #f8fafc; }
+    h1 { font-size: 1.25rem; margin-bottom: 0.25rem; color: #0f172a; }
+    p { color: #64748b; font-size: 0.9rem; }
+    .card { background: white; border-radius: 8px; border: 1px solid #e2e8f0; padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+    label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 6px; }
+    input, button { width: 100%; box-sizing: border-box; padding: 10px 12px; border-radius: 6px; border: 1px solid #cbd5e1; font-size: 0.95rem; }
+    button { background: #0f172a; color: white; border: none; font-weight: 600; cursor: pointer; margin-top: 14px; }
+    button:hover { background: #334155; }
+    .error { color: #b91c1c; font-size: 0.85rem; margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>DentAI Operator Console</h1>
+    <p>Operator access only. The secret is exchanged for a short-lived session cookie and is never stored in the page or in the URL.</p>
+    <form id="signin-form">
+      <label for="secret">Operator secret</label>
+      <input type="password" id="secret" name="secret" autocomplete="off" required ${disabled ? 'disabled' : ''}>
+      <button type="submit" ${disabled ? 'disabled' : ''}>Sign in</button>
+    </form>
+    <div class="error" id="error">${message}</div>
+  </div>
+  <script>
+    var form = document.getElementById('signin-form');
+    form.onsubmit = async function (event) {
+      event.preventDefault();
+      var errorBox = document.getElementById('error');
+      errorBox.textContent = '';
+      // Plain fetch: this page has no session yet, so it has no use for the
+      // console's session-aware wrapper (which is defined on the console page
+      // only). Calling it here would be a reference to a function that does not
+      // exist on this page.
+      var res = await fetch('/api/ops/console/session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ secret: document.getElementById('secret').value })
+      });
+      if (!res.ok) {
+        var data = null;
+        try { data = await res.json(); } catch (err) { data = null; }
+        errorBox.textContent = (data && data.error) || ('Sign-in failed (' + res.status + ')');
+        return;
+      }
+      document.getElementById('secret').value = '';
+      window.location.replace('/api/ops/console');
+    };
+  </script>
+</body>
+</html>`;
+}
 
 export interface FunnelMetrics {
   stages: {
@@ -55,6 +128,8 @@ export interface OpsActionDeps {
   };
   /** Operator guard, shared with registerOpsRoutes. */
   requireOps: (req: any, res: any, next: (err?: any) => void) => any;
+  /** Constant-time comparison, shared with createOpsGuard and the console sign-in. */
+  constantTimeEquals: (a: string, b: string) => boolean;
   configuration: {
     environment: string;
     readiness: string;
@@ -121,9 +196,55 @@ export function registerOpsActionRoutes(app: any, deps: OpsActionDeps): void {
     }
   });
 
-  app.get('/api/ops/console', deps.requireOps, async (_req: any, res: any) => {
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.send(`<!DOCTYPE html>
+  /**
+   * Console sign-in: exchanges the operator secret for a short-lived session.
+   *
+   * The secret arrives in a request body and is never accepted from the query
+   * string. The cookie is HttpOnly (no script can read it), SameSite=Strict (a
+   * cross-site POST cannot borrow it), scoped to /api/ops, and signed with the
+   * operator secret — so it cannot be forged or edited, it expires on its own,
+   * and rotating DENTAI_OPS_SECRET revokes every existing session.
+   */
+  app.post('/api/ops/console/session', async (req: any, res: any) => {
+    const expected = process.env.DENTAI_OPS_SECRET || '';
+    if (!expected) {
+      return res.status(503).json({
+        error: 'Operational endpoints are disabled. Set DENTAI_OPS_SECRET to enable them.',
+        code: 'OPS_DISABLED',
+      });
+    }
+    const provided = typeof req.body?.secret === 'string' ? req.body.secret.trim() : '';
+    if (!provided || !deps.constantTimeEquals(provided, expected)) {
+      deps.logger.warn('Rejected operator console sign-in', { url: req.originalUrl });
+      return res.status(401).json({
+        error: 'That operator secret is not correct.',
+        code: 'OPS_SECRET_REQUIRED',
+      });
+    }
+    const { token, expiresAt } = createOpsSession(expected);
+    res.cookie(OPS_SESSION_COOKIE, token, {
+      httpOnly: true,
+      sameSite: 'strict',
+      secure: process.env.NODE_ENV === 'production',
+      path: '/api/ops',
+      maxAge: OPS_SESSION_TTL_MS,
+    });
+    await Promise.resolve(
+      deps.logAudit('ops_console_session_started', deps.operatorName(req), {
+        expiresAt: new Date(expiresAt).toISOString(),
+      })
+    ).catch(() => {});
+    return res.json({ ok: true, expiresAt: new Date(expiresAt).toISOString() });
+  });
+
+  /** Ends the operator session early, without waiting for the cookie to expire. */
+  app.post('/api/ops/console/logout', (_req: any, res: any) => {
+    res.clearCookie(OPS_SESSION_COOKIE, { path: '/api/ops' });
+    res.json({ ok: true });
+  });
+
+  /** The console markup, returned only to a caller holding a valid session. */
+  const consoleHtml = (): string => `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -148,7 +269,10 @@ export function registerOpsActionRoutes(app: any, deps: OpsActionDeps): void {
 </head>
 <body>
   <h1>DentAI Operator Console</h1>
-  <p style="color: #64748b; font-size: 0.9rem; margin-top: 0;">Operational actions & quality telemetry. All actions audited.</p>
+  <p style="color: #64748b; font-size: 0.9rem; margin-top: 0;">
+    Operational actions & quality telemetry. All actions audited.
+    <button type="button" id="btn-signout" style="width: auto; margin-top: 6px; padding: 4px 10px; font-size: 0.75rem; background: #64748b;">Sign out</button>
+  </p>
 
   <div class="card">
     <h2 style="font-size: 1.1rem; margin-top: 0;">Adoption Funnel & Quality Signals</h2>
@@ -194,13 +318,28 @@ export function registerOpsActionRoutes(app: any, deps: OpsActionDeps): void {
   </div>
 
   <script>
-    const secret = new URLSearchParams(window.location.search).get('secret') || '';
     const headers = { 'Content-Type': 'application/json' };
-    if (secret) headers['x-dentai-ops-secret'] = secret;
+    // The operator session is an HttpOnly cookie, so no secret is ever placed in
+    // a URL, in this page, or in storage the page can read.
+    async function opsFetch(url, init) {
+      const res = await opsFetch(url, init);
+      if (res.status === 401 || res.status === 503) {
+        document.body.innerHTML = '<h1>Operator session ended</h1><p><a href="/api/ops/console">Sign in again</a></p>';
+        throw new Error('Operator session ended. Sign in again at /api/ops/console');
+      }
+      return res;
+    }
+    var signOut = document.getElementById('btn-signout');
+    if (signOut) {
+      signOut.onclick = async function () {
+        await opsFetch('/api/ops/console/logout', { method: 'POST', headers: headers, body: '{}' });
+        window.location.replace('/api/ops/console');
+      };
+    }
 
     async function loadFunnel() {
       try {
-        const res = await fetch('/api/ops/funnel' + (secret ? '?secret=' + encodeURIComponent(secret) : ''), { headers });
+        const res = await opsFetch('/api/ops/funnel', { headers });
         if (!res.ok) {
           document.getElementById('funnel-container').innerHTML = '<p style="color:red">Failed to load funnel (' + res.status + ')</p>';
           return;
@@ -235,7 +374,7 @@ export function registerOpsActionRoutes(app: any, deps: OpsActionDeps): void {
       e.preventDefault();
       const form = e.target;
       const body = { clinicId: form.clinicId.value, plan: form.plan.value, periodDays: Number(form.periodDays.value) };
-      const res = await fetch('/api/ops/billing/activate' + (secret ? '?secret=' + encodeURIComponent(secret) : ''), { method: 'POST', headers, body: JSON.stringify(body) });
+      const res = await opsFetch('/api/ops/billing/activate', { method: 'POST', headers, body: JSON.stringify(body) });
       const data = await res.json();
       document.getElementById('activate-result').innerHTML = '<pre>' + JSON.stringify(data, null, 2) + '</pre>';
     };
@@ -244,13 +383,13 @@ export function registerOpsActionRoutes(app: any, deps: OpsActionDeps): void {
       e.preventDefault();
       const form = e.target;
       const body = { dentistId: form.dentistId.value, hours: Number(form.hours.value) };
-      const res = await fetch('/api/ops/support/recovery' + (secret ? '?secret=' + encodeURIComponent(secret) : ''), { method: 'POST', headers, body: JSON.stringify(body) });
+      const res = await opsFetch('/api/ops/support/recovery', { method: 'POST', headers, body: JSON.stringify(body) });
       const data = await res.json();
       document.getElementById('recovery-result').innerHTML = '<pre>' + JSON.stringify(data, null, 2) + '</pre>';
     };
 
     async function triggerRetention(confirm) {
-      const res = await fetch('/api/ops/retention/run' + (secret ? '?secret=' + encodeURIComponent(secret) : ''), { method: 'POST', headers, body: JSON.stringify({ confirm }) });
+      const res = await opsFetch('/api/ops/retention/run', { method: 'POST', headers, body: JSON.stringify({ confirm }) });
       const data = await res.json();
       document.getElementById('retention-result').innerHTML = '<pre>' + JSON.stringify(data, null, 2) + '</pre>';
     }
@@ -260,7 +399,33 @@ export function registerOpsActionRoutes(app: any, deps: OpsActionDeps): void {
     };
   </script>
 </body>
-</html>`);
+</html>`;
+
+  /**
+   * The console screen.
+   *
+   * Deliberately NOT behind `deps.requireOps`: a browser navigation cannot send
+   * a custom header, which is why this route reads the session cookie itself and
+   * renders the sign-in form when there is no valid session. It carries no data
+   * of its own — every metric behind it is still guarded.
+   */
+  app.get('/api/ops/console', (req: any, res: any) => {
+    const expected = process.env.DENTAI_OPS_SECRET || '';
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    if (!expected) {
+      return res
+        .status(503)
+        .send(consoleSignInPage('Operational endpoints are disabled: set DENTAI_OPS_SECRET.', true));
+    }
+    const session = readCookie(req.headers || {}, OPS_SESSION_COOKIE);
+    if (!verifyOpsSession(session, expected)) {
+      deps.logger.warn('Operator console loaded without a valid session', { url: req.originalUrl });
+      return res.send(consoleSignInPage(''));
+    }
+    return res.send(consoleHtml());
   });
 
   app.get('/api/ops/audit', deps.requireOps, async (req: any, res: any) => {

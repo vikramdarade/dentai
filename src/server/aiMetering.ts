@@ -23,6 +23,38 @@
  *    response is never blocked on the recording write.
  */
 
+/**
+ * The usage kinds each allowance is measured against.
+ *
+ * One ledger records every kind of AI work, so every ceiling has to say which
+ * kinds it is counting. Without this, a transcript and its note are two events
+ * against one note allowance and a clinic runs out at half its stated volume.
+ */
+export const NOTE_USAGE_KINDS = ['ai_note', 'ai_note_sync'] as const;
+export const TRANSCRIPTION_USAGE_KINDS = ['ai_transcription'] as const;
+
+/**
+ * Counts usage events for a scope on a given day, optionally by kind.
+ *
+ * Pure, and shared with the JSON usage store, so the rule "what does this
+ * ceiling count" is one function rather than a filter written twice (the two
+ * stores previously agreed only by coincidence, and both counted every kind).
+ */
+export function countUsageEvents(
+  events: Array<{ scopeId?: string; day?: string; kind?: string }>,
+  scopeId: string,
+  day: string,
+  kinds?: readonly string[]
+): number {
+  const wanted = kinds && kinds.length ? new Set(kinds.map((kind) => String(kind))) : null;
+  return (events || []).filter(
+    (event) =>
+      event?.scopeId === scopeId &&
+      event?.day === day &&
+      (!wanted || wanted.has(String(event?.kind)))
+  ).length;
+}
+
 export interface AiMeteringDeps {
   logger: {
     info: (message: string, context?: Record<string, any>) => void;
@@ -32,7 +64,8 @@ export interface AiMeteringDeps {
   /** Session authentication, composed here so the middleware can read req.dentist. */
   authenticate: (req: any, res: any, next: (err?: any) => void) => any;
   resolveClinicScope: (dentistId: string, requestedClinicId: unknown) => Promise<string | undefined>;
-  getUsageCountToday: (scopeId: string) => Promise<number>;
+  /** Events recorded today, restricted to the kinds the ceiling is counting. */
+  getUsageCountToday: (scopeId: string, kinds?: readonly string[]) => Promise<number>;
   getTokensUsedToday: (scopeId: string) => Promise<number>;
   recordUsageEvent: (scopeId: string, dentistId: string, kind: string, tokens: number) => Promise<void>;
   /**
@@ -40,7 +73,12 @@ export interface AiMeteringDeps {
    * operator's global cost ceiling. Resolved per request because it depends on
    * the clinic's subscription state, which can change mid-day.
    */
-  resolveDailyLimits: (scopeId: string) => Promise<{ notes: number; tokens: number }>;
+  resolveDailyLimits: (scopeId: string) => Promise<{
+    notes: number;
+    tokens: number;
+    /** Absent in older callers/tests; callers then fall back to `notes`. */
+    transcriptions?: number;
+  }>;
   usageSnapshotFor: (scopeId: string, used: number, limit: number) => Record<string, any>;
   approxTokens: (transcript: any[]) => number;
   logAudit: (event: string, dentistId: string, detail?: Record<string, any>) => void | Promise<void>;
@@ -91,7 +129,7 @@ export function createAiMetering(deps: AiMeteringDeps, options: AiMeteringOption
 
       try {
         const limits = await deps.resolveDailyLimits(scopeId);
-        const used = await deps.getUsageCountToday(scopeId);
+        const used = await deps.getUsageCountToday(scopeId, NOTE_USAGE_KINDS);
         const noteLimit = limits.notes;
         const usage = deps.usageSnapshotFor(scopeId, used, noteLimit);
         if (usage.exceeded) {

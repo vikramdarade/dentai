@@ -26,8 +26,18 @@ const GRACE_STATUSES = new Set(['past_due', 'incomplete']);
 export interface PlanDefinition {
   id: PlanId;
   name: string;
-  /** AI notes per clinic per day. */
+  /** AI notes per clinic per day. Counted from note events only — not transcriptions. */
   dailyNotes: number;
+  /**
+   * Audio transcriptions per clinic per day.
+   *
+   * A separate allowance from `dailyNotes` because they are separate calls with
+   * separate costs, and because sharing one counter meant a clinic that both
+   * transcribed and generated ran out at half the allowance it was promised. The
+   * token ceiling below is still what bounds the bill; this only bounds how often
+   * the expensive call can be made in a day.
+   */
+  dailyTranscriptions: number;
   /** Transcript tokens per clinic per day — the real cost ceiling. */
   dailyTokens: number;
   /** Clinicians who can be active members of the clinic. */
@@ -42,6 +52,7 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
     id: 'trial',
     name: 'Trial',
     dailyNotes: 15,
+    dailyTranscriptions: 15,
     dailyTokens: 150_000,
     seats: 1,
     monthlyAudExGst: 0,
@@ -55,6 +66,7 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
     id: 'solo',
     name: 'Solo',
     dailyNotes: 15,
+    dailyTranscriptions: 15,
     dailyTokens: 150_000,
     seats: 1,
     monthlyAudExGst: 0,
@@ -69,6 +81,7 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
     id: 'practice',
     name: 'Practice',
     dailyNotes: 200,
+    dailyTranscriptions: 200,
     dailyTokens: 2_000_000,
     seats: 6,
     monthlyAudExGst: 149,
@@ -83,6 +96,7 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
     id: 'enterprise',
     name: 'Group',
     dailyNotes: 1_000,
+    dailyTranscriptions: 1_000,
     dailyTokens: 4_000_000,
     seats: 100,
     monthlyAudExGst: 0,
@@ -126,6 +140,7 @@ export interface Entitlements {
   plan: PlanId;
   planName: string;
   dailyNotes: number;
+  dailyTranscriptions: number;
   dailyTokens: number;
   seats: number;
   /** True when the clinic is paying, in period, and not cancelled. */
@@ -160,6 +175,7 @@ export function resolveEntitlements(
       plan: 'trial',
       planName: trial.name,
       dailyNotes: trial.dailyNotes,
+      dailyTranscriptions: trial.dailyTranscriptions,
       dailyTokens: trial.dailyTokens,
       seats: trial.seats,
       active: false,
@@ -179,6 +195,7 @@ export function resolveEntitlements(
     plan,
     planName: definition.name,
     dailyNotes: definition.dailyNotes,
+    dailyTranscriptions: definition.dailyTranscriptions,
     dailyTokens: definition.dailyTokens,
     seats: definition.seats,
     active: true,
@@ -197,6 +214,7 @@ export function resolveEntitlements(
     plan: 'trial',
     planName: trial.name,
     dailyNotes: trial.dailyNotes,
+    dailyTranscriptions: trial.dailyTranscriptions,
     dailyTokens: trial.dailyTokens,
     seats: trial.seats,
     active: false,

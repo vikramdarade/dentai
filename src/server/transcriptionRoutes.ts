@@ -23,6 +23,7 @@
  */
 
 import type { TranscriptItem } from '../types';
+import { TRANSCRIPTION_USAGE_KINDS } from './aiMetering';
 import { CHAIR_AUDIO_LIMITS } from './chairSessionStore';
 import type { ChairSessionStore } from './chairSessionStore';
 import {
@@ -48,8 +49,13 @@ export interface TranscriptionRouteDeps {
   chairStore: ChairSessionStore;
   resolveClinicScope: (dentistId: string, requestedClinicId?: unknown) => Promise<string | undefined>;
   recordUsageEvent: (scopeId: string, dentistId: string, kind: string, tokens: number) => Promise<void>;
-  resolveDailyLimits?: (scopeId: string) => Promise<{ notes: number; tokens: number }>;
-  getUsageCountToday?: (scopeId: string) => Promise<number>;
+  resolveDailyLimits?: (scopeId: string) => Promise<{
+    notes: number;
+    tokens: number;
+    /** Absent in older callers/tests; the gate then falls back to `notes`. */
+    transcriptions?: number;
+  }>;
+  getUsageCountToday?: (scopeId: string, kinds?: readonly string[]) => Promise<number>;
   getTokensUsedToday?: (scopeId: string) => Promise<number>;
   loadConsultation: (id: string, dentistId: string) => Promise<any | null>;
   updateConsultation?: (id: string, dentistId: string, consultation: any) => Promise<boolean>;
@@ -271,20 +277,55 @@ export function registerTranscriptionRoutes(app: any, deps: TranscriptionRouteDe
         });
       }
 
-      // Pre-flight quota check: refuse before spending model tokens if clinic is capped
-      const scopeId = (await deps.resolveClinicScope(dentistId, sessionClinicId)) || dentistId;
+      /*
+       * Pre-flight meter.
+       *
+       * Transcription is the most expensive call in the product — audio input is
+       * billed — so it is measured BEFORE the model is called rather than recorded
+       * afterwards. A ceiling that can only be read after the spend cannot bound
+       * it.
+       *
+       * It counts this clinic's transcriptions only. Counting every usage event
+       * meant a note generation consumed a transcription, so a clinic that both
+       * transcribed and generated hit its ceiling at roughly half the volume it
+       * was promised — and was told it had used "all 15 AI notes" when it had
+       * used seven.
+       *
+       * Fails CLOSED, matching the note-generation meter: if the usage store cannot
+       * be read, we refuse rather than spend money we cannot count.
+       */
+      let scopeId: string;
+      try {
+        scopeId = (await deps.resolveClinicScope(dentistId, sessionClinicId)) || dentistId;
+      } catch (scopeErr: any) {
+        deps.logger.error('Transcription scope resolution failed; refusing to transcribe:', {
+          error: scopeErr?.message || String(scopeErr),
+          url: req.originalUrl,
+        });
+        return res.status(503).json({
+          ok: false,
+          code: 'METERING_UNAVAILABLE',
+          error:
+            'Usage metering is unavailable, so audio transcription is paused. Your recording is preserved — live recognition and offline drafting remain available, or retry shortly.',
+        });
+      }
       if (deps.resolveDailyLimits && deps.getUsageCountToday && deps.getTokensUsedToday) {
         try {
           const limits = await deps.resolveDailyLimits(scopeId);
-          const usedNotes = await deps.getUsageCountToday(scopeId);
-          if (usedNotes >= limits.notes) {
+          const transcriptionLimit = limits.transcriptions ?? limits.notes;
+          const usedTranscriptions = await deps.getUsageCountToday(scopeId, TRANSCRIPTION_USAGE_KINDS);
+          if (usedTranscriptions >= transcriptionLimit) {
             await Promise.resolve(
-              deps.logAudit('transcription_metered_daily_limit', dentistId, { scopeId, usedNotes, limit: limits.notes })
+              deps.logAudit('transcription_metered_daily_limit', dentistId, {
+                scopeId,
+                usedTranscriptions,
+                transcriptionLimit,
+              })
             ).catch(() => {});
             return res.status(429).json({
               ok: false,
               code: 'QUOTA_DAILY',
-              error: `This clinic has reached its daily allowance of ${limits.notes} AI notes. Audio transcription is paused; live recognition and offline drafting remain available.`,
+              error: `This clinic has reached its daily allowance of ${transcriptionLimit} audio transcriptions. Live recognition and offline drafting remain available; transcription resumes tomorrow.`,
             });
           }
           const tokensUsed = await deps.getTokensUsedToday(scopeId);
@@ -295,11 +336,24 @@ export function registerTranscriptionRoutes(app: any, deps: TranscriptionRouteDe
             return res.status(429).json({
               ok: false,
               code: 'QUOTA_TOKENS',
-              error: `This clinic has reached its daily AI processing token budget. Audio transcription is paused; live recognition and offline drafting remain available.`,
+              error: `This clinic has reached its daily AI processing budget. Live recognition and offline drafting remain available; transcription resumes tomorrow.`,
             });
           }
         } catch (meterErr: any) {
-          deps.logger.error('Metering pre-flight check failed in transcription:', meterErr?.message || meterErr);
+          deps.logger.error('Transcription metering pre-flight failed; refusing to transcribe:', {
+            error: meterErr?.message || String(meterErr),
+            scopeId,
+            dentistId,
+          });
+          await Promise.resolve(
+            deps.logAudit('transcription_metering_unavailable', dentistId, { scopeId })
+          ).catch(() => {});
+          return res.status(503).json({
+            ok: false,
+            code: 'METERING_UNAVAILABLE',
+            error:
+              'Usage metering is unavailable, so audio transcription is paused. Your recording is preserved — live recognition and offline drafting remain available, or retry shortly.',
+          });
         }
       }
 

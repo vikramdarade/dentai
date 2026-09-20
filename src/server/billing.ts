@@ -222,6 +222,8 @@ export interface ApplyEventDeps {
   logger: BillingLogger;
   /** Called when a clinic's plan changed, so caches can be dropped. */
   onChanged?: (clinicId: string) => void;
+  /** Environment, so a subscription's plan can be resolved from its Price. */
+  env?: Record<string, string | undefined>;
   sendReceiptEmail?: (params: {
     clinicId: string;
     practiceName: string;
@@ -230,6 +232,10 @@ export interface ApplyEventDeps {
     periodEnd: string;
     invoiceUrl?: string;
     customerEmail?: string;
+    /** GST actually charged by Stripe, in dollars. Absent when unknown. */
+    gstAud?: number;
+    /** The buyer's ABN, when tax_id_collection captured one. */
+    customerAbn?: string;
   }) => Promise<void>;
 }
 
@@ -267,6 +273,73 @@ export function planFromMetadata(object: Record<string, any>, fallback?: PlanId)
   if (isPlanId(fromMeta)) return fromMeta;
   if (fallback && isPlanId(fallback)) return fallback;
   return null;
+}
+
+/** The first Price id on a subscription object, when Stripe included its items. */
+export function subscriptionPriceId(object: Record<string, any>): string | null {
+  const price = object?.items?.data?.[0]?.price?.id;
+  return typeof price === 'string' && price.trim() ? price.trim() : null;
+}
+
+/**
+ * Maps a Stripe Price id back to a plan.
+ *
+ * Metadata is the fast path, but a subscription created before
+ * `subscription_data` metadata was sent — or created by hand in the Stripe
+ * dashboard — carries none. The Price is the durable source of truth, and it is
+ * also the only thing that follows a customer who changes plan in the Stripe
+ * portal, because Stripe does not rewrite subscription metadata when the Price
+ * changes.
+ */
+export function planFromPriceId(
+  priceId: unknown,
+  env: Record<string, string | undefined> = process.env
+): PlanId | null {
+  if (typeof priceId !== 'string' || !priceId.trim()) return null;
+  const wanted = priceId.trim();
+  const configured: Array<[string | undefined, PlanId]> = [
+    [env.STRIPE_PRICE_PRACTICE, 'practice'],
+    [env.STRIPE_PRICE_SOLO, 'solo'],
+    [env.STRIPE_PRICE_ENTERPRISE, 'enterprise'],
+  ];
+  for (const [id, plan] of configured) {
+    if (id && id.trim() === wanted) return plan;
+  }
+  return null;
+}
+
+/**
+ * Stripe's own tax total for an invoice, in cents.
+ *
+ * Null means Stripe did not report a tax figure at all. It does NOT mean zero:
+ * zero is a real answer (nothing was charged) and is passed through as 0.
+ */
+function invoiceTaxCents(object: Record<string, any>): number | null {
+  for (const candidate of [object?.total_tax, object?.tax]) {
+    if (typeof candidate === 'number' && Number.isFinite(candidate)) return candidate;
+  }
+  const amounts = object?.total_tax_amounts;
+  if (Array.isArray(amounts)) {
+    return amounts.reduce((total, entry) => total + (Number(entry?.amount) || 0), 0);
+  }
+  return null;
+}
+
+/** What was actually paid, in cents. Null when Stripe reported no amount. */
+function invoicePaidCents(object: Record<string, any>): number | null {
+  for (const candidate of [object?.amount_paid, object?.total]) {
+    if (typeof candidate === 'number' && Number.isFinite(candidate)) return candidate;
+  }
+  return null;
+}
+
+/** The buyer's tax identifier on an invoice, as captured by tax_id_collection. */
+function invoiceCustomerTaxId(object: Record<string, any>): string {
+  const raw = object?.customer_tax_ids;
+  const list = Array.isArray(raw) ? raw : Array.isArray(raw?.data) ? raw.data : [];
+  const australian = list.find((entry: any) => String(entry?.type || '').toLowerCase().startsWith('au'));
+  const value = (australian || list[0])?.value;
+  return typeof value === 'string' ? value.trim() : '';
 }
 
 /** Applies a verified event. Idempotent: a replayed event id is ignored. */
@@ -350,19 +423,6 @@ export async function applyStripeEvent(
     case 'customer.subscription.created':
     case 'customer.subscription.updated':
     case 'customer.subscription.deleted': {
-      const plan = planFromMetadata(object);
-      if (!plan && event.type !== 'customer.subscription.deleted') {
-        deps.logger.error('Subscription event has no valid plan in metadata.', {
-          eventId: event.id,
-          metadata: object.metadata,
-        });
-        throw new Error(`Subscription event ${event.id} has no resolvable plan`);
-      }
-      const resolvedPlan = plan || 'practice';
-      const status =
-        event.type === 'customer.subscription.deleted'
-          ? 'canceled'
-          : String(object.status || 'active');
       let clinicId = clinicIdFromObject(object);
       if (!clinicId && object.customer) {
         const existing = await deps.store.byStripeCustomerId(String(object.customer));
@@ -375,6 +435,52 @@ export async function applyStripeEvent(
         await deps.events.record({ id: event.id, clinicId: null, kind: event.type, detail: {} });
         break;
       }
+
+      const known = await deps.store.forClinic(clinicId);
+      const priceId = subscriptionPriceId(object);
+
+      /*
+       * Plan resolution, in order of authority:
+       *   1. the metadata written at checkout;
+       *   2. the Price on the subscription — the durable source of truth, and the
+       *      only thing that works for subscriptions created before
+       *      `subscription_data` metadata existed, or created by hand in Stripe;
+       *   3. whatever plan this clinic already has.
+       *
+       * This deliberately does NOT throw. Stripe retries a 5xx for three days,
+       * and an absent plan is a permanent condition, not a transient fault — so
+       * throwing means a cancellation or a failed payment is never recorded and
+       * the practice keeps paid access because its last status still said
+       * "active". Losing a lifecycle event is worse than carrying a plan forward
+       * that a later event, or the operator console, can still correct.
+       */
+      const plan =
+        planFromMetadata(object) ||
+        planFromPriceId(priceId, deps.env || process.env) ||
+        (isPlanId(known?.plan) ? known.plan : null);
+
+      if (!plan) {
+        deps.logger.error(
+          'Subscription event has no resolvable plan; recorded without changing entitlements.',
+          { eventId: event.id, subscriptionId: object.id, priceId }
+        );
+        await deps.events.record({
+          id: event.id,
+          clinicId,
+          kind: event.type,
+          detail: { unresolvedPlan: true, priceId },
+        });
+        return {
+          handled: false,
+          clinicId,
+          message: 'Subscription event carried no resolvable plan; recorded for follow-up.',
+        };
+      }
+      const resolvedPlan = plan;
+      const status =
+        event.type === 'customer.subscription.deleted'
+          ? 'canceled'
+          : String(object.status || 'active');
       await writeSubscription(clinicId, {
         plan: resolvedPlan,
         status,
@@ -407,23 +513,43 @@ export async function applyStripeEvent(
       });
 
       if (event.type === 'invoice.paid' && deps.sendReceiptEmail) {
-        const amountPaidCents = Number(object.amount_paid ?? object.total ?? 16390);
-        const amountAud = amountPaidCents / 100;
+        /*
+         * Every figure on this document comes from Stripe. Previously the amount
+         * fell back to a hardcoded 16390 and the GST was derived as total/11 —
+         * so a practice could be sent a tax invoice for an amount nobody paid,
+         * asserting tax that was never collected. If Stripe did not report what
+         * was paid, no document is issued and an operator is told to re-send it.
+         */
+        const paidCents = invoicePaidCents(object);
+        const taxCents = invoiceTaxCents(object);
+        const customerAbn = invoiceCustomerTaxId(object);
         const periodEndStr = object.lines?.data?.[0]?.period?.end
           ? timestampToIso(object.lines.data[0].period.end) || ''
           : '';
-        try {
-          await deps.sendReceiptEmail({
-            clinicId: existing.clinicId,
-            practiceName: object.customer_name || existing.clinicId,
-            planName: PLANS[plan]?.name || 'Practice',
-            amountAud,
-            periodEnd: periodEndStr || 'Next billing cycle',
-            invoiceUrl: object.hosted_invoice_url || object.invoice_pdf || undefined,
-            customerEmail: object.customer_email || undefined,
-          });
-        } catch (emailErr: any) {
-          deps.logger.warn('Could not dispatch tax invoice email:', { message: emailErr?.message });
+
+        if (paidCents === null) {
+          deps.logger.error(
+            'Invoice paid event reported no amount; no tax invoice issued.',
+            { eventId: event.id, invoiceId: object.id, clinicId: existing.clinicId }
+          );
+        } else {
+          try {
+            await deps.sendReceiptEmail({
+              clinicId: existing.clinicId,
+              practiceName: object.customer_name || existing.clinicId,
+              planName: PLANS[plan]?.name || 'Practice',
+              amountAud: paidCents / 100,
+              periodEnd: periodEndStr || 'Next billing cycle',
+              invoiceUrl: object.hosted_invoice_url || object.invoice_pdf || undefined,
+              customerEmail: object.customer_email || undefined,
+              // undefined when Stripe reported no tax, which makes the email
+              // issue a receipt rather than claim a GST figure it cannot know.
+              gstAud: taxCents === null ? undefined : taxCents / 100,
+              customerAbn: customerAbn || undefined,
+            });
+          } catch (emailErr: any) {
+            deps.logger.warn('Could not dispatch tax invoice email:', { message: emailErr?.message });
+          }
         }
       }
 
@@ -519,6 +645,10 @@ export interface BillingRoutesDeps {
     periodEnd: string;
     invoiceUrl?: string;
     customerEmail?: string;
+    /** GST actually charged by Stripe, in dollars. Absent when unknown. */
+    gstAud?: number;
+    /** The buyer's ABN, when tax_id_collection captured one. */
+    customerAbn?: string;
   }) => Promise<void>;
 }
 
@@ -754,6 +884,7 @@ export function registerBillingRoutes(app: any, deps: BillingRoutesDeps): void {
         events: deps.events,
         logger: deps.logger,
         onChanged: (clinicId) => deps.entitlements.invalidate(clinicId),
+        env: deps.env || process.env,
         sendReceiptEmail: deps.sendReceiptEmail,
       });
 

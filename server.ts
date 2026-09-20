@@ -244,9 +244,18 @@ logger.info(describeConfiguration(configuration));
  * The allowance that actually applies to a clinic: plan entitlement capped by
  * the operator's global cost ceiling (see src/lib/plans.ts).
  */
-async function resolveDailyLimits(scopeId: string): Promise<{ notes: number; tokens: number }> {
+async function resolveDailyLimits(
+  scopeId: string
+): Promise<{ notes: number; tokens: number; transcriptions: number }> {
   const resolved = await entitlements.resolve(scopeId);
-  return { notes: resolved.dailyNotes, tokens: resolved.dailyTokens };
+  return {
+    notes: resolved.dailyNotes,
+    tokens: resolved.dailyTokens,
+    // Audio transcription is its own allowance, not a second charge against the
+    // note budget: they are separate calls, and one shared counter meant a clinic
+    // that transcribed and generated ran out at half the volume it was promised.
+    transcriptions: resolved.dailyTranscriptions,
+  };
 }
 
 /** Oldest open job in the JSON store, for the queue-stall alert. */
@@ -274,7 +283,7 @@ async function oldestJsonJobAgeMs(): Promise<number | null> {
  * each verifies the session itself (composing the shared auth middleware)
  * rather than assuming another layer already did.
  * ======================================================================== */
-import { createAiMetering } from './src/server/aiMetering';
+import { countUsageEvents, createAiMetering } from './src/server/aiMetering';
 import { createRecordGovernance } from './src/server/recordGovernance';
 import { createOpsGuard, registerOpsRoutes } from './src/server/opsRoutes';
 import { registerSessionSecurityRoutes } from './src/server/sessionSecurity';
@@ -941,7 +950,29 @@ registerBillingRoutes(app, {
   membershipsFor: (dentistId) => listMembershipsFor(dentistId),
   logAudit,
   sendReceiptEmail: async (params) => {
-    if (!params.customerEmail) return;
+    // A paid invoice with no tax invoice is a compliance gap, not a silent
+    // no-op: the operator has to be able to see it happened.
+    if (!params.customerEmail) {
+      logger.error('No tax invoice sent: the Stripe invoice carried no customer email.', {
+        clinicId: params.clinicId,
+        amountAud: params.amountAud,
+      });
+      await Promise.resolve(
+        logAudit('tax_invoice_not_sent', 'stripe', {
+          clinicId: params.clinicId,
+          amountAud: params.amountAud,
+          reason: 'no_customer_email',
+        })
+      ).catch(() => {});
+      return;
+    }
+    if (params.gstAud === undefined) {
+      // Sent as a plain receipt rather than a tax invoice — see receiptEmail().
+      logger.warn('Issuing a receipt rather than a tax invoice: Stripe reported no tax figure.', {
+        clinicId: params.clinicId,
+        amountAud: params.amountAud,
+      });
+    }
     try {
       const rendered = receiptEmail(params);
       await emailer.send({
@@ -950,8 +981,19 @@ registerBillingRoutes(app, {
         text: rendered.text,
         html: rendered.html,
       });
+      await Promise.resolve(
+        logAudit('tax_invoice_emailed', 'stripe', {
+          clinicId: params.clinicId,
+          amountAud: params.amountAud,
+          gstAud: params.gstAud ?? null,
+          customerAbn: params.customerAbn ?? null,
+        })
+      ).catch(() => {});
     } catch (err: any) {
-      logger.warn('Failed to send tax invoice email:', { message: err?.message });
+      logger.error('Failed to send tax invoice email:', {
+        clinicId: params.clinicId,
+        message: err?.message,
+      });
     }
   },
 });
@@ -978,6 +1020,7 @@ app.use('/api/auth/login', createLoginMfaGuard(mfaService, logger));
 registerOpsActionRoutes(app, {
   logger,
   requireOps,
+  constantTimeEquals: signaturesMatch,
   configuration: {
     environment: configuration.environment,
     readiness: configuration.readiness,
@@ -1104,11 +1147,17 @@ async function recordUsageEvent(scopeId: string, dentistId: string, kind: string
   await writeUsageDb(data);
 }
 
-async function getUsageCountToday(scopeId: string): Promise<number> {
-  if (dbEnabled) return dbGetUsageCount(scopeId, meteringDay());
+/**
+ * Usage events recorded today, optionally restricted to specific kinds.
+ *
+ * The kind filter is what makes each ceiling mean what it says: `ai_note` and
+ * `ai_transcription` are separate calls, and counting both against a note
+ * allowance halves the effective daily volume without any error being raised.
+ */
+async function getUsageCountToday(scopeId: string, kinds?: readonly string[]): Promise<number> {
+  if (dbEnabled) return dbGetUsageCount(scopeId, meteringDay(), kinds);
   const data = await readUsageDb();
-  const day = meteringDay();
-  return data.events.filter((e) => e.scopeId === scopeId && e.day === day).length;
+  return countUsageEvents(data.events || [], scopeId, meteringDay(), kinds);
 }
 
 /**

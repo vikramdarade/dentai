@@ -375,6 +375,8 @@ describe('/api/transcribe routes', () => {
     consultation?: any;
     transcriberOutcome?: any;
     model?: string;
+    /** Optional quota deps, so the pre-flight meter can be driven directly. */
+    metering?: Record<string, any>;
   } = {}) {
     const chunkList = options.chunks ?? [];
     const store = {
@@ -444,6 +446,7 @@ describe('/api/transcribe routes', () => {
       chairStore: store,
       resolveClinicScope: async () => 'clinic-1',
       recordUsageEvent: vi.fn(async () => {}),
+      ...(options.metering || {}),
       loadConsultation: async (id: string) =>
         options.consultation === null ? null : { id, dentistId, transcript: [], ...(options.consultation || {}) },
       updateConsultation: async (_id: string, _d: string, next: any) => {
@@ -629,6 +632,133 @@ describe('/api/transcribe routes', () => {
     expect(res.body.ok).toBe(false);
     expect(res.body.code).toBe('QUOTA_DAILY');
     expect(res.body.error).toContain('daily allowance');
+    expect(getClient).not.toHaveBeenCalled();
+  });
+
+  it('meters transcription against transcriptions only, so note generation cannot consume the capture allowance', async () => {
+    // 15 notes generated today and no transcriptions: at the note ceiling, with
+    // the transcription allowance untouched. Counting every usage event (the
+    // previous behaviour) returned 429 here — "used all 15 AI notes" after about
+    // seven appointments, because a transcript and its note were two events.
+    const getUsageCountToday = vi.fn(async (_scopeId: string, kinds?: readonly string[]) =>
+      kinds && kinds.includes('ai_transcription') ? 0 : 15
+    );
+
+    const { app } = buildApp({
+      chunks: [{ chunkIndex: 0, dataBase64: audioChunk(40 * SECOND) }],
+      metering: {
+        resolveDailyLimits: async () => ({ notes: 15, tokens: 150_000, transcriptions: 15 }),
+        getUsageCountToday,
+        getTokensUsedToday: async () => 10_000
+      }
+    });
+
+    const res = await request(app).post('/api/transcribe').send({ chairId: 'chair-abc123' });
+
+    expect(getUsageCountToday).toHaveBeenCalledWith('clinic-1', ['ai_transcription']);
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+  });
+
+  it('refuses transcription when the clinic has spent its daily token budget', async () => {
+    const getClient = vi.fn();
+    const app = express();
+    app.use(express.json());
+    app.use((req: any, _res: any, next: any) => {
+      req.dentist = { id: dentistId };
+      next();
+    });
+    registerTranscriptionRoutes(app, {
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      authenticate: (_req: any, _res: any, next: any) => next(),
+      getClient,
+      model: 'gemini-3.6-flash',
+      chairStore: {
+        get: async () => ({ dentistId, clinicId: 'clinic-1', telemetry: {} }) as any,
+        listAudioChunks: async () => [{ chunkIndex: 0, dataBase64: audioChunk(40 * SECOND) }]
+      } as any,
+      resolveClinicScope: async () => 'clinic-1',
+      resolveDailyLimits: async () => ({ notes: 200, tokens: 2_000_000, transcriptions: 200 }),
+      getUsageCountToday: async () => 0,
+      getTokensUsedToday: async () => 2_000_000,
+      recordUsageEvent: async () => {},
+      loadConsultation: async () => null,
+      logAudit: vi.fn()
+    });
+
+    const res = await request(app).post('/api/transcribe').send({ chairId: 'chair-abc123' });
+
+    expect(res.status).toBe(429);
+    expect(res.body.code).toBe('QUOTA_TOKENS');
+    expect(getClient).not.toHaveBeenCalled();
+  });
+
+  it('fails closed: refuses transcription with 503 when the usage meter cannot be read', async () => {
+    // The opposite choice spends money on the clinic's behalf with no way to
+    // count it, and the note-generation meter already refuses in this situation.
+    const getClient = vi.fn();
+    const app = express();
+    app.use(express.json());
+    app.use((req: any, _res: any, next: any) => {
+      req.dentist = { id: dentistId };
+      next();
+    });
+    registerTranscriptionRoutes(app, {
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      authenticate: (_req: any, _res: any, next: any) => next(),
+      getClient,
+      model: 'gemini-3.6-flash',
+      chairStore: {
+        get: async () => ({ dentistId, clinicId: 'clinic-1', telemetry: {} }) as any,
+        listAudioChunks: async () => [{ chunkIndex: 0, dataBase64: audioChunk(40 * SECOND) }]
+      } as any,
+      resolveClinicScope: async () => 'clinic-1',
+      resolveDailyLimits: async () => {
+        throw new Error('usage store unavailable');
+      },
+      getUsageCountToday: async () => 0,
+      getTokensUsedToday: async () => 0,
+      recordUsageEvent: async () => {},
+      loadConsultation: async () => null,
+      logAudit: vi.fn()
+    });
+
+    const res = await request(app).post('/api/transcribe').send({ chairId: 'chair-abc123' });
+
+    expect(res.status).toBe(503);
+    expect(res.body.code).toBe('METERING_UNAVAILABLE');
+    expect(getClient).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when the clinic scope cannot be resolved', async () => {
+    const getClient = vi.fn();
+    const app = express();
+    app.use(express.json());
+    app.use((req: any, _res: any, next: any) => {
+      req.dentist = { id: dentistId };
+      next();
+    });
+    registerTranscriptionRoutes(app, {
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      authenticate: (_req: any, _res: any, next: any) => next(),
+      getClient,
+      model: 'gemini-3.6-flash',
+      chairStore: {
+        get: async () => ({ dentistId, clinicId: 'clinic-1', telemetry: {} }) as any,
+        listAudioChunks: async () => [{ chunkIndex: 0, dataBase64: audioChunk(40 * SECOND) }]
+      } as any,
+      resolveClinicScope: async () => {
+        throw new Error('membership store unavailable');
+      },
+      recordUsageEvent: async () => {},
+      loadConsultation: async () => null,
+      logAudit: vi.fn()
+    });
+
+    const res = await request(app).post('/api/transcribe').send({ chairId: 'chair-abc123' });
+
+    expect(res.status).toBe(503);
+    expect(res.body.code).toBe('METERING_UNAVAILABLE');
     expect(getClient).not.toHaveBeenCalled();
   });
 });

@@ -9,6 +9,13 @@ import {
   resolveEntitlements,
 } from '../src/lib/plans';
 import { registerOpsActionRoutes } from '../src/server/opsActions';
+import { countUsageEvents, NOTE_USAGE_KINDS, TRANSCRIPTION_USAGE_KINDS } from '../src/server/aiMetering';
+import {
+  createOpsGuard,
+  createOpsSession,
+  OPS_SESSION_COOKIE,
+  OPS_SESSION_TTL_MS,
+} from '../src/server/opsRoutes';
 import { checkConfiguration, describeConfiguration } from '../src/server/configCheck';
 import { createAlerter, evaluateAlerts, DEFAULT_THRESHOLDS } from '../src/server/alerting';
 import {
@@ -486,16 +493,17 @@ describe('Operator adoption funnel & quality telemetry', () => {
   it('requires operational authentication and exposes zero PHI', async () => {
     const app = express();
     app.use(express.json());
-    const requireOps = (req: any, res: any, next: any) => {
-      const configured = process.env.DENTAI_OPS_SECRET;
-      if (!configured) return res.status(503).json({ error: 'OPS_DISABLED' });
-      const secret = req.headers['x-dentai-ops-secret'];
-      if (secret !== configured) return res.status(401).json({ error: 'Unauthorised' });
-      next();
-    };
+    // The REAL guard, shared with registerOpsRoutes. A hand-rolled stub here is
+    // precisely what let an unreachable operator console ship with a green
+    // suite: the stub tested a rule the server did not implement.
+    const requireOps = createOpsGuard({
+      constantTimeEquals: (a: string, b: string) => a === b,
+      logger: { warn: vi.fn() },
+    });
     registerOpsActionRoutes(app, {
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
       requireOps,
+      constantTimeEquals: (a: string, b: string) => a === b,
       configuration: { environment: 'test', readiness: 'ready', summary: '', blocking: [], advisories: [], configured: [] },
       clinicOverview: async () => [],
       funnelMetrics: async () => ({
@@ -519,16 +527,94 @@ describe('Operator adoption funnel & quality telemetry', () => {
       operatorName: () => 'ops-tester',
     });
 
-    delete process.env.DENTAI_OPS_SECRET;
-    const unconf = await request(app).get('/api/ops/funnel');
-    expect(unconf.status).toBe(503);
+    const opsSecret = 'correct-ops-secret';
+    const previousSecret = process.env.DENTAI_OPS_SECRET;
+    let right: any;
+    try {
+      delete process.env.DENTAI_OPS_SECRET;
+      const unconf = await request(app).get('/api/ops/funnel');
+      expect(unconf.status).toBe(503);
 
-    process.env.DENTAI_OPS_SECRET = 'correct-ops-secret';
-    const wrong = await request(app).get('/api/ops/funnel').set('x-dentai-ops-secret', 'wrong');
-    expect(wrong.status).toBe(401);
+      process.env.DENTAI_OPS_SECRET = opsSecret;
+      const wrong = await request(app).get('/api/ops/funnel').set('x-dentai-ops-secret', 'wrong');
+      expect(wrong.status).toBe(401);
 
-    const right = await request(app).get('/api/ops/funnel').set('x-dentai-ops-secret', 'correct-ops-secret');
-    expect(right.status).toBe(200);
+      // The secret is never accepted from the query string — that is how it ends
+      // up in browser history, in Referer headers and in access logs.
+      const viaQuery = await request(app).get(`/api/ops/funnel?secret=${opsSecret}`);
+      expect(viaQuery.status).toBe(401);
+
+      right = await request(app).get('/api/ops/funnel').set('x-dentai-ops-secret', opsSecret);
+      expect(right.status).toBe(200);
+
+      /*
+       * The console must be reachable BY A BROWSER. A browser cannot set a custom
+       * header on navigation, so the previous build shipped a console nobody could
+       * open. This walks the real sign-in flow end to end.
+       */
+      const consoleAnonymous = await request(app).get('/api/ops/console');
+      expect(consoleAnonymous.status).toBe(200);
+      expect(consoleAnonymous.text).toContain('Operator secret');
+      expect(consoleAnonymous.text).not.toContain('Adoption Funnel');
+      // The sign-in page owns no session, so it must post with plain fetch and
+      // must not call the console's session-aware wrapper. (A blanket rename of
+      // every fetch call once left this page calling a function it does not
+      // define — invisible to any server-side assertion, fatal in a browser.)
+      expect(consoleAnonymous.text).toContain("fetch('/api/ops/console/session'");
+      expect(consoleAnonymous.text).not.toContain('opsFetch');
+
+      const badSignIn = await request(app).post('/api/ops/console/session').send({ secret: 'nope' });
+      expect(badSignIn.status).toBe(401);
+
+      const signIn = await request(app).post('/api/ops/console/session').send({ secret: opsSecret });
+      expect(signIn.status).toBe(200);
+      const setCookie = String(signIn.headers['set-cookie']?.[0] || '');
+      expect(setCookie).toContain(`${OPS_SESSION_COOKIE}=`);
+      expect(setCookie).toContain('HttpOnly');
+      expect(setCookie.toLowerCase()).toContain('samesite=strict');
+      expect(setCookie).toContain('Path=/api/ops');
+      // The cookie is a signed session, not the secret itself.
+      expect(setCookie).not.toContain(opsSecret);
+      const cookie = setCookie.split(';')[0];
+
+      const consoleAuthed = await request(app).get('/api/ops/console').set('Cookie', cookie);
+      expect(consoleAuthed.status).toBe(200);
+      expect(consoleAuthed.text).toContain('Adoption Funnel');
+      // The console page defines the wrapper it calls, and calls it.
+      expect(consoleAuthed.text).toContain('function opsFetch');
+      expect(consoleAuthed.text).toContain("await opsFetch('/api/ops/funnel'");
+      // The console's own script carries no secret.
+      expect(consoleAuthed.text).not.toContain('x-dentai-ops-secret');
+      expect(consoleAuthed.text).not.toContain(opsSecret);
+
+      // The session the console holds can call the API the console calls.
+      const funnelViaCookie = await request(app).get('/api/ops/funnel').set('Cookie', cookie);
+      expect(funnelViaCookie.status).toBe(200);
+      expect(funnelViaCookie.body.stages.signups).toBe(10);
+
+      // A tampered signature is refused rather than trusted.
+      const rawToken = cookie.slice(OPS_SESSION_COOKIE.length + 1);
+      const tampered = await request(app)
+        .get('/api/ops/funnel')
+        .set('Cookie', `${OPS_SESSION_COOKIE}=${rawToken.slice(0, -2)}xx`);
+      expect(tampered.status).toBe(401);
+
+      // An expired session is refused.
+      const expired = createOpsSession(opsSecret, Date.now() - OPS_SESSION_TTL_MS - 1000).token;
+      const expiredRes = await request(app)
+        .get('/api/ops/funnel')
+        .set('Cookie', `${OPS_SESSION_COOKIE}=${expired}`);
+      expect(expiredRes.status).toBe(401);
+
+      // ...and the session is revoked by rotating the operator secret.
+      process.env.DENTAI_OPS_SECRET = 'rotated-ops-secret';
+      const afterRotation = await request(app).get('/api/ops/funnel').set('Cookie', cookie);
+      expect(afterRotation.status).toBe(401);
+      process.env.DENTAI_OPS_SECRET = opsSecret;
+    } finally {
+      if (previousSecret === undefined) delete process.env.DENTAI_OPS_SECRET;
+      else process.env.DENTAI_OPS_SECRET = previousSecret;
+    }
     expect(right.body.stages.signups).toBe(10);
     expect(right.body.stages.upgraded).toBe(2);
     expect(right.body.qualitySignals.editRate).toBe(0.2);
@@ -543,5 +629,41 @@ describe('Operator adoption funnel & quality telemetry', () => {
     expect(serialized).not.toContain('transcript');
     expect(serialized).not.toContain('teeth');
     expect(serialized).not.toContain('diagnosis');
+  });
+});
+
+describe('Usage metering counts the kinds each ceiling is measuring', () => {
+  const day = '2026-09-20';
+  const events = [
+    { scopeId: 'clinic-1', day, kind: 'ai_note' },
+    { scopeId: 'clinic-1', day, kind: 'ai_note' },
+    { scopeId: 'clinic-1', day, kind: 'ai_note_sync' },
+    { scopeId: 'clinic-1', day, kind: 'ai_transcription' },
+    { scopeId: 'clinic-2', day, kind: 'ai_note' },
+    { scopeId: 'clinic-1', day: '2026-09-19', kind: 'ai_note' },
+  ];
+
+  it('counts everything for a scope on a day when no kinds are given', () => {
+    expect(countUsageEvents(events, 'clinic-1', day)).toBe(4);
+  });
+
+  it('counts note generation without counting transcriptions', () => {
+    // This is the bug the previous version had: one shared counter, so a
+    // transcript and its note consumed two units of a single 15/day allowance.
+    expect(countUsageEvents(events, 'clinic-1', day, NOTE_USAGE_KINDS)).toBe(3);
+  });
+
+  it('counts transcriptions without counting notes', () => {
+    expect(countUsageEvents(events, 'clinic-1', day, TRANSCRIPTION_USAGE_KINDS)).toBe(1);
+  });
+
+  it('is scoped to one clinic and one day', () => {
+    expect(countUsageEvents(events, 'clinic-2', day, NOTE_USAGE_KINDS)).toBe(1);
+    expect(countUsageEvents(events, 'clinic-1', '2026-09-21', NOTE_USAGE_KINDS)).toBe(0);
+  });
+
+  it('tolerates an empty or malformed ledger', () => {
+    expect(countUsageEvents([], 'clinic-1', day, NOTE_USAGE_KINDS)).toBe(0);
+    expect(countUsageEvents(undefined as any, 'clinic-1', day, NOTE_USAGE_KINDS)).toBe(0);
   });
 });

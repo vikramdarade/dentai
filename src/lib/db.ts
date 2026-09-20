@@ -649,12 +649,34 @@ export async function dbRecordUsage(
   `;
 }
 
-export async function dbGetUsageCount(scopeId: string, day: string): Promise<number> {
+/**
+ * Usage events recorded today, optionally restricted to particular kinds.
+ *
+ * The `kind` filter matters for correctness, not just tidiness: a clinic that
+ * both transcribes and generates records two events per appointment, so counting
+ * every kind against a note allowance makes half the appointments look used up.
+ * Counting by kind groups in one query, so no driver-specific array handling is
+ * relied on and it stays a single round trip.
+ */
+export async function dbGetUsageCount(
+  scopeId: string,
+  day: string,
+  kinds?: readonly string[]
+): Promise<number> {
   if (!sql) return 0;
   const rows = (await sql`
-    SELECT COUNT(*)::int AS count FROM usage_events WHERE scope_id = ${scopeId} AND day = ${day}
+    SELECT kind, COUNT(*)::int AS count FROM usage_events
+    WHERE scope_id = ${scopeId} AND day = ${day}
+    GROUP BY kind
   `) as any[];
-  return rows[0]?.count ?? 0;
+  if (!kinds || kinds.length === 0) {
+    return rows.reduce((total, row) => total + (Number(row.count) || 0), 0);
+  }
+  const wanted = new Set(kinds.map((kind) => String(kind)));
+  return rows.reduce(
+    (total, row) => (wanted.has(String(row.kind)) ? total + (Number(row.count) || 0) : total),
+    0
+  );
 }
 
 /** Tokens consumed today for a scope — the cost ceiling, not just a note count. */

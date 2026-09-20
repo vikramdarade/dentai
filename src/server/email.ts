@@ -232,27 +232,51 @@ export function receiptEmail(params: {
   gstAud?: number;
   customerAbn?: string;
 }): RenderedEmail {
-  const abn = params.abn || process.env.DENTAI_ABN || '';
-  const header = abn ? `TAX INVOICE / RECEIPT - DentAI (ABN: ${abn})` : 'TAX INVOICE / RECEIPT - DentAI';
+  const abn = (params.abn || process.env.DENTAI_ABN || '').trim();
 
-  const gst = params.gstAud !== undefined ? params.gstAud : +(params.amountAud / 11).toFixed(2);
-  const subtotal = +(params.amountAud - gst).toFixed(2);
+  /*
+   * The GST figure is whatever Stripe charged, passed in by the caller from
+   * `total_tax` — it is never derived from the total.
+   *
+   * A document labelled TAX INVOICE must state the GST actually charged and the
+   * supplier's ABN (A New Tax System (GST) Act 1999, s29-70). If either is
+   * missing we cannot honestly issue one, so the same payment goes out as a
+   * plain receipt instead. Guessing 10% would put a tax figure on a document
+   * that may never have been collected — and if the practice is not GST
+   * registered, it would also overstate their credit.
+   */
+  const gst =
+    typeof params.gstAud === 'number' && Number.isFinite(params.gstAud) ? params.gstAud : null;
+  const isTaxInvoice = Boolean(abn) && gst !== null;
+  const subtotal = gst === null ? null : +(params.amountAud - gst).toFixed(2);
+
+  const header = isTaxInvoice
+    ? `TAX INVOICE / RECEIPT - DentAI (ABN: ${abn})`
+    : 'PAYMENT RECEIPT - DentAI';
 
   const paragraphs = [
     header,
     `Customer: ${params.practiceName}`,
     ...(params.customerAbn ? [`Customer ABN: ${params.customerAbn}`] : []),
     `Subscription: ${params.planName} Plan (current period ends ${params.periodEnd})`,
-    `Subtotal (ex GST): A$${subtotal.toFixed(2)} AUD`,
-    `GST (10%): A$${gst.toFixed(2)} AUD`,
-    `Total Paid (inc GST): A$${params.amountAud.toFixed(2)} AUD`,
-    'This tax invoice / receipt confirms your monthly subscription payment. You can view past payments or download PDF tax invoices anytime via the practice billing portal.',
+    ...(isTaxInvoice && subtotal !== null && gst !== null
+      ? [
+          `Subtotal (ex GST): A$${subtotal.toFixed(2)} AUD`,
+          `GST: A$${gst.toFixed(2)} AUD`,
+          `Total Paid (inc GST): A$${params.amountAud.toFixed(2)} AUD`,
+        ]
+      : [`Total Paid: A$${params.amountAud.toFixed(2)} AUD`]),
+    isTaxInvoice
+      ? 'This tax invoice / receipt confirms your monthly subscription payment. You can view past payments or download PDF tax invoices anytime via the practice billing portal.'
+      : 'This receipt confirms your monthly subscription payment. You can view past payments or download PDF invoices anytime via the practice billing portal.',
   ];
+
+  const title = isTaxInvoice ? 'Tax Invoice / Receipt' : 'Payment Receipt';
   return {
-    subject: `Tax Invoice / Receipt - DentAI ${params.planName} for ${params.practiceName}`,
-    text: paragraphs.join('\n\n') + (params.invoiceUrl ? `\n\nTax Invoice: ${params.invoiceUrl}` : ''),
-    html: layout('Tax Invoice / Receipt', paragraphs, params.invoiceUrl
-      ? { label: 'View Tax Invoice in Stripe', url: params.invoiceUrl }
+    subject: `${title} - DentAI ${params.planName} for ${params.practiceName}`,
+    text: paragraphs.join('\n\n') + (params.invoiceUrl ? `\n\nInvoice: ${params.invoiceUrl}` : ''),
+    html: layout(title, paragraphs, params.invoiceUrl
+      ? { label: 'View Invoice in Stripe', url: params.invoiceUrl }
       : undefined),
   };
 }
