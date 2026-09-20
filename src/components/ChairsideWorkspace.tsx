@@ -1724,7 +1724,7 @@ export default function ChairsideWorkspace({
 
           if (res.ok) {
             const jobData = await res.json();
-            const deadline = Date.now() + 20_000;
+            const deadline = Date.now() + 85_000;
             while (Date.now() < deadline) {
               await new Promise(r => setTimeout(r, 1500));
               const pollRes = await fetch(`/api/notes/jobs/${jobData.jobId}`, {
@@ -1734,6 +1734,10 @@ export default function ChairsideWorkspace({
                 const jobState = await pollRes.json();
                 if (jobState.status === 'done') {
                   payload = jobState.result;
+                  break;
+                }
+                if (jobState.status === 'failed') {
+                  console.warn('Note job generation failed on server:', jobState.error);
                   break;
                 }
               }
@@ -1777,6 +1781,7 @@ export default function ChairsideWorkspace({
         adaCodes: payload?.adaCodes?.length ? payload.adaCodes : targetConsult.findings?.adaCodes || []
       };
 
+      const isHostedNote = Boolean(payload && payload.groundingReport);
       const finalizedConsultation: Consultation = {
         ...targetConsult,
         transcript: finalTranscript,
@@ -1787,7 +1792,16 @@ export default function ChairsideWorkspace({
         },
         status: 'Completed',
         patientSummary: payload?.patientSummary || targetConsult.patientSummary || '',
-        findings: updatedFindings
+        findings: updatedFindings,
+        specialistReferral: payload?.specialistReferral || targetConsult.specialistReferral,
+        patientConsent: payload?.patientConsent || targetConsult.patientConsent,
+        treatmentQuote: payload?.treatmentQuote || targetConsult.treatmentQuote,
+        noteOrigin: {
+          engine: isHostedNote ? 'gemini' : 'offline-draft',
+          needsReview: isHostedNote ? !payload?.groundingReport?.isFullyGrounded : true,
+          detail: payload?.groundingReport?.summary || (isHostedNote ? undefined : 'Generated via offline draft engine.')
+        },
+        grounding: payload?.groundingReport
       };
 
       if (onSaveConsultation) {
