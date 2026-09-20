@@ -4548,29 +4548,39 @@ app.post('/api/generate-notes', authenticateToken, async (req: express.Request, 
  * and returns a ready-to-record day roster.
  * =========================================================================== */
 
-const SCHEDULE_PARSE_PROMPT = `You are an elite dental practice management assistant specialized in Australian dental software (Dental4Windows / D4W, Praktika, Exact, Dental Master).
-Analyze this daily appointment book schedule screenshot.
+const SCHEDULE_PARSE_PROMPT = `You are an elite dental practice management assistant specialized in Australian dental software (Dental4Windows / D4W, Exact, Praktika, Dental Master, Oasis).
+Analyze this daily appointment book schedule screenshot (such as a D4W column or Exact day view).
 Extract all scheduled patient appointments in chronological order.
 
 MANDATORY RULES:
-1. Extract patient full names. Normalize names from "Last, First" or "LAST FIRST" to natural "First Last" format (e.g. "SMITH, SARAH" -> "Sarah Smith", "O'Connor, Liam" -> "Liam O'Connor").
-2. Extract the appointment start time in 24-hour "HH:MM" format (e.g. "08:30", "09:15", "14:00").
-3. Extract the procedure description/notes (e.g. "Check & Clean", "Comp Exam", "Prep #16 Crown", "Toothache / Emergency", "Filling #24").
-4. Map the procedure description to the most appropriate DentAI appointmentType value from this exact set:
-   - "examination" (Check-up, comprehensive exam, periodic exam, consult)
-   - "scale_clean" (Hygiene, scale and clean, prophy, periodontal debridement)
-   - "emergency" (Toothache, trauma, broken tooth, emergency pain relief, swelling)
-   - "restorative" (Fillings, composite, amalgam, restoration)
-   - "endodontic" (Root canal treatment, RCT, extirpation, pulp capping)
-   - "surgical" (Extraction, surgical removal, suture removal)
-   - "prosthodontic" (Crown, bridge, veneer, denture, impression, insert)
-   - "paediatric" (Child exam, fissure sealants, CDBS)
-5. Assign a default templateId:
+1. Extract patient full names. 
+   - Strip leading honorific titles like "Master", "Mrs", "Miss", "Ms", "Mr", "Dr" (e.g. "Master Tran, Justin" -> "Justin Tran", "Mrs Pugh, Lorraine" -> "Lorraine Pugh", "Ms Wolswinkel, Elke (Elke)" -> "Elke Wolswinkel").
+   - Normalize names from "Last, First" or "LAST FIRST" to natural "First Last" format (e.g. "Tran, Justin" -> "Justin Tran", "Perrett, Ryder" -> "Ryder Perrett", "Tannen, Raphael (Raph)" -> "Raphael Tannen").
+   - Remove trailing bracketed nicknames if redundant.
+2. Extract the appointment start time in 24-hour "HH:MM" format (e.g. "08:30", "09:40", "11:30", "13:00", "14:15", "16:00") based on slot position or timestamps.
+3. Extract DOB (Date of Birth) if present in notes or card in DD/MM/YYYY format, or empty string "" if not visible. NEVER invent a DOB.
+4. Extract the procedure description/notes:
+   - "26 + 18 exo" -> "Extraction of tooth #26 & #18"
+   - "Check up and clean" -> "Comprehensive Examination & Hygiene Clean"
+   - "Fillings" -> "Restorative Composite Fillings"
+   - "CDBS" -> "Child Dental Benefits Schedule (CDBS) Dental Care"
+   - "Stage 2" -> "Stage 2 Prosthodontic Treatment"
+   - "s/c | SS" -> "Scale & Clean / Hygiene Debridement"
+5. Map the procedure description to the most appropriate DentAI appointmentType:
+   - "surgical" (Extractions, exo, surgical removal, wisdom teeth)
+   - "scale_clean" (Hygiene, scale and clean, s/c, prophy, debridement)
+   - "restorative" (Fillings, composite, resin, amalgam)
+   - "paediatric" (CDBS, child exam, young patient check)
+   - "examination" (Check up, comprehensive exam, periodic review, consult)
+   - "emergency" (Toothache, trauma, broken tooth, emergency pain)
+   - "endodontic" (Root canal, RCT, extirpation)
+   - "prosthodontic" (Crown, bridge, stage 2, veneer, denture, insert)
+6. Assign templateId:
    - "concise" for scale_clean or simple examinations
-   - "soap" for emergency / pain visits
+   - "soap" for emergency visits
    - "standard" for all other procedures
-6. Ignore empty slots, lunch breaks, staff meetings, lab collection notes, or blank rows.
-7. Return ONLY a single JSON object matching:
+7. Ignore lunch breaks, empty slots, HealthEngine open slots, or blank rows.
+8. Return ONLY a single JSON object matching:
 {
   "provider": "Dr. Name if visible, or empty string",
   "date": "YYYY-MM-DD or today's date",
@@ -4578,6 +4588,7 @@ MANDATORY RULES:
     {
       "time": "HH:MM",
       "patientName": "First Last",
+      "dob": "DD/MM/YYYY or empty string",
       "procedureText": "Reason / procedure description",
       "appointmentType": "examination" | "scale_clean" | "emergency" | "restorative" | "endodontic" | "surgical" | "prosthodontic" | "paediatric",
       "templateId": "standard" | "concise" | "soap"
@@ -4606,12 +4617,13 @@ app.post('/api/schedule/parse-image', authenticateToken, async (req: any, res) =
 
     // Fallback appointments for offline/preview resilience
     const fallbackAppointments = [
-      { time: '09:00', patientName: 'Sarah Jenkins', procedureText: 'Comprehensive Exam & Bitewings', appointmentType: 'examination', templateId: 'standard' },
-      { time: '09:45', patientName: 'David Miller', procedureText: 'Tooth #16 Ceramic Crown Prep', appointmentType: 'prosthodontic', templateId: 'standard' },
-      { time: '10:45', patientName: 'Liam O\'Connor', procedureText: 'Emergency: Severe Lower Molar Toothache', appointmentType: 'emergency', templateId: 'soap' },
-      { time: '11:30', patientName: 'Emma Watson', procedureText: 'Adult Hygiene Scale & Prophylaxis', appointmentType: 'scale_clean', templateId: 'concise' },
-      { time: '13:30', patientName: 'Michael Chang', procedureText: 'Tooth #24 MO Resin Composite', appointmentType: 'restorative', templateId: 'standard' },
-      { time: '14:15', patientName: 'Chloe Bennett', procedureText: 'Periodic Check & Fluoride', appointmentType: 'examination', templateId: 'standard' }
+      { time: '09:00', patientName: 'Justin Tran', dob: '', procedureText: 'CDBS Paediatric Examination & Clean', appointmentType: 'paediatric', templateId: 'standard' },
+      { time: '09:40', patientName: 'Ryan Tran', dob: '', procedureText: 'CDBS Paediatric Examination & Clean', appointmentType: 'paediatric', templateId: 'standard' },
+      { time: '11:30', patientName: 'Lorraine Pugh', dob: '', procedureText: 'Stage 2 Prosthodontic Prep', appointmentType: 'prosthodontic', templateId: 'standard' },
+      { time: '13:00', patientName: 'Silvia Gallardo', dob: '', procedureText: 'Hygiene Scale & Prophylaxis', appointmentType: 'scale_clean', templateId: 'concise' },
+      { time: '14:00', patientName: 'Elke Wolswinkel', dob: '', procedureText: 'Surgical Extraction Tooth #26 & #18', appointmentType: 'surgical', templateId: 'standard' },
+      { time: '15:00', patientName: 'Raphael Tannen', dob: '', procedureText: 'Comprehensive Check-up and Clean', appointmentType: 'examination', templateId: 'standard' },
+      { time: '15:40', patientName: 'Harrid Chhoeum', dob: '', procedureText: 'CDBS Restorative Composite Fillings', appointmentType: 'restorative', templateId: 'standard' }
     ];
 
     if (!apiKey || apiKey === 'MY_GEMINI_API_KEY') {
@@ -4665,6 +4677,7 @@ app.post('/api/schedule/parse-image', authenticateToken, async (req: any, res) =
       const cleanAppointments = rawList.map((app: any) => ({
         time: String(app.time || '09:00').trim(),
         patientName: String(app.patientName || 'Unknown Patient').trim(),
+        dob: String(app.dob || '').trim(),
         procedureText: String(app.procedureText || 'Dental Consultation').trim(),
         appointmentType: isValidAppointmentType(app.appointmentType) ? app.appointmentType : 'examination',
         templateId: ['standard', 'concise', 'soap'].includes(app.templateId) ? app.templateId : 'standard'
