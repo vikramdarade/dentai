@@ -101,20 +101,43 @@ NON-NEGOTIABLE RULES:
 
 1. VERBATIM ONLY. Write what was actually said, in the words that were said. Never summarise, never paraphrase, never complete a sentence the speaker abandoned, never add a line to make the conversation read better.
 
-2. NO INVENTED CONTENT. If a passage is unintelligible, leave it out. Never guess a word, a tooth number, a material, a drug or a measurement. An omission the dentist can see is recoverable; an invented tooth number in a clinical record is not.
+2. NO INVENTED CONTENT. If a passage is unintelligible, leave it out. Never guess a word, a tooth number, a material, a drug or a measurement. Never insert unprompted clinical findings on silence or noise. An omission the dentist can see is recoverable; an invented tooth number in a clinical record is not.
 
-3. SPEAKER ATTRIBUTION BY ROLE, FROM CONTENT. Label each line "Dentist" or "Patient" using what is being said, not the order of voices:
+3. PHONETIC ACCURACY & ANTI-SUBSTITUTION:
+   - NEVER substitute dental clinical terms with everyday phonetic homophones:
+     * Write "buccal", NEVER "buckle"
+     * Write "mesial", NEVER "measles"
+     * Write "distal", NEVER "disturbed" or "distant"
+     * Write "caries", NEVER "carries" or "carry"
+     * Write "furcation", NEVER "vacation"
+     * Write "lingual", NEVER "language"
+     * Write "palatal", NEVER "palette" or "palate"
+     * Write "periapical", NEVER "periodic"
+   - In operatory acoustics (mask muffling, background suction), if a spoken word sounds like a phonetic mismatch for conversational English, resolve towards the clinical dental term rather than everyday colloquialisms.
+
+4. PRESERVE NUMBERS & PERIODONTAL PROBING SEQUENCES:
+   - Dentists dictate tooth numbers and periodontal pocket depths sequentially. Keep numbers exact and distinct.
+   - For pocket depth sequences (e.g. "three two three", "four three four"), write as separate numbers ("3, 2, 3"), NEVER group into large numbers (e.g. NOT "323") or calendar dates.
+   - Preserve FDI two-digit tooth notation (11-48, 51-85) and Universal notation (1-32) exactly as spoken. Do not convert "one six" to "sixteen".
+
+5. DENTAL LEXICON REFERENCE:
+   - Surfaces: Mesial, Distal, Occlusal, Incisal, Buccal, Lingual, Palatal, Facial, Cervical.
+   - Restorative/Prosthetic: Composite, Glass Ionomer (GIC), Amalgam, Crown, Margin, Veneer, Inlay, Onlay, Abutment, Pontic, Etch, Bond.
+   - Periodontal: Pocket depth, Bleeding on probing (BOP), Furcation, Recession, Gingivitis, CEJ, Suppuration, Calculus, Mobility.
+   - Endodontic: Canal, Pulp, Vitality (cold, EPT), Percussion, Palpation, Working length, Gutta-percha, Sodium hypochlorite, EDTA, Sealer.
+
+6. SPEAKER ATTRIBUTION BY ROLE, FROM CONTENT. Label each line "Dentist" or "Patient" using what is being said, not the order of voices:
    - "Dentist": clinical findings and observations, tooth numbers, tests (percussion, cold, EPT), materials and instruments, diagnoses, treatment being performed, clinical instructions to the assistant.
    - "Patient": symptoms and where they are, how long they have been there, history, past treatment, medications, feelings, questions, consent and preferences.
    This distinction matters because the clinical note separates patient-reported information (chief complaint, history) from clinician-observed findings (tooth findings, diagnosis). Getting it wrong moves a patient's own words into the clinician's findings.
 
-4. USE "Dialogue" WHEN IT IS GENUINELY UNCLEAR who spoke, or when several people speak over each other. Do not guess a role to avoid using "Dialogue" — an honest "Dialogue" is reviewed, a wrong "Patient" is not.
+7. USE "Dialogue" WHEN IT IS GENUINELY UNCLEAR who spoke, or when several people speak over each other. Do not guess a role to avoid using "Dialogue" — an honest "Dialogue" is reviewed, a wrong "Patient" is not.
 
-5. PRESERVE CLINICAL SPECIFICS EXACTLY as spoken: FDI two-digit tooth notation (11-48, 51-85), quadrants, surfaces (mesial, distal, buccal, lingual, occlusal, palatal), measurements in millimetres, drug names and doses, and Australian dental item terminology. Do not convert, round or "correct" them. Do not convert FDI numbers to another notation.
+8. PRESERVE CLINICAL SPECIFICS EXACTLY as spoken: FDI two-digit tooth notation (11-48, 51-85), quadrants, surfaces (mesial, distal, buccal, lingual, occlusal, palatal), measurements in millimetres, drug names and doses, and Australian dental item terminology. Do not convert, round or "correct" them. Do not convert FDI numbers to another notation.
 
-6. ONE UTTERANCE PER LINE, in the order spoken. Split where the speaker changes or a new thought begins. Keep each line short enough to read.
+9. ONE UTTERANCE PER LINE, in the order spoken. Split where the speaker changes or a new thought begins. Keep each line short enough to read.
 
-7. Output JSON only, matching the requested schema. No commentary, no preamble, no translation.`;
+10. Output JSON only, matching the requested schema. No commentary, no preamble, no translation.`;
 
 export const TRANSCRIPTION_SCHEMA = {
   type: Type.OBJECT,

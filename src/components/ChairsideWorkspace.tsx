@@ -753,6 +753,7 @@ export default function ChairsideWorkspace({
   // Web Audio Nodes & direct DOM ref array for 60fps zero-render visualizer
   const analyserRef = useRef<AnalyserNode | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const filteredStreamRef = useRef<MediaStream | null>(null);
   const animFrameRef = useRef<number | null>(null);
   const recognitionRef = useRef<any>(null);
   const waveformRefs = useRef<(HTMLDivElement | null)[]>([]);
@@ -784,7 +785,16 @@ export default function ChairsideWorkspace({
         }
 
         if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-          const stream = await navigator.mediaDevices.getUserMedia({ audio: true }).catch(() => null);
+          const audioConstraints: MediaStreamConstraints = {
+            audio: {
+              echoCancellation: true, // Prevents app chimes (playMedicalChime) from feeding back into mic
+              noiseSuppression: false, // Prevents Chrome's aggressive gate from clipping masked speech consonants
+              autoGainControl: true,   // Far-field 4-5ft preamp normalization
+              sampleRate: 48000
+            }
+          };
+          const stream = await navigator.mediaDevices.getUserMedia(audioConstraints)
+            .catch(() => navigator.mediaDevices.getUserMedia({ audio: true }).catch(() => null));
           if (stream && !isCancelled) {
             streamRef.current = stream;
             if (audioContextRef.current) {
@@ -810,17 +820,23 @@ export default function ChairsideWorkspace({
               drillNotch.frequency.value = 4200;
               drillNotch.Q.value = 3.5;
 
+              // Route filtered audio to destination for genuine MediaRecorder ingestion
+              const filteredDestination = ctx.createMediaStreamDestination();
+
               if (dspNoiseGateActive) {
                 // Route through full acoustic operatory chain
                 source.connect(highpass);
                 highpass.connect(lowpass);
                 lowpass.connect(drillNotch);
                 drillNotch.connect(analyser);
+                drillNotch.connect(filteredDestination);
               } else {
                 // Direct bypass mode
                 source.connect(analyser);
+                source.connect(filteredDestination);
               }
               analyserRef.current = analyser;
+              filteredStreamRef.current = filteredDestination.stream;
 
               const dataArray = new Uint8Array(analyser.frequencyBinCount);
               const updateVisualizer = () => {
@@ -901,18 +917,28 @@ export default function ChairsideWorkspace({
 
     const start = async () => {
       // Reuse the stream the visualiser already opened rather than opening a
-      // second capture on the same microphone. The visualiser effect is declared
-      // first but is asynchronous, so its stream is usually a tick or two away —
-      // hence the short wait rather than a second getUserMedia call.
-      let stream = streamRef.current;
+      // second capture on the same microphone. If the DSP filter is active,
+      // record the filtered destination stream rather than raw microphone input.
+      let stream = (dspNoiseGateActive && filteredStreamRef.current)
+        ? filteredStreamRef.current
+        : streamRef.current;
       for (let attempt = 0; !stream && attempt < 20; attempt += 1) {
         await new Promise((resolve) => setTimeout(resolve, 100));
         if (cancelled) return;
-        stream = streamRef.current;
+        stream = (dspNoiseGateActive && filteredStreamRef.current)
+          ? filteredStreamRef.current
+          : streamRef.current;
       }
       if (!stream) {
         try {
-          stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              echoCancellation: true,
+              noiseSuppression: false,
+              autoGainControl: true,
+              sampleRate: 48000
+            }
+          }).catch(() => navigator.mediaDevices.getUserMedia({ audio: true }));
         } catch {
           return;
         }
