@@ -34,7 +34,12 @@ import { GENESIS_HASH, auditEntryHash } from './auditChain';
 
 type Sql = ReturnType<typeof neon>;
 
-const connectionString = process.env.DATABASE_URL || '';
+// Unit tests run against the isolated JSON/memory fallback store — never against
+// a live database in .env.local. Only dedicated postgres tests use DENTAI_TEST_DATABASE_URL.
+const connectionString =
+  process.env.NODE_ENV === 'test'
+    ? (process.env.DENTAI_TEST_DATABASE_URL || '')
+    : (process.env.DATABASE_URL || '');
 export const dbEnabled = !!connectionString;
 
 export let sql: Sql | null = null;

@@ -87,7 +87,7 @@ export interface PatientEncounter {
   alerts?: { type: 'allergy' | 'medication' | 'general'; text: string }[];
   diarizedTranscript?: {
     speaker?: string;
-    role?: 'dentist' | 'assistant' | 'patient';
+    role?: 'dentist' | 'assistant' | 'patient' | 'dialogue';
     time?: string;
     text: string;
   }[];
@@ -272,14 +272,26 @@ export default function ChairsideWorkspace({
       }
 
       const diarizedTranscript = combinedItems.map((t) => {
-        const role = t.sender.toLowerCase().includes('patient')
+        const senderLower = (t.sender || '').toLowerCase();
+        const role = senderLower.includes('patient')
           ? ('patient' as const)
-          : t.sender.toLowerCase().includes('assistant') || t.sender.toLowerCase().includes('comment')
+          : senderLower.includes('assistant') || senderLower.includes('comment')
             ? ('assistant' as const)
-            : ('dentist' as const);
+            : senderLower.includes('dentist') || senderLower.includes('clinician')
+              ? ('dentist' as const)
+              : ('dialogue' as const);
+
+        const speaker =
+          role === 'patient'
+            ? `${fullName} (Patient)`
+            : role === 'assistant'
+              ? 'Dental Assistant'
+              : role === 'dentist'
+                ? (dentistName || 'Dentist')
+                : 'Dialogue';
 
         return {
-          speaker: role === 'patient' ? `${fullName} (Patient)` : role === 'assistant' ? 'Mia Lawson, RDA' : (dentistName || 'Attending Clinician'),
+          speaker,
           role,
           time: (t as any).time || (c.time || formatClinicTime(new Date())),
           text: t.text
@@ -2685,19 +2697,41 @@ ${clinician}`;
                     {/* Dialogue Stream */}
                     <div className="space-y-2.5 text-xs leading-relaxed max-h-[420px] overflow-y-auto custom-scrollbar pr-1">
                       {activeEncounter.diarizedTranscript && activeEncounter.diarizedTranscript.length > 0 ? (
-                        activeEncounter.diarizedTranscript.map((t, idx) => (
-                          <div key={idx} className="space-y-0.5">
-                            {t.speaker && (
-                              <div className="flex items-center justify-between text-[10px] text-slate-400 font-semibold">
-                                <span>{t.speaker}</span>
-                                {t.time && <span className="font-mono">{t.time}</span>}
+                        activeEncounter.diarizedTranscript.map((t, idx) => {
+                          const isDentist = t.role === 'dentist';
+                          const isPatient = t.role === 'patient';
+                          const isAssistant = t.role === 'assistant';
+
+                          return (
+                            <div key={idx} className="space-y-0.5">
+                              {t.speaker && (
+                                <div className="flex items-center justify-between text-[10px] font-semibold">
+                                  <span className={
+                                    isDentist
+                                      ? 'text-sky-700 font-bold'
+                                      : isPatient
+                                        ? 'text-emerald-700 font-bold'
+                                        : isAssistant
+                                          ? 'text-indigo-700 font-bold'
+                                          : 'text-slate-500 font-medium'
+                                  }>
+                                    {t.speaker}
+                                  </span>
+                                  {t.time && <span className="text-slate-400 font-mono">{t.time}</span>}
+                                </div>
+                              )}
+                              <div className={`p-2.5 rounded-xl border text-xs ${
+                                isDentist
+                                  ? 'bg-sky-50/40 text-slate-800 border-sky-200/70'
+                                  : isPatient
+                                    ? 'bg-emerald-50/40 text-slate-800 border-emerald-200/70'
+                                    : 'bg-slate-50 text-slate-800 border-slate-200/70'
+                              }`}>
+                                {renderAnnotatedText(t.text)}
                               </div>
-                            )}
-                            <div className="p-2.5 rounded-xl bg-slate-50 text-slate-800 border border-slate-200/70 text-xs">
-                              {renderAnnotatedText(t.text)}
                             </div>
-                          </div>
-                        ))
+                          );
+                        })
                       ) : (
                         <div className="text-center py-10 text-slate-400">
                           <Mic className="w-7 h-7 mx-auto mb-1 text-slate-300" />
