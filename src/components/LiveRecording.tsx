@@ -116,6 +116,7 @@ export default function LiveRecording({
   const [recognitionError, setRecognitionError] = useState<string | null>(null);
 
   const recognitionRef = useRef<any>(null);
+  const lastInterimRef = useRef<string>('');
 
   // ── Recorded-audio transcription ──────────────────────────────────────────
   // The phone beacon uploads the real audio; this screen is where the chair id
@@ -339,6 +340,14 @@ export default function LiveRecording({
       rec.onend = () => {
         setIsListening(false);
         stopAudioPipeline();
+        // Never discard pending spoken speech if the recognizer disconnected on a pause
+        const pending = (lastInterimRef.current || '').trim();
+        if (pending) {
+          setTranscript((prev) => [...prev, { sender: 'Dialogue', text: pending }]);
+          setItemTimes((prev) => [...prev, secondsRef.current]);
+          lastInterimRef.current = '';
+        }
+        setInterimTranscript('');
         // The Web Speech API ends recognition sessions on its own (silence or length
         // limits). Auto-restart while the session is still recording, unless the user
         // explicitly stopped the microphone or the mic keeps dying immediately.
@@ -359,7 +368,7 @@ export default function LiveRecording({
               } catch (e) {
                 console.warn('Failed to auto-restart speech recognition:', e);
               }
-            }, 250);
+            }, 50);
           }
         }
       };
@@ -369,6 +378,7 @@ export default function LiveRecording({
         for (let i = event.resultIndex; i < event.results.length; ++i) {
           const result = event.results[i];
           if (result.isFinal) {
+            lastInterimRef.current = '';
             const rawText = result[0].transcript.trim();
             const text = normalizeSpokenDentalText(rawText);
             if (text) {
@@ -379,7 +389,9 @@ export default function LiveRecording({
             interim += result[0].transcript;
           }
         }
-        setInterimTranscript(normalizeSpokenDentalText(interim));
+        const normInterim = normalizeSpokenDentalText(interim);
+        lastInterimRef.current = normInterim;
+        setInterimTranscript(normInterim);
       };
 
       recognitionRef.current = rec;

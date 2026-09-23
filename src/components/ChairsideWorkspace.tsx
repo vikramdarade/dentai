@@ -768,6 +768,7 @@ export default function ChairsideWorkspace({
   const filteredStreamRef = useRef<MediaStream | null>(null);
   const animFrameRef = useRef<number | null>(null);
   const recognitionRef = useRef<any>(null);
+  const lastInterimRef = useRef<string>('');
   const waveformRefs = useRef<(HTMLDivElement | null)[]>([]);
 
   // Auto-scroll ambient transcript stream to bottom on new utterance or interim speech
@@ -1097,9 +1098,21 @@ export default function ChairsideWorkspace({
 
       recognition.onend = () => {
         setMicListening(false);
+        // Never discard pending spoken speech if the recognizer disconnected on a pause
+        const pending = (lastInterimRef.current || '').trim();
+        if (pending && activeEncounterRef.current) {
+          const isNoise =
+            /^(sh+|ah+|um+|zz+|ss+|hh+|ff+|th+)(\s+(sh+|ah+|um+|zz+|ss+|hh+|ff+|th+))*$/i.test(pending) ||
+            /^[^a-zA-Z0-9]+$/.test(pending);
+          if (!isNoise) {
+            handleAppendTranscriptText(pending, 'Dialogue');
+          }
+          lastInterimRef.current = '';
+        }
         setInterimTranscript('');
+
         // Web Speech API ends sessions automatically on silence or timeout.
-        // Auto-restart while active:
+        // Fast auto-restart while active (50ms gap to eliminate dead listening windows):
         if (isRecordingRef.current && !isPausedRef.current && !isMicStandbyRef.current && activeEncounterRef.current) {
           setTimeout(() => {
             try {
@@ -1107,7 +1120,7 @@ export default function ChairsideWorkspace({
                 recognition.start();
               }
             } catch { }
-          }, 350);
+          }, 50);
         }
       };
 
@@ -1126,18 +1139,12 @@ export default function ChairsideWorkspace({
 
         const trimmedFinal = final.trim();
         if (trimmedFinal && activeEncounterRef.current) {
+          lastInterimRef.current = '';
           const isMechanicalNoise =
             /^(sh+|ah+|um+|zz+|ss+|hh+|ff+|th+)(\s+(sh+|ah+|um+|zz+|ss+|hh+|ff+|th+))*$/i.test(trimmedFinal) ||
             /^[^a-zA-Z0-9]+$/.test(trimmedFinal);
 
           if (!isMechanicalNoise) {
-            // 'Dialogue', not 'Dentist'. The Web Speech API does not diarize: it
-            // returns one undifferentiated stream, so every live utterance was
-            // being recorded as clinician speech. That asserted a role the
-            // microphone never established, and it pushed the patient's own
-            // words into the clinician-observed sections of the note (while
-            // leaving nothing to fill the patient-reported ones). The recorded
-            // audio is transcribed separately and *does* carry roles.
             handleAppendTranscriptText(trimmedFinal, 'Dialogue');
           }
           setInterimTranscript('');
@@ -1151,6 +1158,7 @@ export default function ChairsideWorkspace({
           }
 
           const normInterim = normalizeSpokenDentalText(interim.trim());
+          lastInterimRef.current = normInterim;
           setInterimTranscript(normInterim);
 
           // Squelch lingering interim: auto-commit if speaker pauses for >1.5s
@@ -1162,6 +1170,7 @@ export default function ChairsideWorkspace({
               if (norm && !isNoise) {
                 handleAppendTranscriptText(norm, 'Dialogue');
               }
+              lastInterimRef.current = '';
               setInterimTranscript('');
             }
           }, 1500);
@@ -1615,7 +1624,7 @@ export default function ChairsideWorkspace({
 
     const newConsultation: Consultation = {
       id: `walkin-${Date.now()}`,
-      dentistId: currentUser?.id || 'dentist-01',
+      dentistId: currentUser?.id || '',
       clinicId: activeClinicId || undefined,
       firstName,
       lastName,
