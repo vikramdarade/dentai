@@ -95,6 +95,10 @@ export function verifyRogersConsent(
   const isInvasive = /\b(surgical|extract|extraction|exo|implant|wisdom|bone removal|root canal|biopsy)\b/i.test(procString);
   const requiresWrittenConsent = /\b(surgical|wisdom|bone removal|implant)\b/i.test(procString);
 
+  // Helper functions supporting both diarized roles and Rule 15 un-diarized 'Dialogue' audio
+  const isClinician = (sender?: string) => !sender || sender === 'Dentist' || sender === 'Dialogue';
+  const isPatient = (sender?: string) => !sender || sender === 'Patient' || sender === 'Dialogue';
+
   // 2. Scan Material Risks discussed in audio
   const materialRisksDiscussed: RogersRiskDiscussion[] = [];
 
@@ -106,14 +110,14 @@ export function verifyRogersConsent(
 
     for (let i = 0; i < utterances.length; i++) {
       const u = utterances[i];
-      if (u.sender === 'Dentist' && riskDef.clinicianRegex.test(u.text)) {
+      if (isClinician(u.sender) && riskDef.clinicianRegex.test(u.text)) {
         explainedByClinician = true;
         clinicianUtterance = u;
 
         // Check if patient responded with acknowledgment within the next 3 utterances
         for (let j = i + 1; j < Math.min(utterances.length, i + 4); j++) {
           const nextU = utterances[j];
-          if (nextU.sender === 'Patient' && PATIENT_ACCEPTANCE_REGEX.test(nextU.text)) {
+          if (isPatient(nextU.sender) && PATIENT_ACCEPTANCE_REGEX.test(nextU.text)) {
             acknowledgedByPatient = true;
             patientUtterance = nextU;
             break;
@@ -138,7 +142,7 @@ export function verifyRogersConsent(
   const alternativesDiscussed: RogersConsentVerification['alternativesDiscussed'] = [];
   let altUtterance: TimestampedUtterance | undefined;
   for (const u of utterances) {
-    if (u.sender === 'Dentist' && ALTERNATIVE_REGEX.test(u.text)) {
+    if (isClinician(u.sender) && ALTERNATIVE_REGEX.test(u.text)) {
       altUtterance = u;
       alternativesDiscussed.push({
         alternative: u.text,
@@ -149,11 +153,11 @@ export function verifyRogersConsent(
     }
   }
 
-  const costDiscussed = utterances.some(u => u.sender === 'Dentist' && COST_REGEX.test(u.text));
+  const costDiscussed = utterances.some(u => isClinician(u.sender) && COST_REGEX.test(u.text));
 
   // 4. Scan Patient Agreement
   const patientAgreementGrounded = utterances.some(
-    u => u.sender === 'Patient' && PATIENT_ACCEPTANCE_REGEX.test(u.text)
+    u => isPatient(u.sender) && PATIENT_ACCEPTANCE_REGEX.test(u.text)
   );
 
   // 5. Detect Boilerplate Fabrication (Rule 12)

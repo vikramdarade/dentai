@@ -1520,7 +1520,7 @@ export default function ChairsideWorkspace({
 
       const newConsultation: Consultation = {
         id: consultId,
-        dentistId: currentUser?.id || 'dentist-01',
+        dentistId: currentUser?.id || '',
         clinicId: activeClinicId || undefined,
         firstName,
         lastName,
@@ -1595,7 +1595,7 @@ export default function ChairsideWorkspace({
 
       const newConsultation: Consultation = {
         id: consultId,
-        dentistId: currentUser?.id || 'dentist-01',
+        dentistId: currentUser?.id || '',
         clinicId: activeClinicId || undefined,
         firstName,
         lastName,

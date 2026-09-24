@@ -39,7 +39,7 @@ const CLINICAL_TRIGGER_REGEX = /(?:#\d{1,2}|\b(tooth|teeth|fdi|pain|decay|caries
  * The entries are intentionally broad; each one only makes the filter more
  * conservative (it keeps more of the transcript).
  */
-const AFTERCARE_TRIGGER_REGEX = /\b(rinse|gauze|mouthwash|salt\s?water|smok|numbing|numbness|ice\s?pack|ice|pack|heal|rehabilitat|script|prescription|medication|antibiotic|analgesic|painkiller|panadeine|nurofen|soft diet|diet|food|eat|eating|drink|straw|follow[\s-]?up|review|recall|reception|appointment|aftercare|swallow|temperature|soreness|discomfort|pressure|nause|drowsy|dizzy|bleed|swollen|tender|avoid|exercise|lift|rest)\b/i;
+const AFTERCARE_TRIGGER_REGEX = /\b(rinse|gauze|mouthwash|salt\s?water|warm\s?saline|chlorhexidine|savacol|curasept|dry\s?socket|tea\s?bag|pressure\s?pack|hemostas|haemostas|smok|numbing|numbness|ice\s?pack|ice|pack|heal|rehabilitat|script|prescription|medication|antibiotic|analgesic|painkiller|panadeine|nurofen|soft diet|diet|food|eat|eating|drink|straw|follow[\s-]?up|review|recall|reception|appointment|aftercare|swallow|temperature|soreness|discomfort|pressure|nause|drowsy|dizzy|bleed|swollen|tender|avoid|exercise|lift|rest)\b/i;
 
 /**
  * Clinical Horizon Filter.

@@ -107,8 +107,8 @@ export function extractClinicalClaims(note: {
       const normSentence = normalizeText(sentence);
       if (!normSentence || normSentence.length < 5) continue;
 
-      // Extract Tooth Claims
-      const toothMatches = sentence.match(/\b(?:tooth\s+)?([1-8][1-8])\b/gi) || [];
+      // Extract Tooth Claims (excluding non-dental measurements)
+      const toothMatches = sentence.match(/\b(?:tooth\s+)?([1-8][1-8])(?!\s*(?:mg|ml|%|mins?|minutes?|sec|seconds?|hours?|years?|yo|yr|yrs|kg|mmhg|gauge))\b/gi) || [];
       for (const tMatch of toothMatches) {
         const numMatch = tMatch.match(/([1-8][1-8])/);
         if (numMatch && isValidFdiTooth(parseInt(numMatch[1], 10))) {

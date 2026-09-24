@@ -70,6 +70,7 @@ import {
   dbInsertDentist,
   dbDeleteDentist,
   dbListConsultations,
+  dbGetConsultationById,
   dbInsertConsultation,
   dbUpdateConsultation,
   dbAppendAudit,
@@ -3653,12 +3654,14 @@ app.patch('/api/pipeline/:id', authenticateToken, async (req: any, res) => {
     const fastConsultId = id.includes('-tx-') ? id.split('-tx-')[0] : null;
 
     if (dbEnabled) {
-      const userConsults = await dbListConsultations(req.dentist.id);
-      // Check candidate consultation directly if ID prefix is available, else fallback to full scan
-      const candidates = fastConsultId
-        ? userConsults.filter((c: any) => c.id === fastConsultId)
-        : userConsults;
-      const searchPool = candidates.length > 0 ? candidates : userConsults;
+      let searchPool: any[] = [];
+      if (fastConsultId) {
+        const direct = await dbGetConsultationById(fastConsultId, req.dentist.id);
+        if (direct) searchPool = [direct];
+      }
+      if (searchPool.length === 0) {
+        searchPool = await dbListConsultations(req.dentist.id);
+      }
 
       for (const c of searchPool) {
         const items = c.findings?.proposedTreatments || extractProposedTreatmentsFromFindings({
@@ -3701,10 +3704,14 @@ app.patch('/api/pipeline/:id', authenticateToken, async (req: any, res) => {
       }
     } else {
       const data = await readConsultationsDb();
-      const candidates = fastConsultId
-        ? data.consultations.filter((c: any) => c.id === fastConsultId)
-        : data.consultations;
-      const searchPool = candidates.length > 0 ? candidates : data.consultations;
+      let searchPool: any[] = [];
+      if (fastConsultId) {
+        const direct = data.consultations.find((c: any) => c.id === fastConsultId);
+        if (direct) searchPool = [direct];
+      }
+      if (searchPool.length === 0) {
+        searchPool = data.consultations;
+      }
 
       for (const c of searchPool) {
         const items = c.findings?.proposedTreatments || extractProposedTreatmentsFromFindings({

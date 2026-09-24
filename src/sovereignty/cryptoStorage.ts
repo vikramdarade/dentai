@@ -9,9 +9,15 @@
 import crypto from 'crypto';
 import { EncryptedPayloadEnvelope } from './types';
 
-// Deterministic fallback encryption key derived from environment or session secret
+// Deterministic encryption key derived from environment or session secret
 function resolveEncryptionKey(customKey?: string): Buffer {
-  const secret = customKey || process.env.SESSION_SECRET || process.env.ENCRYPTION_SECRET || 'dentai-sovereign-default-secret-key-32b';
+  const secret = customKey || process.env.SESSION_SECRET || process.env.ENCRYPTION_SECRET;
+  if (!secret) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('FATAL: Encryption secret (SESSION_SECRET or ENCRYPTION_SECRET) must be set in production.');
+    }
+    return crypto.createHash('sha256').update('dentai-sovereign-dev-secret-key-32b').digest();
+  }
   return crypto.createHash('sha256').update(secret).digest();
 }
 

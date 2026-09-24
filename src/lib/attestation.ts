@@ -85,7 +85,7 @@ export function createAttestationSeal(
   consultation: Consultation,
   dentistId: string,
   dentistName: string,
-  ahpraRegistration: string = 'DEN0000123456',
+  ahpraRegistration: string = '',
   signedAtIso?: string
 ): AttestationSeal {
   const signedAt = signedAtIso || new Date().toISOString();

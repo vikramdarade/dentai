@@ -351,7 +351,7 @@ export default function Landing({ onGetStarted }: LandingProps) {
                 icon: Mic,
                 step: '02',
                 title: 'Treat & converse naturally',
-                body: 'Dual-stage DSP acoustic squelch filters handpiece noise. Hands-free Spacebar pedal proxy and dual-tone clinical chimes keep you focused on the patient.'
+                body: 'Dual-stage background noise filter suppresses drill and suction noise. Hands-free Spacebar pedal proxy and dual-tone clinical chimes keep you focused on the patient.'
               },
               {
                 icon: ClipboardCheck,

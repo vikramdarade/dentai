@@ -286,6 +286,16 @@ export async function dbListConsultations(dentistId: string): Promise<any[]> {
   return rows.map((r: any) => r.data);
 }
 
+export async function dbGetConsultationById(id: string, dentistId: string): Promise<any | null> {
+  if (!sql) return null;
+  const rows = (await sql`
+    SELECT data FROM consultations
+    WHERE id = ${id} AND dentist_id = ${dentistId}
+    LIMIT 1
+  `) as any[];
+  return rows.length > 0 ? rows[0].data : null;
+}
+
 export async function dbInsertConsultation(consultation: any): Promise<void> {
   if (!sql) return;
   await sql`

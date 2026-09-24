@@ -569,9 +569,9 @@ export default function ClinicalSummary({
 
     const seal = createAttestationSeal(
       liveConsult,
-      consultation.dentistId || 'dentist-01',
-      dentistName || 'Attending Practitioner',
-      consultation.dentistAHPRA || 'DEN0000123456'
+      consultation.dentistId || '',
+      dentistName || consultation.dentistName || 'Attending Practitioner',
+      consultation.dentistAHPRA || ''
     );
     setAttestationSeal(seal);
 

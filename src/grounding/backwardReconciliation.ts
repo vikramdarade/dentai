@@ -162,8 +162,8 @@ export function reconcileEntitiesBackward(
       }
     }
 
-    // 4. Scan for Discussed Teeth
-    const toothMatches = lower.match(/\b(?:tooth|teeth)?\s*([1-8][1-8])\b/g) || [];
+    // 4. Scan for Discussed Teeth (excluding non-dental measurements like mg, ml, mins, years, etc.)
+    const toothMatches = lower.match(/\b(?:tooth|teeth)?\s*([1-8][1-8])(?!\s*(?:mg|ml|%|mins?|minutes?|sec|seconds?|hours?|years?|yo|yr|yrs|kg|mmhg|gauge))\b/g) || [];
     for (const m of toothMatches) {
       const numMatch = m.match(/([1-8][1-8])/);
       if (numMatch) {
