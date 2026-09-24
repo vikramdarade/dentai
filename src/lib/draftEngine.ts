@@ -16,14 +16,15 @@ export function sectionEvidence(
   const keywords = SECTION_KEYWORDS[section.key] || [];
   if (!keywords.length) return [];
 
-  const combined = normalizeFdiSpoken(transcript.map((t) => `${t.sender}: ${t.text}`).join(' '));
-  const patientSpeech = normalizeFdiSpoken(
-    transcript.filter((t) => !isClinician(t.sender)).map((t) => t.text).join(' ')
-  );
   const isComplaintStyle = section.key === 'chiefComplaint' || section.key === 'subjective';
-  const combinedClean = splitSentences(combined).map(cleanSentenceForNote).filter(Boolean);
-  const patientClean = splitSentences(patientSpeech).map(cleanSentenceForNote).filter(Boolean);
-  const pool = isComplaintStyle ? [...patientClean, ...combinedClean] : combinedClean;
+  const patientSentences = extractCandidateSentences(
+    transcript.filter((t) => !isClinician(t.sender))
+  );
+  const allSentences = extractCandidateSentences(transcript);
+
+  const pool = isComplaintStyle
+    ? [...new Set([...patientSentences, ...allSentences])]
+    : allSentences;
 
   const seen = new Set<string>();
   const out: string[] = [];
@@ -105,7 +106,7 @@ export function normalizeFdiSpoken(text: string): string {
   return out;
 }
 
-const splitSentences = (text: string): string[] =>
+export const splitSentences = (text: string): string[] =>
   text
     .replace(/\s+/g, ' ')
     .split(/(?<=[.!?])\s+/)
@@ -113,37 +114,194 @@ const splitSentences = (text: string): string[] =>
     .filter(Boolean);
 
 /** One-word pleasantries/acknowledgements are never clinical content. */
-const NON_CLINICAL_UTTERANCE_RE =
+export const NON_CLINICAL_UTTERANCE_RE =
   /^(ok(ay)?|yes|yeah|yep|no|nope|hmm|mmm|uh|right|sure|alright|thanks|thank you|fine|good|great|mm-hmm|uh-huh|please|sit back|open wide|there we go)[.!?]*$/i;
 
-/** "Dentist: ..." / "Patient: ..." prefixes are presentation noise, not note content. */
-const SENDER_PREFIX_RE = /^\s*(?:dentist|patient|dialogue|clinical\s+comment)\s*:\s*/i;
+/** Global speaker prefix remover: strips "Dialogue:", "Dentist:", "Patient:" from anywhere in the text. */
+export const SENDER_PREFIX_GLOBAL_RE = /(?:^|\b)(?:dentist|patient|dialogue|clinical\s+comment)\s*:\s*/gi;
 
 /**
  * Greeting / filler openers on a clinician line ("Alright Mrs Smith, ...") —
  * stripped before matching so small talk never becomes a clinical field.
  * Negatives (no/not) are deliberately NOT here: stripping them would invert meaning.
  */
-const GREETING_OPENER_RE =
+export const GREETING_OPENER_RE =
   /^(?:alright|okay|ok|right|so|well|now|good\s+(?:morning|afternoon|evening)|hi|hello|hey|thanks|thank\s+you|look|great|lovely|perfect)\b[,\s]+/i;
 
 /** Removes speaker prefixes and greeting openers from a single sentence. */
-function cleanSentenceForNote(sentence: string): string {
-  return sentence.replace(SENDER_PREFIX_RE, '').replace(GREETING_OPENER_RE, '').trim();
+export function cleanSentenceForNote(sentence: string): string {
+  if (!sentence) return '';
+  return sentence
+    .replace(SENDER_PREFIX_GLOBAL_RE, '')
+    .replace(GREETING_OPENER_RE, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Collapses repeating cyclic loops and stutter phrases within speech.
+ * Eliminates browser speech recognition echo loops where phrases repeat consecutively.
+ */
+export function collapseStutterLoops(text: string): string {
+  if (!text || text.length < 15) return text;
+  let s = text.trim();
+
+  // 1. Detect repeated adjacent word sequences of length 3 to 30 words
+  const words = s.split(/\s+/);
+  if (words.length > 5) {
+    for (let n = Math.min(30, Math.floor(words.length / 2)); n >= 3; n--) {
+      for (let i = 0; i + 2 * n <= words.length; i++) {
+        const norm1 = words.slice(i, i + n).join(' ').toLowerCase().replace(/[^a-z0-9 ]/g, '');
+        const norm2 = words.slice(i + n, i + 2 * n).join(' ').toLowerCase().replace(/[^a-z0-9 ]/g, '');
+        if (norm1 && norm1 === norm2) {
+          words.splice(i, n);
+          return collapseStutterLoops(words.join(' '));
+        }
+      }
+    }
+  }
+
+  // 2. Detect repeated restart anchors: if a phrase of 4+ words repeats at multiple points in the text
+  // (e.g. "we need to know these medications... we need to know these medications...")
+  if (words.length > 10) {
+    for (let n = Math.min(12, Math.floor(words.length / 3)); n >= 4; n--) {
+      const anchor = words.slice(0, n).join(' ').toLowerCase().replace(/[^a-z0-9 ]/g, '');
+      const lowerS = s.toLowerCase().replace(/[^a-z0-9 ]/g, '');
+      const firstPos = lowerS.indexOf(anchor);
+      const lastPos = lowerS.lastIndexOf(anchor);
+      if (firstPos !== -1 && lastPos > firstPos + anchor.length + 5) {
+        // Find corresponding word index in raw string for lastPos
+        const anchorWords = words.slice(0, n).map(w => w.toLowerCase().replace(/[^a-z0-9]/g, ''));
+        let matchIdx = -1;
+        for (let j = n; j <= words.length - n; j++) {
+          const sliceNorm = words.slice(j, j + n).map(w => w.toLowerCase().replace(/[^a-z0-9]/g, '')).join(' ');
+          if (sliceNorm === anchorWords.join(' ')) {
+            matchIdx = j;
+          }
+        }
+        if (matchIdx > 0) {
+          const trimmedWords = words.slice(matchIdx);
+          if (trimmedWords.length >= 4) {
+            return collapseStutterLoops(trimmedWords.join(' '));
+          }
+        }
+      }
+    }
+  }
+
+  return s;
+}
+
+/**
+ * Deduplicates raw transcript utterances, collapsing progressive prefix expansions,
+ * exact duplicates, and recognizer restart fragments.
+ */
+export function deduplicateTranscriptItems(items: TranscriptItem[]): TranscriptItem[] {
+  if (!items || !items.length) return [];
+  const result: TranscriptItem[] = [];
+
+  for (const item of items) {
+    let text = (item.text || '')
+      .replace(SENDER_PREFIX_GLOBAL_RE, '')
+      .trim();
+    if (!text) continue;
+
+    const norm = text.toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim();
+    if (!norm) continue;
+
+    if (result.length > 0) {
+      const lastIdx = result.length - 1;
+      const last = result[lastIdx];
+      const lastNorm = last.text.toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim();
+
+      // 1. Exact duplicate or noise
+      if (norm === lastNorm) {
+        continue;
+      }
+
+      // 2. Progressive prefix expansion (curr extends/contains last)
+      // e.g. last: "i just wanted to ask" -> curr: "i just wanted to ask about this"
+      if (norm.startsWith(lastNorm) || norm.includes(lastNorm)) {
+        result[lastIdx] = { ...item, text };
+        continue;
+      }
+
+      // 3. Stale interim fragment (last already contains curr)
+      if (lastNorm.startsWith(norm) || lastNorm.includes(norm)) {
+        continue;
+      }
+
+      // 4. Overlap merge: tail of last matches head of curr (at least 3 words)
+      const lastWords = lastNorm.split(' ');
+      const currWords = norm.split(' ');
+      let merged = false;
+      const maxOverlap = Math.min(lastWords.length, currWords.length, 10);
+      for (let k = maxOverlap; k >= 3; k--) {
+        const tail = lastWords.slice(-k).join(' ');
+        const head = currWords.slice(0, k).join(' ');
+        if (tail === head) {
+          const rawCurrWords = text.split(/\s+/);
+          const appendPart = rawCurrWords.slice(k).join(' ');
+          if (appendPart) {
+            result[lastIdx] = {
+              ...last,
+              text: `${last.text} ${appendPart}`.trim()
+            };
+          }
+          merged = true;
+          break;
+        }
+      }
+      if (merged) continue;
+    }
+
+    result.push({ ...item, text });
+  }
+
+  return result;
+}
+
+/**
+ * Extracts clean, deduplicated candidate clinical sentences from transcript items
+ * without injecting speaker tags or losing punctuation-free speech clauses.
+ */
+export function extractCandidateSentences(transcript: TranscriptItem[]): string[] {
+  const deduped = deduplicateTranscriptItems(transcript);
+  const out: string[] = [];
+
+  for (const item of deduped) {
+    const raw = normalizeFdiSpoken(item.text);
+    const cleaned = cleanSentenceForNote(raw);
+    if (!cleaned) continue;
+
+    // Split on terminal punctuation if present, or keep the utterance intact
+    const parts = cleaned
+      .split(/(?<=[.!?])\s+/)
+      .map((p) => collapseStutterLoops(cleanSentenceForNote(p)))
+      .filter((p) => Boolean(p) && !NON_CLINICAL_UTTERANCE_RE.test(p));
+
+    for (const p of parts) {
+      if (p.length >= 5) {
+        out.push(p);
+      }
+    }
+  }
+
+  return out;
 }
 
 /** Keyword buckets per section — encoding comprehensive Australian dental clinical knowledge. */
 const SECTION_KEYWORDS: Record<string, string[]> = {
   chiefComplaint: ['pain', 'ache', 'hurt', 'sensitive', 'sensitivity', 'discomfort', 'sore', 'bleeding', 'swelling', 'broken', 'chipped', 'cracked', 'complaint', 'since', 'started', 'sharp', 'dull', 'throbbing', 'lingering', 'night', 'wake', 'eating', 'chewing', 'cold', 'hot', 'sweet'],
   subjective: ['pain', 'ache', 'hurt', 'sensitive', 'sensitivity', 'discomfort', 'sore', 'since', 'started', 'noticed', 'feeling', 'sharp', 'dull', 'throbbing', 'lingering', 'night', 'wake', 'eating', 'chewing'],
-  history: ['history', 'medication', 'allergic', 'allergy', 'smok', 'diabet', 'asthma', 'blood pressure', 'hypertension', 'brushing', 'flossing', 'hygiene', 'last visit', 'previously', 'had', 'penicillin', 'aspirin', 'apixaban', 'warfarin', 'medical', 'nil of note'],
+  history: ['history', 'medication', 'allergic', 'allergy', 'smok', 'diabet', 'asthma', 'blood pressure', 'hypertension', 'brushing', 'flossing', 'hygiene', 'last visit', 'previously', 'had', 'penicillin', 'aspirin', 'apixaban', 'warfarin', 'medical', 'nil of note', 'blood thinner'],
   toothFindings: ['tooth', 'teeth', 'caries', 'cavity', 'decay', 'filling', 'restoration', 'fracture', 'crack', 'mobility', 'percussion', 'periapical', 'radiograph', 'x-ray', 'bitewing', 'occlusal', 'enamel', 'dentin', 'mesial', 'distal', 'buccal', 'lingual', 'incisal', 'palatal', 'cusp', 'cold', 'ept', 'ttp', 'tender', 'vital', 'non-vital', 'pocket', 'fissure', 'margin', 'wear', 'attrition', 'abfraction', 'erosion'],
   findingsGingival: ['gingiv', 'gum', 'pocket', 'bleeding on probing', 'bop', 'bpe', 'calculus', 'plaque', 'tartar', 'recession', 'periodontal', 'inflammation', 'stain', 'erythema', 'furcation'],
   objective: ['tooth', 'teeth', 'gingiv', 'gum', 'pocket', 'radiograph', 'x-ray', 'percussion', 'mobility', 'examination', 'found', 'observed', 'cold test', 'ttp', 'bpe', 'caries'],
   periapicalAssessment: ['radiograph', 'x-ray', 'periapical', 'canal', 'root', 'apex', 'working length', 'image', 'radiolucency', 'bone loss', 'widening', 'pdl'],
   toothIsolation: ['occlusion', 'high spot', 'articulat', 'polish', 'bite', 'grind', 'rubber dam', 'clamp', 'cotton roll'],
-  treatmentPerformed: ['filled', 'filling', 'restored', 'restoration', 'scaled', 'scale', 'polished', 'sealed', 'sealant', 'fluoride', 'extract', 'removed', 'root canal', 'rct', 'access', 'extirpation', 'obturated', 'temporary', 'dressing', 'cemented', 'anaesthetic', 'anesthetic', 'lignocaine', 'articaine', 'mepivacaine', 'adrenaline', 'cartridge', 'infiltration', 'ianb', 'block', 'injection', 'rubber dam', 'matrix', 'wedge', 'etch', 'bond', 'composite', 'resin', 'cured', 'cleaned', 'performed', 'completed', 'caries excavation'],
-  plan: ['plan', 'booked', 'schedule', 'return', 'review', 'next', 'will', 'arrange', 'recommend', 'treatment plan', 'estimate', 'appointment'],
+  treatmentPerformed: ['filled', 'filling', 'restored', 'restoration', 'scaled', 'scale', 'polished', 'sealed', 'sealant', 'fluoride', 'extract', 'removed', 'root canal', 'rct', 'access', 'extirpation', 'obturated', 'temporary', 'dressing', 'cemented', 'anaesthetic', 'anesthetic', 'lignocaine', 'articaine', 'mepivacaine', 'adrenaline', 'cartridge', 'infiltration', 'ianb', 'block', 'injection', 'rubber dam', 'matrix', 'wedge', 'etch', 'bond', 'composite', 'resin', 'cured', 'cleaned', 'performed', 'completed', 'caries excavation', 'take the tooth out'],
+  plan: ['plan', 'booked', 'schedule', 'return', 'review', 'next', 'will', 'arrange', 'recommend', 'treatment plan', 'estimate', 'appointment', 'options'],
   behaviourAssessment: ['behaviour', 'cooperat', 'anxious', 'nervous', 'scared', 'tell-show-do', 'child', 'settled', 'cried', 'distraction'],
   restorative: ['filling', 'restoration', 'composite', 'amalgam', 'resin', 'shade', 'bond', 'matrix', 'curing', 'etch', 'prep', 'cavity'],
   provisionalNote: ['provisional', 'temporary', 'temporis', 'shade', 'lab', 'impression', 'ferrule', 'core'],
@@ -166,16 +324,6 @@ const isClinician = (sender: string): boolean =>
 
 /**
  * True when the speaker could not be determined.
- *
- * Live speech recognition cannot separate the dentist from the patient, and the
- * cockpit records every live utterance as 'Dialogue' for exactly that reason —
- * labelling it 'Dentist' asserted a role the microphone never established, which
- * pushed the patient's own words into the clinician-observed sections.
- *
- * For this deterministic engine, an unattributed line is therefore considered
- * for *both* pools: it may legitimately hold either a finding or a complaint, and
- * withholding it from the clinician pool would silently empty the clinical
- * sections of every note drafted from live speech.
  */
 const isUnattributed = (sender: string): boolean =>
   sender === 'Dialogue' || sender === '' || sender == null;
@@ -183,16 +331,14 @@ const isUnattributed = (sender: string): boolean =>
 function extractAdaCodesSpoken(transcript: TranscriptItem[]): { code: string; description: string }[] {
   const found = new Map<string, string>();
   for (const item of transcript) {
-    // An explicit "item 414" is a billing reference whoever said it, so an
-    // unattributed line is still evidence for it.
     if (!isClinician(item.sender) && !isUnattributed(item.sender)) continue;
-    const matches = [...normalizeFdiSpoken(item.text).matchAll(ADA_ITEM_REF_RE)];
+    const cleanedText = item.text.replace(SENDER_PREFIX_GLOBAL_RE, '');
+    const matches = [...normalizeFdiSpoken(cleanedText).matchAll(ADA_ITEM_REF_RE)];
     for (const m of matches) {
       const code = m[1];
       if (!/^(0\d\d|[1-9]\d\d)$/.test(code)) continue;
       if (found.has(code)) continue;
-      // Description: the clinician's own words after the flagged reference.
-      const after = (item.text.slice((m.index || 0) + m[0].length) || '').trim();
+      const after = (cleanedText.slice((m.index || 0) + m[0].length) || '').trim();
       const description = after.split(/[,;.]/)[0].trim().slice(0, 90);
       found.set(code, description || 'Item mentioned');
     }
@@ -200,21 +346,28 @@ function extractAdaCodesSpoken(transcript: TranscriptItem[]): { code: string; de
   return [...found.entries()].map(([code, description]) => ({ code, description }));
 }
 
-function pickRelevant(text: string, keywords: string[], maxChars: number): string {
-  const sentences = splitSentences(text);
+function pickRelevant(sentences: string[], keywords: string[], maxChars: number): string {
   const matched = sentences.filter((sentence) => {
     const lower = sentence.toLowerCase();
     return keywords.some((kw) => lower.includes(kw));
   });
-  // De-duplicate near-identical lines while preserving order.
+
   const seen = new Set<string>();
   const picked: string[] = [];
-  for (const s of matched) {
+  for (let s of matched) {
+    s = s.trim();
+    if (!s) continue;
     const norm = s.toLowerCase().replace(/[^a-z0-9 ]/g, '').trim();
     if (seen.has(norm)) continue;
     seen.add(norm);
+
+    // End with a period if no terminal punctuation
+    if (!/[.!?]$/.test(s)) {
+      s += '.';
+    }
     picked.push(s);
   }
+
   let out = '';
   for (const s of picked) {
     if (out.length + s.length + 1 > maxChars) break;
@@ -224,7 +377,9 @@ function pickRelevant(text: string, keywords: string[], maxChars: number): strin
 }
 
 function cleanSectionText(raw: string): string {
-  const s = raw.replace(/\s+/g, ' ').trim();
+  let s = raw.replace(/\s+/g, ' ').trim();
+  if (!s) return '';
+  s = s.replace(SENDER_PREFIX_GLOBAL_RE, '').trim();
   if (!s) return '';
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
@@ -239,16 +394,16 @@ export function generateOfflineDraft(
   transcript: TranscriptItem[],
   _intakeText?: string
 ): DraftResult {
-  const combined = normalizeFdiSpoken(transcript.map((t) => `${t.sender}: ${t.text}`).join(' '));
-  // What the patient said (used for complaint-style sections).
-  const patientSpeech = normalizeFdiSpoken(
-    transcript.filter((t) => !isClinician(t.sender)).map((t) => t.text).join(' ')
-  );
+  const dedupedTranscript = deduplicateTranscriptItems(transcript);
+  const patientItems = dedupedTranscript.filter((t) => !isClinician(t.sender));
+
+  const allSentences = extractCandidateSentences(dedupedTranscript);
+  const patientSentences = extractCandidateSentences(patientItems);
 
   const canonical: Record<string, string> = {};
   const customSections: Record<string, string> = {};
   for (const section of template.sections) {
-    const value = fillSection(section, combined, patientSpeech);
+    const value = fillSection(section, allSentences, patientSentences);
     if (isCanonicalField(section.key)) canonical[section.key] = value;
     else customSections[section.key] = value;
   }
@@ -257,23 +412,21 @@ export function generateOfflineDraft(
     canonical,
     customSections,
     patientSummary: '',
-    adaCodes: extractAdaCodesSpoken(transcript)
+    adaCodes: extractAdaCodesSpoken(dedupedTranscript)
   };
 }
 
-function fillSection(section: TemplateSection, combined: string, patientSpeech: string): string {
+function fillSection(
+  section: TemplateSection,
+  allSentences: string[],
+  patientSentences: string[]
+): string {
   const keywords = SECTION_KEYWORDS[section.key] || [];
-
-  // Complaint-style sections should lean on the patient's own words.
   const isComplaintStyle = section.key === 'chiefComplaint' || section.key === 'subjective';
 
-  // Strip speaker prefixes ("Dentist:") and greeting openers ("Alright ...")
-  // from every sentence before matching, so the draft never echoes small talk
-  // into a clinical field and no field carries a "Dentist:" label.
-  const combinedClean = splitSentences(combined).map(cleanSentenceForNote).filter(Boolean).join(' ');
-  const patientClean = splitSentences(patientSpeech).map(cleanSentenceForNote).filter(Boolean).join(' ');
-
-  const pool = isComplaintStyle ? `${patientClean} ${combinedClean}` : combinedClean;
+  const pool = isComplaintStyle
+    ? [...new Set([...patientSentences, ...allSentences])]
+    : allSentences;
 
   let text = pickRelevant(pool, keywords, 1400);
 
@@ -281,10 +434,11 @@ function fillSection(section: TemplateSection, combined: string, patientSpeech: 
   // - chief complaint: substantive patient utterances (the reason for the visit).
   //   One-word acknowledgements like "okay" are never promoted to content.
   if (!text && isComplaintStyle) {
-    const patientSentences = splitSentences(patientClean).filter(
+    const fallback = patientSentences.filter(
       (s) => !NON_CLINICAL_UTTERANCE_RE.test(s) && s.length >= 10
     );
-    text = patientSentences.slice(0, 2).join(' ');
+    const candidate = fallback.slice(0, 2).map((s) => (/[.!?]$/.test(s) ? s : `${s}.`)).join(' ');
+    text = candidate;
   }
 
   return cleanSectionText(text);

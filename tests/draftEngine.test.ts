@@ -91,4 +91,48 @@ describe('generateOfflineDraft', () => {
     expect(draft.customSections.periapicalAssessment ?? '').toContain('radiograph');
     expect(draft.customSections.periapicalAssessment?.toLowerCase() ?? '').toContain('periapical');
   });
+
+  it('collapses progressive repeating prefix stutter and eliminates "Dialogue:" speaker tags', () => {
+    const template = getTemplateById('emergency');
+    const garbledTranscript: TranscriptItem[] = [
+      { sender: 'Dialogue', text: "That's right what i will need to do is first we need to know these medications if it is safe to do a dental treatment that you are taking these medications because" },
+      { sender: 'Dialogue', text: "that's right what i will need to do is first we need to know these medications if it is safe to do a dental treatment that you are taking these medications because the" },
+      { sender: 'Dialogue', text: "that's right what i will need to do is first we need to know these medications if it is safe to do a dental treatment that you are taking these medications because the blood thinner" },
+      { sender: 'Dialogue', text: "that's right what i will need to do is first we need to know these medications if it is safe to do a dental treatment that you are taking these medications because the blood thinner that" },
+      { sender: 'Dialogue', text: "that's right what i will need to do is first we need to know these medications if it is safe to do a dental treatment that you are taking these medications because the blood thinner that you are taking it can actually affect the bleeding Because." },
+      { sender: 'Dialogue', text: "i just" },
+      { sender: 'Dialogue', text: "i just got from your" },
+      { sender: 'Dialogue', text: "i just got from your medical history" },
+      { sender: 'Dialogue', text: "i just got from your medical history that you are taking actually a lot of medications" },
+      { sender: 'Dialogue', text: "Yeah. I just got from your medical history that you are taking actually a lot of medications. in some form" },
+      { sender: 'Dialogue', text: "and we are we are" },
+      { sender: 'Dialogue', text: "and we are we are actually" },
+      { sender: 'Dialogue', text: "and we are we are actually in in our little head some of the medications can affect our other medication" },
+      { sender: 'Dialogue', text: "i understand OK what what i would need to do we need just to go with you through the options and it's one of them actually is to take the tooth out" },
+      { sender: 'Dialogue', text: "opening a pathway for the infection outside the tooth, so this will help" }
+    ];
+
+    const draft = generateOfflineDraft(template, garbledTranscript, 'Emergency');
+
+    // 1. Absolutely NO "Dialogue:" speaker tags anywhere in any canonical or custom field
+    for (const [key, val] of Object.entries(draft.canonical)) {
+      expect(val).not.toMatch(/dialogue\s*:/i);
+      expect(val).not.toMatch(/dentist\s*:/i);
+      expect(val).not.toMatch(/patient\s*:/i);
+    }
+    for (const [key, val] of Object.entries(draft.customSections)) {
+      expect(val).not.toMatch(/dialogue\s*:/i);
+    }
+
+    // 2. Progressive prefix stutter is collapsed
+    const history = draft.canonical.history ?? '';
+    expect(history.toLowerCase()).toContain('blood thinner');
+    const repeatCount = (history.match(/that's right what i will need to do/gi) || []).length;
+    expect(repeatCount).toBeLessThanOrEqual(1);
+
+    // 3. Treatment performed captures extraction option cleanly without Dialogue tag
+    const treatment = draft.canonical.treatmentPerformed ?? '';
+    expect(treatment.toLowerCase()).toContain('take the tooth out');
+    expect(treatment).not.toMatch(/dialogue\s*:/i);
+  });
 });

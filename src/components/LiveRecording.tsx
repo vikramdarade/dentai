@@ -340,13 +340,16 @@ export default function LiveRecording({
       rec.onend = () => {
         setIsListening(false);
         stopAudioPipeline();
-        // Never discard pending spoken speech if the recognizer disconnected on a pause
-        const pending = (lastInterimRef.current || '').trim();
-        if (pending) {
-          setTranscript((prev) => [...prev, { sender: 'Dialogue', text: pending }]);
-          setItemTimes((prev) => [...prev, secondsRef.current]);
-          lastInterimRef.current = '';
+        // Only flush pending interim if the session is NOT auto-restarting
+        const willRestart = isRecordingRef.current && !micStoppedByUserRef.current;
+        if (!willRestart) {
+          const pending = (lastInterimRef.current || '').trim();
+          if (pending) {
+            setTranscript((prev) => [...prev, { sender: 'Dialogue', text: pending }]);
+            setItemTimes((prev) => [...prev, secondsRef.current]);
+          }
         }
+        lastInterimRef.current = '';
         setInterimTranscript('');
         // The Web Speech API ends recognition sessions on its own (silence or length
         // limits). Auto-restart while the session is still recording, unless the user
@@ -382,8 +385,32 @@ export default function LiveRecording({
             const rawText = result[0].transcript.trim();
             const text = normalizeSpokenDentalText(rawText);
             if (text) {
-              setTranscript((prev) => [...prev, { sender: 'Dialogue', text }]);
-              setItemTimes((prev) => [...prev, secondsRef.current]);
+              const normCurr = text.toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim();
+              if (normCurr) {
+                let replaced = false;
+                setTranscript((prev) => {
+                  if (prev.length > 0) {
+                    const last = prev[prev.length - 1];
+                    const normLast = last.text.toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim();
+                    if (normCurr === normLast) {
+                      return prev;
+                    }
+                    if (normLast.length >= normCurr.length && (normLast.startsWith(normCurr) || normLast.includes(normCurr))) {
+                      return prev;
+                    }
+                    if (normCurr.length > normLast.length && (normCurr.startsWith(normLast) || normCurr.includes(normLast))) {
+                      replaced = true;
+                      const updated = [...prev];
+                      updated[updated.length - 1] = { ...last, text };
+                      return updated;
+                    }
+                  }
+                  return [...prev, { sender: 'Dialogue', text }];
+                });
+                if (!replaced) {
+                  setItemTimes((prev) => [...prev, secondsRef.current]);
+                }
+              }
             }
           } else {
             interim += result[0].transcript;

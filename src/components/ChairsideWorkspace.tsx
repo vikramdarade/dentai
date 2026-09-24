@@ -1023,23 +1023,69 @@ export default function ChairsideWorkspace({
       const targetId = activeEncounterRef.current.id;
       const timeNow = formatClinicTime(new Date(), { second: '2-digit' });
 
-      // 1. Instant 0ms optimistic UI update: renders the new utterance immediately in the feed
-      setLocalLiveTranscripts(prev => ({
-        ...prev,
-        [targetId]: [
-          ...(prev[targetId] || []),
-          { sender, text: normalized, time: timeNow }
-        ]
-      }));
+      // Deduplication & prefix expansion check against the last utterance
+      const normCurr = normalized.toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim();
+      if (!normCurr) return;
+
+      let shouldReplace = false;
+      let shouldDrop = false;
+
+      // Check current transcripts synchronously
+      const currentList = localLiveTranscripts[targetId] || [];
+      if (currentList.length > 0) {
+        const lastItem = currentList[currentList.length - 1];
+        const normLast = lastItem.text.toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim();
+
+        // 1. Exact duplicate
+        if (normCurr === normLast) {
+          shouldDrop = true;
+        } else if (normLast.length >= normCurr.length && (normLast.startsWith(normCurr) || normLast.includes(normCurr))) {
+          // 2. Stale fragment (last already contains current)
+          shouldDrop = true;
+        } else if (normCurr.length > normLast.length && (normCurr.startsWith(normLast) || normCurr.includes(normLast))) {
+          // 3. Progressive prefix expansion (current extends last)
+          shouldReplace = true;
+        }
+      }
+
+      if (shouldDrop) {
+        setInterimTranscript('');
+        return;
+      }
+
+      // 1. Instant optimistic UI update
+      setLocalLiveTranscripts(prev => {
+        const list = prev[targetId] || [];
+        if (shouldReplace && list.length > 0) {
+          const updated = [...list];
+          updated[updated.length - 1] = { sender, text: normalized, time: timeNow };
+          return { ...prev, [targetId]: updated };
+        }
+        return {
+          ...prev,
+          [targetId]: [
+            ...list,
+            { sender, text: normalized, time: timeNow }
+          ]
+        };
+      });
       setInterimTranscript('');
 
       // 2. Concurrently persist to database consultation
       const existingConsultation = consultationsRef.current.find(c => c.id === targetId);
       if (existingConsultation) {
-        const updatedTranscript: TranscriptItem[] = [
-          ...(existingConsultation.transcript || []),
-          { sender, text: normalized }
-        ];
+        const existingTranscript = existingConsultation.transcript || [];
+        let updatedTranscript: TranscriptItem[];
+
+        if (shouldReplace && existingTranscript.length > 0) {
+          updatedTranscript = [...existingTranscript];
+          updatedTranscript[updatedTranscript.length - 1] = { sender, text: normalized };
+        } else {
+          updatedTranscript = [
+            ...existingTranscript,
+            { sender, text: normalized }
+          ];
+        }
 
         const updatedConsultation: Consultation = {
           ...existingConsultation,
@@ -1050,7 +1096,7 @@ export default function ChairsideWorkspace({
           await onSaveConsultation(updatedConsultation);
         }
       }
-    }, [onSaveConsultation]);
+    }, [localLiveTranscripts, onSaveConsultation]);
 
   // SpeechRecognition Hook with Operatory Acoustic Artifact Filtering & Live Interim Dialogue
   useEffect(() => {
@@ -1098,17 +1144,20 @@ export default function ChairsideWorkspace({
 
       recognition.onend = () => {
         setMicListening(false);
-        // Never discard pending spoken speech if the recognizer disconnected on a pause
-        const pending = (lastInterimRef.current || '').trim();
-        if (pending && activeEncounterRef.current) {
-          const isNoise =
-            /^(sh+|ah+|um+|zz+|ss+|hh+|ff+|th+)(\s+(sh+|ah+|um+|zz+|ss+|hh+|ff+|th+))*$/i.test(pending) ||
-            /^[^a-zA-Z0-9]+$/.test(pending);
-          if (!isNoise) {
-            handleAppendTranscriptText(pending, 'Dialogue');
+        // Only flush pending interim if the session is NOT auto-restarting (e.g. recording stopped/paused by user)
+        const isAutoRestarting = isRecordingRef.current && !isPausedRef.current && !isMicStandbyRef.current && Boolean(activeEncounterRef.current);
+        if (!isAutoRestarting) {
+          const pending = (lastInterimRef.current || '').trim();
+          if (pending && activeEncounterRef.current) {
+            const isNoise =
+              /^(sh+|ah+|um+|zz+|ss+|hh+|ff+|th+)(\s+(sh+|ah+|um+|zz+|ss+|hh+|ff+|th+))*$/i.test(pending) ||
+              /^[^a-zA-Z0-9]+$/.test(pending);
+            if (!isNoise) {
+              handleAppendTranscriptText(pending, 'Dialogue');
+            }
           }
-          lastInterimRef.current = '';
         }
+        lastInterimRef.current = '';
         setInterimTranscript('');
 
         // Web Speech API ends sessions automatically on silence or timeout.
@@ -1160,20 +1209,6 @@ export default function ChairsideWorkspace({
           const normInterim = normalizeSpokenDentalText(interim.trim());
           lastInterimRef.current = normInterim;
           setInterimTranscript(normInterim);
-
-          // Squelch lingering interim: auto-commit if speaker pauses for >1.5s
-          if (interimTimerRef.current) clearTimeout(interimTimerRef.current);
-          interimTimerRef.current = setTimeout(() => {
-            if (interim.trim()) {
-              const norm = normalizeSpokenDentalText(interim.trim());
-              const isNoise = /^(sh+|ah+|um+|zz+|ss+|hh+|ff+|th+)(\s+(sh+|ah+|um+|zz+|ss+|hh+|ff+|th+))*$/i.test(norm);
-              if (norm && !isNoise) {
-                handleAppendTranscriptText(norm, 'Dialogue');
-              }
-              lastInterimRef.current = '';
-              setInterimTranscript('');
-            }
-          }, 1500);
         }
       };
 
