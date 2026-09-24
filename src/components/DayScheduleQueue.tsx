@@ -1263,7 +1263,7 @@ export default function DayScheduleQueue({
                         Clinical Verification: {sideBySideItem.patientName}
                       </h3>
                       <span className={`px-2.5 py-0.5 rounded-md text-[11px] font-extrabold ${sideBySideItem.isFullyGrounded !== false ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
-                        {sideBySideItem.isFullyGrounded !== false ? '100% Grounded in Audio' : `${sideBySideItem.groundingScore ?? 0}% Audio Grounded`}
+                        {sideBySideItem.isFullyGrounded !== false ? 'Verified from Audio' : 'Clinician Verification Required'}
                       </span>
                     </div>
                     <p className="text-xs text-slate-500 mt-0.5">

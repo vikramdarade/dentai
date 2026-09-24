@@ -15,6 +15,7 @@ import {
 } from './src/lib/dentalLibrary';
 import { normalizeTemplateOutput } from './src/lib/normalizeNoteOutput';
 import { verifyTranscriptGrounding } from './src/lib/transcriptGrounding';
+import { verifyNoteGrounding } from './src/grounding';
 import { applyNoteThinking, NOTE_TIMEOUTS, resolveNoteThinkingLevel } from './src/lib/noteModelConfig';
 import {
   compactTranscriptForGeneration,
@@ -1471,6 +1472,11 @@ async function tickNoteJobs(force = false): Promise<void> {
           output.adaCodes
         );
         output.groundingReport = groundingReport;
+        output.groundingAudit = verifyNoteGrounding(
+          job.id,
+          job.payload?.transcript || [],
+          output
+        );
 
         await persistJobPatch(job.id, job.dentistId, {
           status: 'done', attempts, result: output, error: null, nextAttemptAt: null
@@ -4420,6 +4426,11 @@ app.post('/api/generate-notes', authenticateToken, async (req: express.Request, 
       transcript || [],
       normalizedPrimary.adaCodes
     );
+    (normalizedPrimary as any).groundingAudit = verifyNoteGrounding(
+      'consultation-direct',
+      transcript || [],
+      normalizedPrimary
+    );
     res.json(normalizedPrimary);
   } catch (error: any) {
     logger.error('Error generating notes in /api/generate-notes:', error, {
@@ -4459,6 +4470,11 @@ app.post('/api/generate-notes', authenticateToken, async (req: express.Request, 
             fallbackNoteText,
             transcript || [],
             fallbackNorm.adaCodes
+          );
+          (fallbackNorm as any).groundingAudit = verifyNoteGrounding(
+            'consultation-fallback',
+            transcript || [],
+            fallbackNorm
           );
           return res.json(fallbackNorm);
         }
@@ -4513,6 +4529,11 @@ app.post('/api/generate-notes', authenticateToken, async (req: express.Request, 
               secondaryNoteText,
               transcript || [],
               secondaryNorm.adaCodes
+            );
+            (secondaryNorm as any).groundingAudit = verifyNoteGrounding(
+              'consultation-secondary',
+              transcript || [],
+              secondaryNorm
             );
             return res.json(secondaryNorm);
           }

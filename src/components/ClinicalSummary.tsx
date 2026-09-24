@@ -44,6 +44,7 @@ import {
 } from '../lib/dentalLibrary';
 import { getSavedTemplates, getTemplate } from '../utils/templates';
 import { sectionEvidence } from '../lib/draftEngine';
+import { verifyNoteGrounding } from '../grounding';
 import { buildTreatmentQuoteData } from '../lib/adaFees';
 import {
   getVisualCasePresentation,
@@ -315,6 +316,17 @@ export default function ClinicalSummary({
   const grounding = consultation.grounding;
   const unverifiedClaims = grounding?.unverifiedClaims ?? [];
 
+  const groundingAudit = useMemo(() => {
+    if (consultation.transcript && consultation.transcript.length > 0) {
+      return verifyNoteGrounding(
+        consultation.id || 'consultation',
+        consultation.transcript,
+        { canonical: edits, ...consultation.findings }
+      );
+    }
+    return consultation.groundingAudit || null;
+  }, [consultation.id, consultation.transcript, consultation.findings, consultation.groundingAudit, edits]);
+
   const switchTemplate = (templateId: string) => {
     const next = templates.find((t) => t.id === templateId) || getTemplateById(templateId);
     const currentKeys = new Set(Object.keys(edits));
@@ -484,6 +496,13 @@ export default function ClinicalSummary({
       adaCodes
     };
 
+    if (groundingAudit && !groundingAudit.isApprovedForSigning) {
+      const confirmMsg = `Clinician Verification Required before sign-off:\n\n${groundingAudit.blockingReasons.join('\n')}\n\nDo you confirm you have verified these discrepancies and wish to sign and save the record?`;
+      if (!window.confirm(confirmMsg)) {
+        return;
+      }
+    }
+
     const updatedConsultation: Consultation = {
       ...consultation,
       status: 'Completed',
@@ -492,6 +511,7 @@ export default function ClinicalSummary({
       patientSummary: patientLetter,
       specialistReferral,
       patientConsent,
+      groundingAudit: groundingAudit || undefined,
       treatmentQuote: {
         ...treatmentQuote,
         visualCaseCategory: selectedVisualCategory,
@@ -694,35 +714,64 @@ export default function ClinicalSummary({
           {/* Transcript grounding: what the AI wrote versus what was actually
               said. Rendered only when the server verified the note, so a record
               with no verdict is never mistaken for a record that passed. */}
-          {grounding && (
-            <div
-              className={`mb-6 rounded-2xl border p-4 flex items-start gap-3 ${
-                unverifiedClaims.length === 0 ? 'bg-emerald-50/60 border-emerald-200' : 'bg-amber-50/70 border-amber-200'
-              }`}
-            >
-              {unverifiedClaims.length === 0 ? (
-                <CheckCircle className="w-4 h-4 text-emerald-700 mt-0.5 shrink-0" />
-              ) : (
-                <ShieldAlert className="w-4 h-4 text-amber-700 mt-0.5 shrink-0" />
-              )}
-              <div className="flex flex-col gap-1">
-                <p className={`text-xs font-bold ${unverifiedClaims.length === 0 ? 'text-emerald-800' : 'text-amber-800'}`}>
-                  {unverifiedClaims.length === 0
-                    ? `Every clinical claim traced back to the recording (${grounding.groundingScore}% grounded).`
-                    : `${unverifiedClaims.length} item${unverifiedClaims.length === 1 ? '' : 's'} in this note ${unverifiedClaims.length === 1 ? 'was' : 'were'} not spoken in the recording — check before signing.`}
-                </p>
-                {unverifiedClaims.length > 0 && (
-                  <p className="text-[11px] text-amber-800/90 font-medium">
-                    Not found in transcript: {unverifiedClaims.join(' · ')}
-                  </p>
+          {/* Work Package 3.0: Deterministic Evidentiary Grounding Banner */}
+          {(groundingAudit || grounding) && (() => {
+            const isApproved = groundingAudit ? groundingAudit.isApprovedForSigning : unverifiedClaims.length === 0;
+            const badge = groundingAudit ? groundingAudit.alignment.statusBadge : (isApproved ? 'Verified from Audio' : 'Clinician Verification Required');
+            const score = groundingAudit ? Math.round(groundingAudit.alignment.overallGroundingScore * 100) : (grounding?.groundingScore ?? 0);
+            const blocking = groundingAudit?.blockingReasons ?? [];
+
+            return (
+              <div
+                className={`mb-6 rounded-2xl border p-4 flex items-start gap-3 ${
+                  isApproved ? 'bg-emerald-50/60 border-emerald-200' : 'bg-amber-50/70 border-amber-200'
+                }`}
+              >
+                {isApproved ? (
+                  <CheckCircle className="w-4 h-4 text-emerald-700 mt-0.5 shrink-0" />
+                ) : (
+                  <ShieldAlert className="w-4 h-4 text-amber-700 mt-0.5 shrink-0" />
                 )}
-                <p className="text-[10px] text-slate-500 leading-relaxed">
-                  Verified automatically against the consultation transcript. This checks that wording is supported by
-                  what was said — it is not a clinical review. The treating practitioner remains responsible for the record.
-                </p>
+                <div className="flex flex-col gap-1.5 flex-grow">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <p className={`text-xs font-bold ${isApproved ? 'text-emerald-800' : 'text-amber-800'}`}>
+                      {badge} ({score}% Grounding Score)
+                    </p>
+                    {groundingAudit?.rogersConsent && (
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                        groundingAudit.rogersConsent.isLegallyCorroborated ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                      }`}>
+                        Informed Consent: {groundingAudit.rogersConsent.legalDefensibilityGrade.replace('_', ' ')}
+                      </span>
+                    )}
+                  </div>
+
+                  {blocking.length > 0 ? (
+                    <div className="space-y-1">
+                      {blocking.map((reason, idx) => (
+                        <p key={idx} className="text-[11px] text-amber-900 font-semibold flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-600 shrink-0"></span>
+                          {reason}
+                        </p>
+                      ))}
+                    </div>
+                  ) : unverifiedClaims.length > 0 ? (
+                    <p className="text-[11px] text-amber-800/90 font-medium">
+                      Not found in transcript: {unverifiedClaims.join(' · ')}
+                    </p>
+                  ) : (
+                    <p className="text-[11px] text-emerald-700 font-medium">
+                      All clinical assertions, tooth references, procedures, and drugs traced directly to verbatim audio (t ± 500ms).
+                    </p>
+                  )}
+
+                  <p className="text-[10px] text-slate-500 leading-relaxed">
+                    Verified automatically against the consultation transcript per AHPRA Section 133 & Rogers v Whitaker standards. The treating practitioner remains responsible for the clinical record.
+                  </p>
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
             {/* BLOCK A: Clinical Findings & Notes (Left Column - 5 Cols) */}

@@ -65,6 +65,8 @@ export function sectionEvidence(
  */
 import { NoteTemplate, TemplateSection, isCanonicalField } from './dentalLibrary';
 import { TranscriptItem } from '../types';
+import { reconcileEntitiesBackward } from '../grounding/backwardReconciliation';
+import type { TimestampedUtterance } from '../grounding/types';
 
 export type DraftResult = {
   /** Canonical findings (top-level, e.g. chiefComplaint) plus template extras. */
@@ -406,6 +408,44 @@ export function generateOfflineDraft(
     const value = fillSection(section, allSentences, patientSentences);
     if (isCanonicalField(section.key)) canonical[section.key] = value;
     else customSections[section.key] = value;
+  }
+
+  // Work Package 3.2: Backward Entity Reconciliation (Zero-Omission Standard)
+  const fullDraftText = Object.values(canonical).concat(Object.values(customSections)).join(' ');
+  const timestampedUtterances: TimestampedUtterance[] = dedupedTranscript.map((t, idx) => ({
+    id: `utt-${idx + 1}`,
+    sender: t.sender as any,
+    text: t.text,
+    startTimeMs: idx * 2000,
+    endTimeMs: (idx + 1) * 2000
+  }));
+  const reconciliation = reconcileEntitiesBackward(timestampedUtterances, fullDraftText);
+
+  // If critical safety entities (allergies, high-risk medications) were spoken but missed,
+  // ensure they are incorporated into the history / medicalHistory section
+  if (reconciliation.hasCriticalOmissions) {
+    const historyKey = template.sections.find(s => s.key === 'history' || s.key === 'medicalHistory')?.key || (isCanonicalField('history') ? 'history' : undefined);
+    if (historyKey) {
+      const targetStore = isCanonicalField(historyKey) ? canonical : customSections;
+      const currentHistory = targetStore[historyKey] || '';
+      const additionalSentences: string[] = [];
+
+      for (const omission of reconciliation.omissions) {
+        if (omission.severity === 'critical') {
+          const firstTerm = omission.entityName.toLowerCase().split(/[\s(/]/)[0];
+          const matchingSentence = allSentences.find(s => s.toLowerCase().includes(firstTerm));
+          if (matchingSentence && !currentHistory.includes(matchingSentence)) {
+            additionalSentences.push(matchingSentence.endsWith('.') ? matchingSentence : `${matchingSentence}.`);
+          }
+        }
+      }
+
+      if (additionalSentences.length > 0) {
+        targetStore[historyKey] = currentHistory
+          ? `${currentHistory} ${additionalSentences.join(' ')}`
+          : additionalSentences.join(' ');
+      }
+    }
   }
 
   return {

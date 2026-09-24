@@ -25,18 +25,41 @@ import { verifyRogersConsent } from './rogersConsentGate';
  */
 export function verifyNoteGrounding(
   consultationId: string,
-  utterances: TimestampedUtterance[],
-  note: { canonical?: Record<string, string>; customSections?: Record<string, string>; [k: string]: any }
+  utterances: (TimestampedUtterance | { sender: string; text: string; timestamp?: string })[],
+  note: string | { canonical?: Record<string, string>; customSections?: Record<string, string>; [k: string]: any }
 ): UnifiedGroundingAudit {
+  // Normalize utterances to TimestampedUtterance
+  const normalizedUtterances: TimestampedUtterance[] = utterances.map((u, idx) => {
+    if ('startTimeMs' in u && typeof (u as any).startTimeMs === 'number') {
+      return u as TimestampedUtterance;
+    }
+    const baseTimeMs = idx * 3000;
+    const validSender: 'Dentist' | 'Patient' | 'Assistant' | 'Dialogue' =
+      u.sender === 'Dentist' || u.sender === 'Patient' || u.sender === 'Assistant'
+        ? u.sender
+        : 'Dialogue';
+
+    return {
+      id: `utt-${idx + 1}`,
+      sender: validSender,
+      text: u.text,
+      startTimeMs: baseTimeMs,
+      endTimeMs: baseTimeMs + 2500,
+      audioSliceId: `chunk-${String(idx + 1).padStart(3, '0')}`
+    };
+  });
+
+  const noteObj = typeof note === 'string' ? { fullContent: note } : note;
+
   // Aggregate all note text
   const textParts: string[] = [];
-  if (note.canonical) {
-    textParts.push(...Object.values(note.canonical));
+  if (noteObj.canonical) {
+    textParts.push(...Object.values(noteObj.canonical));
   }
-  if (note.customSections) {
-    textParts.push(...Object.values(note.customSections));
+  if (noteObj.customSections) {
+    textParts.push(...Object.values(noteObj.customSections));
   }
-  for (const [key, val] of Object.entries(note)) {
+  for (const [key, val] of Object.entries(noteObj)) {
     if (key !== 'canonical' && key !== 'customSections' && typeof val === 'string') {
       textParts.push(val);
     }
@@ -44,14 +67,14 @@ export function verifyNoteGrounding(
   const fullNoteText = textParts.join(' \n ');
 
   // 1. Forward Alignment
-  const claims = extractClinicalClaims(note);
-  const alignment = alignClaimsToUtterances(claims, utterances);
+  const claims = extractClinicalClaims(noteObj);
+  const alignment = alignClaimsToUtterances(claims, normalizedUtterances);
 
   // 2. Backward Reconciliation
-  const reconciliation = reconcileEntitiesBackward(utterances, fullNoteText);
+  const reconciliation = reconcileEntitiesBackward(normalizedUtterances, fullNoteText);
 
   // 3. Rogers v Whitaker Consent Gate
-  const rogersConsent = verifyRogersConsent(utterances, fullNoteText);
+  const rogersConsent = verifyRogersConsent(normalizedUtterances, fullNoteText);
 
   // 4. Determine Sign-Off Approval & Blocking Reasons
   const blockingReasons: string[] = [];

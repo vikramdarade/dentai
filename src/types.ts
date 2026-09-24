@@ -1,7 +1,8 @@
 import type { AppointmentType } from './lib/dentalLibrary';
 import type { GroundingReport } from './lib/transcriptGrounding';
+import type { UnifiedGroundingAudit } from './grounding/types';
 
-export type { AppointmentType };
+export type { AppointmentType, UnifiedGroundingAudit };
 
 export interface TranscriptProvenance {
   /**
@@ -268,6 +269,11 @@ export interface Consultation {
    * AI-drafted note were not actually spoken — and so a later reviewer can.
    */
   grounding?: GroundingReport;
+  /**
+   * Work Package 3.0 Unified Grounding Audit:
+   * Evidentiary alignment (t ± 500ms), zero-omission reconciliation, and Rogers v Whitaker consent gate.
+   */
+  groundingAudit?: UnifiedGroundingAudit;
   /**
    * Which capture produced `transcript`, and how good it was.
    *
