@@ -292,33 +292,31 @@ export function extractCandidateSentences(transcript: TranscriptItem[]): string[
   return out;
 }
 
-/** Keyword buckets per section — encoding comprehensive Australian dental clinical knowledge. */
+/** Keyword buckets per section — encoding comprehensive Australian dental clinical knowledge across all specialties. */
 const SECTION_KEYWORDS: Record<string, string[]> = {
-  chiefComplaint: ['pain', 'ache', 'hurt', 'sensitive', 'sensitivity', 'discomfort', 'sore', 'bleeding', 'swelling', 'broken', 'chipped', 'cracked', 'complaint', 'since', 'started', 'sharp', 'dull', 'throbbing', 'lingering', 'night', 'wake', 'eating', 'chewing', 'cold', 'hot', 'sweet'],
-  subjective: ['pain', 'ache', 'hurt', 'sensitive', 'sensitivity', 'discomfort', 'sore', 'since', 'started', 'noticed', 'feeling', 'sharp', 'dull', 'throbbing', 'lingering', 'night', 'wake', 'eating', 'chewing'],
-  history: ['history', 'medication', 'allergic', 'allergy', 'smok', 'diabet', 'asthma', 'blood pressure', 'hypertension', 'brushing', 'flossing', 'hygiene', 'last visit', 'previously', 'had', 'penicillin', 'aspirin', 'apixaban', 'warfarin', 'medical', 'nil of note', 'blood thinner'],
-  toothFindings: ['tooth', 'teeth', 'caries', 'cavity', 'decay', 'filling', 'restoration', 'fracture', 'crack', 'mobility', 'percussion', 'periapical', 'radiograph', 'x-ray', 'bitewing', 'occlusal', 'enamel', 'dentin', 'mesial', 'distal', 'buccal', 'lingual', 'incisal', 'palatal', 'cusp', 'cold', 'ept', 'ttp', 'tender', 'vital', 'non-vital', 'pocket', 'fissure', 'margin', 'wear', 'attrition', 'abfraction', 'erosion'],
-  findingsGingival: ['gingiv', 'gum', 'pocket', 'bleeding on probing', 'bop', 'bpe', 'calculus', 'plaque', 'tartar', 'recession', 'periodontal', 'inflammation', 'stain', 'erythema', 'furcation'],
-  objective: ['tooth', 'teeth', 'gingiv', 'gum', 'pocket', 'radiograph', 'x-ray', 'percussion', 'mobility', 'examination', 'found', 'observed', 'cold test', 'ttp', 'bpe', 'caries'],
-  periapicalAssessment: ['radiograph', 'x-ray', 'periapical', 'canal', 'root', 'apex', 'working length', 'image', 'radiolucency', 'bone loss', 'widening', 'pdl'],
-  toothIsolation: ['occlusion', 'high spot', 'articulat', 'polish', 'bite', 'grind', 'rubber dam', 'clamp', 'cotton roll'],
-  treatmentPerformed: ['filled', 'filling', 'restored', 'restoration', 'scaled', 'scale', 'polished', 'sealed', 'sealant', 'fluoride', 'extract', 'removed', 'root canal', 'rct', 'access', 'extirpation', 'obturated', 'temporary', 'dressing', 'cemented', 'anaesthetic', 'anesthetic', 'lignocaine', 'articaine', 'mepivacaine', 'adrenaline', 'cartridge', 'infiltration', 'ianb', 'block', 'injection', 'rubber dam', 'matrix', 'wedge', 'etch', 'bond', 'composite', 'resin', 'cured', 'cleaned', 'performed', 'completed', 'caries excavation', 'take the tooth out'],
-  plan: ['plan', 'booked', 'schedule', 'return', 'review', 'next', 'will', 'arrange', 'recommend', 'treatment plan', 'estimate', 'appointment', 'options'],
-  behaviourAssessment: ['behaviour', 'cooperat', 'anxious', 'nervous', 'scared', 'tell-show-do', 'child', 'settled', 'cried', 'distraction'],
-  restorative: ['filling', 'restoration', 'composite', 'amalgam', 'resin', 'shade', 'bond', 'matrix', 'curing', 'etch', 'prep', 'cavity'],
-  provisionalNote: ['provisional', 'temporary', 'temporis', 'shade', 'lab', 'impression', 'ferrule', 'core'],
-  postOpInstructions: ['advice', 'avoid', 'soft diet', 'ice', 'analgesic', 'pain relief', 'paracetamol', 'ibuprofen', 'brush', 'rinse', 'salt water', 'warm', 'numb', 'instruct', 'care', 'hot drinks', 'numbness'],
-  recommendations: ['advice', 'avoid', 'soft', 'brush', 'floss', 'rinse', 'salt water', 'warm', 'paracetamol', 'ibuprofen', 'analgesic', 'diet', 'sugar', 'smok', 'stop', 'return if', 'watch', 'instruct', 'care', 'oral hygiene'],
-  diagnosis: ['diagnosis', 'pulpitis', 'periodontitis', 'gingivitis', 'abscess', 'caries', 'cavity', 'fracture', 'cracked tooth', 'periapical', 'infection', 'assessment', 'think', 'believe', 'likely', 'symptomatic', 'asymptomatic', 'reversible', 'irreversible', 'necrosis'],
-  assessment: ['diagnosis', 'pulpitis', 'periodontitis', 'gingivitis', 'abscess', 'caries', 'fracture', 'assessment', 'likely', 'prognosis'],
-  recallRequirements: ['recall', 'review', 'months', 'weeks', 'appointment', 'booked', 'return', 'follow-up', 'follow up', 'next visit', 'standard', 'periodontal'],
-  emergency: ['pain', 'swelling', 'abscess', 'trauma', 'knocked', 'broken', 'urgent', 'severe', 'acute'],
+  chiefComplaint: ['pain', 'ache', 'hurt', 'sensitive', 'sensitivity', 'discomfort', 'sore', 'bleeding', 'swelling', 'broken', 'chipped', 'cracked', 'complaint', 'since', 'started', 'sharp', 'dull', 'throbbing', 'lingering', 'night', 'wake', 'eating', 'chewing', 'cold', 'hot', 'sweet', 'dislodged', 'whitening', 'crowding', 'evaluation', 'struck', 'accident', 'returned'],
+  subjective: ['pain', 'ache', 'hurt', 'sensitive', 'sensitivity', 'discomfort', 'sore', 'since', 'started', 'noticed', 'feeling', 'sharp', 'dull', 'throbbing', 'lingering', 'night', 'wake', 'eating', 'chewing', 'crowding', 'whiter', 'broken'],
+  history: ['history', 'medication', 'allergic', 'allergy', 'smok', 'diabet', 'asthma', 'blood pressure', 'hypertension', 'brushing', 'flossing', 'hygiene', 'last visit', 'previously', 'had', 'penicillin', 'aspirin', 'apixaban', 'warfarin', 'inr', 'prolia', 'denosumab', 'osteoporosis', 'mronj', 'medical', 'nil of note', 'blood thinner', 'alert'],
+  toothFindings: ['tooth', 'teeth', 'caries', 'cavity', 'decay', 'filling', 'restoration', 'fracture', 'crack', 'mobility', 'percussion', 'periapical', 'radiograph', 'x-ray', 'bitewing', 'occlusal', 'enamel', 'dentin', 'mesial', 'distal', 'buccal', 'lingual', 'incisal', 'palatal', 'cusp', 'cold', 'ept', 'ttp', 'tender', 'vital', 'non-vital', 'pocket', 'fissure', 'margin', 'wear', 'attrition', 'abfraction', 'erosion', 'incisor', 'incisors', 'canine', 'canines', 'premolar', 'premolars', 'molar', 'molars', 'crowding', 'spacing', 'overjet', 'overbite', 'class i', 'class ii', 'crown', 'bridge', 'denture', 'implant', 'splint', 'trauma', 'subluxation', 'luxation', 'socket', 'bone', 'osteitis', 'dry socket', 'lesion', 'ulcer', 'lichen planus', 'whitening', 'shade', 'bleaching', 'core', 'intact', 'shoppe', 'slooth', 'framework', 'undercut', 'clasp', 'rest', 'rests', 'ridge', 'space', 'edentulous'],
+  findingsGingival: ['gingiv', 'gum', 'pocket', 'bleeding on probing', 'bop', 'bpe', 'calculus', 'plaque', 'tartar', 'recession', 'periodontal', 'inflammation', 'stain', 'erythema', 'furcation', 'sulcular', 'mucosa', 'striae', 'erosive', 'desquamative'],
+  objective: ['tooth', 'teeth', 'gingiv', 'gum', 'pocket', 'radiograph', 'x-ray', 'percussion', 'mobility', 'examination', 'examining', 'exam', 'found', 'observed', 'cold test', 'ttp', 'bpe', 'caries', 'incisor', 'incisors', 'canine', 'canines', 'premolar', 'premolars', 'molar', 'molars', 'crowding', 'overjet', 'overbite', 'sulcular', 'bleeding', 'socket', 'bone', 'shade', 'core', 'margins', 'striae', 'ulcer', 'mucoperiosteal', 'torque', 'framework', 'rests', 'clasp', 'denture'],
+  periapicalAssessment: ['radiograph', 'x-ray', 'periapical', 'canal', 'root', 'apex', 'working length', 'image', 'radiolucency', 'bone loss', 'widening', 'pdl', 'cbct', 'bitewing', 'apical'],
+  toothIsolation: ['occlusion', 'high spot', 'articulat', 'polish', 'bite', 'grind', 'rubber dam', 'clamp', 'cotton roll', 'matrix', 'gingival dam'],
+  treatmentPerformed: ['filled', 'filling', 'restored', 'restoration', 'scaled', 'scale', 'polished', 'sealed', 'sealant', 'fluoride', 'extract', 'extraction', 'removed', 'removal', 'root canal', 'rct', 'access', 'extirpation', 'extirpated', 'obturated', 'temporary', 'dressing', 'cemented', 'anaesthetic', 'anesthetic', 'lignocaine', 'articaine', 'mepivacaine', 'adrenaline', 'cartridge', 'infiltration', 'ianb', 'ian', 'block', 'injection', 'rubber dam', 'matrix', 'wedge', 'etch', 'etched', 'bond', 'composite', 'resin', 'cured', 'cleaned', 'performed', 'completed', 'caries excavation', 'take the tooth out', 'splint', 'splinting', 'ipr', 'interproximal reduction', 'aligner', 'attachments', 'sutures', 'suture', 'flap', 'guttering', 'bone guttering', 'elevated', 'luxated', 'delivered', 'alveogyl', 'surgicel', 'hemostatic', 'biodentine', 'pulp cap', 'recemented', 'sandblasted', 'dam barrier', 'whitening', 'bleaching', 'hydrogen peroxide', 'tooth mousse', 'fluoride varnish', 'hall crown', 'pmc', 'try-in', 'impression', 'occlusal rim', 'custom tray', 'implant placement', 'torque', 'healing abutment', 'nightguard', 'occlusal splint', 'corticosteroid', 'kenalog', 'orabase', 'incised', 'drained', 'excavated', 'bite', 'registration', 'rim', 'framework', 'denture', 'nitrous', 'analgesia', 'pulpotomy', 'haemostasis', 'mta', 'crimped', 'contoured', 'relative analgesia', 'retraction', 'cord'],
+  plan: ['plan', 'treatment plan', 'booked', 'schedule', 'return', 'review', 'next', 'will', 'arrange', 'recommend', 'estimate', 'appointment', 'options', 'aligner', 'crown', 'rehabilitation', 'therapy', 'prescribed', 'clindamycin', 'paracetamol', 'ibuprofen'],
+  behaviourAssessment: ['behaviour', 'cooperat', 'anxious', 'nervous', 'scared', 'tell-show-do', 'child', 'settled', 'cried', 'distraction', 'frankl', 'positive'],
+  restorative: ['filling', 'restoration', 'composite', 'amalgam', 'resin', 'shade', 'bond', 'matrix', 'curing', 'etch', 'prep', 'cavity', 'biodentine', 'pulp cap'],
+  provisionalNote: ['provisional', 'temporary', 'temporis', 'shade', 'lab', 'impression', 'ferrule', 'core', 'try-in', 'rim', 'wax'],
+  postOpInstructions: ['advice', 'avoid', 'soft diet', 'ice', 'analgesic', 'pain relief', 'paracetamol', 'ibuprofen', 'brush', 'rinse', 'salt water', 'warm', 'numb', 'instruct', 'care', 'hot drinks', 'numbness', 'warnings', 'swelling', 'dry socket', 'gauze', 'bite on gauze'],
+  recommendations: ['advice', 'avoid', 'soft', 'brush', 'floss', 'rinse', 'salt water', 'warm', 'paracetamol', 'ibuprofen', 'analgesic', 'diet', 'sugar', 'smok', 'stop', 'return if', 'watch', 'instruct', 'care', 'oral hygiene', 'warnings', 'post-operative'],
+  diagnosis: ['diagnosis', 'pulpitis', 'periodontitis', 'gingivitis', 'abscess', 'caries', 'cavity', 'fracture', 'cracked tooth', 'periapical', 'infection', 'assessment', 'think', 'believe', 'likely', 'symptomatic', 'asymptomatic', 'reversible', 'irreversible', 'necrosis', 'subluxation', 'alveolar osteitis', 'dry socket', 'lichen planus', 'bruxism', 'edentulous'],
+  assessment: ['diagnosis', 'pulpitis', 'periodontitis', 'gingivitis', 'abscess', 'caries', 'fracture', 'assessment', 'likely', 'prognosis', 'subluxation', 'osteitis', 'lichen planus'],
+  recallRequirements: ['recall', 'review', 'months', 'weeks', 'appointment', 'booked', 'return', 'follow-up', 'follow up', 'next visit', 'standard', 'periodontal', 'splint removal', 'suture removal'],
+  emergency: ['pain', 'swelling', 'abscess', 'trauma', 'knocked', 'broken', 'urgent', 'severe', 'acute', 'struck', 'dislodged', 'throbbing', 'dry socket'],
 };
 
-// Conservative: ADA item numbers are only captured when explicitly flagged as
-// an item/code/billing reference by the clinician (e.g. "item 414"), never from
-// a bare number that happens to be three digits (e.g. a fee or dosage mention).
-const ADA_ITEM_REF_RE = /\b(?:item|code|billing)\s*(?:number|no\.?)?\s*[:#]?\s*(\d{3})\b/gi;
+// Captures ADA billing item numbers spoken by clinicians e.g. "ADA 532", "item 411", "ADA items 314 and 324"
+const ADA_CODE_PATTERN = /\b(?:ada|item|items|code|codes|billing)\s*(?:items|item|number|no\.?)?\s*[:#]?\s*(\d{3})(?:\s*(?:,|and|&)\s*(?:ada|item|code)?\s*(\d{3}))*\b/gi;
 
 /** True when the speaker is most plausibly the clinician (Dentist / Clinical Comment). */
 const isClinician = (sender: string): boolean =>
@@ -335,14 +333,20 @@ function extractAdaCodesSpoken(transcript: TranscriptItem[]): { code: string; de
   for (const item of transcript) {
     if (!isClinician(item.sender) && !isUnattributed(item.sender)) continue;
     const cleanedText = item.text.replace(SENDER_PREFIX_GLOBAL_RE, '');
-    const matches = [...normalizeFdiSpoken(cleanedText).matchAll(ADA_ITEM_REF_RE)];
-    for (const m of matches) {
-      const code = m[1];
-      if (!/^(0\d\d|[1-9]\d\d)$/.test(code)) continue;
-      if (found.has(code)) continue;
-      const after = (cleanedText.slice((m.index || 0) + m[0].length) || '').trim();
-      const description = after.split(/[,;.]/)[0].trim().slice(0, 90);
-      found.set(code, description || 'Item mentioned');
+    const normalizedText = normalizeFdiSpoken(cleanedText);
+
+    // Match all 3-digit numbers preceded by ADA/item/code context or conjoined
+    const itemMatches = normalizedText.matchAll(/\b(?:ada|item|items|code|codes|billing)\s*(?:number|no\.?)?\s*[:#]?\s*(\d{3})(?:(?:\s*(?:,|and|&)\s*(?:ada|item)?\s*)(\d{3}))?(?:(?:\s*(?:,|and|&)\s*(?:ada|item)?\s*)(\d{3}))?(?:(?:\s*(?:,|and|&)\s*(?:ada|item)?\s*)(\d{3}))?\b/gi);
+
+    for (const m of itemMatches) {
+      const codes = [m[1], m[2], m[3], m[4]].filter(Boolean);
+      for (const code of codes) {
+        if (/^(0\d\d|[1-9]\d\d)$/.test(code) && !found.has(code)) {
+          const after = (cleanedText.slice((m.index || 0) + m[0].length) || '').trim();
+          const description = after.split(/[,;.]/)[0].trim().slice(0, 90);
+          found.set(code, description || 'Item mentioned');
+        }
+      }
     }
   }
   return [...found.entries()].map(([code, description]) => ({ code, description }));
