@@ -34,8 +34,10 @@ import {
   Image as ImageIcon,
   Trash2,
   UploadCloud,
-  RotateCw
+  RotateCw,
+  Volume2
 } from 'lucide-react';
+import { createOperatoryDspChain, type OperatoryDspChain } from '../lib/operatoryAudioDsp';
 import { addScheduleItem, parseTimeToMinutes, ScheduleItemStatus } from '../lib/dayScheduleStorage';
 import { Consultation, TranscriptItem, ClinicalFindings } from '../types';
 import { chooseNoteTranscript, type TranscriptSource } from '../lib/transcription';
@@ -646,6 +648,11 @@ export default function ChairsideWorkspace({
   }, [playMedicalChime]);
 
   const handleStopAudioToStandby = useCallback(() => {
+    if (dspRef.current) {
+      dspRef.current.destroy();
+      dspRef.current = null;
+    }
+    setIsSnrLow(false);
     setIsMicStandby(true);
     setIsPaused(false);
     setIsSilenceWarning(false);
@@ -658,6 +665,12 @@ export default function ChairsideWorkspace({
   const handleSelectPatient = useCallback((patientId: string) => {
     hasUserManuallySelectedRef.current = true;
     if (patientId === activePatientId) return;
+
+    if (dspRef.current) {
+      dspRef.current.destroy();
+      dspRef.current = null;
+    }
+    setIsSnrLow(false);
 
     // Apple Medical Standard: Strict patient boundary halts recording to prevent cross-patient contamination
     if (!isMicStandbyRef.current) {
@@ -766,10 +779,19 @@ export default function ChairsideWorkspace({
   const analyserRef = useRef<AnalyserNode | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const filteredStreamRef = useRef<MediaStream | null>(null);
+  const dspRef = useRef<OperatoryDspChain | null>(null);
+  const [isSnrLow, setIsSnrLow] = useState(false);
   const animFrameRef = useRef<number | null>(null);
   const recognitionRef = useRef<any>(null);
   const lastInterimRef = useRef<string>('');
   const waveformRefs = useRef<(HTMLDivElement | null)[]>([]);
+
+  // Sync bypass state when user toggles DSP noise filter
+  useEffect(() => {
+    if (dspRef.current) {
+      dspRef.current.setBypass(!dspNoiseGateActive);
+    }
+  }, [dspNoiseGateActive]);
 
   // Auto-scroll ambient transcript stream to bottom on new utterance or interim speech
   useEffect(() => {
@@ -778,7 +800,7 @@ export default function ChairsideWorkspace({
     }
   }, [activeEncounter?.diarizedTranscript?.length, interimTranscript]);
 
-  // High-performance DOM-level visualizer loop with Dual-Stage Operatory DSP Filter Graph
+  // High-performance DOM-level visualizer loop with Medical-Grade Operatory DSP Filter Graph
   useEffect(() => {
     let isCancelled = false;
 
@@ -812,49 +834,30 @@ export default function ChairsideWorkspace({
             streamRef.current = stream;
             if (audioContextRef.current) {
               const ctx = audioContextRef.current;
-              const source = ctx.createMediaStreamSource(stream);
-              const analyser = ctx.createAnalyser();
-              analyser.fftSize = 64;
-
-              // ─── DUAL-STAGE ACOUSTIC DSP GRAPH ───
-              // 1. Vocal Highpass (120 Hz) - removes HVAC rumble and ceiling subwoofer bass
-              const highpass = ctx.createBiquadFilter();
-              highpass.type = 'highpass';
-              highpass.frequency.value = 120;
-
-              // 2. Vocal Lowpass (3,400 Hz) - strips radio percussion, cymbals & air syringe hiss
-              const lowpass = ctx.createBiquadFilter();
-              lowpass.type = 'lowpass';
-              lowpass.frequency.value = 3400;
-
-              // 3. Drill Turbine Notch (4,200 Hz, Q 3.5) - eliminates high-speed handpiece resonant scream
-              const drillNotch = ctx.createBiquadFilter();
-              drillNotch.type = 'notch';
-              drillNotch.frequency.value = 4200;
-              drillNotch.Q.value = 3.5;
-
-              // Route filtered audio to destination for genuine MediaRecorder ingestion
-              const filteredDestination = ctx.createMediaStreamDestination();
-
-              if (dspNoiseGateActive) {
-                // Route through full acoustic operatory chain
-                source.connect(highpass);
-                highpass.connect(lowpass);
-                lowpass.connect(drillNotch);
-                drillNotch.connect(analyser);
-                drillNotch.connect(filteredDestination);
-              } else {
-                // Direct bypass mode
-                source.connect(analyser);
-                source.connect(filteredDestination);
+              if (dspRef.current) {
+                dspRef.current.destroy();
+                dspRef.current = null;
               }
-              analyserRef.current = analyser;
-              filteredStreamRef.current = filteredDestination.stream;
 
-              const dataArray = new Uint8Array(analyser.frequencyBinCount);
+              // Build calibrated operatory DSP filter graph (High-pass 80Hz, Notch 5-7.5kHz, Low-pass 18kHz)
+              const dsp = createOperatoryDspChain(stream, {
+                audioContext: ctx,
+                onSnrWarning: (lowSnr) => {
+                  if (!isCancelled) {
+                    setIsSnrLow(lowSnr);
+                  }
+                }
+              });
+              dsp.setBypass(!dspNoiseGateActive);
+              dspRef.current = dsp;
+
+              analyserRef.current = dsp.analyserNode;
+              filteredStreamRef.current = dsp.destinationStream;
+
+              const dataArray = new Uint8Array(dsp.analyserNode.frequencyBinCount);
               const updateVisualizer = () => {
                 if (isCancelled) return;
-                analyser.getByteFrequencyData(dataArray);
+                dsp.analyserNode.getByteFrequencyData(dataArray);
 
                 // Direct DOM manipulation on each bar: 60fps with 0 React renders!
                 for (let i = 0; i < 13; i++) {
@@ -889,10 +892,17 @@ export default function ChairsideWorkspace({
       if (animFrameRef.current) {
         cancelAnimationFrame(animFrameRef.current);
       }
+      if (dspRef.current) {
+        dspRef.current.destroy();
+        dspRef.current = null;
+      }
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(t => t.stop());
         streamRef.current = null;
       }
+      filteredStreamRef.current = null;
+      analyserRef.current = null;
+      setIsSnrLow(false);
     };
   }, [isRecording, isPaused, isMicStandby, dspNoiseGateActive]);
 
@@ -1710,7 +1720,7 @@ export default function ChairsideWorkspace({
   const handleUpdateAppointmentType = (targetId: string, newType: AppointmentType) => {
     const typeInfo = APPOINTMENT_TYPES.find(t => t.value === newType);
     const newTemplateId = typeInfo?.defaultTemplateId || 'standard';
-    
+
     const targetConsult = consultations.find(c => c.id === targetId);
     if (targetConsult && onSaveConsultation) {
       const updatedConsult: Consultation = {
@@ -2609,11 +2619,10 @@ ${clinician}`;
                                 key={t.value}
                                 type="button"
                                 onClick={() => handleUpdateAppointmentType(activeEncounter.id, t.value)}
-                                className={`px-2 py-0.5 text-[10px] font-bold rounded-md transition cursor-pointer ${
-                                  isSelected
+                                className={`px-2 py-0.5 text-[10px] font-bold rounded-md transition cursor-pointer ${isSelected
                                     ? 'bg-[#0060BA] text-white shadow-2xs'
                                     : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
-                                }`}
+                                  }`}
                               >
                                 {t.short}
                               </button>
@@ -2724,6 +2733,16 @@ ${clinician}`;
                   </div>
                 )}
 
+                {/* Operatory Background Noise Warning (Receptionist-Friendly Rule 9) */}
+                {isSnrLow && !isMicStandby && !isPaused && (
+                  <div className="bg-sky-50 border border-sky-300 rounded-xl p-3 flex items-center justify-between text-xs text-sky-950 font-medium shadow-2xs">
+                    <div className="flex items-center space-x-2">
+                      <Volume2 className="w-4 h-4 text-sky-700 animate-pulse" />
+                      <span>Microphone Notice: Operatory background noise is high. Please position microphone closer to speaker.</span>
+                    </div>
+                  </div>
+                )}
+
                 {/* Main Split: Clinical Document (Left) + Live Speech Feed (Right) */}
                 <div className="grid grid-cols-12 gap-5 flex-1 items-start">
                   {/* Left: Live Conversation Feed */}
@@ -2764,13 +2783,12 @@ ${clinician}`;
                                   {t.time && <span className="text-slate-400 font-mono">{t.time}</span>}
                                 </div>
                               )}
-                              <div className={`p-2.5 rounded-xl border text-xs ${
-                                isDentist
+                              <div className={`p-2.5 rounded-xl border text-xs ${isDentist
                                   ? 'bg-sky-50/40 text-slate-800 border-sky-200/70'
                                   : isPatient
                                     ? 'bg-emerald-50/40 text-slate-800 border-emerald-200/70'
                                     : 'bg-slate-50 text-slate-800 border-slate-200/70'
-                              }`}>
+                                }`}>
                                 {renderAnnotatedText(t.text)}
                               </div>
                             </div>
@@ -3293,11 +3311,10 @@ ${clinician}`;
               <button
                 type="button"
                 onClick={() => setScheduleImportTab('screenshot')}
-                className={`px-3.5 py-1.5 rounded-xl transition flex items-center space-x-1.5 cursor-pointer ${
-                  scheduleImportTab === 'screenshot'
+                className={`px-3.5 py-1.5 rounded-xl transition flex items-center space-x-1.5 cursor-pointer ${scheduleImportTab === 'screenshot'
                     ? 'bg-sky-600 text-white shadow-2xs'
                     : 'text-slate-600 hover:bg-slate-100'
-                }`}
+                  }`}
               >
                 <Camera className="w-3.5 h-3.5" />
                 <span>Paste Screenshot (Vision AI)</span>
@@ -3305,11 +3322,10 @@ ${clinician}`;
               <button
                 type="button"
                 onClick={() => setScheduleImportTab('text')}
-                className={`px-3.5 py-1.5 rounded-xl transition flex items-center space-x-1.5 cursor-pointer ${
-                  scheduleImportTab === 'text'
+                className={`px-3.5 py-1.5 rounded-xl transition flex items-center space-x-1.5 cursor-pointer ${scheduleImportTab === 'text'
                     ? 'bg-sky-600 text-white shadow-2xs'
                     : 'text-slate-600 hover:bg-slate-100'
-                }`}
+                  }`}
               >
                 <FileText className="w-3.5 h-3.5" />
                 <span>Paste Text / Day Sheet</span>

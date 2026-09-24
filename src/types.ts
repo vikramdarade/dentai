@@ -215,6 +215,7 @@ export interface GeneratedNotePayload {
   specialistReferral?: SpecialistReferral;
   patientConsent?: PatientConsentAndCare;
   treatmentQuote?: TreatmentQuoteData;
+  pharmacologyAlerts?: any[];
 }
 
 export interface Consultation {

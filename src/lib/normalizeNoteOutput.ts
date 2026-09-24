@@ -20,6 +20,8 @@ import type {
   TreatmentQuoteData
 } from '../types';
 import { buildTreatmentQuoteData } from './adaFees';
+import { scanPharmacologySafety, type PharmacologyAlert } from './pharmacologySafetyEngine';
+import { isValidFdiTooth } from './fdiNotationEngine';
 
 export interface AdaCodeLike {
   code: string;
@@ -37,6 +39,7 @@ export interface NormalizedNoteOutput {
   specialistReferral?: SpecialistReferral;
   patientConsent?: PatientConsentAndCare;
   treatmentQuote?: TreatmentQuoteData;
+  pharmacologyAlerts?: PharmacologyAlert[];
 }
 
 const MAX_NOTE_SECTION_LENGTH = 4000;
@@ -145,11 +148,24 @@ export function normalizeTemplateOutput(template: NoteTemplate, raw: any): Norma
   }
 
   // Treatment Quote Normalisation & Auto-Derivation
+  const clinicalText = Object.values(output).filter(v => typeof v === 'string').join(' ');
   if (raw?.treatmentQuote && typeof raw.treatmentQuote === 'object' && Array.isArray(raw.treatmentQuote.items)) {
     output.treatmentQuote = raw.treatmentQuote;
   } else {
-    const clinicalText = Object.values(output).filter(v => typeof v === 'string').join(' ');
     output.treatmentQuote = buildTreatmentQuoteData(output.adaCodes, output.proposedTreatments, clinicalText);
+  }
+
+  // High-Risk Pharmacology & Safety Interception
+  const pharmAlerts = scanPharmacologySafety(clinicalText);
+  if (pharmAlerts.length > 0) {
+    output.pharmacologyAlerts = pharmAlerts;
+    const criticalAlert = pharmAlerts.find(a => a.severity === 'critical' || a.severity === 'high');
+    if (criticalAlert && output.patientConsent) {
+      const alertPrefix = `[SAFETY NOTICE - ${criticalAlert.category}]: ${criticalAlert.clinicalRecommendation} `;
+      if (!output.patientConsent.redFlagsWarning.includes(criticalAlert.category)) {
+        output.patientConsent.redFlagsWarning = `${alertPrefix}${output.patientConsent.redFlagsWarning}`.slice(0, MAX_NOTE_SECTION_LENGTH);
+      }
+    }
   }
 
   return output;
@@ -188,6 +204,7 @@ export function normalizedToPayload(template: NoteTemplate, out: any): Generated
     specialistReferral: out?.specialistReferral,
     patientConsent: out?.patientConsent,
     treatmentQuote: out?.treatmentQuote,
+    pharmacologyAlerts: out?.pharmacologyAlerts,
   };
 }
 
