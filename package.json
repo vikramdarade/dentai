@@ -18,6 +18,7 @@
     "test:integration": "vitest run tests/server.test.ts --run --test-timeout=30000",
     "test:postgres": "vitest run tests/postgres.test.ts --run --test-timeout=60000",
     "eval:notes": "tsx scripts/eval-notes.ts",
+    "eval:benchmark": "tsx scripts/run-clinical-benchmark.ts",
     "db:migrate": "tsx scripts/migrate.ts up",
     "db:migrate:status": "tsx scripts/migrate.ts status",
     "db:migrate:down": "tsx scripts/migrate.ts down",
