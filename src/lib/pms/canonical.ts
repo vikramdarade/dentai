@@ -32,6 +32,8 @@ export interface PmsEncounter {
   itemCodes: PmsEncounterCode[];
   patientSummary?: string;
   needsReview: boolean;
+  attestation?: import('../attestation').AttestationSeal;
+  groundingBadge?: string;
 }
 
 function valueFor(consultation: Consultation, key: string): string {
@@ -79,6 +81,8 @@ export function toPmsEncounter(consultation: Consultation): PmsEncounter {
     sections,
     itemCodes,
     patientSummary: consultation.patientSummary ? consultation.patientSummary.trim() : undefined,
-    needsReview: !!consultation.noteOrigin?.needsReview
+    needsReview: !!consultation.noteOrigin?.needsReview,
+    attestation: consultation.attestation,
+    groundingBadge: consultation.groundingAudit?.alignment.statusBadge || (consultation.grounding?.isFullyGrounded ? 'Verified from Audio' : undefined)
   };
 }

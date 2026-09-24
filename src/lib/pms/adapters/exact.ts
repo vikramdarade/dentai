@@ -26,5 +26,11 @@ export function renderExact(encounter: PmsEncounter): string {
     lines.push(`Items Completed: ${encounter.itemCodes.map(c => `${c.code}${c.tooth ? ` (T${c.tooth})` : ''}`).join(', ')}`);
   }
 
+  if (encounter.attestation) {
+    lines.push('----------------------------------------');
+    lines.push(`Attested: ${encounter.attestation.signedBy} (${encounter.attestation.ahpraRegistration || 'AHPRA'}) | ${encounter.attestation.signedAt}`);
+    lines.push(`SHA-256 Seal: ${encounter.attestation.signatureHash.slice(0, 16)}... | ${encounter.attestation.auditStatus}`);
+  }
+
   return lines.join('\n');
 }

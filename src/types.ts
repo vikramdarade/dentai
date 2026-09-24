@@ -1,8 +1,9 @@
 import type { AppointmentType } from './lib/dentalLibrary';
 import type { GroundingReport } from './lib/transcriptGrounding';
 import type { UnifiedGroundingAudit } from './grounding/types';
+import type { AttestationSeal } from './lib/attestation';
 
-export type { AppointmentType, UnifiedGroundingAudit };
+export type { AppointmentType, UnifiedGroundingAudit, AttestationSeal };
 
 export interface TranscriptProvenance {
   /**
@@ -223,6 +224,7 @@ export interface Consultation {
   id: string;
   dentistId?: string;
   dentistName?: string;
+  dentistAHPRA?: string;
   /** Clinic this consultation was recorded in (stamped server-side). */
   clinicId?: string;
   /**
@@ -274,6 +276,11 @@ export interface Consultation {
    * Evidentiary alignment (t ± 500ms), zero-omission reconciliation, and Rogers v Whitaker consent gate.
    */
   groundingAudit?: UnifiedGroundingAudit;
+  /**
+   * Work Package 5.2 Cryptographic Clinician Attestation:
+   * SHA-256 digital seal proving practitioner attestation under Evidence Act 1995.
+   */
+  attestation?: AttestationSeal;
   /**
    * Which capture produced `transcript`, and how good it was.
    *

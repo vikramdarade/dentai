@@ -37,6 +37,15 @@ export function renderD4W(encounter: PmsEncounter): string {
     lines.push('');
   }
 
+  if (encounter.attestation) {
+    lines.push('CLINICAL ATTESTATION & EVIDENCE:');
+    lines.push(`Attested By: ${encounter.attestation.signedBy} (${encounter.attestation.ahpraRegistration || 'Registered Dentist'})`);
+    lines.push(`Attestation Timestamp: ${encounter.attestation.signedAt}`);
+    lines.push(`Audio Grounding: ${encounter.attestation.auditStatus}`);
+    lines.push(`Digital Seal (SHA-256): ${encounter.attestation.signatureHash}`);
+    lines.push('');
+  }
+
   lines.push('[Reviewed and verified by treating clinician chairside in DentAI]');
   return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }

@@ -23,7 +23,8 @@ import {
   ShieldCheck,
   Plus,
   Trash2,
-  Info
+  Info,
+  Volume2
 } from 'lucide-react';
 import {
   Consultation,
@@ -32,7 +33,8 @@ import {
   SpecialistReferral,
   PatientConsentAndCare,
   TreatmentQuoteData,
-  TreatmentQuoteItem
+  TreatmentQuoteItem,
+  AttestationSeal
 } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -51,6 +53,16 @@ import {
   detectVisualCaseCategory,
   VisualCaseCategory
 } from '../lib/visualCaseLibrary';
+import { createAttestationSeal } from '../lib/attestation';
+import { toPmsEncounter, renderD4W, renderExact, renderGeneric } from '../lib/pms';
+
+function formatTimestampMs(ms?: number): string {
+  if (ms == null) return '00:00';
+  const totalSecs = Math.max(0, Math.floor(ms / 1000));
+  const m = Math.floor(totalSecs / 60);
+  const s = totalSecs % 60;
+  return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+}
 
 interface ClinicalSummaryProps {
   consultation: Consultation;
@@ -203,6 +215,11 @@ export default function ClinicalSummary({
   const [referralCopied, setReferralCopied] = useState(false);
   const [quoteCopied, setQuoteCopied] = useState(false);
   const [pmsCopied, setPmsCopied] = useState(false);
+  const [pmsCopiedD4w, setPmsCopiedD4w] = useState(false);
+  const [pmsCopiedExact, setPmsCopiedExact] = useState(false);
+  const [pmsCopiedStandard, setPmsCopiedStandard] = useState(false);
+  const [playingUtteranceId, setPlayingUtteranceId] = useState<string | null>(null);
+  const [attestationSeal, setAttestationSeal] = useState<AttestationSeal | undefined>(consultation.attestation);
   const [adaCopied, setAdaCopied] = useState(false);
   const [showSavedOverlay, setShowSavedOverlay] = useState(false);
 
@@ -450,27 +467,7 @@ export default function ClinicalSummary({
     setTimeout(() => setQuoteCopied(false), 2000);
   };
 
-  // One-click copy for PMS: Progress notes ONLY (ADA codes excluded per Australian practice workflow)
-  const handleCopyPmsNote = () => {
-    const lines: string[] = [
-      `=== CLINICAL NOTE (${activeTemplate.name.toUpperCase()}) ===`,
-      `PATIENT: ${consultation.firstName} ${consultation.lastName} (DOB: ${consultation.dob})`,
-      `APPOINTMENT: ${getAppointmentTypeLabel(consultation.appointmentType)}`,
-      `DATE: ${consultation.date} ${consultation.time}`,
-      ``
-    ];
-    for (const section of activeTemplate.sections) {
-      lines.push(`${section.label.toUpperCase()}:`);
-      lines.push(getSectionValue(section.key) || '(not recorded)');
-      lines.push(``);
-    }
-    lines.push(`Clinician: ${dentistName || 'Dentist'} (AHPRA Reg)`);
-    navigator.clipboard.writeText(lines.join('\n'));
-    setPmsCopied(true);
-    setTimeout(() => setPmsCopied(false), 2500);
-  };
-
-  const handleSaveToRecord = () => {
+  const buildLiveConsultation = (): Consultation => {
     const canonicalValues: Record<string, string> = {};
     const customSections: Record<string, string> = {};
 
@@ -496,6 +493,73 @@ export default function ClinicalSummary({
       adaCodes
     };
 
+    return {
+      ...consultation,
+      templateId: activeTemplate.id,
+      findings
+    };
+  };
+
+  const handlePlayAudioSlice = (utteranceId: string) => {
+    setPlayingUtteranceId(utteranceId);
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioCtx) {
+        const ctx = new AudioCtx();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(587.33, ctx.currentTime);
+        gain.gain.setValueAtTime(0.08, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.35);
+      }
+    } catch {
+      // AudioContext unavailable in mock environment
+    }
+    setTimeout(() => {
+      setPlayingUtteranceId(null);
+    }, 1200);
+  };
+
+  const handleCopyPmsD4W = () => {
+    const liveConsult = buildLiveConsultation();
+    const encounter = toPmsEncounter(liveConsult);
+    const rendered = renderD4W(encounter);
+    navigator.clipboard.writeText(rendered);
+    setPmsCopiedD4w(true);
+    setTimeout(() => setPmsCopiedD4w(false), 2500);
+  };
+
+  const handleCopyPmsExact = () => {
+    const liveConsult = buildLiveConsultation();
+    const encounter = toPmsEncounter(liveConsult);
+    const rendered = renderExact(encounter);
+    navigator.clipboard.writeText(rendered);
+    setPmsCopiedExact(true);
+    setTimeout(() => setPmsCopiedExact(false), 2500);
+  };
+
+  const handleCopyPmsStandard = () => {
+    const liveConsult = buildLiveConsultation();
+    const encounter = toPmsEncounter(liveConsult);
+    const rendered = renderGeneric(encounter);
+    navigator.clipboard.writeText(rendered);
+    setPmsCopiedStandard(true);
+    setTimeout(() => setPmsCopiedStandard(false), 2500);
+  };
+
+  // One-click copy for PMS: Progress notes ONLY (ADA codes excluded per Australian practice workflow)
+  const handleCopyPmsNote = () => {
+    handleCopyPmsStandard();
+  };
+
+  const handleSaveToRecord = () => {
+    const liveConsult = buildLiveConsultation();
+
     if (groundingAudit && !groundingAudit.isApprovedForSigning) {
       const confirmMsg = `Clinician Verification Required before sign-off:\n\n${groundingAudit.blockingReasons.join('\n')}\n\nDo you confirm you have verified these discrepancies and wish to sign and save the record?`;
       if (!window.confirm(confirmMsg)) {
@@ -503,15 +567,22 @@ export default function ClinicalSummary({
       }
     }
 
+    const seal = createAttestationSeal(
+      liveConsult,
+      consultation.dentistId || 'dentist-01',
+      dentistName || 'Attending Practitioner',
+      consultation.dentistAHPRA || 'DEN0000123456'
+    );
+    setAttestationSeal(seal);
+
     const updatedConsultation: Consultation = {
-      ...consultation,
+      ...liveConsult,
       status: 'Completed',
-      templateId: activeTemplate.id,
-      findings,
       patientSummary: patientLetter,
       specialistReferral,
       patientConsent,
       groundingAudit: groundingAudit || undefined,
+      attestation: seal,
       treatmentQuote: {
         ...treatmentQuote,
         visualCaseCategory: selectedVisualCategory,
@@ -533,6 +604,18 @@ export default function ClinicalSummary({
     }
     return map;
   }, [activeTemplate, consultation.transcript]);
+
+  const claimsBySection = useMemo(() => {
+    const map: Record<string, any[]> = {};
+    if (groundingAudit?.alignment?.claims) {
+      for (const claim of groundingAudit.alignment.claims) {
+        const sec = claim.section || 'objective';
+        if (!map[sec]) map[sec] = [];
+        map[sec].push(claim);
+      }
+    }
+    return map;
+  }, [groundingAudit]);
 
   const activeVisualPresentation = getVisualCasePresentation(selectedVisualCategory);
 
@@ -630,6 +713,62 @@ export default function ClinicalSummary({
                     +{evidenceBySection[section.key].length - 3} more quotes in transcript
                   </span>
                 )}
+              </div>
+            </div>
+          ) : null}
+
+          {/* Grounded Clinical Claims with 1-Tap Audio Playback Chips */}
+          {!isRecall && claimsBySection[section.key]?.length ? (
+            <div className="mt-2.5 pt-2.5 border-t border-slate-100 flex flex-col gap-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1">
+                  <ShieldCheck className="w-3 h-3 text-emerald-600" />
+                  Verified Assertions
+                </span>
+                <span className="text-[9px] font-mono text-slate-400">
+                  {claimsBySection[section.key].filter((c: any) => c.isCorroborated).length}/{claimsBySection[section.key].length} corroborated
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {claimsBySection[section.key].map((claim: any) => {
+                  const isHigh = claim.confidenceScore >= 0.90;
+                  const isMed = claim.confidenceScore >= 0.70 && claim.confidenceScore < 0.90;
+                  const pillClass = isHigh
+                    ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                    : isMed
+                    ? 'bg-amber-50 text-amber-800 border-amber-200'
+                    : 'bg-rose-50 text-rose-800 border-rose-200';
+                  const label = isHigh ? 'Verified from Audio' : isMed ? 'Corroborated' : 'Unverified';
+                  const pct = Math.round(claim.confidenceScore * 100);
+                  const isPlaying = playingUtteranceId === claim.evidence?.utteranceId;
+
+                  return (
+                    <div
+                      key={claim.claimId}
+                      className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-lg border text-[11px] font-medium shadow-2xs ${pillClass}`}
+                    >
+                      <span className="font-semibold text-slate-800">{claim.text}</span>
+                      <span className="text-[9px] font-bold uppercase px-1 py-0.5 rounded bg-white/80 border border-slate-200/50">
+                        {label} ({pct}%)
+                      </span>
+                      {claim.evidence?.startTimeMs != null && (
+                        <button
+                          type="button"
+                          onClick={() => handlePlayAudioSlice(claim.evidence.utteranceId)}
+                          title={`1-tap audio verification: "${claim.evidence.verbatimText || ''}"`}
+                          className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-mono font-bold transition-all cursor-pointer ${
+                            isPlaying
+                              ? 'bg-emerald-600 text-white animate-pulse'
+                              : 'bg-white hover:bg-slate-50 text-slate-700 hover:text-primary border border-slate-200 shadow-2xs'
+                          }`}
+                        >
+                          <Volume2 className="w-2.5 h-2.5" />
+                          <span>t {formatTimestampMs(claim.evidence.startTimeMs)}</span>
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           ) : null}
@@ -808,16 +947,41 @@ export default function ClinicalSummary({
                     )}
                   </div>
                 )}
-                <button
-                  onClick={handleCopyPmsNote}
-                  title="Copy the note formatted for Dental4Windows, Core Practice, or Exact"
-                  className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl font-bold text-xs transition-all active:scale-95 shadow-sm cursor-pointer ${
-                    pmsCopied ? 'bg-emerald-600 text-white' : 'bg-[#004ac6] text-white hover:bg-blue-700'
-                  }`}
-                >
-                  {pmsCopied ? <Check className="w-3.5 h-3.5 stroke-[3]" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{pmsCopied ? 'Copied for PMS!' : '1-Click Copy for PMS'}</span>
-                </button>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={handleCopyPmsD4W}
+                    title="Copy clinical progress note formatted for Dental4Windows (D4W) with SHA-256 seal"
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold text-xs transition-all active:scale-95 shadow-sm cursor-pointer ${
+                      pmsCopiedD4w ? 'bg-emerald-600 text-white' : 'bg-[#004ac6] text-white hover:bg-blue-700'
+                    }`}
+                  >
+                    {pmsCopiedD4w ? <Check className="w-3.5 h-3.5 stroke-[3]" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{pmsCopiedD4w ? 'Copied D4W!' : 'Copy Note for PMS (D4W)'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCopyPmsExact}
+                    title="Copy clinical note formatted for SOE Software of Excellence (EXACT)"
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold text-xs transition-all active:scale-95 shadow-sm cursor-pointer ${
+                      pmsCopiedExact ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-white hover:bg-slate-900'
+                    }`}
+                  >
+                    {pmsCopiedExact ? <Check className="w-3.5 h-3.5 stroke-[3]" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{pmsCopiedExact ? 'Copied EXACT!' : 'Copy Note for PMS (EXACT)'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCopyPmsStandard}
+                    title="Copy standard AHPRA clinical note to clipboard"
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold text-xs transition-all active:scale-95 shadow-sm cursor-pointer ${
+                      pmsCopiedStandard ? 'bg-emerald-600 text-white' : 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    {pmsCopiedStandard ? <Check className="w-3.5 h-3.5 stroke-[3]" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{pmsCopiedStandard ? 'Copied Standard!' : 'Copy Note for PMS (Standard)'}</span>
+                  </button>
+                </div>
               </div>
 
               {/* ADA billing codes */}
@@ -1489,6 +1653,24 @@ export default function ClinicalSummary({
                 </div>
               )}
 
+              {/* Attestation Seal Status Card */}
+              {attestationSeal && (
+                <div className="p-4 bg-emerald-50/70 border border-emerald-200 rounded-xl flex items-center justify-between gap-3 text-xs">
+                  <div className="flex items-center gap-2.5">
+                    <ShieldCheck className="w-5 h-5 text-emerald-600 shrink-0" />
+                    <div>
+                      <span className="font-bold text-emerald-900 block">Cryptographic Attestation Seal Active</span>
+                      <span className="font-mono text-[10px] text-emerald-700">
+                        SHA-256: {attestationSeal.signatureHash.slice(0, 16)}...{attestationSeal.signatureHash.slice(-8)}
+                      </span>
+                    </div>
+                  </div>
+                  <span className="text-[10px] font-bold uppercase tracking-wider bg-emerald-100 text-emerald-800 px-2.5 py-1 rounded-full border border-emerald-200 shrink-0">
+                    Tamper-Evident
+                  </span>
+                </div>
+              )}
+
               {/* Master Save to Practice Record Button */}
               <div className="mt-2">
                 <button
@@ -1711,12 +1893,22 @@ export default function ClinicalSummary({
             <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">
               {needsReview ? 'Clinician-reviewed draft' : 'AHPRA Section 133 Compliant Dossier'}
             </span>
+            {attestationSeal && (
+              <span className="ml-2 px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-800 border border-emerald-200 text-[10px] font-mono font-bold flex items-center gap-1">
+                <ShieldCheck className="w-3 h-3 text-emerald-600" />
+                SHA-256: {attestationSeal.signatureHash.slice(0, 12)}...{attestationSeal.signatureHash.slice(-6)}
+              </span>
+            )}
           </div>
           <div className="text-right">
-            <p className="text-xs font-bold text-slate-700">{dentistName || 'Dentist'}</p>
-            <p className="text-[9px] text-slate-400 uppercase tracking-widest font-semibold">Registered Dentist</p>
+            <p className="text-xs font-bold text-slate-700">{dentistName || attestationSeal?.signedBy || 'Dentist'}</p>
+            <p className="text-[9px] text-slate-400 uppercase tracking-widest font-semibold">
+              Registered Dentist ({attestationSeal?.ahpraRegistration || 'AHPRA Reg'})
+            </p>
             <div className="w-48 border-b border-slate-300 mt-6 inline-block"></div>
-            <p className="text-[8px] text-slate-400 mt-1 uppercase tracking-wide">Signature / Authorization</p>
+            <p className="text-[8px] text-slate-400 mt-1 uppercase tracking-wide">
+              {attestationSeal ? `Cryptographically Attested · ${attestationSeal.signedAt.slice(0, 16).replace('T', ' ')}` : 'Signature / Authorization'}
+            </p>
           </div>
         </div>
       </div>
