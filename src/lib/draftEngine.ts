@@ -387,6 +387,20 @@ function cleanSectionText(raw: string): string {
 }
 
 /**
+ * Formats multi-sentence clinical notes into structured bullet points (SOAP & D4W convention).
+ */
+export function formatAsClinicalBullets(text: string): string {
+  if (!text) return '';
+  const sentences = text
+    .split(/(?<=[.!?])\s+/)
+    .map(s => s.trim())
+    .filter(Boolean);
+
+  if (sentences.length <= 1) return text;
+  return sentences.map(s => `• ${s}`).join('\n');
+}
+
+/**
  * Builds a full note-template-shaped draft from a transcript.
  * `intakeText` (e.g. "Comprehensive Examination") is used only as a neutral
  * section hint when the template needs context (never to fabricate findings).

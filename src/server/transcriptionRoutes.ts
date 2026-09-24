@@ -23,6 +23,7 @@
  */
 
 import type { TranscriptItem } from '../types';
+import { purgeAudioPayload } from '../sovereignty';
 import { TRANSCRIPTION_USAGE_KINDS } from './aiMetering';
 import { CHAIR_AUDIO_LIMITS } from './chairSessionStore';
 import type { ChairSessionStore } from './chairSessionStore';
@@ -437,6 +438,7 @@ export function registerTranscriptionRoutes(app: any, deps: TranscriptionRouteDe
       if (persisted) {
         try {
           await deps.chairStore.deleteAudio(audioKey);
+          purgeAudioPayload(audioKey);
         } catch (cleanupError: any) {
           deps.logger.warn('Could not delete transcribed audio', { message: cleanupError?.message, audioKey });
         }
