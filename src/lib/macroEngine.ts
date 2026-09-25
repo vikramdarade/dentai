@@ -36,18 +36,21 @@ export function detectMacroFromContext(
     : transcript.map(t => t.text || '').join(' ');
   const lower = fullText.toLowerCase();
 
-  // 1. Explicit surgical extraction indicators
-  if (/\b(?:bone\s+gutter|guttering|mucoperiosteal\s+flap|sectioned|tooth\s+division|suture|gelatemp|prolene)\b/i.test(lower)) {
-    return SURGICAL_EXTRACTION_MACRO;
-  }
+  // Negation guard: Check if extraction was explicitly contraindicated, negated or deferred
+  const isExtractionNegated = /\b(?:not\s+(?:going\s+to|ready\s+to|planning\s+to)?\s*(?:take|extract)|avoid\s+extraction|contraindicated|consult\s+(?:your\s+)?gp\s+(?:first|before\s+taking)|defer(?:red)?\s+extraction|without\s+extracting|refuse\s+extraction|open\s+the\s+tooth\s+instead)\b/i.test(lower);
 
-  // 2. Explicit endodontic / extirpation indicators
-  if (/\b(?:extirpat|odontopaste|pulp\s+extirpation|barbed\s+broach|cavit|canals?\s+located)\b/i.test(lower)) {
+  // 1. Explicit endodontic / extirpation / emergency nerve removal indicators
+  if (/\b(?:extirpat|odontopaste|pulp\s+extirpation|barbed\s+broach|cavit|canals?\s+located|emergency\s+nerve\s+removal|remove\s+(?:the\s+)?nerve|nerve\s+treatment|dressing\s+inside\s+(?:the\s+)?tooth|open\s+(?:the\s+)?tooth|pulpotomy|pulpitis)\b/i.test(lower)) {
     return EMERGENCY_PULP_EXTIRPATION_MACRO;
   }
 
-  // 3. Simple extraction indicators
-  if (/\b(?:simple\s+extraction|forceps\s+technique|socket\s+inspected|elevated\s+and\s+removed|take\s+the\s+tooth\s+out)\b/i.test(lower)) {
+  // 2. Explicit surgical extraction indicators (only when not contraindicated/negated)
+  if (!isExtractionNegated && /\b(?:bone\s+gutter|guttering|mucoperiosteal\s+flap|sectioned|tooth\s+division|suture|gelatemp|prolene)\b/i.test(lower)) {
+    return SURGICAL_EXTRACTION_MACRO;
+  }
+
+  // 3. Simple extraction indicators (only when not contraindicated/negated)
+  if (!isExtractionNegated && /\b(?:simple\s+extraction|forceps\s+technique|socket\s+inspected|elevated\s+and\s+removed)\b/i.test(lower)) {
     return SIMPLE_EXTRACTION_MACRO;
   }
 

@@ -317,7 +317,7 @@ export const SIMPLE_EXTRACTION_MACRO: ClinicalMacroDefinition = {
     return {
       title: 'Simple Extraction',
       chiefComplaint: vars.complaint || `Extraction of ${tooth}. Non-restorable / symptomatic.`,
-      history: vars.history || 'Medical screen completed. Verified nil blood thinners, bisphosphonates or bleeding disorders.',
+      history: vars.history || 'Medical history reviewed with patient. Pre-operative assessment completed.',
       toothFindings: `${tooth}: Gross caries / non-restorable structure. Pre-operative radiograph checked.`,
       findingsGingival: 'Normal gingival margin without acute purulence.',
       diagnosis: `${tooth}: Non-restorable dental caries with chronic apical periodontitis.`,
@@ -381,7 +381,7 @@ export const SURGICAL_EXTRACTION_MACRO: ClinicalMacroDefinition = {
     return {
       title: 'Surgical Extraction',
       chiefComplaint: vars.complaint || `RFA: Surgical extraction of ${tooth}.`,
-      history: vars.history || 'E/O: NAD.\nI/O: Soft tissues NAD.\nMedical screen clear. Allergies nil of note.',
+      history: vars.history || 'E/O: NAD.\nI/O: Soft tissues NAD.\nMedical history reviewed with patient. Allergies nil of note.',
       toothFindings: `Pre-operative Assessment of ${tooth}:
 Diagnostic tests: TTP (+), Radiograph checked (convergent/curved roots, bone proximity).
 Treatment options discussed (restoration, RCT, extraction, no treatment).

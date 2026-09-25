@@ -237,15 +237,21 @@ export function parseClinicalEntities(
 
   // 11. Chief Complaint & Presenting Symptoms
   let complaint: string | undefined = undefined;
-  if (/(?:pain|ache|toothache|sensitive|sensitivity|broken|chipped|lost\s+filling|crack|food\s+packing)/i.test(lower)) {
+  if (/(?:pain|ache|toothache|sensitive|sensitivity|broken|chipped|lost\s+filling|crack|food\s+packing|can't\s+sleep|couldn't\s+sleep|sleep\s+last\s+night|moving|wobbly)/i.test(lower)) {
     const complaintParts: string[] = [];
     if (/sensitive\s+to\s+(?:cold|hot|sweet|ice)/i.test(lower)) {
       complaintParts.push('Sensitivity to thermal stimuli (cold/sweet)');
     } else if (/sensitive|sensitivity/i.test(lower)) {
       complaintParts.push('Mild sensitivity reported');
     }
-    if (/throbbing|sharp\s+pain|dull\s+ache|toothache/i.test(lower)) {
-      complaintParts.push('Localised toothache reported');
+    if (/throbbing|sharp\s+pain|dull\s+ache|toothache|severe|terrible|awful/i.test(lower)) {
+      complaintParts.push('Severe acute localised toothache reported');
+    }
+    if (/can't\s+sleep|couldn't\s+sleep|unable\s+to\s+sleep|waking\s+at\s+night|sleep\s+last\s+night/i.test(lower)) {
+      complaintParts.push('Pain severe enough to disrupt sleep overnight');
+    }
+    if (/moving|wobbly|loose\s+tooth/i.test(lower)) {
+      complaintParts.push('Tooth reported mobile and wobbly');
     }
     if (/broken|chipped|fracture/i.test(lower)) {
       complaintParts.push('Patient reported broken/chipped tooth');
@@ -260,14 +266,38 @@ export function parseClinicalEntities(
     complaint = 'Routine examination and clean; no acute pain reported.';
   }
 
-  // 12. Medical & Social History
+  // 12. Medical & Social History (Pharmacology & Systemic Conditions)
   let history: string | undefined = undefined;
   const historyParts: string[] = [];
+
+  // Anticoagulant / bleeding risk
+  if (/warfarin/i.test(lower)) {
+    historyParts.push('Medication: Warfarin (blood thinner) - increased bleeding risk, GP consultation/INR check required prior to any future surgical procedure');
+  } else if (/blood\s+thinner|anticoagulant|apixaban|eliquis|xarelto|rivaroxaban|dabigatran|clopidogrel/i.test(lower)) {
+    historyParts.push('Medication: Anticoagulant / blood thinner noted - bleeding risk assessed');
+  }
+
+  // Antiresorptive / bone modifying agents (MRONJ Risk)
+  if (/denosuma[b]?|prolia|osteoporosis(?:\s+(?:injection|medication))?|for\s+(?:the\s+)?osteoporosis/i.test(lower)) {
+    historyParts.push('Medication: Denosumab (Prolia / osteoporosis antiresorptive) - high MRONJ risk; surgical extraction contraindicated without GP clearance');
+  } else if (/bisphosphonate|alendronate|fosamax|zoledron/i.test(lower)) {
+    historyParts.push('Medication: Antiresorptive / bisphosphonate therapy noted - MRONJ risk');
+  }
+
+  // Systemic conditions
+  if (/hypertension|high\s+blood\s+pressure/i.test(lower)) {
+    historyParts.push('Hypertension');
+  }
+  if (/heart\s+disease|cardiac/i.test(lower)) {
+    historyParts.push('Heart disease');
+  }
+
   if (/no\s+medical\s+(?:issues|conditions|history)|fit\s+and\s+well/i.test(lower)) {
     historyParts.push('Medical history: Fit and well; nil significant medical conditions');
-  } else if (/medical\s+history/i.test(lower)) {
-    historyParts.push('Medical history reviewed and confirmed');
+  } else if (/medical\s+history/i.test(lower) && historyParts.length === 0) {
+    historyParts.push('Medical history reviewed and confirmed with patient');
   }
+
   if (/allerg(?:y|ies)|penicillin|latex/i.test(lower)) {
     const allergyMatch = lower.match(/(?:allergy|allergic)\s+to\s+([a-z\s]+?)(?:\.|,|$)/i);
     if (allergyMatch) {

@@ -2058,11 +2058,21 @@ export default function ChairsideWorkspace({
       transcriptSource = transcriptChoice.source;
       const transcriptWarnings = [...transcriptionWarnings, ...transcriptChoice.warnings];
 
+      // Ensure all transcript senders conform to allowed roles before network transmission
+      const sanitizedTranscript = finalTranscript.map(t => {
+        let sender = t.sender || 'Dialogue';
+        if (!['Dentist', 'Patient', 'Dialogue', 'Clinical Comment'].includes(sender)) {
+          sender = 'Dialogue';
+        }
+        return { sender, text: t.text || '' };
+      });
+
       // Call real backend note generation endpoint
       let payload: any = null;
       if (authToken) {
+        // Tier 1: Fast direct synchronous generation (~1.3s response)
         try {
-          const res = await fetch('/api/notes/jobs', {
+          const directRes = await fetch('/api/generate-notes', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -2072,43 +2082,72 @@ export default function ChairsideWorkspace({
               intakeData: {
                 firstName: targetConsult.firstName,
                 lastName: targetConsult.lastName,
-                // Never invent a date of birth: it is a patient identifier, and a
-                // fabricated one is how two patients' records end up merged.
                 dob: targetConsult.dob || '',
                 appointmentType: targetConsult.appointmentType,
                 templateId: template.id
               },
-              transcript: finalTranscript,
-              consultationId: targetConsult.id
+              transcript: sanitizedTranscript
             })
           });
 
-          if (res.ok) {
-            const jobData = await res.json();
-            const deadline = Date.now() + 7_000;
-            while (Date.now() < deadline) {
-              await new Promise(r => setTimeout(r, 600));
-              const pollRes = await fetch(`/api/notes/jobs/${jobData.jobId}`, {
-                headers: { 'Authorization': `Bearer ${authToken}` }
-              });
-              if (pollRes.ok) {
-                const jobState = await pollRes.json();
-                if (jobState.status === 'done' && jobState.result) {
-                  payload = jobState.result;
-                  break;
-                }
-                if (jobState.status === 'failed') {
-                  console.warn('Note job generation failed on server:', jobState.error);
-                  break;
+          if (directRes.ok) {
+            payload = await directRes.json();
+          } else {
+            console.info(`Direct note generation status: ${directRes.status}, falling back to background job queue.`);
+          }
+        } catch (directErr) {
+          console.warn('Direct note generation fetch failed, falling back to background job queue:', directErr);
+        }
+
+        // Tier 2: Resilient background worker job queue with 25s polling deadline
+        if (!payload) {
+          try {
+            const res = await fetch('/api/notes/jobs', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authToken}`
+              },
+              body: JSON.stringify({
+                intakeData: {
+                  firstName: targetConsult.firstName,
+                  lastName: targetConsult.lastName,
+                  dob: targetConsult.dob || '',
+                  appointmentType: targetConsult.appointmentType,
+                  templateId: template.id
+                },
+                transcript: sanitizedTranscript,
+                consultationId: targetConsult.id
+              })
+            });
+
+            if (res.ok) {
+              const jobData = await res.json();
+              const deadline = Date.now() + 25_000;
+              while (Date.now() < deadline) {
+                await new Promise(r => setTimeout(r, 600));
+                const pollRes = await fetch(`/api/notes/jobs/${jobData.jobId}`, {
+                  headers: { 'Authorization': `Bearer ${authToken}` }
+                });
+                if (pollRes.ok) {
+                  const jobState = await pollRes.json();
+                  if (jobState.status === 'done' && jobState.result) {
+                    payload = jobState.result;
+                    break;
+                  }
+                  if (jobState.status === 'failed') {
+                    console.warn('Note job generation failed on server:', jobState.error);
+                    break;
+                  }
                 }
               }
+            } else {
+              const errBody = await res.text();
+              console.warn('Note job request returned non-OK status:', res.status, errBody);
             }
-          } else {
-            const errBody = await res.text();
-            console.warn('Note job request returned non-OK status:', res.status, errBody);
+          } catch (e) {
+            console.warn('Hosted note generation fallback to offline draft engine:', e);
           }
-        } catch (e) {
-          console.warn('Hosted note generation fallback to offline draft engine:', e);
         }
       }
 

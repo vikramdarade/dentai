@@ -1366,6 +1366,26 @@ async function runHostedGeneration(payload: {
   try {
     let output: any | null = null;
 
+    // Priority Tier 0: Explicitly configured non-Gemini provider (e.g. LLM_PROVIDER="groq")
+    const explicitProvider = (process.env.LLM_PROVIDER || '').toLowerCase().trim();
+    if (openAiConfig && (explicitProvider === 'groq' || explicitProvider === 'ollama' || explicitProvider === 'openai-compatible')) {
+      try {
+        logger.info(`[JobFabric] Using explicit provider ${openAiConfig.provider} (${openAiConfig.model})`);
+        const openRes = await generateNoteWithOpenAiCompatible({
+          systemInstruction: noteAIConfig.systemInstruction,
+          promptContext,
+          template: noteTemplate,
+          config: openAiConfig
+        });
+        if (openRes.ok && openRes.output) {
+          logAudit('notes_generated_open_model', 'job-worker', { provider: openRes.provider, model: openRes.model });
+          return { ok: true, output: openRes.output, provider: openRes.provider, model: openRes.model };
+        }
+      } catch (openErr: any) {
+        logger.warn(`[JobFabric] Explicit provider ${explicitProvider} failed, falling back:`, openErr.message || openErr);
+      }
+    }
+
     if (gcpProject) {
       const options: any = {
         vertexai: true,
@@ -1433,8 +1453,8 @@ async function runHostedGeneration(payload: {
 
     return { ok: true, output: normalizeTemplateOutput(noteTemplate, output), provider: 'gemini' };
   } catch (error: any) {
+    // Tier 2 — secondary key on a separate quota pool if quota error
     if (isQuotaError({ status: error.status, message: error.message })) {
-      // Tier 2 — secondary key on a separate quota pool.
       const fallbackKey = process.env.GEMINI_FALLBACK_API_KEY;
       if (fallbackKey && fallbackKey !== 'MY_GEMINI_API_KEY') {
         try {
@@ -1456,26 +1476,28 @@ async function runHostedGeneration(payload: {
           logger.warn('[JobFabric] Secondary-key fallback also failed:', secondaryErr.message || secondaryErr);
         }
       }
+    }
 
-      // Tier 3 — Smart Failover: OpenAI-Compatible / Groq / Ollama
-      if (openAiConfig) {
-        try {
-          logger.warn(`[JobFabric] Gemini quota exhausted. Failing over dynamically to ${openAiConfig.provider} (${openAiConfig.model})...`);
-          const openRes = await generateNoteWithOpenAiCompatible({
-            systemInstruction: noteAIConfig.systemInstruction,
-            promptContext,
-            template: noteTemplate,
-            config: openAiConfig
-          });
-          if (openRes.ok && openRes.output) {
-            logAudit('notes_generation_open_failover', 'job-worker', { provider: openRes.provider, model: openRes.model });
-            return { ok: true, output: openRes.output, provider: openRes.provider, model: openRes.model };
-          }
-        } catch (openErr: any) {
-          logger.warn('[JobFabric] OpenAI-compatible failover also failed:', openErr.message || openErr);
+    // Tier 3 — Smart Failover: OpenAI-Compatible / Groq / Ollama for any Gemini failure
+    if (openAiConfig) {
+      try {
+        logger.warn(`[JobFabric] Primary AI failed (${error.message || error}). Failing over dynamically to ${openAiConfig.provider} (${openAiConfig.model})...`);
+        const openRes = await generateNoteWithOpenAiCompatible({
+          systemInstruction: noteAIConfig.systemInstruction,
+          promptContext,
+          template: noteTemplate,
+          config: openAiConfig
+        });
+        if (openRes.ok && openRes.output) {
+          logAudit('notes_generation_open_failover', 'job-worker', { provider: openRes.provider, model: openRes.model });
+          return { ok: true, output: openRes.output, provider: openRes.provider, model: openRes.model };
         }
+      } catch (openErr: any) {
+        logger.warn('[JobFabric] OpenAI-compatible failover also failed:', openErr.message || openErr);
       }
+    }
 
+    if (isQuotaError({ status: error.status, message: error.message })) {
       logAudit('notes_generation_quota_exhausted', 'job-worker', {});
       return { ok: false, quota: true, message: 'Hosted AI is rate-limited (quota or billing exhausted). The job will retry automatically with backoff.' };
     }
@@ -4405,14 +4427,17 @@ app.post('/api/generate-notes', authenticateToken, async (req: express.Request, 
       return res.status(400).json({ error: 'First name and last name must be non-empty strings under 100 characters.' });
     }
 
-    // Date of Birth validation (YYYY-MM-DD format, e.g., 1900-01-01 to present)
-    const dobRegex = /^\d{4}-\d{2}-\d{2}$/;
-    if (typeof dob !== 'string' || !dobRegex.test(dob)) {
-      return res.status(400).json({ error: 'Date of birth must be in YYYY-MM-DD format.' });
-    }
-    const parsedDate = Date.parse(dob);
-    if (isNaN(parsedDate) || parsedDate > Date.now() || parsedDate < Date.parse('1900-01-01')) {
-      return res.status(400).json({ error: 'Date of birth must be a valid date between 1900 and the present.' });
+    // Date of Birth validation (YYYY-MM-DD format if provided, e.g., 1900-01-01 to present)
+    // Permitted to be empty/omitted for walk-in encounters to avoid synthesizing identity data (Rule 12)
+    if (dob && typeof dob === 'string' && dob.trim().length > 0) {
+      const dobRegex = /^\d{4}-\d{2}-\d{2}$/;
+      if (!dobRegex.test(dob)) {
+        return res.status(400).json({ error: 'Date of birth must be in YYYY-MM-DD format.' });
+      }
+      const parsedDate = Date.parse(dob);
+      if (isNaN(parsedDate) || parsedDate > Date.now() || parsedDate < Date.parse('1900-01-01')) {
+        return res.status(400).json({ error: 'Date of birth must be a valid date between 1900 and the present.' });
+      }
     }
 
     if (!isValidAppointmentType(appointmentType)) {
