@@ -66,8 +66,24 @@ export function parseAdaCodes(raw: any): AdaCodeLike[] {
   return [];
 }
 
-const sanitizeString = (v: unknown): string =>
-  typeof v === 'string' ? v.slice(0, MAX_NOTE_SECTION_LENGTH).trim() : '';
+export const sanitizeString = (v: unknown): string => {
+  if (typeof v === 'string') return v.slice(0, MAX_NOTE_SECTION_LENGTH).trim();
+  if (Array.isArray(v)) {
+    return v
+      .map((item) => (typeof item === 'object' && item !== null ? Object.entries(item).map(([k, val]) => `${k}: ${val}`).join(', ') : String(item)))
+      .join('\n')
+      .slice(0, MAX_NOTE_SECTION_LENGTH)
+      .trim();
+  }
+  if (v !== null && typeof v === 'object') {
+    return Object.entries(v as Record<string, any>)
+      .map(([key, val]) => `${key}: ${typeof val === 'object' && val !== null ? JSON.stringify(val) : String(val)}`)
+      .join('\n')
+      .slice(0, MAX_NOTE_SECTION_LENGTH)
+      .trim();
+  }
+  return '';
+};
 
 /**
  * Maps raw model output (keyed by the template's section keys) onto the record

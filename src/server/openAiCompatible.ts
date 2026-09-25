@@ -129,10 +129,11 @@ async function callOpenAiEndpoint(params: {
       signal: controller.signal,
       body: JSON.stringify({
         model,
+        reasoning_effort: model.includes('gpt-oss') ? 'low' : undefined,
         messages: [
           {
             role: 'system',
-            content: `${systemInstruction}\n\nCRITICAL: Output raw JSON only. Do not wrap in markdown quotes.`,
+            content: `${systemInstruction}\n\nCRITICAL SCHEMA REQUIREMENTS:\n1. Output valid raw JSON only. Do not wrap in markdown code blocks.\n2. Every note section (chiefComplaint, history, toothFindings, findingsGingival, diagnosis, treatmentPerformed, recommendations, recallRequirements, patientSummary) MUST be a string value, NOT a nested object or array.\n3. In toothFindings, write telegraphic tooth-by-tooth lines, e.g. "#16 (MO): Deep dentinal caries | TTP (-), Cold (+ normal) | Rec: 2-surface composite (ADA 532)".\n4. Use Australian Dental Association (ADA) 3-digit item numbers (e.g. 011, 012, 022, 531, 532, 521, 414), NOT US CDT codes.`,
           },
           {
             role: 'user',
@@ -141,8 +142,7 @@ async function callOpenAiEndpoint(params: {
         ],
         response_format: { type: 'json_object' },
         temperature: 0.1,
-        // Free tier OTPM (output tokens per min) limits require <= 1000 max_tokens
-        max_tokens: 1000,
+        max_tokens: 2500,
       }),
     });
 
