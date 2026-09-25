@@ -430,13 +430,41 @@ export default function ChairsideWorkspace({
 
   // Filter encounters for the selected day sheet date (Pure genuine data sorted chronologically by time)
   const encountersForDate: PatientEncounter[] = useMemo(() => {
+    const shortDate = formatClinicDate(currentDate, { month: 'short', day: 'numeric' });
     return patientEncounters
       .filter(p => {
         const orig = consultations.find(c => c.id === p.id);
-        return orig?.date === currentDateStr;
+        if (!orig?.date) return false;
+        const d = orig.date.trim();
+        return d === currentDateStr || d === shortDate || d.startsWith(shortDate);
       })
       .sort((a, b) => parseTimeToMinutes(a.time) - parseTimeToMinutes(b.time));
-  }, [patientEncounters, consultations, currentDateStr]);
+  }, [patientEncounters, consultations, currentDateStr, currentDate]);
+
+  // Compute latest consultation date available for 1-click schedule jump
+  const { latestConsultDate, latestDateLabel } = useMemo(() => {
+    if (!consultations || consultations.length === 0) return { latestConsultDate: null, latestDateLabel: '' };
+    const withDate = consultations.filter(c => Boolean(c.date));
+    if (withDate.length === 0) return { latestConsultDate: null, latestDateLabel: '' };
+    const latest = withDate[0];
+    let parsedDate: Date | null = null;
+    if (latest.date) {
+      if (/^\d{4}-\d{2}-\d{2}$/.test(latest.date.trim())) {
+        const [y, m, d] = latest.date.trim().split('-').map(Number);
+        parsedDate = new Date(y, m - 1, d);
+      } else {
+        const currentYear = new Date().getFullYear();
+        parsedDate = new Date(`${latest.date.trim()}, ${currentYear}`);
+      }
+    }
+    if (parsedDate && !isNaN(parsedDate.getTime())) {
+      return {
+        latestConsultDate: parsedDate,
+        latestDateLabel: formatClinicDate(parsedDate, { month: 'short', day: 'numeric' })
+      };
+    }
+    return { latestConsultDate: null, latestDateLabel: '' };
+  }, [consultations]);
 
   // Self-healing & real-time multi-browser operatory synchronization:
   // Auto-focus active encounter if another browser added a walk-in patient or recorded dialogue
@@ -492,6 +520,26 @@ export default function ChairsideWorkspace({
     if (!activeEncounter) return null;
     return consultations.find(c => c.id === activeEncounter.id) || null;
   }, [consultations, activeEncounter]);
+
+  // Fallback to active chairside encounter when no pre-scheduled appointment exists
+  const effectiveEncounter = useMemo<PatientEncounter>(() => {
+    if (activeEncounter) return activeEncounter;
+    return {
+      id: 'chair-active',
+      consultationId: 'chair-active',
+      time: formatClinicTime(new Date()),
+      operatory: 'Room 1',
+      patientName: 'In-Chair Patient',
+      procedureText: 'General Consultation',
+      appointmentType: 'examination' as AppointmentType,
+      templateId: 'standard',
+      status: isMicStandby ? 'ready' : isPaused ? 'ready' : 'recording',
+      alerts: [],
+      diarizedTranscript: localLiveTranscripts['chair-active'] || [],
+      soap: { subjective: '', objective: '', assessment: '', plan: '' },
+      cdtCodes: []
+    };
+  }, [activeEncounter, isMicStandby, isPaused, localLiveTranscripts]);
 
   // Per-section clinician verification state (AHPRA legal compliance standard)
   const [verifiedSections, setVerifiedSections] = useState<Record<string, Record<string, boolean>>>({});
@@ -1025,8 +1073,7 @@ export default function ChairsideWorkspace({
 
   // Handle inline clinical Progress Note edit with instant optimistic UI & database auto-save
   const handleProgressNoteChange = useCallback(async (value: string) => {
-    if (!activeEncounter) return;
-    const targetId = activeEncounter.id;
+    const targetId = activeEncounter?.id || effectiveEncounter.id;
 
     // 1. Optimistic UI update (0ms typing latency)
     setEditedProgressNotes(prev => ({
@@ -2409,9 +2456,36 @@ export default function ChairsideWorkspace({
 
   // 1-Tap Australian Procedure Macro Application
   const handleApplyMacro = async (macroId: string) => {
-    if (!activeEncounter) return;
-    const targetConsult = consultations.find(c => c.id === activeEncounter.id);
-    if (!targetConsult) return;
+    const targetEncounter = activeEncounter || effectiveEncounter;
+    const targetConsult: Consultation = consultations.find(c => c.id === targetEncounter.id) || {
+      id: targetEncounter.id,
+      dentistId: currentUser?.id || 'dentist-01',
+      dentistName: dentistName || 'Attending Clinician',
+      firstName: targetEncounter.patientName || 'Patient',
+      lastName: '',
+      dob: '',
+      date: currentDateStr,
+      time: targetEncounter.time || formatClinicTime(new Date()),
+      status: 'Completed',
+      appointmentType: targetEncounter.appointmentType || 'examination',
+      templateId: 'standard',
+      transcript: (localLiveTranscriptsRef.current[targetEncounter.id] || targetEncounter.diarizedTranscript || []).map(t => ({
+        sender: (t.role === 'patient' ? 'Patient' : t.role === 'dentist' ? 'Dentist' : 'Dialogue') as TranscriptItem['sender'],
+        text: t.text
+      })),
+      findings: {
+        chiefComplaint: '',
+        history: '',
+        toothFindings: '',
+        findingsGingival: '',
+        diagnosis: '',
+        treatmentPerformed: '',
+        recommendations: '',
+        recallRequirements: '',
+        adaCodes: []
+      },
+      patientSummary: ''
+    };
 
     const transcriptToUse = (localLiveTranscriptsRef.current[targetConsult.id] || targetConsult.transcript || []).map(t => ({
       sender: (t.sender === 'Patient' ? 'Patient' : t.sender === 'Dialogue' ? 'Dialogue' : 'Dentist') as TranscriptItem['sender'],
@@ -3057,12 +3131,32 @@ ${clinician}`;
               {/* Patient Schedule List */}
               <div className="space-y-2">
                 {encountersForDate.length === 0 ? (
-                  <div className="p-4 text-center border border-dashed border-slate-200 rounded-xl bg-slate-50/50 space-y-2">
+                  <div className="p-4 text-center border border-dashed border-slate-200 rounded-xl bg-slate-50/50 space-y-2.5">
                     <Calendar className="w-6 h-6 text-slate-400 mx-auto" />
-                    <p className="text-xs font-semibold text-slate-600">No appointments scheduled</p>
-                    <p className="text-[11px] text-slate-400">
-                      Use <strong>Paste Schedule</strong> or add a <strong>Walk-In</strong> to begin.
-                    </p>
+                    <div>
+                      <p className="text-xs font-semibold text-slate-700">No appointments scheduled</p>
+                      <p className="text-[11px] text-slate-500 mt-0.5">
+                        Operatory is ready for in-chair consultation.
+                      </p>
+                    </div>
+
+                    <div className="pt-1 flex flex-col gap-1.5">
+                      <button
+                        onClick={() => setShowWalkInCard(true)}
+                        className="w-full py-1.5 px-2.5 rounded-lg bg-white border border-slate-200 hover:border-sky-400 text-xs font-semibold text-slate-700 hover:text-sky-700 transition shadow-2xs cursor-pointer"
+                      >
+                        + Add Walk-In Patient
+                      </button>
+
+                      {latestConsultDate && latestDateLabel && (
+                        <button
+                          onClick={() => setCurrentDate(latestConsultDate)}
+                          className="w-full py-1.5 px-2.5 rounded-lg bg-sky-50 border border-sky-200 hover:bg-sky-100 text-xs font-semibold text-sky-800 transition shadow-2xs cursor-pointer"
+                        >
+                          Jump to Latest Visits ({latestDateLabel}) →
+                        </button>
+                      )}
+                    </div>
                   </div>
                 ) : (
                   encountersForDate.map(p => {
@@ -3149,111 +3243,84 @@ ${clinician}`;
             </div>
           </section>
 
-          {/* ─── PANE 2: CLEAN MEDICAL LIGHT OPERATORY WORKSPACE ─── */}
-          <main className="flex-1 flex flex-col overflow-y-auto p-5 space-y-4 bg-slate-50/70 custom-scrollbar">
-            {activeEncounter ? (
-              <>
-                {/* Operatory Patient Demographics & Action Banner */}
-                <OperatoryPatientBanner
-                  encounter={{
-                    id: activeEncounter.id,
-                    patientName: activeEncounter.patientName,
-                    dob: activeEncounter.dob,
-                    operatory: activeEncounter.operatory,
-                    time: activeEncounter.time,
-                    appointmentType: activeEncounter.appointmentType,
-                    alerts: activeEncounter.alerts,
-                  }}
-                  currentIndex={encountersForDate.findIndex(p => p.id === activePatientId)}
-                  totalEncounters={encountersForDate.length}
-                  onSelectPrev={handlePrevPatient}
-                  onSelectNext={handleNextPatient}
-                  onOpenDaysheet={handleOpenDaysheetModal}
-                  onOpenWalkIn={() => setShowWalkInCard(true)}
-                  onUpdateAppointmentType={(type) => handleUpdateAppointmentType(activeEncounter.id, type)}
+          {/* ─── PANE 2: OPERATORY WORKSPACE COLUMN (MAIN + PINNED FOOTBAR) ─── */}
+          <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-slate-50/70">
+            <main className="flex-1 flex flex-col overflow-y-auto p-4 space-y-3 custom-scrollbar">
+              {/* Operatory Patient Demographics & Action Banner */}
+              <OperatoryPatientBanner
+                encounter={{
+                  id: effectiveEncounter.id,
+                  patientName: effectiveEncounter.patientName,
+                  dob: effectiveEncounter.dob,
+                  operatory: effectiveEncounter.operatory,
+                  time: effectiveEncounter.time,
+                  appointmentType: effectiveEncounter.appointmentType,
+                  alerts: effectiveEncounter.alerts,
+                }}
+                currentIndex={Math.max(0, encountersForDate.findIndex(p => p.id === activePatientId))}
+                totalEncounters={Math.max(1, encountersForDate.length)}
+                onSelectPrev={handlePrevPatient}
+                onSelectNext={handleNextPatient}
+                onOpenDaysheet={handleOpenDaysheetModal}
+                onOpenWalkIn={() => setShowWalkInCard(true)}
+                onUpdateAppointmentType={(type) => handleUpdateAppointmentType(effectiveEncounter.id, type)}
+              />
+
+              {/* Main Two-Panel Adaptive Split: Left (Live Speech & Mic HUD) / Right (Note Canvas & PMS Sync) */}
+              <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4 min-h-0">
+                <LiveConversationPanel
+                  transcript={effectiveEncounter.diarizedTranscript || []}
+                  interimTranscript={interimTranscript}
+                  isMicStandby={isMicStandby}
+                  isPaused={isPaused}
+                  recordingSeconds={recordingSeconds}
+                  isSilenceWarning={isSilenceWarning}
+                  silenceSecondsRemaining={silenceSecondsRemaining}
+                  dspNoiseGateActive={dspNoiseGateActive}
+                  onToggleNoiseGate={() => setDspNoiseGateActive(prev => !prev)}
+                  onStartAudio={handleStartAudio}
+                  onTogglePause={handleTogglePause}
+                  onKeepListening={handleKeepListening}
+                  onManualDialogueSubmit={(text) => handleAppendTranscriptText(text, 'Dentist')}
                 />
 
-                {/* Main Two-Panel Adaptive Split: Left (Live Speech & Mic HUD) / Right (Note Canvas & PMS Sync) */}
-                <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4 min-h-0">
-                  <LiveConversationPanel
-                    transcript={activeEncounter.diarizedTranscript || []}
-                    interimTranscript={interimTranscript}
-                    isMicStandby={isMicStandby}
-                    isPaused={isPaused}
-                    recordingSeconds={recordingSeconds}
-                    isSilenceWarning={isSilenceWarning}
-                    silenceSecondsRemaining={silenceSecondsRemaining}
-                    dspNoiseGateActive={dspNoiseGateActive}
-                    onToggleNoiseGate={() => setDspNoiseGateActive(prev => !prev)}
-                    onStartAudio={handleStartAudio}
-                    onTogglePause={handleTogglePause}
-                    onKeepListening={handleKeepListening}
-                    onManualDialogueSubmit={(text) => handleAppendTranscriptText(text, 'Dentist')}
-                  />
-
-                  <ClinicalNoteEditorPanel
-                    activeEncounterId={activeEncounter.id}
-                    noteText={currentProgressNote}
-                    onNoteChange={handleProgressNoteChange}
-                    isGenerating={isFinalizing || isGeneratingFromConversation}
-                    onGenerateNote={() => executeBackgroundNoteFinalization(activeEncounter.id, false)}
-                    onApplyMacro={(macroId) => handleApplyMacro(macroId)}
-                    onCopyPMS={(format) => handleCopyPMS(undefined, format === 'universal' ? 'pms' : format)}
-                    copiedFormat={copiedPmsTarget}
-                    onOpenDeliverables={() => setShowDeliverablesModal(true)}
-                    verifiedSections={verifiedSections[activeEncounter.id] || {}}
-                    onToggleVerifySection={handleToggleSectionVerification}
-                    onVerifyAll={handleVerifyAllSections}
-                    hasActualGeneratedNote={Boolean(activeEncounter.soap?.assessment || activeEncounter.soap?.plan || currentProgressNote)}
-                    captureConfidence={captureConfidence}
-                  />
-                </div>
-              </>
-            ) : (
-              <div className="text-center py-16 px-4 max-w-md mx-auto space-y-5">
-                <div className="w-16 h-16 mx-auto rounded-2xl bg-white border border-slate-200 flex items-center justify-center text-slate-700 shadow-sm">
-                  <Mic className="w-8 h-8" />
-                </div>
-                <div className="space-y-1.5">
-                  <h3 className="text-base font-bold text-slate-800">Ready for Consultation</h3>
-                  <p className="text-xs text-slate-500 leading-relaxed">
-                    Step on your foot pedal or press <kbd className="px-1.5 py-0.5 bg-slate-100 border border-slate-300 rounded text-[11px] font-mono text-slate-700 font-semibold">Spacebar</kbd> to begin listening immediately. Patient details can be linked during or after the visit.
-                  </p>
-                </div>
-                <div>
-                  <button
-                    onClick={handleQuickStartRecording}
-                    className="w-full py-3.5 px-5 rounded-xl font-bold text-sm bg-slate-900 hover:bg-slate-800 active:scale-[0.98] text-white shadow-xs flex items-center justify-center space-x-2.5 transition cursor-pointer"
-                  >
-                    <Mic className="w-4 h-4 animate-pulse" />
-                    <span>Quick Start Audio (Spacebar)</span>
-                  </button>
-                </div>
-                <p className="text-[11px] text-slate-400">
-                  Or select a scheduled patient from the Daysheet on the left rail.
-                </p>
+                <ClinicalNoteEditorPanel
+                  activeEncounterId={effectiveEncounter.id}
+                  noteText={currentProgressNote}
+                  onNoteChange={handleProgressNoteChange}
+                  isGenerating={isFinalizing || isGeneratingFromConversation}
+                  onGenerateNote={() => executeBackgroundNoteFinalization(effectiveEncounter.id, false)}
+                  onApplyMacro={(macroId) => handleApplyMacro(macroId)}
+                  onCopyPMS={(format) => handleCopyPMS(undefined, format === 'universal' ? 'pms' : format)}
+                  copiedFormat={copiedPmsTarget}
+                  onOpenDeliverables={() => setShowDeliverablesModal(true)}
+                  verifiedSections={verifiedSections[effectiveEncounter.id] || {}}
+                  onToggleVerifySection={handleToggleSectionVerification}
+                  onVerifyAll={handleVerifyAllSections}
+                  hasActualGeneratedNote={Boolean(effectiveEncounter.soap?.assessment || effectiveEncounter.soap?.plan || currentProgressNote)}
+                  captureConfidence={captureConfidence}
+                />
               </div>
-            )}
-          </main>
+            </main>
 
-          {/* Persistent Tactile Aseptic Footbar */}
-          <AsepticShortcutFootbar
-            isRecording={isRecording}
-            isPaused={isPaused}
-            isMicStandby={isMicStandby}
-            isSilenceWarning={isSilenceWarning}
-            silenceSecondsRemaining={silenceSecondsRemaining}
-            activePatientName={activeEncounter?.patientName}
-            onToggleAudio={isMicStandby ? handleStartAudio : handleTogglePause}
-            onNextPatient={handleNextPatient}
-            onPrevPatient={handlePrevPatient}
-            onCopyPMS={() => handleCopyPMS(undefined, 'd4w')}
-          />
+            {/* Persistent Tactile Aseptic Footbar Pinned at the Absolute Bottom */}
+            <AsepticShortcutFootbar
+              isRecording={isRecording}
+              isPaused={isPaused}
+              isMicStandby={isMicStandby}
+              isSilenceWarning={isSilenceWarning}
+              silenceSecondsRemaining={silenceSecondsRemaining}
+              activePatientName={effectiveEncounter.patientName}
+              onToggleAudio={isMicStandby ? handleStartAudio : handleTogglePause}
+              onNextPatient={handleNextPatient}
+              onPrevPatient={handlePrevPatient}
+              onCopyPMS={() => handleCopyPMS(undefined, 'd4w')}
+            />
+          </div>
         </div>
       </div>
 
-
-      {/* ──�      {/* Standalone Modal Overlays */}
+      {/* Standalone Modal Overlays */}
       <DeliverablesModal
         isOpen={showDeliverablesModal}
         onClose={() => setShowDeliverablesModal(false)}
