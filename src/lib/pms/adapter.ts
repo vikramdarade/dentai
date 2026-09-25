@@ -13,6 +13,7 @@ import { renderD4W } from './adapters/d4w';
 import { renderExact } from './adapters/exact';
 import { renderCliniko } from './adapters/cliniko';
 import { renderCorePractice } from './adapters/corepractice';
+import { renderUniversalProgressNote } from './adapters/universalProgressNote';
 
 export interface RenderedNote {
   format: 'text' | 'csv';
@@ -27,6 +28,7 @@ export interface PmsAdapter {
 }
 
 const ADAPTERS: Record<string, (encounter: PmsEncounter) => string> = {
+  universal: renderUniversalProgressNote,
   generic: renderGeneric,
   d4w: renderD4W,
   exact: renderExact,

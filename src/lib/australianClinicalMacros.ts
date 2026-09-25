@@ -432,7 +432,8 @@ export const EMERGENCY_PULP_EXTIRPATION_MACRO: ClinicalMacroDefinition = {
     { code: '414', description: 'Extirpation of pulp or debridement of root canal(s)' },
   ],
   templateGenerator: (vars) => {
-    const tooth = vars.teeth[0] ? `#${vars.teeth[0]}` : 'tooth';
+    const toothDisplay = vars.teeth[0] ? `tooth #${vars.teeth[0]}` : 'affected tooth';
+    const toothTag = vars.teeth[0] ? `#${vars.teeth[0]}` : 'affected tooth';
     const canals = vars.canalsCount ? `${vars.canalsCount} canals located` : 'Canals located (MB, DB, P / M, D)';
     const missingNotices: string[] = [];
     if (!vars.consentObtained) {
@@ -441,11 +442,11 @@ export const EMERGENCY_PULP_EXTIRPATION_MACRO: ClinicalMacroDefinition = {
 
     return {
       title: 'Emergency Pulp Extirpation',
-      chiefComplaint: vars.complaint || `Acute severe pain on ${tooth}. Throbbing, lingering to cold, waking at night.`,
+      chiefComplaint: vars.complaint || `Acute severe pain on ${toothDisplay}. Throbbing, lingering to cold, waking at night.`,
       history: vars.history || 'Medical history reviewed. Nil contraindications to endodontic treatment.',
-      toothFindings: `${tooth}: TTP (++), Cold lingering (>30s), EPT (+), Pre-op radiograph shows deep caries approximating pulp chamber, normal PDL width.`,
+      toothFindings: `${toothTag}: TTP (++), Cold lingering (>30s), EPT (+), Pre-op radiograph shows deep caries approximating pulp chamber, normal PDL width.`,
       findingsGingival: 'Gingival tissues normal, no sinus tract, no fluctuant swelling.',
-      diagnosis: `${tooth}: Symptomatic irreversible pulpitis with symptomatic apical periodontitis.`,
+      diagnosis: `${toothTag}: Symptomatic irreversible pulpitis with symptomatic apical periodontitis.`,
       treatmentPerformed: `Discussion of Treatment Options:
 Discussed advantages, disadvantages, risks, alternatives (extraction), and consequences of no treatment.
 Referral to Endodontist discussed.
@@ -464,7 +465,7 @@ Topical 5% xylocaine gel.
 Profound anaesthesia achieved.
 
 Procedure:
-Rubber dam placed and tooth ${tooth} isolated.
+Rubber dam placed and ${toothDisplay} isolated.
 Access cavity prepared under water cooling.
 ${canals}.
 Pulp extirpated using barbed broaches / rotary files with copious NaOCl irrigation.
@@ -473,13 +474,13 @@ ${vars.materials?.dressing || 'Odontopaste dressing placed in canal orifices.'}
 Cotton pellet + Cavit + ${vars.materials?.temporisation ? vars.materials.temporisation.replace(/^Cavit\s*\+\s*/i, '') : 'Fuji IX'} temporisation.
 Occlusion checked and fully relieved out of occlusion.`,
       recommendations: `Post-op instructions given:
-• Avoid chewing on ${tooth} until definitive crown is placed.
+• Avoid chewing on ${toothDisplay} until definitive crown is placed.
 • Mild tenderness to bite is normal for 48-72 hours; manage with paracetamol/ibuprofen.
 • Return immediately if swelling develops or temporary dressing dislodges.`,
       recallRequirements: 'Book Stage 2 RCT (Cleaning and shaping / chemomechanical preparation) in 1-2 weeks.',
-      patientSummary: `Completed emergency nerve extirpation on tooth ${tooth} to relieve your toothache. A calming medicated dressing (Odontopaste) and temporary filling were placed. Please avoid chewing on this side until your next visit in 1-2 weeks.`,
+      patientSummary: `Completed emergency nerve extirpation on ${toothDisplay} to relieve your toothache. A calming medicated dressing (Odontopaste) and temporary filling were placed. Please avoid chewing on this side until your next visit in 1-2 weeks.`,
       adaCodes: vars.spokencodes.length > 0 ? vars.spokencodes : [
-        { code: '414', description: `Extirpation of pulp - tooth ${tooth}`, tooth: vars.teeth[0] },
+        { code: '414', description: `Extirpation of pulp - ${toothDisplay}`, tooth: vars.teeth[0] },
       ],
       missingProtocolNotices: missingNotices,
     };
@@ -588,7 +589,8 @@ export const CROWN_PREPARATION_MACRO: ClinicalMacroDefinition = {
     { code: '627', description: 'Core buildup including pins where placed' },
   ],
   templateGenerator: (vars) => {
-    const tooth = vars.teeth[0] ? `#${vars.teeth[0]}` : 'tooth';
+    const toothDisplay = vars.teeth[0] ? `tooth #${vars.teeth[0]}` : 'affected tooth';
+    const toothTag = vars.teeth[0] ? `#${vars.teeth[0]}` : 'affected tooth';
     const laText = vars.anaesthetic
       ? `${vars.anaesthetic.agent}${vars.anaesthetic.adrenaline ? ` ${vars.anaesthetic.adrenaline}` : ''}, ${vars.anaesthetic.volumeMl || 2.2} mL ${vars.anaesthetic.technique}.\nAdequate anaesthesia achieved.`
       : '4% Articaine with 1:100,000 adrenaline, 2.2 mL infiltration / block.\nAdequate anaesthesia achieved.';
@@ -596,11 +598,11 @@ export const CROWN_PREPARATION_MACRO: ClinicalMacroDefinition = {
 
     return {
       title: 'Crown Preparation & Impression',
-      chiefComplaint: vars.complaint || `Crown preparation for ${tooth} due to extensive structural compromise / crack.`,
+      chiefComplaint: vars.complaint || `Crown preparation for ${toothDisplay} due to extensive structural compromise / crack.`,
       history: vars.history || 'Medical history reviewed and confirmed.',
-      toothFindings: `${tooth}: Structural failure, cracked tooth or extensive restoration requiring full coronal coverage.`,
+      toothFindings: `${toothTag}: Structural failure, cracked tooth or extensive restoration requiring full coronal coverage.`,
       findingsGingival: 'Gingival margins healthy, adequate biological width.',
-      diagnosis: `${tooth}: Cracked tooth syndrome / non-vital tooth / structurally compromised tooth requiring full coverage crown.`,
+      diagnosis: `${toothTag}: Cracked tooth syndrome / non-vital tooth / structurally compromised tooth requiring full coverage crown.`,
       treatmentPerformed: `Discussion of Treatment Options:
 Discussed benefits, longevity, risks (nerve irritation / pulp necrosis, crown debond, marginal fracture), and need for strict oral hygiene.
 Verbal informed consent obtained.
@@ -609,8 +611,8 @@ Anaesthesia:
 ${laText}
 
 Procedure:
-Pre-operative core buildup placed using dual-cure resin / composite (${tooth}).
-Tooth ${tooth} prepared for full coverage crown:
+Pre-operative core buildup placed using dual-cure resin / composite (${toothTag}).
+${toothDisplay} prepared for full coverage crown:
 • 1.5mm - 2.0mm occlusal reduction to provide adequate bulk for restorative material.
 • 1.0mm axial reduction with distinct, smooth circumferential chamfer/shoulder margins.
 • Retraction cord (#00 / #0) placed for gingival deflection and sulcular haemostasis.
@@ -619,14 +621,14 @@ Tooth ${tooth} prepared for full coverage crown:
 • Interim temporary crown fabricated (Protemp / Luxatemp), trimmed, polished, and cemented with non-eugenol temporary cement.
 • Occlusion checked in centric and excursions (out of occlusion). Excess cement removed.`,
       recommendations: `Post-operative instructions:
-• Avoid sticky or hard foods on ${tooth} while temporary crown is in place.
+• Avoid sticky or hard foods on ${toothDisplay} while temporary crown is in place.
 • Pull floss out to the side rather than popping up to avoid dislodging temporary crown.
 • Contact surgery immediately if temporary crown comes loose.`,
       recallRequirements: 'Book crown insert / cementation in 2-3 weeks.',
-      patientSummary: `Prepared tooth ${tooth} for a permanent dental crown and placed a temporary crown. An intraoral scan was sent to the dental laboratory. Please avoid chewing sticky or hard foods on this side until your permanent crown is fitted in 2-3 weeks.`,
+      patientSummary: `Prepared ${toothDisplay} for a permanent dental crown and placed a temporary crown. An intraoral scan was sent to the dental laboratory. Please avoid chewing sticky or hard foods on this side until your permanent crown is fitted in 2-3 weeks.`,
       adaCodes: vars.spokencodes.length > 0 ? vars.spokencodes : [
-        { code: '613', description: `Full crown prep & scan - tooth ${tooth}`, tooth: vars.teeth[0] },
-        { code: '627', description: `Core buildup - tooth ${tooth}`, tooth: vars.teeth[0] },
+        { code: '613', description: `Full crown prep & scan - ${toothDisplay}`, tooth: vars.teeth[0] },
+        { code: '627', description: `Core buildup - ${toothDisplay}`, tooth: vars.teeth[0] },
       ],
       missingProtocolNotices: [],
     };
@@ -645,14 +647,15 @@ export const CROWN_CEMENTATION_MACRO: ClinicalMacroDefinition = {
     { code: '652', description: 'Cementation of indirect restoration - full crown' },
   ],
   templateGenerator: (vars) => {
-    const tooth = vars.teeth[0] ? `#${vars.teeth[0]}` : 'tooth';
+    const toothDisplay = vars.teeth[0] ? `tooth #${vars.teeth[0]}` : 'affected tooth';
+    const toothTag = vars.teeth[0] ? `#${vars.teeth[0]}` : 'affected tooth';
     return {
       title: 'Crown Try-in & Cementation',
-      chiefComplaint: vars.complaint || `Crown issue / fit appointment for tooth ${tooth}.`,
+      chiefComplaint: vars.complaint || `Crown issue / fit appointment for ${toothDisplay}.`,
       history: vars.history || 'Medical history reviewed. Nil issues with temporary crown.',
-      toothFindings: `${tooth}: Temporary crown intact, tooth asymptomatic.`,
+      toothFindings: `${toothTag}: Temporary crown intact, tooth asymptomatic.`,
       findingsGingival: 'Gingiva pink, healthy, and free of acute inflammation.',
-      diagnosis: `${tooth}: Completed laboratory-fabricated definitive crown ready for cementation.`,
+      diagnosis: `${toothTag}: Completed laboratory-fabricated definitive crown ready for cementation.`,
       treatmentPerformed: `Verbal informed consent confirmed.
 Temporary crown removed carefully.
 Tooth preparation cleaned of temporary cement using pumice slurry, rinsed, and dried.
@@ -669,13 +672,13 @@ Definitive Cementation:
 • Final light-cure completed from all aspects.
 • Final occlusion verified in centric relation and all excursive movements.`,
       recommendations: `Post-operative instructions:
-• Avoid hard, crunchy or sticky foods on ${tooth} today.
+• Avoid hard, crunchy or sticky foods on ${toothDisplay} today.
 • Maintain normal gentle brushing and flossing starting tomorrow.
 • Expected mild transient temperature sensitivity; return if bite feels high or uncomfortable.`,
       recallRequirements: 'Review at routine 6-month checkup.',
-      patientSummary: `Successfully fitted and permanently cemented your new dental crown on tooth ${tooth}. The fit, bite, and colour were all verified. Avoid hard or sticky foods on that side for the rest of today.`,
+      patientSummary: `Successfully fitted and permanently cemented your new dental crown on ${toothDisplay}. The fit, bite, and colour were all verified. Avoid hard or sticky foods on that side for the rest of today.`,
       adaCodes: vars.spokencodes.length > 0 ? vars.spokencodes : [
-        { code: '652', description: `Definitive crown cementation - tooth ${tooth}`, tooth: vars.teeth[0] },
+        { code: '652', description: `Definitive crown cementation - ${toothDisplay}`, tooth: vars.teeth[0] },
       ],
       missingProtocolNotices: [],
     };

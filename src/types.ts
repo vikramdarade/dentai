@@ -264,6 +264,8 @@ export interface Consultation {
   patientSummary: string;
   templateId?: string;
   noteOrigin?: NoteOrigin;
+  /** Full formatted clinical progress note for 1-click PMS clipboard export & chairside review */
+  clinicalProgressNote?: string;
   /**
    * Deterministic verification of the generated note against the spoken
    * transcript (every tooth, surface, material, drug and ADA code cross-checked).

@@ -172,6 +172,26 @@ describe('PMS Adapter Layer & Capability Registry', () => {
       expect(rendered.body).not.toContain('Tooth Findings');
       expect(rendered.body).not.toContain('Diagnosis');
     });
+
+    it('renders universal progress note with dentist-friendly section headers', () => {
+      const rendered = renderForPms('universal', sampleEncounter);
+      expect(rendered.format).toBe('text');
+      expect(rendered.body).toContain('=== CLINICAL PROGRESS NOTE ===');
+      expect(rendered.body).toContain('PATIENT: Jane Doe (DOB: 1985-04-12)');
+      expect(rendered.body).toContain('APPOINTMENT TYPE: COMPREHENSIVE EXAMINATION');
+      expect(rendered.body).toContain('PRESENTING COMPLAINT:');
+      expect(rendered.body).toContain('Sensitivity on upper right molar with cold drinks.');
+      expect(rendered.body).toContain('CLINICAL EXAMINATION:');
+      expect(rendered.body).toContain('Tooth 16: Mesial occlusal caries detected.');
+      expect(rendered.body).toContain('IMMEDIATE TREATMENT PROVIDED:');
+      expect(rendered.body).toContain('Composite resin restoration 16 MO under local infiltration.');
+      expect(rendered.body).toContain('ADA ITEM NUMBERS:');
+      expect(rendered.body).toContain('- Item 011: Comprehensive oral examination');
+      expect(rendered.body).toContain('- Item 531: Adhesive restoration - 1 surface - posterior - tooth 16');
+      expect(rendered.body).toContain('PATIENT COMMUNICATION:');
+      expect(rendered.body).toContain('Discussed oral hygiene maintenance and follow-up in 6 months.');
+      expect(rendered.body).toContain('[Reviewed and verified by treating clinician chairside in DentAI]');
+    });
   });
 
   describe('Unsupported Channel Boundary Exceptions', () => {

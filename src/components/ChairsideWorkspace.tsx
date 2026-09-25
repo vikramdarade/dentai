@@ -35,6 +35,7 @@ import {
   Trash2,
   UploadCloud,
   RotateCw,
+  RotateCcw,
   Volume2,
   Lock
 } from 'lucide-react';
@@ -55,7 +56,7 @@ import { generateMacroNote } from '../lib/macroEngine';
 import { normalizeSpokenDentalText } from '../lib/dentalPhoneticLexicon';
 import { formatClinicDate, formatClinicTime, getClinicTodayIso } from '../utils/date';
 import { decideSilenceAction, SILENCE_SLEEP_SECONDS } from '../lib/silencePolicy';
-import { toPmsEncounter, renderForPms } from '../lib/pms';
+import { toPmsEncounter, renderForPms, renderUniversalProgressNote } from '../lib/pms';
 import { ClinicMembership } from '../lib/clinics';
 
 interface ChairsideWorkspaceProps {
@@ -577,6 +578,8 @@ export default function ChairsideWorkspace({
     plan?: string;
   }>>({});
   const [soapSaveStatus, setSoapSaveStatus] = useState<Record<string, 'saved' | 'saving'>>({});
+  const [editedProgressNotes, setEditedProgressNotes] = useState<Record<string, string>>({});
+  const [progressNoteSaveStatus, setProgressNoteSaveStatus] = useState<Record<string, 'saved' | 'saving'>>({});
 
   // ─────────────────────────────────────────────────────────────
   // 3c. CONTEXTUAL OPERATORY HELP & DIRECT GITHUB ISSUE CREATION
@@ -956,6 +959,74 @@ export default function ChairsideWorkspace({
       }
     } else {
       setSoapSaveStatus(prev => ({ ...prev, [targetId]: 'saved' }));
+    }
+  }, [activeEncounter, onSaveConsultation]);
+
+  // Handle inline clinical Progress Note edit with instant optimistic UI & database auto-save
+  const handleProgressNoteChange = useCallback(async (value: string) => {
+    if (!activeEncounter) return;
+    const targetId = activeEncounter.id;
+
+    // 1. Optimistic UI update (0ms typing latency)
+    setEditedProgressNotes(prev => ({
+      ...prev,
+      [targetId]: value
+    }));
+    setProgressNoteSaveStatus(prev => ({ ...prev, [targetId]: 'saving' }));
+
+    // Auto-verify all sections because clinician actively authored/reviewed it
+    setVerifiedSections(prev => ({
+      ...prev,
+      [targetId]: {
+        subjective: true,
+        objective: true,
+        assessment: true,
+        plan: true
+      }
+    }));
+
+    // 2. Persist to consultation in database
+    const existingConsultation = consultationsRef.current.find(c => c.id === targetId);
+    if (existingConsultation && onSaveConsultation) {
+      const updatedConsultation: Consultation = {
+        ...existingConsultation,
+        clinicalProgressNote: value
+      };
+
+      try {
+        await onSaveConsultation(updatedConsultation);
+        setProgressNoteSaveStatus(prev => ({ ...prev, [targetId]: 'saved' }));
+      } catch (e) {
+        console.warn('Failed to auto-save clinical progress note:', e);
+      }
+    } else {
+      setProgressNoteSaveStatus(prev => ({ ...prev, [targetId]: 'saved' }));
+    }
+  }, [activeEncounter, onSaveConsultation]);
+
+  // Reset edited progress note back to original AI / macro-generated draft
+  const handleResetProgressNote = useCallback(async () => {
+    if (!activeEncounter) return;
+    const targetId = activeEncounter.id;
+
+    setEditedProgressNotes(prev => {
+      const next = { ...prev };
+      delete next[targetId];
+      return next;
+    });
+
+    const existingConsultation = consultationsRef.current.find(c => c.id === targetId);
+    if (existingConsultation && onSaveConsultation) {
+      const updatedConsultation: Consultation = {
+        ...existingConsultation,
+        clinicalProgressNote: undefined
+      };
+      try {
+        await onSaveConsultation(updatedConsultation);
+        setProgressNoteSaveStatus(prev => ({ ...prev, [targetId]: 'saved' }));
+      } catch (e) {
+        console.warn('Failed to reset progress note in database:', e);
+      }
     }
   }, [activeEncounter, onSaveConsultation]);
 
@@ -2330,6 +2401,11 @@ export default function ChairsideWorkspace({
       delete next[targetConsult.id];
       return next;
     });
+    setEditedProgressNotes(prev => {
+      const next = { ...prev };
+      delete next[targetConsult.id];
+      return next;
+    });
     setVerifiedSections(prev => ({
       ...prev,
       [targetConsult.id]: { subjective: true, objective: true, assessment: true, plan: true }
@@ -2376,15 +2452,33 @@ export default function ChairsideWorkspace({
   const [selectedPmsTarget, setSelectedPmsTarget] = useState<'d4w' | 'exact' | 'cliniko' | 'generic'>('d4w');
 
   // Generate note text formatted for PMS clipboard (incorporating clinician inline edits & PMS adapter)
-  const getFormattedNoteText = (consultToCopy?: Consultation): string => {
-    const target = consultToCopy || consultations.find(c => c.id === activeEncounter?.id);
+  const getFormattedNoteText = useCallback((consultToCopy?: Consultation): string => {
+    const target = consultToCopy || consultations.find(c => c.id === activeEncounter?.id) || activeConsult;
     if (!target) return '';
 
+    const targetId = target.id;
+    // 1. If clinician actively authored/edited the progress note directly in the text box, return that exact text!
+    if (targetId && editedProgressNotes[targetId] !== undefined) {
+      return editedProgressNotes[targetId];
+    }
+    // 2. If the consultation already has a saved progress note, return it
+    if (target.clinicalProgressNote && target.clinicalProgressNote.trim().length > 0) {
+      return target.clinicalProgressNote;
+    }
+
     const isCurrentActive = target.id === activeEncounter?.id;
-    const subj = isCurrentActive ? currentSoap.subjective : (target.findings?.chiefComplaint ? `${target.findings.chiefComplaint} ${target.findings.history || ''}` : '');
-    const obj = isCurrentActive ? currentSoap.objective : (target.findings?.toothFindings ? `${target.findings.toothFindings} ${target.findings.findingsGingival || ''}` : '');
-    const assess = isCurrentActive ? currentSoap.assessment : (target.findings?.diagnosis || '');
-    const planText = isCurrentActive ? currentSoap.plan : (target.findings?.treatmentPerformed ? `${target.findings.treatmentPerformed} ${target.findings.recommendations || ''}` : '');
+    const subj = isCurrentActive && editedSoapNotes[targetId]?.subjective !== undefined
+      ? editedSoapNotes[targetId]!.subjective
+      : (target.findings?.chiefComplaint ? `${target.findings.chiefComplaint} ${target.findings.history || ''}` : '');
+    const obj = isCurrentActive && editedSoapNotes[targetId]?.objective !== undefined
+      ? editedSoapNotes[targetId]!.objective
+      : (target.findings?.toothFindings ? `${target.findings.toothFindings} ${target.findings.findingsGingival || ''}` : '');
+    const assess = isCurrentActive && editedSoapNotes[targetId]?.assessment !== undefined
+      ? editedSoapNotes[targetId]!.assessment
+      : (target.findings?.diagnosis || '');
+    const planText = isCurrentActive && editedSoapNotes[targetId]?.plan !== undefined
+      ? editedSoapNotes[targetId]!.plan
+      : (target.findings?.treatmentPerformed ? `${target.findings.treatmentPerformed} ${target.findings.recommendations || ''}` : '');
 
     // Construct synthesized consultation snapshot reflecting live clinician edits
     const liveConsult: Consultation = {
@@ -2401,42 +2495,22 @@ export default function ChairsideWorkspace({
 
     try {
       const pmsEncounter = toPmsEncounter(liveConsult);
-      const rendered = renderForPms(selectedPmsTarget, pmsEncounter);
-      if (rendered?.body) return rendered.body;
+      return renderUniversalProgressNote(pmsEncounter);
     } catch {
-      // Safe fallback if adapter encounters edge case
+      try {
+        return renderUniversalProgressNote(toPmsEncounter(target));
+      } catch {
+        return '';
+      }
     }
+  }, [activeEncounter, activeConsult, consultations, editedProgressNotes, editedSoapNotes]);
 
-    return `=== DENTAI CLINICAL NOTE ===
-PATIENT: ${target.firstName} ${target.lastName} (DOB: ${target.dob || 'Not recorded'})
-DATE: ${formatClinicDate(target.date || new Date(), { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })}
-PROVIDER: ${dentistName || 'Attending Clinician'}
-PROCEDURE: ${target.appointmentType?.toUpperCase() || 'GENERAL RESTORATIVE'}
-
-SUBJECTIVE (S):
-${subj || 'No complaints recorded.'}
-
-OBJECTIVE (O):
-${obj || 'Examination completed.'}
-
-ASSESSMENT (A):
-${assess || 'Clinical findings documented.'}
-
-PLAN & PROCEDURE (P):
-${planText || 'Treatment completed.'}
-
-CDT/ADA CODES:
-${target.findings?.adaCodes?.map(c => `- ${c.code}: ${c.description}`).join('\n') || '- None recorded'}
-
-VERIFICATION: Verified from patient conversation
-============================`;
-  };
+  const currentProgressNote = useMemo(() => {
+    return getFormattedNoteText();
+  }, [getFormattedNoteText]);
 
   // Copy Note for PMS (Transitions status to 'Done')
   const handleCopyPMS = (consultToCopy?: Consultation) => {
-    if (!consultToCopy && !allSectionsVerified) {
-      return;
-    }
     const target = consultToCopy || consultations.find(c => c.id === activeEncounter?.id);
     const noteText = getFormattedNoteText(consultToCopy);
     if (!noteText) return;
@@ -3244,16 +3318,16 @@ ${clinician}`;
                     <div className="space-y-3">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center space-x-2">
-                          <h3 className="text-sm font-bold text-slate-900 tracking-tight">Clinical Document</h3>
-                          <span className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md font-mono font-bold">SOAP</span>
+                          <h3 className="text-sm font-bold text-slate-900 tracking-tight">Clinical Progress Note</h3>
+                          <span className="text-[10px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded-md font-sans font-semibold">Progress Note</span>
                         </div>
                         <div className="flex items-center space-x-2">
-                          {activeEncounter && soapSaveStatus[activeEncounter.id] === 'saving' ? (
+                          {activeEncounter && (progressNoteSaveStatus[activeEncounter.id] === 'saving' || soapSaveStatus[activeEncounter.id] === 'saving') ? (
                             <span className="text-[10px] text-amber-600 font-medium flex items-center gap-1">
                               <RefreshCw className="w-2.5 h-2.5 animate-spin" />
                               Saving...
                             </span>
-                          ) : activeEncounter && editedSoapNotes[activeEncounter.id] ? (
+                          ) : activeEncounter && (editedProgressNotes[activeEncounter.id] !== undefined || editedSoapNotes[activeEncounter.id]) ? (
                             <span className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1">
                               <Check className="w-3 h-3 text-emerald-600" />
                               Saved to Chart
@@ -3284,8 +3358,14 @@ ${clinician}`;
                         {[
                           { id: 'restoration_composite', label: 'Filling' },
                           { id: 'general_exam_clean', label: 'Exam & Clean' },
-                          { id: 'simple_extraction', label: 'Extraction' },
                           { id: 'emergency_pulp_extirpation', label: 'Root Canal' },
+                          { id: 'simple_extraction', label: 'Extraction' },
+                          { id: 'implant_placement', label: 'Implants' },
+                          { id: 'crown_preparation', label: 'Crown' },
+                          { id: 'veneers_smile_design', label: 'Veneers' },
+                          { id: 'teeth_whitening', label: 'Whitening' },
+                          { id: 'invisalign_clear_aligners', label: 'Aligners' },
+                          { id: 'complete_partial_dentures', label: 'Dentures' },
                           { id: 'scaling_clean', label: 'Scale & Clean' },
                           { id: 'fissure_sealant', label: 'Sealant' },
                         ].map((m) => (
@@ -3416,155 +3496,47 @@ ${clinician}`;
                       </div>
                     )}
 
-                    {/* Structured Note Cards with Direct Inline Editing */}
-                    <div className="space-y-3 pt-1 text-xs max-h-[460px] overflow-y-auto custom-scrollbar pr-1">
+                    {/* Unified Universal Clinical Progress Note Text Area */}
+                    <div className="space-y-3 pt-1 text-xs font-sans">
                       {activeEncounter && (
                         <>
-                          {/* Subjective */}
-                          <div className="bg-white hover:bg-slate-50/50 focus-within:bg-white border border-slate-200 focus-within:border-[#0071E3] focus-within:ring-2 focus-within:ring-[#0071E3]/15 rounded-xl p-3.5 space-y-1.5 transition-all shadow-2xs group">
-                            <div className="flex items-center justify-between">
-                              <span className="text-[11px] font-bold text-slate-800 tracking-wider flex items-center gap-1.5 uppercase">
-                                <User className="w-3.5 h-3.5 text-[#0071E3]" />
-                                SUBJECTIVE (S):
-                              </span>
-                              <div className="flex items-center space-x-2">
-                                <button
-                                  type="button"
-                                  onClick={() => handleToggleSectionVerification('subjective')}
-                                  className={`text-[10px] font-bold px-2 py-0.5 rounded-md border flex items-center gap-1 transition cursor-pointer ${
-                                    isSubjectiveVerified
-                                      ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
-                                      : 'bg-slate-100 hover:bg-emerald-50 text-slate-600 hover:text-emerald-800 border-slate-200'
-                                  }`}
-                                >
-                                  {isSubjectiveVerified ? (
-                                    <>
-                                      <Check className="w-2.5 h-2.5 text-emerald-600" />
-                                      <span>Verified</span>
-                                    </>
-                                  ) : (
-                                    <span>Verify</span>
-                                  )}
-                                </button>
+                          <div className="relative rounded-2xl border border-slate-200 bg-white p-3 focus-within:border-[#0071E3] focus-within:ring-2 focus-within:ring-[#0071E3]/15 transition-all shadow-xs group">
+                            <div className="flex items-center justify-between pb-2 px-1 border-b border-slate-100 mb-2">
+                              <div className="flex items-center gap-2">
+                                <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                                  <FileText className="w-3.5 h-3.5 text-[#0071E3]" />
+                                  Clinical Progress Note
+                                </span>
+                                <span className="text-[10px] bg-sky-50 text-sky-800 font-semibold px-2 py-0.5 rounded border border-sky-200">
+                                  Universal PMS
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                {editedProgressNotes[activeEncounter.id] !== undefined && (
+                                  <button
+                                    type="button"
+                                    onClick={handleResetProgressNote}
+                                    title="Discard manual edits and restore original generated draft"
+                                    className="text-[10px] font-semibold text-slate-500 hover:text-amber-800 flex items-center gap-1 px-2 py-0.5 rounded border border-slate-200 hover:border-amber-300 bg-white transition cursor-pointer active:scale-95"
+                                  >
+                                    <RotateCcw className="w-2.5 h-2.5" />
+                                    <span>Reset to Original Draft</span>
+                                  </button>
+                                )}
+                                <span className="text-[10px] text-slate-400 font-mono">
+                                  {currentProgressNote ? `${currentProgressNote.length} chars` : '0 chars'}
+                                </span>
                               </div>
                             </div>
-                            <textarea
-                              value={currentSoap.subjective}
-                              onChange={e => handleSoapChange('subjective', e.target.value)}
-                              rows={2}
-                              className="w-full bg-transparent text-slate-800 leading-relaxed text-[11px] font-sans resize-y focus:outline-none placeholder:text-slate-400"
-                              placeholder="Patient chief complaint, history, reported symptoms..."
-                            />
-                          </div>
 
-                          {/* Objective */}
-                          <div className="bg-white hover:bg-slate-50/50 focus-within:bg-white border border-slate-200 focus-within:border-teal-700 focus-within:ring-2 focus-within:ring-teal-700/15 rounded-xl p-3.5 space-y-1.5 transition-all shadow-2xs group">
-                            <div className="flex items-center justify-between">
-                              <span className="text-[11px] font-bold text-slate-800 tracking-wider flex items-center gap-1.5 uppercase">
-                                <Activity className="w-3.5 h-3.5 text-teal-700" />
-                                OBJECTIVE (O):
-                              </span>
-                              <div className="flex items-center space-x-2">
-                                <button
-                                  type="button"
-                                  onClick={() => handleToggleSectionVerification('objective')}
-                                  className={`text-[10px] font-bold px-2 py-0.5 rounded-md border flex items-center gap-1 transition cursor-pointer ${
-                                    isObjectiveVerified
-                                      ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
-                                      : 'bg-slate-100 hover:bg-emerald-50 text-slate-600 hover:text-emerald-800 border-slate-200'
-                                  }`}
-                                >
-                                  {isObjectiveVerified ? (
-                                    <>
-                                      <Check className="w-2.5 h-2.5 text-emerald-600" />
-                                      <span>Verified</span>
-                                    </>
-                                  ) : (
-                                    <span>Verify</span>
-                                  )}
-                                </button>
-                              </div>
-                            </div>
                             <textarea
-                              value={currentSoap.objective}
-                              onChange={e => handleSoapChange('objective', e.target.value)}
-                              rows={2}
-                              className="w-full bg-transparent text-slate-800 leading-relaxed text-[11px] font-sans resize-y focus:outline-none placeholder:text-slate-400 font-tabular"
-                              placeholder="Clinical examination, diagnostic findings, tooth & gingival findings..."
-                            />
-                          </div>
-
-                          {/* Assessment */}
-                          <div className="bg-white hover:bg-slate-50/50 focus-within:bg-white border border-slate-200 focus-within:border-amber-500 focus-within:ring-2 focus-within:ring-amber-500/15 rounded-xl p-3.5 space-y-1.5 transition-all shadow-2xs group">
-                            <div className="flex items-center justify-between">
-                              <span className="text-[11px] font-bold text-slate-800 tracking-wider flex items-center gap-1.5 uppercase">
-                                <Shield className="w-3.5 h-3.5 text-amber-500" />
-                                ASSESSMENT (A):
-                              </span>
-                              <div className="flex items-center space-x-2">
-                                <button
-                                  type="button"
-                                  onClick={() => handleToggleSectionVerification('assessment')}
-                                  className={`text-[10px] font-bold px-2 py-0.5 rounded-md border flex items-center gap-1 transition cursor-pointer ${
-                                    isAssessmentVerified
-                                      ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
-                                      : 'bg-slate-100 hover:bg-emerald-50 text-slate-600 hover:text-emerald-800 border-slate-200'
-                                  }`}
-                                >
-                                  {isAssessmentVerified ? (
-                                    <>
-                                      <Check className="w-2.5 h-2.5 text-emerald-600" />
-                                      <span>Verified</span>
-                                    </>
-                                  ) : (
-                                    <span>Verify</span>
-                                  )}
-                                </button>
-                              </div>
-                            </div>
-                            <textarea
-                              value={currentSoap.assessment}
-                              onChange={e => handleSoapChange('assessment', e.target.value)}
-                              rows={2}
-                              className="w-full bg-transparent text-slate-800 leading-relaxed text-[11px] font-sans resize-y focus:outline-none placeholder:text-slate-400 font-tabular"
-                              placeholder="Diagnosis, pulpal/periodontal prognosis..."
-                            />
-                          </div>
-
-                          {/* Plan & Procedure */}
-                          <div className="bg-white hover:bg-slate-50/50 focus-within:bg-white border border-slate-200 focus-within:border-[#0071E3] focus-within:ring-2 focus-within:ring-[#0071E3]/15 rounded-xl p-3.5 space-y-1.5 transition-all shadow-2xs group">
-                            <div className="flex items-center justify-between">
-                              <span className="text-[11px] font-bold text-slate-800 tracking-wider flex items-center gap-1.5 uppercase">
-                                <Sparkles className="w-3.5 h-3.5 text-[#0071E3]" />
-                                PLAN & PROCEDURE (P):
-                              </span>
-                              <div className="flex items-center space-x-2">
-                                <button
-                                  type="button"
-                                  onClick={() => handleToggleSectionVerification('plan')}
-                                  className={`text-[10px] font-bold px-2 py-0.5 rounded-md border flex items-center gap-1 transition cursor-pointer ${
-                                    isPlanVerified
-                                      ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
-                                      : 'bg-slate-100 hover:bg-emerald-50 text-slate-600 hover:text-emerald-800 border-slate-200'
-                                  }`}
-                                >
-                                  {isPlanVerified ? (
-                                    <>
-                                      <Check className="w-2.5 h-2.5 text-emerald-600" />
-                                      <span>Verified</span>
-                                    </>
-                                  ) : (
-                                    <span>Verify</span>
-                                  )}
-                                </button>
-                              </div>
-                            </div>
-                            <textarea
-                              value={currentSoap.plan}
-                              onChange={e => handleSoapChange('plan', e.target.value)}
-                              rows={2}
-                              className="w-full bg-transparent text-slate-800 leading-relaxed text-[11px] font-sans resize-y focus:outline-none placeholder:text-slate-400 font-tabular"
-                              placeholder="Treatment rendered, materials/anesthesia used, post-op instructions..."
+                              id="clinical-progress-note-editor"
+                              value={currentProgressNote}
+                              onChange={e => handleProgressNoteChange(e.target.value)}
+                              rows={22}
+                              className="w-full bg-slate-50/50 hover:bg-slate-50/30 focus:bg-white text-slate-900 leading-relaxed font-mono text-[11.5px] p-3 rounded-xl border border-slate-200/70 focus:border-slate-300 focus:outline-none placeholder:text-slate-400 custom-scrollbar select-text selection:bg-sky-100 min-h-[460px] resize-y"
+                              placeholder="No clinical progress note recorded yet. Click 'Generate Clinical Note' or speak into the microphone."
+                              spellCheck={false}
                             />
                           </div>
 
