@@ -81,3 +81,24 @@
     - Never truncate a recording to make it fit a transcription limit, and never silently drop a failed upload: refuse, or report the gap as a warning the clinician sees before signing.
     - Delete the raw audio once the transcript is persisted. Do not keep a "backup" copy of clinical voice.
 
+17. **Clinic-Wide Specialty Scope, Negation Guards & Procedure Disambiguation**:
+    - **Universal Service Coverage**: Operatory note generation and macro selection must natively support the entire Australian general and specialty dental scope:
+      - *Surgical & Oral Surgery*: Simple & surgical wisdom teeth extraction (ADA 311, 324, 386), bone guttering, tooth sectioning, sutures.
+      - *Implantology*: Fixture placement (ADA 661), osteotomy under chilled saline, insertion torque (Ncm), healing abutments (ADA 684).
+      - *Removable Prosthodontics*: Complete & partial dentures (ADA 711, 712, 721), border moulding, master impressions, CAD/CAM digital dentures.
+      - *Implant Prosthodontics*: Implant-supported overdentures (ADA 672, 712, 731), locator abutment torquing, chairside pick-up resin, retention caps.
+      - *Cosmetic & Aesthetic*: In-chair Pola tooth whitening with gingival barrier (ADA 118, 119), diagnostic wax-up mock-ups, porcelain veneers with butt-joint enamel prep (ADA 582, 583, 556).
+      - *Fixed Prosthodontics*: Multi-unit bridges & crowns (ADA 613, 615, 627, 643), crown issue & cementation with RelyX/Panavia (ADA 651, 652).
+      - *Orthodontics*: Clear aligners / Invisalign (ADA 825), composite attachment bonding, interproximal reduction (IPR), tracking reviews.
+      - *Endodontics*: Stage 1 emergency pulp extirpation & dressing (ADA 414) vs. Stage 2/3 chemo-mechanical prep and gutta-percha obturation (ADA 415, 416).
+      - *Periodontics & Prevention*: Prophylaxis and fluoride (ADA 111, 114, 121) vs. quadrant subgingival root planing with Gracey curettes (ADA 222).
+      - *Trauma & Emergencies*: Luxation/subluxation repositioning and flexible wire splints (ADA 392).
+      - *Sleep Dentistry*: Conscious IV sedation (Midazolam/Fentanyl titration), nitrous oxide relative analgesia, continuous vitals, Aldrete discharge criteria (ADA 927, 943, 949).
+    - **Contraindication & Negation Supremacy**: Any clinical statement indicating a procedure is contraindicated, avoided, refused, or deferred (e.g., patient on anticoagulants/antiresorptives, GP clearance needed) MUST strictly suppress that procedure. Never generate billing items or operative sections for a contraindicated intervention.
+    - **Disambiguation Precedence**:
+      - Porcelain veneers (facial reduction, mock-up) must take precedence over full crown preparation.
+      - Aligner attachments & IPR must take precedence over routine direct restorations.
+      - Crown cementation/try-in (temporary crown removal, RelyX) must take precedence over crown preparation.
+      - Conscious sedation vitals & recovery must be captured independently from the underlying surgical or restorative treatment.
+    - **Chained Entity Extraction**: Tooth extraction regexes must extract complete lists and conjunctions (`teeth 14 and 16`, `teeth 16, 26, 36, 46`, `13 to 23`) and map all relevant teeth to the clinical record.
+
