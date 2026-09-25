@@ -36,9 +36,23 @@ export function parseClinicalEntities(
 
   // 1. Teeth extraction (FDI 11-48, 51-85)
   const teethSet = new Set<string>();
-  // Match "tooth 16", "teeth 16, 26", "#16", "tooth one six"
-  const directToothRegex = /\b(?:tooth|teeth|#)\s*([1-8][1-8])\b/gi;
+  // Match "tooth 16", "teeth 16, 26, 36, 46", "teeth 14 and 16", "#16"
+  const teethListRegex = /\b(?:teeth|tooth|#)\s*([1-8][1-8](?:(?:\s*,\s*|\s+and\s+|\s*-\s*|\s+to\s+)[1-8][1-8])*)\b/gi;
   let match: RegExpExecArray | null;
+  while ((match = teethListRegex.exec(fullText)) !== null) {
+    const listStr = match[1];
+    const subMatches = listStr.match(/\b[1-8][1-8]\b/g);
+    if (subMatches) {
+      for (const t of subMatches) {
+        const num = parseInt(t, 10);
+        if (isValidFdiTooth(num)) {
+          teethSet.add(String(num));
+        }
+      }
+    }
+  }
+
+  const directToothRegex = /\b(?:tooth|teeth|#)\s*([1-8][1-8])\b/gi;
   while ((match = directToothRegex.exec(fullText)) !== null) {
     const num = parseInt(match[1], 10);
     if (isValidFdiTooth(num)) {
@@ -98,6 +112,14 @@ export function parseClinicalEntities(
       if (isValidFdiTooth(parseInt(t, 10)) && !toothSurfacePairs.some(p => p.tooth === t)) {
         toothSurfacePairs.push({ tooth: t, surface: upperCombo });
         surfacesSet.add(upperCombo);
+      }
+    }
+
+    // Pattern: standalone surface combination e.g. "MODB surfaces", "on the MOD", "DO composite"
+    if (new RegExp(`\\b${combo}\\s+surfaces?\\b|\\b(?:on|the)\\s+${combo}\\b|\\b${combo}\\s+(?:restoration|composite|filling)\\b`, 'i').test(lower)) {
+      surfacesSet.add(upperCombo);
+      if (teeth.length === 1 && !toothSurfacePairs.some(p => p.tooth === teeth[0])) {
+        toothSurfacePairs.push({ tooth: teeth[0], surface: upperCombo });
       }
     }
   }
