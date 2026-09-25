@@ -30,14 +30,7 @@ import {
   LifeBuoy,
   ExternalLink,
   Tag,
-  Camera,
-  Image as ImageIcon,
-  Trash2,
-  UploadCloud,
-  RotateCw,
-  RotateCcw,
-  Volume2,
-  Lock
+  RotateCw
 } from 'lucide-react';
 import { createOperatoryDspChain, type OperatoryDspChain } from '../lib/operatoryAudioDsp';
 import { addScheduleItem, parseTimeToMinutes, ScheduleItemStatus } from '../lib/dayScheduleStorage';
@@ -56,9 +49,18 @@ import { generateMacroNote } from '../lib/macroEngine';
 import { normalizeSpokenDentalText } from '../lib/dentalPhoneticLexicon';
 import { formatClinicDate, formatClinicTime, getClinicTodayIso } from '../utils/date';
 import { decideSilenceAction, SILENCE_SLEEP_SECONDS } from '../lib/silencePolicy';
-import { toPmsEncounter, renderForPms, renderUniversalProgressNote, renderD4W, renderExact } from '../lib/pms';
+import { toPmsEncounter, renderUniversalProgressNote, renderD4W, renderExact } from '../lib/pms';
 import { parseClinicalEntities } from '../lib/clinicalEntityParser';
 import { ClinicMembership } from '../lib/clinics';
+import { CHAIRSIDE_MACRO_OPTIONS } from '../lib/australianClinicalMacros';
+import { DaysheetModal } from './DaysheetModal';
+import { DeliverablesModal } from './DeliverablesModal';
+import { BatchTrayModal } from './BatchTrayModal';
+import { DayGuideModal } from './DayGuideModal';
+import { OperatoryPatientBanner } from './OperatoryPatientBanner';
+import { LiveConversationPanel } from './LiveConversationPanel';
+import { ClinicalNoteEditorPanel } from './ClinicalNoteEditorPanel';
+import { AsepticShortcutFootbar } from './AsepticShortcutFootbar';
 
 interface ChairsideWorkspaceProps {
   currentUser: AuthUser | null;
@@ -2503,6 +2505,24 @@ export default function ChairsideWorkspace({
     }
   };
 
+  const handlePrevPatient = () => {
+    const currentIndex = encountersForDate.findIndex(p => p.id === activePatientId);
+    if (currentIndex <= 0) return;
+    const prevPatient = encountersForDate[currentIndex - 1];
+
+    if (prevPatient) {
+      if (!isMicStandbyRef.current) {
+        playMedicalChime('stop');
+      }
+      setActivePatientId(prevPatient.id);
+      sessionStartTimeRef.current = Date.now();
+      setRecordingSeconds(0);
+      setIsMicStandby(true);
+      setIsPaused(false);
+      setInterimTranscript('');
+    }
+  };
+
   // Completed Encounters for End-of-Day Batch Tray
   const completedEncounters = useMemo(() => {
     return encountersForDate.filter(p => p.status === 'note_generated' || p.status === 'done' || p.status === 'ready');
@@ -2570,14 +2590,18 @@ export default function ChairsideWorkspace({
 
   const [copiedPmsTarget, setCopiedPmsTarget] = useState<string | null>(null);
 
+  const PMS_RENDERERS: Record<string, (e: any) => string> = {
+    d4w: renderD4W,
+    exact: renderExact,
+  };
+
   // Copy Note for Practice Management (Universal PMS, D4W, or Exact)
   const handleCopyPMS = (consultToCopy?: Consultation, format: 'pms' | 'd4w' | 'exact' = 'pms') => {
     const target = consultToCopy || consultations.find(c => c.id === activeEncounter?.id);
+    const renderer = PMS_RENDERERS[format];
     let noteText = '';
-    if (format === 'd4w' && target) {
-      try { noteText = renderD4W(toPmsEncounter(target)); } catch { noteText = getFormattedNoteText(consultToCopy); }
-    } else if (format === 'exact' && target) {
-      try { noteText = renderExact(toPmsEncounter(target)); } catch { noteText = getFormattedNoteText(consultToCopy); }
+    if (renderer && target) {
+      try { noteText = renderer(toPmsEncounter(target)); } catch { noteText = getFormattedNoteText(consultToCopy); }
     } else {
       noteText = getFormattedNoteText(consultToCopy);
     }
@@ -2706,11 +2730,29 @@ ${clinician}`;
       const targetTag = (e.target as HTMLElement)?.tagName?.toLowerCase();
       const isInput = targetTag === 'input' || targetTag === 'textarea';
 
+      // Spacebar: Start Audio / Pause Audio / Keep Listening
+      if (e.key === ' ' && !isInput && !showDaysheetModal && !showBatchTray && !showDayGuide && !showDeliverablesModal) {
+        e.preventDefault();
+        if (isSilenceWarningRef.current) {
+          handleKeepListening();
+        } else if (isMicStandbyRef.current) {
+          handleStartAudio();
+        } else {
+          handleTogglePause();
+        }
+        return;
+      }
+
       // ⌘→: Advance to Next Patient (hands-free transition without touching mouse)
       if (!isInput && !showDaysheetModal && !showPlainTextModal && !showBatchTray && !showDayGuide && !showDeliverablesModal) {
         if (isModifier && (e.key === 'ArrowRight' || e.key === 'Right')) {
           e.preventDefault();
           handleNextPatient();
+          return;
+        }
+        if (isModifier && (e.key === 'ArrowLeft' || e.key === 'Left')) {
+          e.preventDefault();
+          handlePrevPatient();
           return;
         }
       }
@@ -2726,12 +2768,10 @@ ${clinician}`;
         e.preventDefault();
         setShowDaysheetModal(true);
       }
-      // ⌘C / Ctrl+C: Copy Note for PMS when not focused on an input
+      // ⌘C / Ctrl+C / ⌘⇧C: Copy Note for PMS when not focused on an input
       else if (isModifier && e.key.toLowerCase() === 'c' && !isInput) {
         e.preventDefault();
-        if (allSectionsVerified) {
-          handleCopyPMS();
-        }
+        handleCopyPMS();
       }
       // ⌘B / Ctrl+B: Open Batch Tray
       else if (isModifier && e.key.toLowerCase() === 'b' && !isInput) {
@@ -3109,597 +3149,69 @@ ${clinician}`;
             </div>
           </section>
 
-          {/* ─── PANE 2: APPLE CLINICAL DOCUMENT CANVAS (72%) ─── */}
-          <main className="flex-1 flex flex-col overflow-y-auto p-6 space-y-4 bg-[#FAFAFC] custom-scrollbar">
+          {/* ─── PANE 2: CLEAN MEDICAL LIGHT OPERATORY WORKSPACE ─── */}
+          <main className="flex-1 flex flex-col overflow-y-auto p-5 space-y-4 bg-slate-50/70 custom-scrollbar">
             {activeEncounter ? (
               <>
-                {/* Active Patient Header & Action Bar */}
-                <div className="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-xs flex items-center justify-between">
-                  <div className="flex items-center space-x-3.5">
-                    <div className="w-11 h-11 rounded-full bg-sky-100 text-sky-800 flex items-center justify-center font-bold text-sm border border-sky-200 shadow-inner">
-                      {activeEncounter.patientName.split(' ').map(n => n[0]).join('').slice(0, 2)}
-                    </div>
-                    <div>
-                      <div className="flex items-center space-x-2.5">
-                        <h2 className="text-lg font-extrabold text-slate-900 tracking-tight">
-                          {activeEncounter.patientName}
-                        </h2>
-                        <span className="text-xs text-slate-500 font-medium">
-                          • DOB: {activeEncounter.dob ? activeEncounter.dob : 'Not recorded'} • {activeEncounter.operatory?.replace(/Op /i, 'Room ') || 'Room 1'}
-                        </span>
-                      </div>
+                {/* Operatory Patient Demographics & Action Banner */}
+                <OperatoryPatientBanner
+                  encounter={{
+                    id: activeEncounter.id,
+                    patientName: activeEncounter.patientName,
+                    dob: activeEncounter.dob,
+                    operatory: activeEncounter.operatory,
+                    time: activeEncounter.time,
+                    appointmentType: activeEncounter.appointmentType,
+                    alerts: activeEncounter.alerts,
+                  }}
+                  currentIndex={encountersForDate.findIndex(p => p.id === activePatientId)}
+                  totalEncounters={encountersForDate.length}
+                  onSelectPrev={handlePrevPatient}
+                  onSelectNext={handleNextPatient}
+                  onOpenDaysheet={handleOpenDaysheetModal}
+                  onOpenWalkIn={() => setShowWalkInCard(true)}
+                  onUpdateAppointmentType={(type) => handleUpdateAppointmentType(activeEncounter.id, type)}
+                />
 
-                      {/* Interactive Procedure & Note Template Selector */}
-                      <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Type:</span>
-                          <select
-                            value={activeEncounter.appointmentType || 'examination'}
-                            onChange={e => handleUpdateAppointmentType(activeEncounter.id, e.target.value as AppointmentType)}
-                            className="px-2 py-0.5 text-xs font-semibold rounded-lg bg-sky-50 text-sky-800 border border-sky-200 focus:outline-none focus:ring-1 focus:ring-sky-500 cursor-pointer"
-                          >
-                            {APPOINTMENT_TYPES.map(t => (
-                              <option key={t.value} value={t.value}>
-                                {t.label}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
+                {/* Main Two-Panel Adaptive Split: Left (Live Speech & Mic HUD) / Right (Note Canvas & PMS Sync) */}
+                <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4 min-h-0">
+                  <LiveConversationPanel
+                    transcript={activeEncounter.diarizedTranscript || []}
+                    interimTranscript={interimTranscript}
+                    isMicStandby={isMicStandby}
+                    isPaused={isPaused}
+                    recordingSeconds={recordingSeconds}
+                    isSilenceWarning={isSilenceWarning}
+                    silenceSecondsRemaining={silenceSecondsRemaining}
+                    dspNoiseGateActive={dspNoiseGateActive}
+                    onToggleNoiseGate={() => setDspNoiseGateActive(prev => !prev)}
+                    onStartAudio={handleStartAudio}
+                    onTogglePause={handleTogglePause}
+                    onKeepListening={handleKeepListening}
+                    onManualDialogueSubmit={(text) => handleAppendTranscriptText(text, 'Dentist')}
+                  />
 
-                        {/* Fast 1-click pills */}
-                        <div className="flex items-center gap-1 flex-wrap">
-                          {APPOINTMENT_TYPES.map(t => {
-                            const isSelected = (activeEncounter.appointmentType || 'examination') === t.value;
-                            return (
-                              <button
-                                key={t.value}
-                                type="button"
-                                onClick={() => handleUpdateAppointmentType(activeEncounter.id, t.value)}
-                                className={`px-2 py-0.5 text-[10px] font-bold rounded-md transition cursor-pointer ${isSelected
-                                    ? 'bg-[#0060BA] text-white shadow-2xs'
-                                    : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
-                                  }`}
-                              >
-                                {t.short}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center space-x-2.5">
-                    <button
-                      onClick={handleNextPatient}
-                      title="Advance to next patient on schedule"
-                      className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-700 text-xs font-bold flex items-center space-x-1.5 transition cursor-pointer"
-                    >
-                      <ArrowRight className="w-3.5 h-3.5" />
-                      <span>Next Patient (⌘→)</span>
-                    </button>
-                  </div>
-                </div>
-
-                {/* Ambient Audio HUD Bar */}
-                <div className="bg-white rounded-2xl p-3.5 border border-slate-200/90 shadow-xs flex items-center justify-between">
-                  <div className="flex items-center space-x-3">
-                    <div className={`w-3 h-3 rounded-full ${!isMicStandby && !isPaused
-                      ? 'bg-rose-500 animate-ping'
-                      : isPaused
-                        ? 'bg-amber-500'
-                        : 'bg-sky-500'
-                      }`} />
-                    <span className="text-xs font-bold text-slate-800">
-                      {!isMicStandby && !isPaused
-                        ? `Listening (${formatTimer(recordingSeconds)}) — Press Space to pause`
-                        : isPaused
-                          ? 'Paused — Press Space to resume'
-                          : 'Standby — Press Space to start listening'}
-                    </span>
-                  </div>
-
-                  {/* Waveform Visualizer */}
-                  <div className="flex items-center space-x-1 h-5 px-3">
-                    {Array.from({ length: 11 }).map((_, i) => (
-                      <div
-                        key={i}
-                        ref={el => { waveformRefs.current[i] = el; }}
-                        style={{ height: '20%', opacity: isMicStandby || isPaused ? 0.35 : 1 }}
-                        className="w-1 bg-[#0060BA] rounded-full transition-all duration-75"
-                      />
-                    ))}
-                  </div>
-
-                  <div className="flex items-center space-x-2">
-                    {isMicStandby ? (
-                      <button
-                        onClick={handleStartAudio}
-                        className="px-3.5 py-1.5 rounded-xl bg-[#0060BA] hover:bg-[#004D96] active:scale-95 text-white text-xs font-bold flex items-center space-x-1.5 transition shadow-xs cursor-pointer"
-                      >
-                        <Mic className="w-3.5 h-3.5" />
-                        <span>Start Audio</span>
-                        <kbd className="px-1 text-[9px] font-mono bg-sky-900/40 rounded">Space</kbd>
-                      </button>
-                    ) : (
-                      <button
-                        onClick={handleTogglePause}
-                        className="px-3.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-700 text-xs font-bold flex items-center space-x-1.5 transition cursor-pointer"
-                      >
-                        {isPaused ? <Play className="w-3.5 h-3.5 text-emerald-600" /> : <Pause className="w-3.5 h-3.5 text-amber-600" />}
-                        <span>{isPaused ? 'Resume' : 'Pause'}</span>
-                        <kbd className="px-1 text-[9px] font-mono bg-slate-200 rounded">Space</kbd>
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                {/* Silence Warning Alert Banner */}
-                {isSilenceWarning && (
-                  <div className="bg-amber-50 border border-amber-300 rounded-xl p-3 flex items-center justify-between text-xs text-amber-950 font-medium shadow-2xs">
-                    <div className="flex items-center space-x-2">
-                      <AlertTriangle className="w-4 h-4 text-amber-700 animate-bounce" />
-                      <span>Quiet room detected: Pausing in {silenceSecondsRemaining}s.</span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={handleKeepListening}
-                      className="px-3 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition cursor-pointer"
-                    >
-                      Keep Listening (Space)
-                    </button>
-                  </div>
-                )}
-
-                {/* Operatory Background Noise Warning (Receptionist-Friendly Rule 9) */}
-                {isSnrLow && !isMicStandby && !isPaused && (
-                  <div className="bg-sky-50 border border-sky-300 rounded-xl p-3 flex items-center justify-between text-xs text-sky-950 font-medium shadow-2xs">
-                    <div className="flex items-center space-x-2">
-                      <Volume2 className="w-4 h-4 text-sky-700 animate-pulse" />
-                      <span>Microphone Notice: Operatory background noise is high. Please position microphone closer to speaker.</span>
-                    </div>
-                  </div>
-                )}
-
-                {/* Main Split: Clinical Document (Left) + Live Speech Feed (Right) */}
-                <div className="grid grid-cols-12 gap-5 flex-1 items-start">
-                  {/* Left: Live Conversation Feed */}
-                  <div className="col-span-6 bg-white rounded-2xl p-5 border border-slate-200/90 shadow-xs space-y-3 font-sans">
-                    <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-                      <div className="flex items-center space-x-2">
-                        <span className={`w-2 h-2 rounded-full ${micListening ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`} />
-                        <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800">Live Conversation</h3>
-                      </div>
-                      <span className="text-[10px] text-slate-400 font-mono">
-                        {activeEncounter.diarizedTranscript?.length || 0} Lines Recorded
-                      </span>
-                    </div>
-
-                    {liveDetectedEntities && (liveDetectedEntities.teeth.length > 0 || liveDetectedEntities.anaesthetic || (liveDetectedEntities.surfaces && liveDetectedEntities.surfaces.length > 0) || liveDetectedEntities.materials?.compositeShade) && (
-                      <div className="flex flex-wrap items-center gap-1.5 py-1.5 px-2.5 bg-slate-50 border border-slate-200/70 rounded-xl text-xs">
-                        <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider mr-1">Detected:</span>
-                        {liveDetectedEntities.teeth.map(t => (
-                          <span key={t} className="inline-flex items-center px-2 py-0.5 rounded-md font-semibold text-[11px] bg-sky-100/90 text-sky-800 border border-sky-200/60 shadow-2xs">
-                            🦷 #{t}
-                          </span>
-                        ))}
-                        {liveDetectedEntities.toothSurfacePairs.map((p, i) => (
-                          <span key={i} className="inline-flex items-center px-2 py-0.5 rounded-md font-semibold text-[11px] bg-indigo-100/90 text-indigo-800 border border-indigo-200/60 shadow-2xs">
-                            #{p.tooth} ({p.surface})
-                          </span>
-                        ))}
-                        {liveDetectedEntities.anaesthetic && (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-md font-semibold text-[11px] bg-emerald-100/90 text-emerald-800 border border-emerald-200/60 shadow-2xs">
-                            💉 {liveDetectedEntities.anaesthetic.agent}
-                          </span>
-                        )}
-                        {liveDetectedEntities.materials?.compositeShade && (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-md font-semibold text-[11px] bg-amber-100/90 text-amber-800 border border-amber-200/60 shadow-2xs">
-                            ✨ Shade {liveDetectedEntities.materials.compositeShade}
-                          </span>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Dialogue Stream */}
-                    <div className="space-y-2.5 text-xs leading-relaxed max-h-[420px] overflow-y-auto custom-scrollbar pr-1">
-                      {activeEncounter.diarizedTranscript && activeEncounter.diarizedTranscript.length > 0 ? (
-                        activeEncounter.diarizedTranscript.map((t, idx) => {
-                          const isDentist = t.role === 'dentist';
-                          const isPatient = t.role === 'patient';
-                          const isAssistant = t.role === 'assistant';
-
-                          return (
-                            <div key={idx} className="space-y-0.5">
-                              {t.speaker && (
-                                <div className="flex items-center justify-between text-[10px] font-semibold">
-                                  <span className={
-                                    isDentist
-                                      ? 'text-sky-700 font-bold'
-                                      : isPatient
-                                        ? 'text-emerald-700 font-bold'
-                                        : isAssistant
-                                          ? 'text-indigo-700 font-bold'
-                                          : 'text-slate-500 font-medium'
-                                  }>
-                                    {t.speaker}
-                                  </span>
-                                  {t.time && <span className="text-slate-400 font-mono">{t.time}</span>}
-                                </div>
-                              )}
-                              <div className={`p-2.5 rounded-xl border text-xs ${isDentist
-                                  ? 'bg-sky-50/40 text-slate-800 border-sky-200/70'
-                                  : isPatient
-                                    ? 'bg-emerald-50/40 text-slate-800 border-emerald-200/70'
-                                    : 'bg-slate-50 text-slate-800 border-slate-200/70'
-                                }`}>
-                                {renderAnnotatedText(t.text)}
-                              </div>
-                            </div>
-                          );
-                        })
-                      ) : (
-                        <div className="text-center py-10 text-slate-400">
-                          <Mic className="w-7 h-7 mx-auto mb-1 text-slate-300" />
-                          <p className="font-semibold text-xs text-slate-600">
-                            {isMicStandby ? 'Microphone in Standby' : 'Listening naturally...'}
-                          </p>
-                          <p className="text-[11px] text-slate-400 mt-0.5">
-                            Speak clinical findings, tooth numbers, and procedures.
-                          </p>
-                        </div>
-                      )}
-
-                      {interimTranscript && (
-                        <div className="p-2.5 rounded-xl bg-sky-50 text-sky-900 border border-sky-200 text-xs italic shadow-2xs">
-                          <span className="font-bold mr-1">Listening:</span> {interimTranscript}
-                        </div>
-                      )}
-
-                      <div ref={transcriptEndRef} />
-                    </div>
-
-                    {/* Quick Dictation Chips */}
-                    <div className="pt-2 border-t border-slate-100 flex items-center gap-1.5 overflow-x-auto custom-scrollbar pb-1 text-[11px]">
-                      <span className="text-slate-400 text-[10px] font-bold uppercase mr-0.5">Quick:</span>
-                      {[
-                        '#16 MO decay excavated',
-                        '1.8mL 2% Lidocaine infiltrated',
-                        'Scale & clean completed 114',
-                        '2x Bitewings taken 022'
-                      ].map((chip, cIdx) => (
-                        <button
-                          key={cIdx}
-                          type="button"
-                          onClick={() => handleAppendTranscriptText(chip, 'Dentist')}
-                          className="px-2 py-0.5 bg-slate-100 hover:bg-sky-50 text-slate-700 hover:text-sky-800 border border-slate-200 rounded-lg whitespace-nowrap cursor-pointer transition text-[10px] font-medium flex-shrink-0"
-                        >
-                          + {chip}
-                        </button>
-                      ))}
-                    </div>
-
-                    {/* Quick Note Input Box */}
-                    <div className="flex items-center space-x-2">
-                      <input
-                        type="text"
-                        value={manualDialogueText}
-                        onChange={e => setManualDialogueText(e.target.value)}
-                        onKeyDown={e => {
-                          if (e.key === 'Enter' && manualDialogueText.trim()) {
-                            handleAppendTranscriptText(manualDialogueText, 'Dentist');
-                            setManualDialogueText('');
-                          }
-                        }}
-                        placeholder="Type finding or procedure..."
-                        className="flex-1 px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-sky-600"
-                      />
-                      <button
-                        onClick={() => {
-                          if (manualDialogueText.trim()) {
-                            handleAppendTranscriptText(manualDialogueText, 'Dentist');
-                            setManualDialogueText('');
-                          }
-                        }}
-                        className="px-3 py-1.5 bg-[#0060BA] hover:bg-[#004D96] text-white rounded-xl text-xs font-bold transition cursor-pointer"
-                      >
-                        Add
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Right: Apple Clinical Document */}
-                  <div className="col-span-6 bg-white rounded-2xl p-5 border border-slate-200/90 shadow-xs space-y-3.5 font-sans">
-                    {/* Header & Verified Badge */}
-                    {/* Header & Verified Badge */}
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-2">
-                          <h3 className="text-sm font-bold text-slate-900 tracking-tight">Clinical Progress Note</h3>
-                          <span className="text-[10px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded-md font-sans font-semibold">Progress Note</span>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          {activeEncounter && (progressNoteSaveStatus[activeEncounter.id] === 'saving' || soapSaveStatus[activeEncounter.id] === 'saving') ? (
-                            <span className="text-[10px] text-amber-600 font-medium flex items-center gap-1">
-                              <RefreshCw className="w-2.5 h-2.5 animate-spin" />
-                              Saving...
-                            </span>
-                          ) : activeEncounter && (editedProgressNotes[activeEncounter.id] !== undefined || editedSoapNotes[activeEncounter.id]) ? (
-                            <span className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1">
-                              <Check className="w-3 h-3 text-emerald-600" />
-                              Saved to Chart
-                            </span>
-                          ) : null}
-                          {activeConsult?.noteOrigin?.engine === 'offline-draft' ? (
-                            <span className="bg-amber-50 text-amber-800 text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-amber-300 flex items-center gap-1 shadow-2xs" title="Draft generated using local deterministic rules because cloud AI service was unavailable">
-                              <AlertTriangle className="w-3 h-3 text-amber-600" />
-                              Offline Fallback Draft
-                            </span>
-                          ) : activeConsult?.grounding?.isFullyGrounded ? (
-                            <span className="bg-emerald-50 text-emerald-800 text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-emerald-200 flex items-center gap-1 shadow-2xs">
-                              <Check className="w-3 h-3 text-emerald-600" />
-                              Verified from Audio
-                            </span>
-                          ) : (
-                            <span className="bg-slate-100 text-slate-700 text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-slate-200 flex items-center gap-1 shadow-2xs">
-                              <FileText className="w-3 h-3 text-slate-500" />
-                              Clinical Draft
-                            </span>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* 1-Tap Clinical Macro Switcher Bar */}
-                      <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider shrink-0">Macro:</span>
-                        {[
-                          { id: 'restoration_composite', label: 'Filling' },
-                          { id: 'general_exam_clean', label: 'Exam & Clean' },
-                          { id: 'emergency_pulp_extirpation', label: 'Root Canal' },
-                          { id: 'simple_extraction', label: 'Extraction' },
-                          { id: 'implant_placement', label: 'Implants' },
-                          { id: 'crown_preparation', label: 'Crown' },
-                          { id: 'veneers_smile_design', label: 'Veneers' },
-                          { id: 'teeth_whitening', label: 'Whitening' },
-                          { id: 'invisalign_clear_aligners', label: 'Aligners' },
-                          { id: 'complete_partial_dentures', label: 'Dentures' },
-                          { id: 'scaling_clean', label: 'Scale & Clean' },
-                          { id: 'fissure_sealant', label: 'Sealant' },
-                        ].map((m) => (
-                          <button
-                            key={m.id}
-                            type="button"
-                            onClick={() => handleApplyMacro(m.id)}
-                            className="text-[11px] font-semibold px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-sky-50 hover:border-sky-300 text-slate-700 whitespace-nowrap transition shadow-2xs cursor-pointer active:scale-95"
-                          >
-                            {m.label}
-                          </button>
-                        ))}
-                      </div>
-
-                      {/* Missing Safety Protocol Notices (Receptionist-Friendly Anti-Jargon Standard) */}
-                      {((activeConsult?.findings as any)?.missingProtocolNotices || []).map((notice: string, idx: number) => (
-                        <div key={idx} className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-xs">
-                          <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                          <span className="font-medium">{notice}</span>
-                        </div>
-                      ))}
-
-                      {/* Top Action Bar: Generate Note Button OR Copy to Practice Management */}
-                      {isGeneratingFromConversation || (activeEncounter && backgroundFinalizingIds.has(activeEncounter.id)) ? (
-                        <div className="w-full py-2.5 px-4 rounded-xl font-bold text-xs flex items-center justify-center space-x-2 bg-amber-50 border border-amber-200 text-amber-800 shadow-xs">
-                          <RefreshCw className="w-4 h-4 animate-spin text-amber-600" />
-                          <span>Generating Clinical Note...</span>
-                        </div>
-                      ) : !hasGeneratedNote ? (
-                        /* No note generated yet: Always accessible Generate Note button */
-                        <button
-                          onClick={() => handleRegenerateFromConversation()}
-                          className="w-full py-2.5 px-4 rounded-xl font-bold text-xs flex items-center justify-between bg-gradient-to-r from-[#0060BA] to-[#0071E3] hover:from-[#0050A0] hover:to-[#0060BA] text-white shadow-md shadow-[#0071E3]/25 cursor-pointer transition active:scale-[0.98]"
-                        >
-                          <div className="flex items-center space-x-2">
-                            <Sparkles className="w-4 h-4 text-amber-300" />
-                            <span>Generate Clinical Note</span>
-                          </div>
-                          <div className="flex items-center space-x-2">
-                            <div className="w-14 bg-white/20 rounded-full h-1.5 overflow-hidden">
-                              <div
-                                className={`h-1.5 rounded-full transition-all duration-300 ${
-                                  captureConfidence >= 90 ? 'bg-emerald-300' : captureConfidence >= 60 ? 'bg-amber-300' : 'bg-sky-200'
-                                }`}
-                                style={{ width: `${Math.max(10, captureConfidence)}%` }}
-                              />
-                            </div>
-                            <span className="text-[10px] bg-white/20 px-2 py-0.5 rounded-full font-mono font-bold">
-                              {captureConfidence}% Ready
-                            </span>
-                          </div>
-                        </button>
-                      ) : (
-                        /* Note is generated: Practice Management Copy Button + 1-Click Verification */
-                        <div className="space-y-2">
-                          <div className="flex items-center gap-2">
-                            <button
-                              onClick={() => {
-                                if (!allSectionsVerified) {
-                                  handleVerifyAllSections();
-                                }
-                                handleCopyPMS();
-                              }}
-                              className={`flex-1 py-2.5 px-4 rounded-xl font-bold text-xs flex items-center justify-center space-x-2 transition-all shadow-sm ${
-                                copiedNote
-                                  ? 'bg-emerald-600 text-white shadow-emerald-600/20 cursor-pointer active:scale-[0.98]'
-                                  : 'bg-[#0071E3] hover:bg-[#0077ED] text-white shadow-[#0071E3]/25 cursor-pointer active:scale-[0.98]'
-                              }`}
-                              title="Copy clinical note formatted for Practice Management System (⌘C)"
-                            >
-                              {copiedNote ? (
-                                <Check className="w-4 h-4" />
-                              ) : (
-                                <Copy className="w-4 h-4" />
-                              )}
-                              <span>
-                                {copiedNote
-                                  ? 'Copied to Practice Management!'
-                                  : !allSectionsVerified
-                                  ? 'Verify & Copy to PMS (⌘C)'
-                                  : 'Copy to Practice Management (⌘C)'}
-                              </span>
-                            </button>
-
-                            <button
-                              onClick={() => {
-                                if (!allSectionsVerified) handleVerifyAllSections();
-                                handleCopyD4W();
-                              }}
-                              className={`py-2.5 px-3 rounded-xl border text-xs font-semibold flex items-center space-x-1 transition cursor-pointer ${
-                                copiedNote && copiedPmsTarget === 'd4w'
-                                  ? 'bg-teal-600 border-teal-600 text-white shadow-xs'
-                                  : 'border-slate-200 hover:border-teal-500 bg-white hover:bg-teal-50 text-slate-700'
-                              }`}
-                              title="1-Click Copy formatted directly for Dental4Windows (D4W)"
-                            >
-                              <span>{copiedNote && copiedPmsTarget === 'd4w' ? 'Copied D4W' : 'D4W'}</span>
-                            </button>
-
-                            <button
-                              onClick={() => {
-                                if (!allSectionsVerified) handleVerifyAllSections();
-                                handleCopyExact();
-                              }}
-                              className={`py-2.5 px-3 rounded-xl border text-xs font-semibold flex items-center space-x-1 transition cursor-pointer ${
-                                copiedNote && copiedPmsTarget === 'exact'
-                                  ? 'bg-indigo-600 border-indigo-600 text-white shadow-xs'
-                                  : 'border-slate-200 hover:border-indigo-500 bg-white hover:bg-indigo-50 text-slate-700'
-                              }`}
-                              title="1-Click Copy formatted directly for Software of Excellence (Exact)"
-                            >
-                              <span>{copiedNote && copiedPmsTarget === 'exact' ? 'Copied Exact' : 'Exact'}</span>
-                            </button>
-
-                            <button
-                              onClick={() => handleRegenerateFromConversation()}
-                              title="Regenerate note from live conversation"
-                              className="py-2.5 px-3 rounded-xl border border-slate-200 hover:border-sky-400 bg-white hover:bg-sky-50 text-slate-700 text-xs font-semibold flex items-center space-x-1.5 transition cursor-pointer"
-                            >
-                              <RotateCw className="w-3.5 h-3.5 text-sky-600" />
-                              <span className="hidden sm:inline">Regenerate</span>
-                            </button>
-                          </div>
-
-                          {!allSectionsVerified && (
-                            <div className="flex items-center justify-between px-1 text-[11px]">
-                              <span className="text-amber-800 font-medium">
-                                Needs verification: <strong className="text-amber-950">{unverifiedSectionNames.join(', ')}</strong>
-                              </span>
-                              <button
-                                type="button"
-                                onClick={handleVerifyAllSections}
-                                className="font-bold text-sky-700 hover:text-sky-900 hover:underline cursor-pointer"
-                              >
-                                Verify All Sections
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Offline Fallback Banner */}
-                    {activeConsult?.noteOrigin?.engine === 'offline-draft' && (
-                      <div className="p-3 bg-amber-50/90 border border-amber-200 rounded-xl text-amber-900 text-xs flex items-start gap-2.5">
-                        <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
-                        <div className="space-y-1">
-                          <div className="font-bold text-[11px] text-amber-950 flex items-center gap-2">
-                            <span>Offline Fallback Draft Active</span>
-                            <span className="font-normal text-[10px] text-amber-700 bg-amber-100/80 px-2 py-0.5 rounded border border-amber-300/50">
-                              Deterministic Local Draft
-                            </span>
-                          </div>
-                          <p className="text-[11px] text-amber-800 leading-relaxed">
-                            Cloud AI was unreachable or rate-limited. This note was assembled locally from transcript quotes with zero clinical fabrication. Please review and verify before copying to your practice management system.
-                          </p>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Unified Universal Clinical Progress Note Text Area */}
-                    <div className="space-y-3 pt-1 text-xs font-sans">
-                      {activeEncounter && (
-                        <>
-                          <div className="relative rounded-2xl border border-slate-200 bg-white p-3 focus-within:border-[#0071E3] focus-within:ring-2 focus-within:ring-[#0071E3]/15 transition-all shadow-xs group">
-                            <div className="flex items-center justify-between pb-2 px-1 border-b border-slate-100 mb-2">
-                              <div className="flex items-center gap-2">
-                                <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-                                  <FileText className="w-3.5 h-3.5 text-[#0071E3]" />
-                                  Clinical Progress Note
-                                </span>
-                                <span className="text-[10px] bg-sky-50 text-sky-800 font-semibold px-2 py-0.5 rounded border border-sky-200">
-                                  Universal PMS
-                                </span>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                {editedProgressNotes[activeEncounter.id] !== undefined && (
-                                  <button
-                                    type="button"
-                                    onClick={handleResetProgressNote}
-                                    title="Discard manual edits and restore original generated draft"
-                                    className="text-[10px] font-semibold text-slate-500 hover:text-amber-800 flex items-center gap-1 px-2 py-0.5 rounded border border-slate-200 hover:border-amber-300 bg-white transition cursor-pointer active:scale-95"
-                                  >
-                                    <RotateCcw className="w-2.5 h-2.5" />
-                                    <span>Reset to Original Draft</span>
-                                  </button>
-                                )}
-                                <span className="text-[10px] text-slate-400 font-mono">
-                                  {currentProgressNote ? `${currentProgressNote.length} chars` : '0 chars'}
-                                </span>
-                              </div>
-                            </div>
-
-                            <textarea
-                              id="clinical-progress-note-editor"
-                              value={currentProgressNote}
-                              onChange={e => handleProgressNoteChange(e.target.value)}
-                              rows={22}
-                              className="w-full bg-slate-50/50 hover:bg-slate-50/30 focus:bg-white text-slate-900 leading-relaxed font-mono text-[11.5px] p-3 rounded-xl border border-slate-200/70 focus:border-slate-300 focus:outline-none placeholder:text-slate-400 custom-scrollbar select-text selection:bg-sky-100 min-h-[460px] resize-y"
-                              placeholder="No clinical progress note recorded yet. Click 'Generate Clinical Note' or speak into the microphone."
-                              spellCheck={false}
-                            />
-                          </div>
-
-                          {/* ADA Item Codes Matrix */}
-                          {activeEncounter.cdtCodes && activeEncounter.cdtCodes.length > 0 && (
-                            <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2">
-                              <div className="flex items-center justify-between">
-                                <span className="text-[10px] font-bold text-slate-700 tracking-wider uppercase flex items-center gap-1">
-                                  <Tag className="w-3 h-3 text-teal-700" />
-                                  ADA Billing Codes Detected ({activeEncounter.cdtCodes.length})
-                                </span>
-                              </div>
-                              <div className="flex flex-wrap gap-1.5">
-                                {activeEncounter.cdtCodes.map((item, idx) => (
-                                  <div
-                                    key={idx}
-                                    className="px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-xs font-mono text-slate-800 flex items-center space-x-1.5 shadow-2xs"
-                                    title={`${item.code}: ${item.desc}`}
-                                  >
-                                    <span className="font-bold text-teal-800">{item.code}</span>
-                                    <span className="text-[11px] font-sans text-slate-600 truncate max-w-[150px]">{item.desc}</span>
-                                    {item.fee && <span className="text-[10px] text-slate-400 font-semibold">{item.fee}</span>}
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-                        </>
-                      )}
-                    </div>
-                  </div>
+                  <ClinicalNoteEditorPanel
+                    activeEncounterId={activeEncounter.id}
+                    noteText={currentProgressNote}
+                    onNoteChange={handleProgressNoteChange}
+                    isGenerating={isFinalizing || isGeneratingFromConversation}
+                    onGenerateNote={() => executeBackgroundNoteFinalization(activeEncounter.id, false)}
+                    onApplyMacro={(macroId) => handleApplyMacro(macroId)}
+                    onCopyPMS={(format) => handleCopyPMS(undefined, format === 'universal' ? 'pms' : format)}
+                    copiedFormat={copiedPmsTarget}
+                    onOpenDeliverables={() => setShowDeliverablesModal(true)}
+                    verifiedSections={verifiedSections[activeEncounter.id] || {}}
+                    onToggleVerifySection={handleToggleSectionVerification}
+                    onVerifyAll={handleVerifyAllSections}
+                    hasActualGeneratedNote={Boolean(activeEncounter.soap?.assessment || activeEncounter.soap?.plan || currentProgressNote)}
+                    captureConfidence={captureConfidence}
+                  />
                 </div>
               </>
             ) : (
               <div className="text-center py-16 px-4 max-w-md mx-auto space-y-5">
-                <div className="w-16 h-16 mx-auto rounded-2xl bg-sky-50 border border-sky-100 flex items-center justify-center text-sky-600 shadow-sm">
+                <div className="w-16 h-16 mx-auto rounded-2xl bg-white border border-slate-200 flex items-center justify-center text-slate-700 shadow-sm">
                   <Mic className="w-8 h-8" />
                 </div>
                 <div className="space-y-1.5">
@@ -3711,7 +3223,7 @@ ${clinician}`;
                 <div>
                   <button
                     onClick={handleQuickStartRecording}
-                    className="w-full py-3.5 px-5 rounded-xl font-bold text-sm bg-[#0071E3] hover:bg-[#0077ED] active:scale-[0.98] text-white shadow-md shadow-[#0071E3]/25 flex items-center justify-center space-x-2.5 transition cursor-pointer"
+                    className="w-full py-3.5 px-5 rounded-xl font-bold text-sm bg-slate-900 hover:bg-slate-800 active:scale-[0.98] text-white shadow-xs flex items-center justify-center space-x-2.5 transition cursor-pointer"
                   >
                     <Mic className="w-4 h-4 animate-pulse" />
                     <span>Quick Start Audio (Spacebar)</span>
@@ -3723,1096 +3235,87 @@ ${clinician}`;
               </div>
             )}
           </main>
+
+          {/* Persistent Tactile Aseptic Footbar */}
+          <AsepticShortcutFootbar
+            isRecording={isRecording}
+            isPaused={isPaused}
+            isMicStandby={isMicStandby}
+            isSilenceWarning={isSilenceWarning}
+            silenceSecondsRemaining={silenceSecondsRemaining}
+            activePatientName={activeEncounter?.patientName}
+            onToggleAudio={isMicStandby ? handleStartAudio : handleTogglePause}
+            onNextPatient={handleNextPatient}
+            onPrevPatient={handlePrevPatient}
+            onCopyPMS={() => handleCopyPMS(undefined, 'd4w')}
+          />
         </div>
       </div>
 
-      {/* ─────────────────────────────────────────────────────────────
-          PMS DAYSHEET IMPORT MODAL (Real Clipboard Integration)
-          ───────────────────────────────────────────────────────────── */}
-      {showDaysheetModal && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <div className="flex items-center space-x-2.5">
-                <div className="w-9 h-9 rounded-xl bg-teal-100 text-teal-800 flex items-center justify-center">
-                  <Clipboard className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-slate-900">Paste Today's Appointment Schedule</h3>
-                  <p className="text-xs text-slate-500">Auto-detects Dentrix, Eaglesoft, Open Dental, Exact & D4W</p>
-                </div>
-              </div>
-              <button
-                onClick={() => setShowDaysheetModal(false)}
-                className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
 
-            <p className="text-xs text-slate-600 leading-relaxed">
-              Paste the exported daysheet text, tab-separated rows, or appointment summary from your Practice Management Software below:
-            </p>
+      {/* ──�      {/* Standalone Modal Overlays */}
+      <DeliverablesModal
+        isOpen={showDeliverablesModal}
+        onClose={() => setShowDeliverablesModal(false)}
+        activeEncounter={activeEncounter}
+        deliverablesActiveTab={deliverablesActiveTab}
+        setDeliverablesActiveTab={setDeliverablesActiveTab}
+        getReferralText={getReferralText}
+        getPostOpText={getPostOpText}
+        copiedDeliverable={copiedDeliverable}
+        setCopiedDeliverable={setCopiedDeliverable}
+      />
 
-            <textarea
-              rows={6}
-              value={daysheetRawText}
-              onChange={e => setDaysheetRawText(e.target.value)}
-              placeholder={`08:30 AM\tSarah Jenkins\tCrown Seat #19 (Zirconia)\n09:45 AM\tDavid Martinez\tRestorative #14 MOD Resin\n11:00 AM\tEmily Zhao\tComp Exam + Bitewings\n01:15 PM\tRobert Miller\tEndodontic RCT #3`}
-              className="w-full p-3 text-xs font-mono border border-slate-200 rounded-xl focus:outline-none focus:border-teal-700 bg-slate-50/60 leading-relaxed"
-            />
+      <DaysheetModal
+        isOpen={showDaysheetModal}
+        onClose={() => setShowDaysheetModal(false)}
+        scheduleImportTab={scheduleImportTab}
+        setScheduleImportTab={setScheduleImportTab}
+        daysheetRawText={daysheetRawText}
+        setDaysheetRawText={setDaysheetRawText}
+        handleParseAndImportDaysheet={handleParseAndImportDaysheet}
+        detectedScheduleItems={detectedScheduleItems}
+        setDetectedScheduleItems={setDetectedScheduleItems}
+        handleScheduleImageFile={handleScheduleImageFile}
+        isScheduleParsing={isScheduleParsing}
+        scheduleParsingError={scheduleParsingError}
+        setScheduleParsingError={setScheduleParsingError}
+        scheduleFileInputRef={scheduleFileInputRef}
+        handleCommitDetectedSchedule={handleCommitDetectedSchedule}
+        setSchedulePreviewImage={setSchedulePreviewImage}
+      />
 
-            <div className="flex items-center justify-end pt-2">
-              <div className="flex items-center space-x-2">
-                <button
-                  onClick={() => setShowDaysheetModal(false)}
-                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleParseAndImportDaysheet}
-                  className="px-4 py-2 bg-teal-800 hover:bg-teal-900 text-white rounded-xl text-xs font-bold transition cursor-pointer shadow-sm flex items-center space-x-1.5"
-                >
-                  <Upload className="w-3.5 h-3.5" />
-                  <span>Import to Database</span>
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <BatchTrayModal
+        isOpen={showBatchTray}
+        onClose={() => setShowBatchTray(false)}
+        completedEncounters={completedEncounters}
+        consultations={consultations}
+        handleCopyAllBatchNotes={handleCopyAllBatchNotes}
+        allBatchCopied={allBatchCopied}
+        copiedBatchIndex={copiedBatchIndex}
+        setCopiedBatchIndex={setCopiedBatchIndex}
+        getFormattedNoteText={getFormattedNoteText}
+      />
 
-      {/* ─────────────────────────────────────────────────────────────
-          PLAIN TEXT NOTE MODAL
-          ───────────────────────────────────────────────────────────── */}
-      {showPlainTextModal && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl max-w-xl w-full p-6 shadow-2xl border border-slate-200 space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <div className="flex items-center space-x-2.5">
-                <div className="w-9 h-9 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center">
-                  <FileText className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-slate-900">Plain Text Clinical Note</h3>
-                  <p className="text-xs text-slate-500">Unformatted text for non-standard PMS fields or manual pasting</p>
-                </div>
-              </div>
-              <button
-                onClick={() => setShowPlainTextModal(false)}
-                className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <textarea
-              readOnly
-              rows={12}
-              value={getFormattedNoteText()}
-              className="w-full p-3.5 text-xs font-mono border border-slate-200 rounded-xl bg-slate-50 leading-relaxed text-slate-800 select-all"
-            />
-
-            <div className="flex items-center justify-end space-x-2 pt-2">
-              <button
-                onClick={() => setShowPlainTextModal(false)}
-                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition cursor-pointer"
-              >
-                Close
-              </button>
-              <button
-                onClick={() => {
-                  const txt = getFormattedNoteText();
-                  if (navigator.clipboard) {
-                    navigator.clipboard.writeText(txt);
-                  }
-                  setCopiedPlainText(true);
-                  setTimeout(() => setCopiedPlainText(false), 2000);
-                }}
-                className="px-4 py-2 bg-teal-800 hover:bg-teal-900 text-white rounded-xl text-xs font-bold transition cursor-pointer shadow-sm flex items-center space-x-1.5"
-              >
-                {copiedPlainText ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                <span>{copiedPlainText ? 'Copied!' : 'Copy Plain Text'}</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ─────────────────────────────────────────────────────────────
-          PATIENT DELIVERABLES & REFERRAL HANDOVER MODAL
-          ───────────────────────────────────────────────────────────── */}
-      {showDeliverablesModal && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl border border-slate-200 space-y-4 font-sans">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <div className="flex items-center space-x-2.5">
-                <div className="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-700 flex items-center justify-center">
-                  <FileText className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-slate-900">
-                    Patient Deliverables & Handover
-                  </h3>
-                  <p className="text-xs text-slate-500">
-                    {activeEncounter ? `${activeEncounter.patientName} • ${activeEncounter.procedureText}` : 'Active Patient'}
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={() => setShowDeliverablesModal(false)}
-                className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Tab selection */}
-            <div className="flex items-center gap-2 border-b border-slate-100 pb-2">
-              <button
-                type="button"
-                onClick={() => setDeliverablesActiveTab('referral')}
-                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${deliverablesActiveTab === 'referral'
-                  ? 'bg-indigo-600 text-white shadow-xs'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                  }`}
-              >
-                <FileText className="w-3.5 h-3.5" />
-                <span>Specialist Referral Letter</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setDeliverablesActiveTab('postop')}
-                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${deliverablesActiveTab === 'postop'
-                  ? 'bg-indigo-600 text-white shadow-xs'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                  }`}
-              >
-                <Mail className="w-3.5 h-3.5" />
-                <span>Patient Post-Op Care Email</span>
-              </button>
-            </div>
-
-            {/* Notice */}
-            <div className="bg-amber-50 border border-amber-200/80 rounded-xl p-2.5 flex items-start gap-2 text-[11px] text-amber-800">
-              <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
-              <span>Grounded directly in this patient's clinical note and examination findings. Please review before sending.</span>
-            </div>
-
-            {/* Textarea */}
-            <textarea
-              readOnly
-              rows={12}
-              value={deliverablesActiveTab === 'referral' ? getReferralText() : getPostOpText()}
-              className="w-full p-3.5 text-xs font-mono border border-slate-200 rounded-xl bg-slate-50 leading-relaxed text-slate-800 select-all"
-            />
-
-            {/* Actions */}
-            <div className="flex items-center justify-between pt-2">
-              <div>
-                {deliverablesActiveTab === 'postop' && (
-                  <a
-                    href={`mailto:?subject=${encodeURIComponent(`Post-Operative Care Instructions — ${activeEncounter?.patientName || 'Patient'}`)}&body=${encodeURIComponent(getPostOpText())}`}
-                    className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-xl transition cursor-pointer"
-                  >
-                    <ExternalLink className="w-3.5 h-3.5" />
-                    <span>Open in Email App</span>
-                  </a>
-                )}
-              </div>
-
-              <div className="flex items-center space-x-2">
-                <button
-                  type="button"
-                  onClick={() => setShowDeliverablesModal(false)}
-                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition cursor-pointer"
-                >
-                  Close
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const text = deliverablesActiveTab === 'referral' ? getReferralText() : getPostOpText();
-                    if (navigator.clipboard) {
-                      navigator.clipboard.writeText(text);
-                    }
-                    setCopiedDeliverable(deliverablesActiveTab);
-                    setTimeout(() => setCopiedDeliverable(null), 2000);
-                  }}
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition cursor-pointer shadow-sm flex items-center space-x-1.5"
-                >
-                  {copiedDeliverable === deliverablesActiveTab ? (
-                    <>
-                      <Check className="w-4 h-4" />
-                      <span>Copied to Clipboard!</span>
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="w-4 h-4" />
-                      <span>
-                        {deliverablesActiveTab === 'referral' ? 'Copy Referral Letter' : 'Copy Post-Op Email'}
-                      </span>
-                    </>
-                  )}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ─────────────────────────────────────────────────────────────
-          8b. PMS SCHEDULE SCREENSHOT OCR & DAYSHEET IMPORT MODAL
-          ───────────────────────────────────────────────────────────── */}
-      {showDaysheetModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 overflow-y-auto">
-          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-2xl w-full p-6 sm:p-7 text-left relative my-8 animate-in fade-in duration-200">
-            {/* Modal Header */}
-            <div className="flex items-center justify-between pb-4 border-b border-slate-100">
-              <div className="flex items-center space-x-3">
-                <div className="w-10 h-10 rounded-2xl bg-sky-600 text-white flex items-center justify-center shadow-xs">
-                  <Camera className="w-5 h-5 text-white" />
-                </div>
-                <div>
-                  <h3 className="text-base font-extrabold text-slate-900 tracking-tight">
-                    Import Daily Schedule
-                  </h3>
-                  <p className="text-xs text-slate-500 font-medium">
-                    Paste Dental4Windows, Exact, or PMS schedule screenshot (<kbd className="px-1 py-0.2 bg-slate-100 border rounded font-mono text-[10px]">Win+Shift+S</kbd> &rarr; <kbd className="px-1 py-0.2 bg-slate-100 border rounded font-mono text-[10px]">⌘V</kbd>)
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setShowDaysheetModal(false);
-                  setSchedulePreviewImage(null);
-                  setDetectedScheduleItems([]);
-                  setScheduleParsingError(null);
-                }}
-                className="w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-600 transition cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Modal Navigation Tabs */}
-            <div className="flex items-center space-x-2 mt-4 pb-2 border-b border-slate-100 text-xs font-bold">
-              <button
-                type="button"
-                onClick={() => setScheduleImportTab('screenshot')}
-                className={`px-3.5 py-1.5 rounded-xl transition flex items-center space-x-1.5 cursor-pointer ${scheduleImportTab === 'screenshot'
-                    ? 'bg-sky-600 text-white shadow-2xs'
-                    : 'text-slate-600 hover:bg-slate-100'
-                  }`}
-              >
-                <Camera className="w-3.5 h-3.5" />
-                <span>Paste Screenshot (Vision AI)</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setScheduleImportTab('text')}
-                className={`px-3.5 py-1.5 rounded-xl transition flex items-center space-x-1.5 cursor-pointer ${scheduleImportTab === 'text'
-                    ? 'bg-sky-600 text-white shadow-2xs'
-                    : 'text-slate-600 hover:bg-slate-100'
-                  }`}
-              >
-                <FileText className="w-3.5 h-3.5" />
-                <span>Paste Text / Day Sheet</span>
-              </button>
-            </div>
-
-            {/* Modal Body */}
-            <div className="mt-4 space-y-4">
-              {scheduleImportTab === 'screenshot' && (
-                <div className="space-y-3">
-                  {/* Dropzone / Paste Area */}
-                  {detectedScheduleItems.length === 0 && (
-                    <div
-                      onDragOver={e => e.preventDefault()}
-                      onDrop={e => {
-                        e.preventDefault();
-                        const file = e.dataTransfer.files?.[0];
-                        if (file && file.type.startsWith('image/')) {
-                          handleScheduleImageFile(file);
-                        }
-                      }}
-                      onClick={() => scheduleFileInputRef.current?.click()}
-                      className="border-2 border-dashed border-sky-300 hover:border-sky-500 bg-sky-50/50 hover:bg-sky-50 rounded-2xl p-6 text-center cursor-pointer transition space-y-2 group"
-                    >
-                      <input
-                        ref={scheduleFileInputRef}
-                        type="file"
-                        accept="image/*"
-                        className="hidden"
-                        onChange={e => {
-                          const file = e.target.files?.[0];
-                          if (file) handleScheduleImageFile(file);
-                        }}
-                      />
-                      <div className="w-12 h-12 rounded-2xl bg-white border border-sky-200 text-sky-600 flex items-center justify-center mx-auto shadow-xs group-hover:scale-105 transition-transform">
-                        {isScheduleParsing ? (
-                          <div className="w-5 h-5 border-2 border-sky-600/30 border-t-sky-600 rounded-full animate-spin" />
-                        ) : (
-                          <UploadCloud className="w-6 h-6" />
-                        )}
-                      </div>
-                      <div>
-                        <p className="text-xs font-bold text-slate-800">
-                          {isScheduleParsing
-                            ? 'Analyzing Schedule Screenshot with Vision AI...'
-                            : 'Press Ctrl+V / ⌘V to Paste Schedule Screenshot'}
-                        </p>
-                        <p className="text-[11px] text-slate-500 mt-0.5">
-                          Or drag & drop / browse an image file (Dental4Windows, Exact, Praktika)
-                        </p>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Parsing Error Notice */}
-                  {scheduleParsingError && (
-                    <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800 flex items-start space-x-2">
-                      <AlertTriangle className="w-4 h-4 text-rose-600 flex-shrink-0 mt-0.5" />
-                      <div className="flex-1">
-                        <p className="font-bold">Extraction Notice</p>
-                        <p className="text-[11px] text-rose-700">{scheduleParsingError}</p>
-                      </div>
-                      <button
-                        onClick={() => scheduleFileInputRef.current?.click()}
-                        className="text-[11px] font-bold text-rose-800 underline cursor-pointer"
-                      >
-                        Try Again
-                      </button>
-                    </div>
-                  )}
-
-                  {/* Detected Schedule Items Review Table */}
-                  {detectedScheduleItems.length > 0 && (
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-2">
-                          <span className="text-xs font-bold text-slate-900">
-                            {detectedScheduleItems.length} Patients Detected
-                          </span>
-                          <span className="text-[10px] font-bold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full">
-                            Vision Verified
-                          </span>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setDetectedScheduleItems([]);
-                            setSchedulePreviewImage(null);
-                          }}
-                          className="text-xs text-slate-500 hover:text-slate-800 font-medium cursor-pointer"
-                        >
-                          Scan Different Image
-                        </button>
-                      </div>
-
-                      <div className="border border-slate-200 rounded-2xl overflow-hidden max-h-[40vh] overflow-y-auto custom-scrollbar">
-                        <table className="w-full text-left text-xs border-collapse">
-                          <thead className="bg-slate-50 border-b border-slate-200 text-[10px] font-bold text-slate-500 uppercase">
-                            <tr>
-                              <th className="p-2.5 pl-3">Time</th>
-                              <th className="p-2.5">Patient Name</th>
-                              <th className="p-2.5">DOB</th>
-                              <th className="p-2.5">Room</th>
-                              <th className="p-2.5">Procedure</th>
-                              <th className="p-2.5 text-right pr-3">Action</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-100">
-                            {detectedScheduleItems.map((item, idx) => (
-                              <tr key={item.id} className="hover:bg-slate-50/80 transition">
-                                <td className="p-2.5 pl-3 font-mono font-bold text-slate-700">
-                                  <input
-                                    type="text"
-                                    value={item.time}
-                                    onChange={e => {
-                                      const val = e.target.value;
-                                      setDetectedScheduleItems(prev =>
-                                        prev.map((it, i) => (i === idx ? { ...it, time: val } : it))
-                                      );
-                                    }}
-                                    className="w-16 px-1.5 py-0.5 bg-slate-50 border border-slate-200 rounded text-xs font-mono font-bold outline-none"
-                                  />
-                                </td>
-                                <td className="p-2.5 font-bold text-slate-900">
-                                  <input
-                                    type="text"
-                                    value={item.patientName}
-                                    onChange={e => {
-                                      const val = e.target.value;
-                                      setDetectedScheduleItems(prev =>
-                                        prev.map((it, i) => (i === idx ? { ...it, patientName: val } : it))
-                                      );
-                                    }}
-                                    className="w-full px-1.5 py-0.5 bg-slate-50 border border-slate-200 rounded text-xs font-bold outline-none"
-                                  />
-                                </td>
-                                <td className="p-2.5 text-slate-600">
-                                  <input
-                                    type="text"
-                                    placeholder="DD/MM/YYYY"
-                                    value={item.dob}
-                                    onChange={e => {
-                                      const val = e.target.value;
-                                      setDetectedScheduleItems(prev =>
-                                        prev.map((it, i) => (i === idx ? { ...it, dob: val } : it))
-                                      );
-                                    }}
-                                    className="w-24 px-1.5 py-0.5 bg-slate-50 border border-slate-200 rounded text-[11px] font-medium outline-none"
-                                  />
-                                </td>
-                                <td className="p-2.5">
-                                  <select
-                                    value={item.room}
-                                    onChange={e => {
-                                      const val = e.target.value;
-                                      setDetectedScheduleItems(prev =>
-                                        prev.map((it, i) => (i === idx ? { ...it, room: val } : it))
-                                      );
-                                    }}
-                                    className="px-1.5 py-0.5 bg-slate-50 border border-slate-200 rounded text-[11px] font-medium outline-none"
-                                  >
-                                    <option value="Room 1">Room 1</option>
-                                    <option value="Room 2">Room 2</option>
-                                    <option value="Room 3">Room 3</option>
-                                  </select>
-                                </td>
-                                <td className="p-2.5 text-slate-600">
-                                  <input
-                                    type="text"
-                                    value={item.procedureText}
-                                    onChange={e => {
-                                      const val = e.target.value;
-                                      setDetectedScheduleItems(prev =>
-                                        prev.map((it, i) => (i === idx ? { ...it, procedureText: val } : it))
-                                      );
-                                    }}
-                                    className="w-full px-1.5 py-0.5 bg-slate-50 border border-slate-200 rounded text-xs outline-none"
-                                  />
-                                </td>
-                                <td className="p-2.5 text-right pr-3">
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      setDetectedScheduleItems(prev => prev.filter((_, i) => i !== idx))
-                                    }
-                                    className="text-slate-400 hover:text-rose-600 p-1 rounded transition cursor-pointer"
-                                    title="Remove patient"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-
-                      <div className="flex items-center justify-between pt-1">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setDetectedScheduleItems(prev => [
-                              ...prev,
-                              {
-                                id: `detected-manual-${Date.now()}`,
-                                time: formatClinicTime(new Date()),
-                                patientName: 'New Patient',
-                                dob: '',
-                                room: 'Room 1',
-                                procedureText: 'General Consultation',
-                                appointmentType: 'examination',
-                                templateId: 'standard'
-                              }
-                            ]);
-                          }}
-                          className="px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-100 rounded-xl transition flex items-center space-x-1 cursor-pointer"
-                        >
-                          <Plus className="w-3.5 h-3.5 text-sky-600" />
-                          <span>Add Row</span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={handleCommitDetectedSchedule}
-                          className="px-5 py-2 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold flex items-center space-x-1.5 transition shadow-sm cursor-pointer"
-                        >
-                          <Check className="w-4 h-4" />
-                          <span>Import Schedule ({detectedScheduleItems.length} Patients)</span>
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {scheduleImportTab === 'text' && (
-                <div className="space-y-3">
-                  <p className="text-xs text-slate-600">
-                    Paste lines copied from your appointment book, spreadsheet, or daysheet:
-                  </p>
-                  <textarea
-                    rows={7}
-                    value={daysheetRawText}
-                    onChange={e => setDaysheetRawText(e.target.value)}
-                    placeholder={`09:00 Justin Tran (14/05/2012) - CDBS Paediatric Exam & Clean\n09:40 Ryan Tran (20/09/2014) - CDBS Paediatric Clean\n11:30 Lorraine Pugh (03/11/1968) - Stage 2 Crown Prep\n14:00 Elke Wolswinkel - 26 + 18 exo\n15:00 Raphael Tannen - Check up and clean`}
-                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-mono focus:border-sky-600 outline-none leading-relaxed"
-                  />
-                  <div className="flex justify-end pt-1">
-                    <button
-                      type="button"
-                      disabled={!daysheetRawText.trim()}
-                      onClick={handleParseAndImportDaysheet}
-                      className="px-5 py-2 rounded-xl bg-sky-600 hover:bg-sky-700 disabled:opacity-40 text-white text-xs font-bold flex items-center space-x-1.5 transition shadow-sm cursor-pointer"
-                    >
-                      <Check className="w-4 h-4" />
-                      <span>Import Text Schedule</span>
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ─────────────────────────────────────────────────────────────
-          9. END-OF-DAY / LUNCH BATCH SIGN TRAY (SLIDE-OVER DRAWER)
-          ───────────────────────────────────────────────────────────── */}
-      {showBatchTray && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex justify-end z-50">
-          <div className="bg-white w-full max-w-xl h-full shadow-2xl flex flex-col border-l border-slate-200">
-            {/* Tray Header */}
-            <div className="p-5 border-b border-slate-100 flex items-center justify-between flex-shrink-0 bg-white">
-              <div className="flex items-center space-x-3">
-                <div className="w-10 h-10 rounded-xl bg-teal-50 border border-teal-200 text-teal-800 flex items-center justify-center">
-                  <Clipboard className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-base font-extrabold text-slate-900 tracking-tight">End-of-Day Notes Review</h3>
-                  <p className="text-xs text-slate-500">
-                    {completedEncounters.length} completed patient notes ready to copy
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={() => setShowBatchTray(false)}
-                className="w-8 h-8 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 flex items-center justify-center cursor-pointer transition"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Master Action Banner */}
-            <div className="p-4 bg-slate-50/80 border-b border-slate-200 flex-shrink-0 space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
-                  Copy All Notes
-                </span>
-                <span className="text-[10px] text-teal-700 bg-teal-50 px-2 py-0.5 rounded-full font-bold border border-teal-200">
-                  Dentrix • Eaglesoft • Open Dental
-                </span>
-              </div>
-              <button
-                onClick={handleCopyAllBatchNotes}
-                disabled={completedEncounters.length === 0}
-                className={`w-full py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center space-x-2 transition shadow-xs cursor-pointer ${allBatchCopied
-                  ? 'bg-emerald-600 text-white'
-                  : 'bg-teal-800 hover:bg-teal-900 disabled:opacity-50 text-white'
-                  }`}
-              >
-                {allBatchCopied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                <span>
-                  {allBatchCopied
-                    ? `Copied All ${completedEncounters.length} Notes to Clipboard!`
-                    : `Copy All Notes for PMS (${completedEncounters.length} Ready)`}
-                </span>
-              </button>
-            </div>
-
-            {/* Completed Notes Scroll Area */}
-            <div className="flex-1 overflow-y-auto p-5 space-y-3.5 custom-scrollbar bg-[#F8FAFC]">
-              {completedEncounters.length === 0 ? (
-                <div className="text-center py-16 px-6 bg-white border border-dashed border-slate-200 rounded-2xl">
-                  <div className="w-12 h-12 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center mx-auto mb-3">
-                    <FileText className="w-6 h-6" />
-                  </div>
-                  <h4 className="text-sm font-bold text-slate-800 mb-1">No Finalized Notes Yet</h4>
-                  <p className="text-xs text-slate-500 max-w-sm mx-auto leading-relaxed">
-                    Patient notes finalized during consultations or via "Next Patient" will queue here for rapid batch review during lunch or at 5:00 PM.
-                  </p>
-                </div>
-              ) : (
-                completedEncounters.map((p, idx) => {
-                  const consult = consultations.find(c => c.id === p.id);
-                  const isCopied = copiedBatchIndex === idx;
-
-                  return (
-                    <div
-                      key={p.id}
-                      className="bg-white border border-slate-200 rounded-xl p-4 shadow-2xs space-y-2.5"
-                    >
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <div className="flex items-center space-x-2 mb-0.5">
-                            <span className="text-xs font-bold text-slate-900 font-sans">{p.patientName}</span>
-                            <span className="text-[10px] font-mono text-slate-500 bg-slate-100 px-1.5 py-0.2 rounded font-medium">
-                              {p.time} • {p.operatory}
-                            </span>
-                          </div>
-                          <p className="text-xs text-slate-600 truncate max-w-xs">{p.procedureText}</p>
-                        </div>
-                        <button
-                          onClick={() => {
-                            const text = getFormattedNoteText(consult);
-                            if (text && navigator.clipboard) {
-                              navigator.clipboard.writeText(text);
-                            }
-                            setCopiedBatchIndex(idx);
-                            setTimeout(() => setCopiedBatchIndex(null), 2000);
-                          }}
-                          className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center space-x-1.5 transition cursor-pointer ${isCopied
-                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-300'
-                            : 'bg-slate-100 hover:bg-teal-50 text-slate-700 hover:text-teal-800 border border-slate-200'
-                            }`}
-                          title="Copy this patient's clinical note"
-                        >
-                          {isCopied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                          <span>{isCopied ? 'Copied!' : 'Copy Note'}</span>
-                        </button>
-                      </div>
-
-                      {/* Excerpt */}
-                      {p.soap && (
-                        <div className="text-[11px] text-slate-600 bg-slate-50/70 p-2.5 rounded-lg border border-slate-100 leading-relaxed font-mono">
-                          <span className="text-slate-800 font-bold block mb-0.5 font-sans">SOAP Summary:</span>
-                          <span className="line-clamp-2">
-                            {p.soap.treatmentPerformed || p.soap.assessment || p.soap.subjective}
-                          </span>
-                        </div>
-                      )}
-
-                      {/* CDT Codes */}
-                      {p.cdtCodes && p.cdtCodes.length > 0 && (
-                        <div className="flex flex-wrap gap-1 pt-1">
-                          {p.cdtCodes.map((c, cIdx) => (
-                            <span
-                              key={cIdx}
-                              className="text-[10px] font-mono bg-teal-50 text-teal-800 border border-teal-200 px-1.5 py-0.2 rounded"
-                            >
-                              {c.code}: {c.desc}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })
-              )}
-            </div>
-
-            {/* Tray Footer */}
-            <div className="p-4 border-t border-slate-200 flex items-center justify-between bg-white flex-shrink-0">
-              <span className="text-xs text-slate-500 font-medium">
-                {completedEncounters.length} completed encounters queued
-              </span>
-              <button
-                onClick={() => setShowBatchTray(false)}
-                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition cursor-pointer"
-              >
-                Close Tray
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ─────────────────────────────────────────────────────────────
-          9. CLINICIAN OPERATORY DAY GUIDE & DIRECT GITHUB ISSUE MODAL
-          ───────────────────────────────────────────────────────────── */}
-      {showDayGuide && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 overflow-y-auto">
-          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-2xl w-full p-6 sm:p-8 text-left relative my-8 animate-in fade-in duration-200">
-            {/* Modal Header */}
-            <div className="flex items-center justify-between pb-4 border-b border-slate-100">
-              <div className="flex items-center space-x-3">
-                <div className="w-10 h-10 rounded-2xl bg-teal-800 text-white flex items-center justify-center shadow-xs">
-                  <LifeBuoy className="w-5 h-5 text-teal-200" />
-                </div>
-                <div>
-                  <h3 className="text-base font-extrabold text-slate-900 tracking-tight">
-                    Clinician Operatory Guide & Support
-                  </h3>
-                  <p className="text-xs text-slate-500 font-medium">
-                    Apple Medical Grade workflow reference, hands-free hotkeys & direct GitHub dispatch
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center space-x-2">
-                <a
-                  href="#/demo"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100/80 text-primary text-xs font-bold border border-indigo-200 transition cursor-pointer"
-                  title="Watch narrated 3-minute product demo"
-                >
-                  <Play className="w-3.5 h-3.5 fill-current" />
-                  <span>Watch 3-Min Demo</span>
-                </a>
-                <button
-                  type="button"
-                  onClick={() => setShowDayGuide(false)}
-                  className="w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-600 transition cursor-pointer"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-
-            {/* Navigation Tabs */}
-            <div className="flex items-center space-x-1.5 mt-4 pb-2 border-b border-slate-100 overflow-x-auto text-xs font-bold">
-              <button
-                type="button"
-                onClick={() => setGuideActiveTab('phases')}
-                className={`px-3 py-1.5 rounded-xl transition ${guideActiveTab === 'phases' ? 'bg-teal-800 text-white shadow-2xs' : 'text-slate-600 hover:bg-slate-100'
-                  }`}
-              >
-                4-Phase Day Flow
-              </button>
-              <button
-                type="button"
-                onClick={() => setGuideActiveTab('hotkeys')}
-                className={`px-3 py-1.5 rounded-xl transition ${guideActiveTab === 'hotkeys' ? 'bg-teal-800 text-white shadow-2xs' : 'text-slate-600 hover:bg-slate-100'
-                  }`}
-              >
-                Operatory Hotkeys
-              </button>
-              <button
-                type="button"
-                onClick={() => setGuideActiveTab('dictation')}
-                className={`px-3 py-1.5 rounded-xl transition ${guideActiveTab === 'dictation' ? 'bg-teal-800 text-white shadow-2xs' : 'text-slate-600 hover:bg-slate-100'
-                  }`}
-              >
-                Dental Phonetics
-              </button>
-              <button
-                type="button"
-                onClick={() => setGuideActiveTab('pms')}
-                className={`px-3 py-1.5 rounded-xl transition ${guideActiveTab === 'pms' ? 'bg-teal-800 text-white shadow-2xs' : 'text-slate-600 hover:bg-slate-100'
-                  }`}
-              >
-                PMS 1-Click Paste
-              </button>
-              <button
-                type="button"
-                onClick={() => setGuideActiveTab('github')}
-                className={`px-3 py-1.5 rounded-xl transition flex items-center space-x-1.5 ${guideActiveTab === 'github' ? 'bg-teal-700 text-white shadow-2xs' : 'text-slate-600 hover:bg-slate-100'
-                  }`}
-              >
-                <Send className="w-3 h-3" />
-                <span>Request Feature (GitHub)</span>
-              </button>
-            </div>
-
-            {/* Tab Contents */}
-            <div className="mt-4 text-xs text-slate-600 space-y-4 max-h-[60vh] overflow-y-auto pr-1 custom-scrollbar">
-              {guideActiveTab === 'phases' && (
-                <div className="space-y-4">
-                  <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200/80">
-                    <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-teal-800 block mb-1">
-                      PHASE 1 • MORNING CLINICAL SETUP
-                    </span>
-                    <h4 className="text-xs font-bold text-slate-900 mb-1">Operatory Roster & Audio Verification</h4>
-                    <p className="leading-relaxed text-slate-600">
-                      Verify your day's patient roster in the left rail. For walk-in patients, click <strong>+ Encounter</strong> to add them in 5 seconds. The microphone defaults to <span className="font-mono text-sky-700 font-bold">STANDBY (00:00)</span> with zero runaway audio.
-                    </p>
-                  </div>
-
-                  <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200/80">
-                    <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-teal-800 block mb-1">
-                      PHASE 2 • CHAIRSIDE APPOINTMENT
-                    </span>
-                    <h4 className="text-xs font-bold text-slate-900 mb-1">Hands-Free Audio & Noise Filter</h4>
-                    <p className="leading-relaxed text-slate-600">
-                      Seat the patient and tap <kbd className="px-1 py-0.5 bg-white border rounded font-mono text-[10px]">Spacebar</kbd>. The ascending chime confirms listening. The smart noise filter automatically quiets dental drills and background sounds.
-                    </p>
-                  </div>
-
-                  <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200/80">
-                    <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-teal-800 block mb-1">
-                      PHASE 3 • POST-OP TURNOVER
-                    </span>
-                    <h4 className="text-xs font-bold text-slate-900 mb-1">Inline Notes & 1-Click Clipboard Copy</h4>
-                    <p className="leading-relaxed text-slate-600">
-                      Click directly into Subjective, Objective, Assessment, or Plan to customize any sentence with zero lag. Press <kbd className="px-1 py-0.5 bg-white border rounded font-mono text-[10px]">⌘C</kbd> to copy the formatted note for immediate insertion into your practice software.
-                    </p>
-                  </div>
-
-                  <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200/80">
-                    <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-teal-800 block mb-1">
-                      PHASE 4 • END-OF-DAY RECONCILIATION
-                    </span>
-                    <h4 className="text-xs font-bold text-slate-900 mb-1">End-of-Day Notes Review</h4>
-                    <p className="leading-relaxed text-slate-600">
-                      Press <kbd className="px-1 py-0.5 bg-white border rounded font-mono text-[10px]">⌘B</kbd> to open End-of-Day Notes. Verify all encounters are completed and billed. Leave the practice on time with zero evening charting backlog.
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {guideActiveTab === 'hotkeys' && (
-                <div className="space-y-3">
-                  <div className="p-3.5 bg-indigo-50/50 rounded-2xl border border-indigo-100">
-                    <h4 className="font-bold text-slate-900 mb-1">Hands-Free Keyboard Shortcuts</h4>
-                    <p className="text-slate-600">
-                      Designed so you can navigate quickly using a keyboard or foot pedal without touching the mouse.
-                    </p>
-                  </div>
-
-                  <div className="border border-slate-200 rounded-2xl overflow-hidden">
-                    <table className="w-full text-left border-collapse">
-                      <thead className="bg-slate-50 border-b border-slate-200 text-[10px] font-bold uppercase text-slate-500">
-                        <tr>
-                          <th className="p-3">Shortcut</th>
-                          <th className="p-3">Action</th>
-                          <th className="p-3">Clinical Benefit</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100 font-medium">
-                        <tr>
-                          <td className="p-3 font-mono font-bold text-teal-800">Spacebar</td>
-                          <td className="p-3 font-bold text-slate-800">Toggle Audio (Start / Pause / Resume / Keep Listening)</td>
-                          <td className="p-3 text-slate-500">Hands-free foot pedal or keyboard tap</td>
-                        </tr>
-                        <tr>
-                          <td className="p-3 font-mono font-bold text-teal-800">⌘C / Ctrl+C</td>
-                          <td className="p-3 font-bold text-slate-800">Copy Formatted Note for PMS</td>
-                          <td className="p-3 text-slate-500">Pasting into Dentrix / Cliniko / Exact</td>
-                        </tr>
-                        <tr>
-                          <td className="p-3 font-mono font-bold text-teal-800">⌘B / Ctrl+B</td>
-                          <td className="p-3 font-bold text-slate-800">Open / Close End-of-Day Notes</td>
-                          <td className="p-3 text-slate-500">Review and copy all today's notes</td>
-                        </tr>
-                        <tr>
-                          <td className="p-3 font-mono font-bold text-teal-800">⌘→ / Ctrl+→</td>
-                          <td className="p-3 font-bold text-slate-800">Advance to Next Patient</td>
-                          <td className="p-3 text-slate-500">Instant patient switch without mouse</td>
-                        </tr>
-                        <tr>
-                          <td className="p-3 font-mono font-bold text-teal-800">⌘V / Ctrl+V</td>
-                          <td className="p-3 font-bold text-slate-800">Import Appointment Schedule</td>
-                          <td className="p-3 text-slate-500">Quickly load today's schedule</td>
-                        </tr>
-                        <tr>
-                          <td className="p-3 font-mono font-bold text-teal-800">?</td>
-                          <td className="p-3 font-bold text-slate-800">Open Guide & Shortcuts</td>
-                          <td className="p-3 text-slate-500">Instant access to shortcuts and help</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-
-              {guideActiveTab === 'dictation' && (
-                <div className="space-y-3">
-                  <div className="p-3.5 bg-teal-50/50 rounded-2xl border border-teal-100">
-                    <h4 className="font-bold text-slate-900 mb-1">Acoustic & Dental Phonetic Recognition</h4>
-                    <p className="text-slate-600">
-                      DentAI's operatory phonetic lexicon automatically maps spoken colloquial dental terms into standardized clinical notations.
-                    </p>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                    <div className="p-3 bg-white border border-slate-200 rounded-xl">
-                      <span className="text-[10px] font-bold uppercase text-slate-400 block mb-1">Tooth Notation</span>
-                      <p className="font-bold text-slate-800 text-xs">FDI & Universal System</p>
-                      <p className="text-slate-500 mt-1 text-[11px]">Say: <em>"Tooth 14 occlusal"</em> or <em>"FDI 33 and 46"</em>. Both are recognized and mapped.</p>
-                    </div>
-
-                    <div className="p-3 bg-white border border-slate-200 rounded-xl">
-                      <span className="text-[10px] font-bold uppercase text-slate-400 block mb-1">Anesthetic Phrasing</span>
-                      <p className="font-bold text-slate-800 text-xs">Carpule & Epinephrine</p>
-                      <p className="text-slate-500 mt-1 text-[11px]">Say: <em>"1 carpule 2% Lidocaine 1 to 100,000 epi via IANB"</em>. Mapped to D9215 / ADA 921.</p>
-                    </div>
-
-                    <div className="p-3 bg-white border border-slate-200 rounded-xl">
-                      <span className="text-[10px] font-bold uppercase text-slate-400 block mb-1">Restorative Materials</span>
-                      <p className="font-bold text-slate-800 text-xs">Composites & Cements</p>
-                      <p className="text-slate-500 mt-1 text-[11px]">Say: <em>"Filtek Supreme A2 composite"</em>, <em>"Theracal liner"</em>, or <em>"RelyX Luting Plus"</em>.</p>
-                    </div>
-
-                    <div className="p-3 bg-white border border-slate-200 rounded-xl">
-                      <span className="text-[10px] font-bold uppercase text-slate-400 block mb-1">Periodontal Probing</span>
-                      <p className="font-bold text-slate-800 text-xs">Six-Point Probing</p>
-                      <p className="text-slate-500 mt-1 text-[11px]">Say: <em>"Pocket depths 3-2-3 on buccal, bleeding on probing"</em>.</p>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {guideActiveTab === 'pms' && (
-                <div className="space-y-3">
-                  <div className="p-3.5 bg-sky-50/50 rounded-2xl border border-sky-100">
-                    <h4 className="font-bold text-slate-900 mb-1">1-Click Practice Management Paste</h4>
-                    <p className="text-slate-600">
-                      When you click <strong>Copy Note</strong> (<kbd className="px-1 py-0.5 bg-white border rounded font-mono text-[10px]">⌘C</kbd>), DentAI formats the note with clinical delimiters compatible with every PMS:
-                    </p>
-                  </div>
-
-                  <div className="space-y-2">
-                    <div className="p-3 bg-white border border-slate-200 rounded-xl">
-                      <p className="font-bold text-slate-800 text-xs">Dentrix (G6 / G7 / Ascend)</p>
-                      <p className="text-slate-500 text-[11px] mt-0.5">Open <em>Patient Chart &rarr; Clinical Notes</em>, press <kbd className="px-1 py-0.2 bg-slate-100 border rounded font-mono text-[10px]">Ctrl+V</kbd>. Headers and billing codes paste automatically into note lines.</p>
-                    </div>
-
-                    <div className="p-3 bg-white border border-slate-200 rounded-xl">
-                      <p className="font-bold text-slate-800 text-xs">Eaglesoft</p>
-                      <p className="text-slate-500 text-[11px] mt-0.5">Open <em>Treatment &rarr; Clinical Notes tab</em>, press <kbd className="px-1 py-0.2 bg-slate-100 border rounded font-mono text-[10px]">Ctrl+V</kbd>.</p>
-                    </div>
-
-                    <div className="p-3 bg-white border border-slate-200 rounded-xl">
-                      <p className="font-bold text-slate-800 text-xs">Exact / Software of Excellence</p>
-                      <p className="text-slate-500 text-[11px] mt-0.5">Open patient clinical file &rarr; Charting notes &rarr; Paste.</p>
-                    </div>
-
-                    <div className="p-3 bg-white border border-slate-200 rounded-xl">
-                      <p className="font-bold text-slate-800 text-xs">Cliniko & Titanium</p>
-                      <p className="text-slate-500 text-[11px] mt-0.5">Open Treatment Notes &rarr; Add Note &rarr; Paste.</p>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {guideActiveTab === 'github' && (
-                <form onSubmit={handleSubmitChairsideGitHubIssue} className="space-y-3">
-                  <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200">
-                    <h4 className="font-bold text-slate-900 flex items-center gap-1.5 text-xs">
-                      <Send className="w-3.5 h-3.5 text-teal-700" />
-                      Direct GitHub Issue Dispatcher
-                    </h4>
-                    <p className="text-[11px] text-slate-500 mt-0.5">
-                      Directly submits an issue to repository (<span className="font-mono text-slate-700">vikramdarade/dentai</span>) via API without opening browser tabs.
-                    </p>
-                  </div>
-
-                  {guideGhResult && (
-                    <div className={`p-3 rounded-xl text-xs font-semibold flex items-center justify-between gap-2 ${guideGhResult.ok ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-rose-50 text-rose-800 border border-rose-200'
-                      }`}>
-                      <div className="flex items-center gap-2">
-                        {guideGhResult.ok ? <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" /> : <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />}
-                        <span>{guideGhResult.ok ? `Issue #${guideGhResult.issueNumber} created directly in GitHub!` : guideGhResult.error}</span>
-                      </div>
-                      {guideGhResult.issueUrl && (
-                        <a
-                          href={guideGhResult.issueUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-emerald-700 underline flex items-center gap-1 shrink-0"
-                        >
-                          <span>View Issue</span>
-                          <ExternalLink className="w-3 h-3" />
-                        </a>
-                      )}
-                    </div>
-                  )}
-
-                  <div>
-                    <label className="text-[10px] font-bold uppercase text-slate-500 block mb-1">Issue Title</label>
-                    <input
-                      type="text"
-                      placeholder="e.g. Add support for ADA item 611 ceramic crown fee schedule"
-                      value={guideGhTitle}
-                      onChange={e => setGuideGhTitle(e.target.value)}
-                      required
-                      className="w-full h-9 px-3 bg-white border border-slate-200 rounded-xl text-xs font-medium focus:border-teal-700 outline-none"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="text-[10px] font-bold uppercase text-slate-500 block mb-1">Category</label>
-                      <select
-                        value={guideGhCategory}
-                        onChange={e => setGuideGhCategory(e.target.value)}
-                        className="w-full h-9 px-2 bg-white border border-slate-200 rounded-xl text-xs font-medium focus:border-teal-700 outline-none"
-                      >
-                        <option value="feature-request">Feature Request</option>
-                        <option value="clinical-audio">Microphone & Noise Filter</option>
-                        <option value="dental-lexicon">Dental Lexicon & Codes</option>
-                        <option value="pms-clipboard">PMS Clipboard & Export</option>
-                        <option value="operatory-bug">Bug Report</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="text-[10px] font-bold uppercase text-slate-500 block mb-1">Priority</label>
-                      <select
-                        value={guideGhPriority}
-                        onChange={e => setGuideGhPriority(e.target.value)}
-                        className="w-full h-9 px-2 bg-white border border-slate-200 rounded-xl text-xs font-medium focus:border-teal-700 outline-none"
-                      >
-                        <option value="normal">Normal</option>
-                        <option value="high">High (Active operatory)</option>
-                        <option value="urgent">Urgent</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="text-[10px] font-bold uppercase text-slate-500 block mb-1">Clinical Context & Observation</label>
-                    <textarea
-                      rows={3}
-                      placeholder="Describe what occurred chairside or the feature improvement desired..."
-                      value={guideGhDescription}
-                      onChange={e => setGuideGhDescription(e.target.value)}
-                      required
-                      className="w-full p-2.5 bg-white border border-slate-200 rounded-xl text-xs font-medium focus:border-teal-700 outline-none resize-none"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-[10px] font-bold uppercase text-slate-400 block mb-0.5">
-                      GitHub Token (Optional override if not in server .env)
-                    </label>
-                    <input
-                      type="password"
-                      placeholder="ghp_..."
-                      value={guideGhToken}
-                      onChange={e => setGuideGhToken(e.target.value)}
-                      className="w-full h-8 px-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono outline-none"
-                    />
-                  </div>
-
-                  <button
-                    type="submit"
-                    disabled={guideGhSubmitting || !guideGhTitle.trim() || !guideGhDescription.trim()}
-                    className="w-full h-10 rounded-xl bg-teal-800 hover:bg-teal-900 disabled:opacity-50 text-white text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer shadow-sm"
-                  >
-                    {guideGhSubmitting ? (
-                      <>
-                        <div className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
-                        <span>Creating issue via GitHub API…</span>
-                      </>
-                    ) : (
-                      <>
-                        <Send className="w-3.5 h-3.5" />
-                        <span>Submit Directly to GitHub</span>
-                      </>
-                    )}
-                  </button>
-                </form>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      <DayGuideModal
+        isOpen={showDayGuide}
+        onClose={() => setShowDayGuide(false)}
+        guideActiveTab={guideActiveTab}
+        setGuideActiveTab={setGuideActiveTab}
+        guideGhTitle={guideGhTitle}
+        setGuideGhTitle={setGuideGhTitle}
+        guideGhDescription={guideGhDescription}
+        setGuideGhDescription={setGuideGhDescription}
+        guideGhCategory={guideGhCategory}
+        setGuideGhCategory={setGuideGhCategory}
+        guideGhPriority={guideGhPriority}
+        setGuideGhPriority={setGuideGhPriority}
+        guideGhToken={guideGhToken}
+        setGuideGhToken={setGuideGhToken}
+        guideGhSubmitting={guideGhSubmitting}
+        guideGhResult={guideGhResult}
+        handleSubmitChairsideGitHubIssue={handleSubmitChairsideGitHubIssue}
+      />
     </div>
   );
 }

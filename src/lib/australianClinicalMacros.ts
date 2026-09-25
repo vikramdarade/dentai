@@ -1136,3 +1136,18 @@ export const MACRO_BY_ID: Record<string, ClinicalMacroDefinition> = Object.fromE
   ALL_AUSTRALIAN_MACROS.map(m => [m.id, m])
 );
 
+export const CHAIRSIDE_MACRO_OPTIONS = [
+  { id: 'restoration_composite', label: 'Filling' },
+  { id: 'general_exam_clean', label: 'Exam & Clean' },
+  { id: 'emergency_pulp_extirpation', label: 'Root Canal' },
+  { id: 'simple_extraction', label: 'Extraction' },
+  { id: 'implant_placement', label: 'Implants' },
+  { id: 'crown_preparation', label: 'Crown' },
+  { id: 'veneers_smile_design', label: 'Veneers' },
+  { id: 'teeth_whitening', label: 'Whitening' },
+  { id: 'invisalign_clear_aligners', label: 'Aligners' },
+  { id: 'complete_partial_dentures', label: 'Dentures' },
+  { id: 'scaling_clean', label: 'Scale & Clean' },
+  { id: 'fissure_sealant', label: 'Sealant' },
+];
+

@@ -1,0 +1,257 @@
+import React, { useState, useRef, useEffect } from 'react';
+import { Mic, Pause, Play, Volume2, Shield, Activity, Send, CheckCircle2, AlertTriangle, Sparkles } from 'lucide-react';
+
+export interface DialogueUtterance {
+  speaker?: string;
+  role?: 'patient' | 'assistant' | 'dentist' | 'dialogue';
+  time?: string;
+  text: string;
+}
+
+export interface LiveConversationPanelProps {
+  transcript: DialogueUtterance[];
+  interimTranscript?: string;
+  isMicStandby: boolean;
+  isPaused: boolean;
+  recordingSeconds: number;
+  isSilenceWarning: boolean;
+  silenceSecondsRemaining: number;
+  dspNoiseGateActive: boolean;
+  onToggleNoiseGate: () => void;
+  onStartAudio: () => void;
+  onTogglePause: () => void;
+  onKeepListening: () => void;
+  onManualDialogueSubmit?: (text: string) => void;
+  audioVisualizerRef?: React.RefObject<HTMLCanvasElement | null>;
+}
+
+export const LiveConversationPanel: React.FC<LiveConversationPanelProps> = ({
+  transcript,
+  interimTranscript,
+  isMicStandby,
+  isPaused,
+  recordingSeconds,
+  isSilenceWarning,
+  silenceSecondsRemaining,
+  dspNoiseGateActive,
+  onToggleNoiseGate,
+  onStartAudio,
+  onTogglePause,
+  onKeepListening,
+  onManualDialogueSubmit,
+  audioVisualizerRef,
+}) => {
+  const [manualText, setManualText] = useState('');
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+
+  // Auto-scroll when new utterances arrive
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [transcript.length, interimTranscript]);
+
+  const formatTimer = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const handleManualSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!manualText.trim()) return;
+    onManualDialogueSubmit?.(manualText.trim());
+    setManualText('');
+  };
+
+  return (
+    <div className="flex-1 flex flex-col bg-white rounded-2xl border border-slate-200/90 shadow-xs overflow-hidden">
+      {/* Panel Header */}
+      <div className="px-4 py-3 border-b border-slate-200/90 flex items-center justify-between bg-slate-50/50">
+        <div className="flex items-center space-x-2">
+          <div className="flex items-center space-x-1.5">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <h3 className="text-xs font-bold text-slate-900 tracking-wide uppercase">
+              Live Conversation
+            </h3>
+          </div>
+          <span className="text-[11px] font-medium text-slate-500 bg-white px-2 py-0.5 rounded-full border border-slate-200">
+            {transcript.length} lines recorded
+          </span>
+        </div>
+
+        {/* Anti-Jargon Noise Filter Toggle (Rule 9) */}
+        <button
+          onClick={onToggleNoiseGate}
+          className={`flex items-center space-x-1 px-2.5 py-1 rounded-lg text-xs font-medium border transition cursor-pointer ${
+            dspNoiseGateActive
+              ? 'bg-sky-50 text-sky-800 border-sky-200 shadow-2xs'
+              : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+          }`}
+          title="Toggle operatory noise filter"
+        >
+          <Shield className="w-3.5 h-3.5 text-sky-600" />
+          <span>Noise Filter: {dspNoiseGateActive ? 'On' : 'Off'}</span>
+        </button>
+      </div>
+
+      {/* Operatory Microphone HUD Bar */}
+      <div className="px-4 py-3 bg-slate-50/90 border-b border-slate-200 flex items-center justify-between gap-3">
+        {/* Timer & Mic Controls */}
+        <div className="flex items-center space-x-3">
+          {isMicStandby ? (
+            <button
+              onClick={onStartAudio}
+              className="flex items-center space-x-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition cursor-pointer"
+            >
+              <Mic className="w-4 h-4" />
+              <span>Start Audio (Space)</span>
+            </button>
+          ) : (
+            <button
+              onClick={onTogglePause}
+              className={`flex items-center space-x-2 px-3.5 py-2 rounded-xl text-xs font-bold transition shadow-xs cursor-pointer ${
+                isPaused
+                  ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                  : 'bg-amber-500 hover:bg-amber-600 text-white'
+              }`}
+            >
+              {isPaused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
+              <span>{isPaused ? 'Resume Audio' : 'Pause (Space)'}</span>
+            </button>
+          )}
+
+          {/* Running Clock */}
+          <div className="flex items-center space-x-1 font-mono text-sm font-bold text-slate-700 bg-white px-2.5 py-1 rounded-lg border border-slate-200 shadow-2xs">
+            <span className="text-slate-400 text-xs">REC:</span>
+            <span>{formatTimer(recordingSeconds)}</span>
+          </div>
+        </div>
+
+        {/* Audio Visualizer Canvas or Wave Activity */}
+        <div className="flex items-center space-x-2 flex-1 max-w-[200px]">
+          {audioVisualizerRef ? (
+            <canvas
+              ref={audioVisualizerRef}
+              width={180}
+              height={28}
+              className="w-full h-7 rounded-lg bg-white border border-slate-200 shadow-inner"
+            />
+          ) : (
+            <div className="flex items-center space-x-1 w-full justify-end">
+              {[40, 75, 55, 90, 60, 30].map((h, i) => (
+                <span
+                  key={i}
+                  className={`w-1 rounded-full ${
+                    !isMicStandby && !isPaused ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'
+                  }`}
+                  style={{ height: !isMicStandby && !isPaused ? `${h}%` : '20%', minHeight: '6px' }}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* 30-Second Silence Sleep Early Warning Banner (Rule 8) */}
+      {isSilenceWarning && (
+        <div className="bg-amber-50 border-b border-amber-200 px-4 py-2.5 flex items-center justify-between text-xs text-amber-900 animate-pulse">
+          <div className="flex items-center space-x-2 font-medium">
+            <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0" />
+            <span>
+              No speech detected for 2m 30s. Pausing in <strong>{silenceSecondsRemaining}s</strong> to preserve battery.
+            </span>
+          </div>
+          <button
+            onClick={onKeepListening}
+            className="px-3 py-1 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg shadow-2xs transition cursor-pointer text-xs flex items-center space-x-1"
+          >
+            <span>Keep Listening</span>
+            <kbd className="px-1 text-[10px] bg-amber-800 rounded font-mono text-amber-100">Space</kbd>
+          </button>
+        </div>
+      )}
+
+      {/* Transcript Utterances Feed */}
+      <div
+        ref={scrollRef}
+        className="flex-1 overflow-y-auto p-4 space-y-3 bg-[#FBFBFC] custom-scrollbar min-h-[220px]"
+      >
+        {transcript.length === 0 && !interimTranscript ? (
+          <div className="h-full flex flex-col items-center justify-center text-center p-6 text-slate-400">
+            <Mic className="w-8 h-8 mb-2 text-slate-300" />
+            <p className="text-xs font-semibold text-slate-600">Waiting for operatory conversation</p>
+            <p className="text-[11px] text-slate-400 max-w-[260px] mt-1">
+              Speak naturally at the chair. Utterances are captured and organized by speaker.
+            </p>
+          </div>
+        ) : (
+          <>
+            {transcript.map((item, index) => {
+              const role = item.role || 'dialogue';
+              const isPatient = role === 'patient';
+              const isAssistant = role === 'assistant';
+              const isDentist = role === 'dentist';
+
+              let tagColor = 'bg-slate-100 text-slate-700 border-slate-200';
+              if (isPatient) tagColor = 'bg-sky-50 text-sky-800 border-sky-200';
+              if (isAssistant) tagColor = 'bg-purple-50 text-purple-800 border-purple-200';
+              if (isDentist) tagColor = 'bg-emerald-50 text-emerald-800 border-emerald-200';
+
+              return (
+                <div key={index} className="flex flex-col space-y-1">
+                  <div className="flex items-center space-x-2">
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${tagColor}`}>
+                      {item.speaker || (isPatient ? 'Patient' : isDentist ? 'Dentist' : 'Dialogue')}
+                    </span>
+                    {item.time && (
+                      <span className="text-[10px] font-mono text-slate-400 font-tabular">
+                        {item.time}
+                      </span>
+                    )}
+                  </div>
+                  <div className="bg-white rounded-xl p-3 border border-slate-200/80 shadow-2xs text-xs text-slate-800 leading-relaxed font-sans">
+                    {item.text}
+                  </div>
+                </div>
+              );
+            })}
+
+            {/* Live Interim Speech Bubble */}
+            {interimTranscript && (
+              <div className="flex flex-col space-y-1 opacity-80 animate-pulse">
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-slate-100 text-slate-600 border-slate-200 w-fit">
+                  Speaking...
+                </span>
+                <div className="bg-sky-50/60 rounded-xl p-3 border border-sky-200/70 text-xs text-sky-950 italic">
+                  {interimTranscript}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* Manual Observation / Dialogue Input Footer */}
+      {onManualDialogueSubmit && (
+        <form onSubmit={handleManualSubmit} className="p-2.5 bg-white border-t border-slate-200/90 flex gap-2">
+          <input
+            type="text"
+            value={manualText}
+            onChange={e => setManualText(e.target.value)}
+            placeholder="Type quick clinical observation (e.g. Tooth 16 caries)..."
+            className="flex-1 px-3 py-1.5 text-xs rounded-xl border border-slate-200 bg-slate-50/50 focus:outline-none focus:border-sky-500 focus:bg-white text-slate-800"
+          />
+          <button
+            type="submit"
+            disabled={!manualText.trim()}
+            className="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:opacity-40 text-white text-xs font-semibold flex items-center space-x-1 transition cursor-pointer"
+          >
+            <Send className="w-3 h-3" />
+            <span>Add</span>
+          </button>
+        </form>
+      )}
+    </div>
+  );
+};
