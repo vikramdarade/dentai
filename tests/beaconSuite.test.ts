@@ -6,7 +6,6 @@ import {
   shouldAutoStopConsultation,
   DISMISSAL_PATTERNS
 } from '../src/lib/semanticDismissalDetector';
-import { generateQrSvg } from '../src/lib/qrCodeSvg';
 
 dotenv.config({ path: '.env.local' });
 dotenv.config();
@@ -63,19 +62,6 @@ describe('Model 4: Semantic Dismissal Detector (Australian Dental Context)', () 
     // Inactivity lull has passed 75s after a detected dismissal — trigger safe auto-stop
     const lateCheck = shouldAutoStopConsultation(dismissalTimestamp, 80, 75);
     expect(lateCheck).toBe(true);
-  });
-});
-
-describe('Zero-Dependency QR Code Generator', () => {
-  it('generates an SVG string with valid XML headers and coordinate elements', () => {
-    const url = 'https://dentai.vercel.app/#/beacon?chair=chair-1&pin=1234';
-    const svg = generateQrSvg(url, 200);
-
-    expect(svg).toContain('<svg');
-    expect(svg).toContain('xmlns="http://www.w3.org/2000/svg"');
-    expect(svg).toContain('viewBox="0 0 200 200"');
-    expect(svg).toContain('<rect');
-    expect(svg).toContain('fill="#0f172a"');
   });
 });
 

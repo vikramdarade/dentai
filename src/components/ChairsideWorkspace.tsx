@@ -58,7 +58,6 @@ import { formatClinicDate, formatClinicTime, getClinicTodayIso } from '../utils/
 import { decideSilenceAction, SILENCE_SLEEP_SECONDS } from '../lib/silencePolicy';
 import { toPmsEncounter, renderForPms, renderUniversalProgressNote, renderD4W, renderExact } from '../lib/pms';
 import { parseClinicalEntities } from '../lib/clinicalEntityParser';
-import { canStartChairsideRecording } from '../lib/draftEngine';
 import { ClinicMembership } from '../lib/clinics';
 
 interface ChairsideWorkspaceProps {
@@ -2569,61 +2568,33 @@ export default function ChairsideWorkspace({
     return getFormattedNoteText();
   }, [getFormattedNoteText]);
 
-  // Copy Note for PMS (Transitions status to 'Done')
-  const handleCopyPMS = (consultToCopy?: Consultation) => {
+  const [copiedPmsTarget, setCopiedPmsTarget] = useState<string | null>(null);
+
+  // Copy Note for Practice Management (Universal PMS, D4W, or Exact)
+  const handleCopyPMS = (consultToCopy?: Consultation, format: 'pms' | 'd4w' | 'exact' = 'pms') => {
     const target = consultToCopy || consultations.find(c => c.id === activeEncounter?.id);
-    const noteText = getFormattedNoteText(consultToCopy);
+    let noteText = '';
+    if (format === 'd4w' && target) {
+      try { noteText = renderD4W(toPmsEncounter(target)); } catch { noteText = getFormattedNoteText(consultToCopy); }
+    } else if (format === 'exact' && target) {
+      try { noteText = renderExact(toPmsEncounter(target)); } catch { noteText = getFormattedNoteText(consultToCopy); }
+    } else {
+      noteText = getFormattedNoteText(consultToCopy);
+    }
     if (!noteText) return;
 
-    if (navigator.clipboard) {
-      navigator.clipboard.writeText(noteText);
-    }
-    if (target?.id) {
-      setCopiedEncounterIds(prev => new Set(prev).add(target.id));
-    }
+    if (navigator.clipboard) navigator.clipboard.writeText(noteText);
+    if (target?.id) setCopiedEncounterIds(prev => new Set(prev).add(target.id));
     setCopiedNote(true);
-    setCopiedPmsTarget('pms');
+    setCopiedPmsTarget(format);
     setTimeout(() => {
       setCopiedNote(false);
       setCopiedPmsTarget(null);
     }, 2500);
   };
 
-  const [copiedPmsTarget, setCopiedPmsTarget] = useState<string | null>(null);
-
-  // Dedicated 1-Click Dental4Windows (D4W) Format Copy
-  const handleCopyD4W = (consultToCopy?: Consultation) => {
-    const target = consultToCopy || consultations.find(c => c.id === activeEncounter?.id);
-    if (!target) return;
-    try {
-      const pmsEncounter = toPmsEncounter(target);
-      const d4wText = renderD4W(pmsEncounter);
-      if (navigator.clipboard) navigator.clipboard.writeText(d4wText);
-      if (target.id) setCopiedEncounterIds(prev => new Set(prev).add(target.id));
-      setCopiedNote(true);
-      setCopiedPmsTarget('d4w');
-      setTimeout(() => { setCopiedNote(false); setCopiedPmsTarget(null); }, 2500);
-    } catch {
-      handleCopyPMS(consultToCopy);
-    }
-  };
-
-  // Dedicated 1-Click Software of Excellence (Exact) Format Copy
-  const handleCopyExact = (consultToCopy?: Consultation) => {
-    const target = consultToCopy || consultations.find(c => c.id === activeEncounter?.id);
-    if (!target) return;
-    try {
-      const pmsEncounter = toPmsEncounter(target);
-      const exactText = renderExact(pmsEncounter);
-      if (navigator.clipboard) navigator.clipboard.writeText(exactText);
-      if (target.id) setCopiedEncounterIds(prev => new Set(prev).add(target.id));
-      setCopiedNote(true);
-      setCopiedPmsTarget('exact');
-      setTimeout(() => { setCopiedNote(false); setCopiedPmsTarget(null); }, 2500);
-    } catch {
-      handleCopyPMS(consultToCopy);
-    }
-  };
+  const handleCopyD4W = (consultToCopy?: Consultation) => handleCopyPMS(consultToCopy, 'd4w');
+  const handleCopyExact = (consultToCopy?: Consultation) => handleCopyPMS(consultToCopy, 'exact');
 
   // Copy All Notes in Batch
   const handleCopyAllBatchNotes = () => {

@@ -26,15 +26,7 @@
     "ops:lockout": "tsx scripts/lockout-account.ts",
     "ops:backup": "sh ./scripts/ops/backup-database.sh",
     "ops:restore": "sh ./scripts/ops/restore-database.sh",
-    "prepare": "husky",
-    "demo:auth": "tsx scripts/demo/recorder-auth.ts",
-    "demo:dentist": "tsx scripts/demo/recorder-dentist.ts",
-    "demo:owner": "tsx scripts/demo/recorder-owner.ts",
-    "demo:outro": "tsx scripts/demo/recorder-outro.ts",
-    "demo:narrate": "tsx scripts/demo/narrator.ts",
-    "demo:assemble": "tsx scripts/demo/assemble.ts",
-    "demo": "bun run demo:auth && bun run demo:dentist && bun run demo:owner && bun run demo:outro && bun run demo:narrate && bun run demo:assemble",
-    "demo:cleanup": "tsx scripts/demo/cleanup.ts"
+    "prepare": "husky"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
