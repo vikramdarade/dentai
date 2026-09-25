@@ -26,7 +26,7 @@ describe('OpenAI-Compatible Engine (Groq / Ollama / llama.cpp)', () => {
       expect(config).not.toBeNull();
       expect(config?.provider).toBe('groq');
       expect(config?.apiKey).toBe('gsk_test123');
-      expect(config?.model).toBe('llama-3.3-70b-versatile');
+      expect(config?.model).toBe('openai/gpt-oss-120b');
       expect(config?.endpoint).toContain('api.groq.com');
     });
 

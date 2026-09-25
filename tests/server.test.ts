@@ -26,6 +26,12 @@ process.env.GEMINI_API_KEY = 'TEST_API_KEY';
 // import time, but dotenv never overrides a key that already exists, so an empty
 // value keeps the DB layer disabled for the whole test process.
 process.env.DATABASE_URL = '';
+process.env.GROQ_API_KEY = '';
+process.env.GROQ_API_PROD_KEY = '';
+process.env.LLM_PROVIDER = '';
+process.env.OLLAMA_BASE_URL = '';
+process.env.LLAMA_CPP_BASE_URL = '';
+process.env.OPENAI_BASE_URL = '';
 // Tests must never read or write the developer's working data directory: that
 // directory holds real patient records and clinician PIN hashes. Every test run
 // gets a throwaway store instead.

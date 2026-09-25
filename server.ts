@@ -1300,7 +1300,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promi
 async function runHostedGeneration(payload: {
   intakeData: any;
   transcript: any[];
-}): Promise<{ ok: true; output: any } | { ok: false; quota: true; message: string } | { ok: false; quota: false; message: string }> {
+}): Promise<{ ok: true; output: any; provider?: string; model?: string } | { ok: false; quota: true; message: string } | { ok: false; quota: false; message: string }> {
   const gcpProject = process.env.GCP_PROJECT_ID;
   const resolved = resolveNoteTemplate(payload.intakeData);
   if (resolved.error) {
@@ -1335,7 +1335,7 @@ async function runHostedGeneration(payload: {
     });
     if (openRes.ok && openRes.output) {
       logAudit('notes_generated_open_model', 'job-worker', { provider: openRes.provider, model: openRes.model });
-      return { ok: true, output: openRes.output };
+      return { ok: true, output: openRes.output, provider: openRes.provider, model: openRes.model };
     }
     logger.warn(`[JobFabric] Primary ${openAiConfig.provider} generation failed: ${openRes.error}. Attempting fallback...`);
   }
@@ -1389,7 +1389,7 @@ async function runHostedGeneration(payload: {
           });
           if (openRes.ok && openRes.output) {
             logAudit('notes_generated_open_model', 'job-worker', { provider: openRes.provider, model: openRes.model });
-            return { ok: true, output: openRes.output };
+            return { ok: true, output: openRes.output, provider: openRes.provider, model: openRes.model };
           }
         }
         return { ok: false, quota: false, message: 'Gemini API key is not configured on the server.' };
@@ -1408,7 +1408,7 @@ async function runHostedGeneration(payload: {
       output = JSON.parse(response.text);
     }
 
-    return { ok: true, output: normalizeTemplateOutput(noteTemplate, output) };
+    return { ok: true, output: normalizeTemplateOutput(noteTemplate, output), provider: 'gemini' };
   } catch (error: any) {
     if (isQuotaError({ status: error.status, message: error.message })) {
       // Tier 2 — secondary key on a separate quota pool.
@@ -1427,14 +1427,14 @@ async function runHostedGeneration(payload: {
           );
           if (fallbackResponse.text) {
             logAudit('notes_generation_secondary_key', 'job-worker', {});
-            return { ok: true, output: normalizeTemplateOutput(noteTemplate, JSON.parse(fallbackResponse.text)) };
+            return { ok: true, output: normalizeTemplateOutput(noteTemplate, JSON.parse(fallbackResponse.text)), provider: 'gemini-fallback' };
           }
         } catch (secondaryErr: any) {
           logger.warn('[JobFabric] Secondary-key fallback also failed:', secondaryErr.message || secondaryErr);
         }
       }
 
-      // Tier 3 — Smart Failover: OpenAI-Compatible / Groq Llama-3.3-70B / Ollama
+      // Tier 3 — Smart Failover: OpenAI-Compatible / Groq / Ollama
       if (openAiConfig) {
         try {
           logger.warn(`[JobFabric] Gemini quota exhausted. Failing over dynamically to ${openAiConfig.provider} (${openAiConfig.model})...`);
@@ -1446,7 +1446,7 @@ async function runHostedGeneration(payload: {
           });
           if (openRes.ok && openRes.output) {
             logAudit('notes_generation_open_failover', 'job-worker', { provider: openRes.provider, model: openRes.model });
-            return { ok: true, output: openRes.output };
+            return { ok: true, output: openRes.output, provider: openRes.provider, model: openRes.model };
           }
         } catch (openErr: any) {
           logger.warn('[JobFabric] OpenAI-compatible failover also failed:', openErr.message || openErr);
@@ -1545,11 +1545,15 @@ async function tickNoteJobs(force = false): Promise<void> {
           output
         );
         output.sovereignty = {
-          dataSovereignty: process.env.GCP_PROJECT_ID ? 'AU_SYDNEY' : 'DEVELOPER_API_FALLBACK',
+          dataSovereignty: (result as any).provider === 'ollama' || (result as any).provider === 'llama-cpp' ? 'LOCAL_ON_PREM' : (process.env.GCP_PROJECT_ID ? 'AU_SYDNEY' : 'DEVELOPER_API_FALLBACK'),
           jurisdiction: 'APP_8_COMPLIANT',
-          region: process.env.GCP_REGION || 'australia-southeast1',
+          region: (result as any).provider || process.env.GCP_REGION || 'australia-southeast1',
           zeroRetentionConfirmed: true,
           audioPurgedAt: new Date().toISOString()
+        };
+        output.noteOrigin = {
+          engine: (result as any).provider || 'gemini',
+          model: (result as any).model || 'cloud-ai'
         };
 
         await persistJobPatch(job.id, job.dentistId, {

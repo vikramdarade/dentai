@@ -2141,9 +2141,9 @@ export default function ChairsideWorkspace({
         patientConsent: payload?.patientConsent || targetConsult.patientConsent,
         treatmentQuote: payload?.treatmentQuote || targetConsult.treatmentQuote,
         noteOrigin: {
-          engine: isHostedNote ? 'gemini' : 'offline-draft',
+          engine: isHostedNote ? (payload?.noteOrigin?.engine || 'groq') : 'offline-draft',
           needsReview: isHostedNote ? !payload?.groundingReport?.isFullyGrounded : true,
-          detail: payload?.groundingReport?.summary || (isHostedNote ? undefined : 'Generated via offline draft engine.')
+          detail: payload?.groundingReport?.summary || (isHostedNote ? `Generated via ${payload?.noteOrigin?.engine || 'cloud AI'}` : 'Generated via offline draft engine.')
         },
         grounding: payload?.groundingReport
       };
@@ -3239,11 +3239,11 @@ ${clinician}`;
                           <div className="font-bold text-[11px] text-amber-950 flex items-center gap-2">
                             <span>Offline Fallback Draft Active</span>
                             <span className="font-normal text-[10px] text-amber-700 bg-amber-100/80 px-2 py-0.5 rounded border border-amber-300/50">
-                              Cloud AI credits depleted (402)
+                              Deterministic Local Draft
                             </span>
                           </div>
                           <p className="text-[11px] text-amber-800 leading-relaxed">
-                            Google Gemini returned a billing limit notification (prepayment credits depleted). This note was assembled locally from transcript quotes. Please review and verify before copying to your practice management system.
+                            Cloud AI was unreachable or rate-limited. This note was assembled locally from transcript quotes with zero clinical fabrication. Please review and verify before copying to your practice management system.
                           </p>
                         </div>
                       </div>
