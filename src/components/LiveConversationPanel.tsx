@@ -69,17 +69,17 @@ export const LiveConversationPanel: React.FC<LiveConversationPanelProps> = ({
   };
 
   return (
-    <div className="flex-1 flex flex-col bg-white rounded-2xl border border-slate-200/90 shadow-xs overflow-hidden">
+    <div className="flex-1 flex flex-col bg-white rounded-2xl border border-slate-200/80 shadow-[0_2px_12px_-3px_rgba(15,23,42,0.04)] overflow-hidden">
       {/* Panel Header */}
-      <div className="px-4 py-3 border-b border-slate-200/90 flex items-center justify-between bg-slate-50/50">
+      <div className="px-4 py-2.5 border-b border-slate-200/80 flex items-center justify-between bg-slate-50/80">
         <div className="flex items-center space-x-2">
           <div className="flex items-center space-x-1.5">
             <span className={`w-2 h-2 rounded-full ${micListening && !isPaused && !isMicStandby ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`} />
-            <h3 className="text-xs font-bold text-slate-900 tracking-wide uppercase">
+            <h3 className="text-xs font-bold text-slate-800 tracking-tight">
               Live Conversation
             </h3>
           </div>
-          <span className="text-[11px] font-medium text-slate-500 bg-white px-2 py-0.5 rounded-full border border-slate-200">
+          <span className="text-[11px] font-mono font-tabular font-medium text-slate-500 bg-white px-2 py-0.5 rounded-full border border-slate-200/90 shadow-2xs">
             {transcript.length} lines recorded
           </span>
         </div>
@@ -87,10 +87,10 @@ export const LiveConversationPanel: React.FC<LiveConversationPanelProps> = ({
         {/* Anti-Jargon Noise Filter Toggle (Rule 9) */}
         <button
           onClick={onToggleNoiseGate}
-          className={`flex items-center space-x-1 px-2.5 py-1 rounded-lg text-xs font-medium border transition cursor-pointer ${
+          className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border shadow-2xs cursor-pointer ${
             dspNoiseGateActive
-              ? 'bg-sky-50 text-sky-800 border-sky-200 shadow-2xs'
-              : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+              ? 'bg-sky-50 text-sky-800 border-sky-200/90 font-semibold'
+              : 'bg-white text-slate-600 border-slate-200/90 hover:bg-slate-50'
           }`}
           title="Toggle operatory noise filter"
         >
@@ -100,13 +100,13 @@ export const LiveConversationPanel: React.FC<LiveConversationPanelProps> = ({
       </div>
 
       {/* Operatory Microphone HUD Bar */}
-      <div className="px-4 py-3 bg-slate-50/90 border-b border-slate-200 flex items-center justify-between gap-3 flex-wrap sm:flex-nowrap">
+      <div className="px-4 py-2.5 bg-slate-50/60 border-b border-slate-200/80 flex items-center justify-between gap-3 flex-wrap sm:flex-nowrap">
         {/* Timer & Mic Controls */}
         <div className="flex items-center space-x-2.5">
           {isMicStandby ? (
             <button
               onClick={onStartAudio}
-              className="flex items-center space-x-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition cursor-pointer"
+              className="flex items-center space-x-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs shadow-xs cursor-pointer"
             >
               <Mic className="w-4 h-4" />
               <span>Start Audio (Space)</span>
@@ -114,7 +114,7 @@ export const LiveConversationPanel: React.FC<LiveConversationPanelProps> = ({
           ) : (
             <button
               onClick={onTogglePause}
-              className={`flex items-center space-x-2 px-3.5 py-2 rounded-xl text-xs font-bold transition shadow-xs cursor-pointer ${
+              className={`flex items-center space-x-2 px-3.5 py-2 rounded-xl text-xs font-semibold shadow-xs cursor-pointer ${
                 isPaused
                   ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
                   : 'bg-amber-500 hover:bg-amber-600 text-white'
@@ -126,24 +126,25 @@ export const LiveConversationPanel: React.FC<LiveConversationPanelProps> = ({
           )}
 
           {/* Running Clock */}
-          <div className="flex items-center space-x-1 font-mono text-sm font-bold text-slate-700 bg-white px-2.5 py-1 rounded-lg border border-slate-200 shadow-2xs">
-            <span className="text-slate-400 text-xs">REC:</span>
+          <div className="flex items-center space-x-1.5 font-mono font-tabular text-xs font-bold text-slate-700 bg-white px-2.5 py-1.5 rounded-xl border border-slate-200/90 shadow-2xs">
+            <span className="text-slate-400 text-[10px] tracking-wider uppercase">REC</span>
+            <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
             <span>{formatTimer(recordingSeconds)}</span>
           </div>
 
           {/* Active Listening Indicator */}
           {micListening && !isPaused && !isMicStandby ? (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-2xs">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200/90 shadow-2xs">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
               <span>Listening</span>
             </span>
           ) : isPaused ? (
-            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200 shadow-2xs">
+            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-amber-50 text-amber-800 border border-amber-200/90 shadow-2xs">
               <span>Paused</span>
             </span>
           ) : isMicStandby ? (
-            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-100 text-slate-600 border border-slate-200 shadow-2xs">
-              <span>Standby</span>
+            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-100/80 text-slate-600 border border-slate-200/90 shadow-2xs">
+              <span>Ready to Listen</span>
             </span>
           ) : null}
         </div>
@@ -266,15 +267,23 @@ export const LiveConversationPanel: React.FC<LiveConversationPanelProps> = ({
               const isAssistant = role === 'assistant';
               const isDentist = role === 'dentist';
 
-              let tagColor = 'bg-slate-100 text-slate-700 border-slate-200';
-              if (isPatient) tagColor = 'bg-sky-50 text-sky-800 border-sky-200';
-              if (isAssistant) tagColor = 'bg-purple-50 text-purple-800 border-purple-200';
-              if (isDentist) tagColor = 'bg-emerald-50 text-emerald-800 border-emerald-200';
+              let roleBadge = 'bg-slate-100/90 text-slate-700 border-slate-200/90';
+              let accentBorder = 'border-slate-200/80';
+              if (isPatient) {
+                roleBadge = 'bg-sky-50 text-sky-800 border-sky-200/90';
+                accentBorder = 'border-slate-200/80 border-l-2 border-l-sky-500';
+              } else if (isDentist) {
+                roleBadge = 'bg-emerald-50 text-emerald-800 border-emerald-200/90';
+                accentBorder = 'border-slate-200/80 border-l-2 border-l-emerald-500';
+              } else if (isAssistant) {
+                roleBadge = 'bg-purple-50 text-purple-800 border-purple-200/90';
+                accentBorder = 'border-slate-200/80 border-l-2 border-l-purple-500';
+              }
 
               return (
                 <div key={index} className="flex flex-col space-y-1">
                   <div className="flex items-center space-x-2">
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${tagColor}`}>
+                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border shadow-2xs ${roleBadge}`}>
                       {item.speaker || (isPatient ? 'Patient' : isDentist ? 'Dentist' : 'Dialogue')}
                     </span>
                     {item.time && (
@@ -283,7 +292,7 @@ export const LiveConversationPanel: React.FC<LiveConversationPanelProps> = ({
                       </span>
                     )}
                   </div>
-                  <div className="bg-white rounded-xl p-3 border border-slate-200/80 shadow-2xs text-xs text-slate-800 leading-relaxed font-sans">
+                  <div className={`bg-white rounded-xl p-3 border shadow-2xs text-xs text-slate-800 leading-relaxed font-sans ${accentBorder}`}>
                     {item.text}
                   </div>
                 </div>
@@ -292,11 +301,11 @@ export const LiveConversationPanel: React.FC<LiveConversationPanelProps> = ({
 
             {/* Live Interim Speech Bubble */}
             {interimTranscript && (
-              <div className="flex flex-col space-y-1 opacity-80 animate-pulse">
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-slate-100 text-slate-600 border-slate-200 w-fit">
-                  Speaking...
+              <div className="flex flex-col space-y-1 opacity-90 animate-pulse">
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border bg-sky-50 text-sky-700 border-sky-200/80 w-fit shadow-2xs">
+                  Transcribing speech...
                 </span>
-                <div className="bg-sky-50/60 rounded-xl p-3 border border-sky-200/70 text-xs text-sky-950 italic">
+                <div className="bg-sky-50/50 rounded-xl p-3 border border-sky-200/80 text-xs text-sky-950 italic shadow-2xs">
                   {interimTranscript}
                 </div>
               </div>
@@ -307,18 +316,18 @@ export const LiveConversationPanel: React.FC<LiveConversationPanelProps> = ({
 
       {/* Manual Observation / Dialogue Input Footer */}
       {onManualDialogueSubmit && (
-        <form onSubmit={handleManualSubmit} className="p-2.5 bg-white border-t border-slate-200/90 flex gap-2">
+        <form onSubmit={handleManualSubmit} className="p-2.5 bg-white border-t border-slate-200/80 flex gap-2">
           <input
             type="text"
             value={manualText}
             onChange={e => setManualText(e.target.value)}
             placeholder="Type quick clinical observation (e.g. Tooth 16 caries)..."
-            className="flex-1 px-3 py-1.5 text-xs rounded-xl border border-slate-200 bg-slate-50/50 focus:outline-none focus:border-sky-500 focus:bg-white text-slate-800"
+            className="flex-1 px-3 py-1.5 text-xs rounded-xl border border-slate-200/90 bg-slate-50/60 focus:outline-none focus:border-sky-500 focus:bg-white focus:ring-2 focus:ring-sky-500/10 text-slate-800"
           />
           <button
             type="submit"
             disabled={!manualText.trim()}
-            className="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:opacity-40 text-white text-xs font-semibold flex items-center space-x-1 transition cursor-pointer"
+            className="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:opacity-40 text-white text-xs font-semibold flex items-center space-x-1 shadow-2xs transition cursor-pointer"
           >
             <Send className="w-3 h-3" />
             <span>Add</span>

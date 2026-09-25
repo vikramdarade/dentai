@@ -1,17 +1,17 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "SF Pro", "Inter", "Segoe UI", "Segoe UI Variable Text", system-ui, sans-serif;
-  --font-mono: 'SF Mono', 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace;
+  --font-sans: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "SF Pro", "Inter", "Segoe UI", "Segoe UI Variable Text", system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, Consolas, monospace;
   
   /* Typography tokens used by the components (font-* family, text-* size utilities) */
-  --font-headline-sm: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro", "Inter", "Segoe UI", sans-serif;
-  --font-headline-md: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro", "Inter", "Segoe UI", sans-serif;
-  --font-headline-lg: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro", "Inter", "Segoe UI", sans-serif;
-  --font-label-sm: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro", "Inter", "Segoe UI", sans-serif;
-  --font-label-md: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro", "Inter", "Segoe UI", sans-serif;
-  --font-body-md: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro", "Inter", "Segoe UI", sans-serif;
-  --font-transcription-text: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro", "Inter", "Segoe UI", sans-serif;
+  --font-headline-sm: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro", sans-serif;
+  --font-headline-md: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro", sans-serif;
+  --font-headline-lg: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro", sans-serif;
+  --font-label-sm: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro", sans-serif;
+  --font-label-md: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro", sans-serif;
+  --font-body-md: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro", sans-serif;
+  --font-transcription-text: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro", sans-serif;
   --text-headline-sm: 1.25rem;
   --text-headline-md: 1.5rem;
   --text-headline-lg: 1.875rem;
@@ -147,9 +147,18 @@ html, body {
   box-shadow: 0 4px 20px -2px rgba(0, 113, 227, 0.05);
 }
 
-/* Tactile button pressed state */
+/* Tactile button pressed state and smooth transitions */
+button {
+  transition: background-color 150ms ease-out, border-color 150ms ease-out, color 150ms ease-out, box-shadow 150ms ease-out, transform 100ms ease-out;
+}
+
 button:active:not(:disabled) {
-  transform: scale(0.985);
+  transform: scale(0.982);
+}
+
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: 2px solid rgba(2, 101, 210, 0.35);
+  outline-offset: 1px;
 }
 
 /* Custom Scrollbars */

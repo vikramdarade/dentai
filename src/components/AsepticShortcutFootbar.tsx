@@ -46,17 +46,17 @@ export const AsepticShortcutFootbar: React.FC<AsepticShortcutFootbarProps> = ({
   }
 
   return (
-    <footer className="h-11 bg-white border-t border-slate-200/90 px-4 flex items-center justify-between z-30 select-none shadow-xs">
+    <footer className="h-11 bg-white border-t border-slate-200/80 px-4 flex items-center justify-between z-30 select-none shadow-[0_-1px_3px_0_rgba(15,23,42,0.02)]">
       {/* Operatory Mic Status Pill */}
       <div className="flex items-center space-x-3">
-        <div className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold border ${badgeColor}`}>
+        <div className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border ${badgeColor}`}>
           <span className={`w-2 h-2 rounded-full ${dotColor}`} />
           <span className="tracking-wide uppercase font-mono">{stateLabel}</span>
         </div>
 
         {activePatientName && (
           <span className="hidden sm:inline text-xs text-slate-500 font-medium truncate max-w-[200px]">
-            In Chair: <strong className="text-slate-800">{activePatientName}</strong>
+            In Chair: <strong className="text-slate-800 font-semibold">{activePatientName}</strong>
           </span>
         )}
       </div>
@@ -65,7 +65,7 @@ export const AsepticShortcutFootbar: React.FC<AsepticShortcutFootbarProps> = ({
       <div className="flex items-center space-x-2">
         <button
           onClick={onToggleAudio}
-          className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-700 hover:text-slate-900 border border-slate-200 text-xs font-medium transition cursor-pointer"
+          className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-slate-50/80 hover:bg-slate-100 text-slate-700 hover:text-slate-900 border border-slate-200/90 text-xs font-medium shadow-2xs cursor-pointer"
           title="Toggle microphone (Spacebar)"
         >
           {isMicStandby || isPaused ? (
@@ -74,43 +74,43 @@ export const AsepticShortcutFootbar: React.FC<AsepticShortcutFootbarProps> = ({
             <Pause className="w-3.5 h-3.5 text-amber-600" />
           )}
           <span>{isMicStandby || isPaused ? 'Listen' : 'Pause'}</span>
-          <kbd className="px-1.5 py-0.5 text-[10px] font-mono font-semibold bg-white border border-slate-200 rounded text-slate-500 shadow-2xs">
+          <kbd className="px-1.5 py-0.5 text-[10px] font-mono font-semibold bg-white border border-slate-200/90 rounded text-slate-500 shadow-2xs">
             Space
           </kbd>
         </button>
 
         <button
           onClick={onCopyPMS}
-          className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-700 hover:text-slate-900 border border-slate-200 text-xs font-medium transition cursor-pointer"
+          className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-slate-50/80 hover:bg-slate-100 text-slate-700 hover:text-slate-900 border border-slate-200/90 text-xs font-medium shadow-2xs cursor-pointer"
           title="Copy note to PMS (⌘+Shift+C)"
         >
           <Copy className="w-3.5 h-3.5 text-sky-600" />
           <span>Copy PMS</span>
-          <kbd className="px-1.5 py-0.5 text-[10px] font-mono font-semibold bg-white border border-slate-200 rounded text-slate-500 shadow-2xs">
+          <kbd className="px-1.5 py-0.5 text-[10px] font-mono font-semibold bg-white border border-slate-200/90 rounded text-slate-500 shadow-2xs">
             ⌘⇧C
           </kbd>
         </button>
 
-        <div className="h-4 w-px bg-slate-200 mx-1 hidden md:block" />
+        <div className="h-4 w-px bg-slate-200/80 mx-1 hidden md:block" />
 
         <div className="hidden md:flex items-center space-x-1">
           <button
             onClick={onPrevPatient}
-            className="flex items-center space-x-1 px-2 py-1 rounded-lg hover:bg-slate-100 text-slate-600 hover:text-slate-900 text-xs transition cursor-pointer"
+            className="flex items-center space-x-1 px-2 py-1 rounded-lg hover:bg-slate-100 text-slate-600 hover:text-slate-900 text-xs cursor-pointer"
             title="Previous patient (⌘+Left)"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
-            <kbd className="px-1 py-0.5 text-[9px] font-mono bg-white border border-slate-200 rounded text-slate-500">
+            <kbd className="px-1 py-0.5 text-[9px] font-mono bg-white border border-slate-200/90 rounded text-slate-500 shadow-2xs">
               ⌘←
             </kbd>
           </button>
 
           <button
             onClick={onNextPatient}
-            className="flex items-center space-x-1 px-2 py-1 rounded-lg hover:bg-slate-100 text-slate-600 hover:text-slate-900 text-xs transition cursor-pointer"
+            className="flex items-center space-x-1 px-2 py-1 rounded-lg hover:bg-slate-100 text-slate-600 hover:text-slate-900 text-xs cursor-pointer"
             title="Next patient (⌘+Right)"
           >
-            <kbd className="px-1 py-0.5 text-[9px] font-mono bg-white border border-slate-200 rounded text-slate-500">
+            <kbd className="px-1 py-0.5 text-[9px] font-mono bg-white border border-slate-200/90 rounded text-slate-500 shadow-2xs">
               ⌘→
             </kbd>
             <ArrowRight className="w-3.5 h-3.5" />

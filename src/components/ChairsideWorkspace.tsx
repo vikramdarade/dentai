@@ -2692,9 +2692,9 @@ ${clinician}`;
           1. GLOBAL TOP SURGERY HEADER
           ───────────────────────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col h-screen overflow-hidden">
-        <header className="h-14 px-6 border-b border-slate-200 bg-white flex items-center justify-between flex-shrink-0 z-20 shadow-2xs">
+        <header className="h-14 px-6 border-b border-slate-200/80 bg-white flex items-center justify-between flex-shrink-0 z-20 shadow-[0_1px_3px_0_rgba(15,23,42,0.03)]">
           <div className="flex items-center space-x-3">
-            <div className="w-9 h-9 rounded-xl bg-[#0060BA] text-white flex items-center justify-center shadow-xs">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-[#0050A0] to-[#0275E8] text-white flex items-center justify-center shadow-xs ring-1 ring-white/20">
               <svg viewBox="0 0 24 24" className="w-5 h-5 text-white" fill="currentColor">
                 <path d="M12 2C9 2 7 4 7 7.5c0 3 1.2 6.5 2 9.5.5 2 1.5 3 2.5 3 .6 0 1.2-.5 1.5-1.5.3 1 1 1.5 1.5 1.5 1 0 2-1 2.5-3 .8-3 2-6.5 2-9.5C19 4 17 2 12 2z" />
               </svg>
@@ -2702,9 +2702,9 @@ ${clinician}`;
             <div>
               <div className="flex items-center space-x-2">
                 <span className="font-extrabold text-slate-900 text-sm tracking-tight">DentAI</span>
-                <span className="text-[10px] bg-sky-50 text-sky-800 font-bold px-1.5 py-0.2 rounded border border-sky-200">Dental Assistant AI</span>
+                <span className="text-[10px] bg-sky-50 text-sky-800 font-semibold px-2 py-0.5 rounded-full border border-sky-200/80">Dental Assistant AI</span>
               </div>
-              <div className="text-[10px] text-slate-400 font-semibold">{activeClinic?.clinicName || 'Chairside Dental Practice'}</div>
+              <div className="text-[10px] text-slate-400 font-medium">{activeClinic?.clinicName || 'Chairside Dental Practice'}</div>
             </div>
           </div>
 
@@ -2713,7 +2713,7 @@ ${clinician}`;
             <button
               type="button"
               onClick={() => setShowDeliverablesModal(true)}
-              className="px-3 py-1.5 rounded-xl border border-slate-200 hover:border-indigo-600 bg-white hover:bg-indigo-50/50 text-slate-700 text-xs font-semibold flex items-center space-x-1.5 shadow-2xs transition cursor-pointer"
+              className="px-3 py-1.5 rounded-xl border border-slate-200/90 hover:border-indigo-300 bg-white hover:bg-indigo-50/40 text-slate-700 text-xs font-semibold flex items-center space-x-1.5 shadow-2xs transition cursor-pointer"
               title="Generate specialist referral letters and patient post-op care instructions"
             >
               <FileText className="w-3.5 h-3.5 text-indigo-600" />
@@ -2722,12 +2722,12 @@ ${clinician}`;
 
             <button
               onClick={() => setShowBatchTray(true)}
-              className="px-3 py-1.5 rounded-xl border border-slate-200 hover:border-teal-700 bg-white hover:bg-teal-50/50 text-slate-700 text-xs font-bold flex items-center space-x-1.5 shadow-2xs transition cursor-pointer"
+              className="px-3 py-1.5 rounded-xl border border-slate-200/90 hover:border-teal-300 bg-white hover:bg-teal-50/40 text-slate-700 text-xs font-semibold flex items-center space-x-1.5 shadow-2xs transition cursor-pointer"
               title="Review & Copy Today's Completed Notes (⌘B)"
             >
               <Clipboard className="w-3.5 h-3.5 text-teal-700" />
               <span>End of Day Notes</span>
-              <span className="bg-teal-100 text-teal-900 text-[10px] font-extrabold px-1.5 py-0.2 rounded-full">
+              <span className="bg-teal-100 text-teal-900 text-[10px] font-bold px-2 py-0.2 rounded-full font-tabular">
                 {completedEncounters.length}
               </span>
             </button>
@@ -2740,7 +2740,7 @@ ${clinician}`;
                 className={`px-2.5 py-1.5 rounded-xl border text-xs font-semibold flex items-center space-x-1.5 shadow-2xs transition cursor-pointer ${
                   showToolsMenu
                     ? 'bg-slate-100 border-slate-300 text-slate-900'
-                    : 'bg-white hover:bg-slate-50 border-slate-200 text-slate-700'
+                    : 'bg-white hover:bg-slate-50 border-slate-200/90 text-slate-700'
                 }`}
                 title="Practice administration and reference tools"
               >
@@ -2793,18 +2793,18 @@ ${clinician}`;
               )}
             </div>
 
-            <div className="h-6 w-[1px] bg-slate-200 mx-1" />
+            <div className="h-6 w-[1px] bg-slate-200/80 mx-1" />
 
             <div className="text-right">
               <div className="text-xs font-bold text-slate-800">{dentistName || 'Dr. Marcus Vance'}</div>
-              <div className="text-[10px] font-semibold text-slate-400">Attending Clinician</div>
+              <div className="text-[10px] font-medium text-slate-400">Attending Clinician</div>
             </div>
-            <div className="w-8 h-8 rounded-full bg-[#0060BA] text-white font-bold text-xs flex items-center justify-center border border-sky-700 shadow-2xs">
+            <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-slate-900 to-slate-800 text-white font-bold text-xs flex items-center justify-center border border-slate-700 shadow-2xs">
               {dentistName ? dentistName.split(' ').map(n => n[0]).join('').slice(0, 2) : 'MV'}
             </div>
             <button
               onClick={onLogout}
-              className="w-8 h-8 rounded-full hover:bg-rose-50 flex items-center justify-center text-slate-400 hover:text-rose-600 transition cursor-pointer ml-1"
+              className="w-8 h-8 rounded-xl hover:bg-rose-50 flex items-center justify-center text-slate-400 hover:text-rose-600 transition cursor-pointer ml-1"
               title="Sign Out"
             >
               <LogOut className="w-4 h-4" />
@@ -3054,29 +3054,29 @@ ${clinician}`;
                         key={p.id}
                         onClick={() => handleSelectPatient(p.id)}
                         className={`p-3 rounded-xl border transition cursor-pointer text-left ${isActive
-                          ? 'bg-sky-50/70 border-sky-300 ring-1 ring-sky-300/50 shadow-xs'
-                          : 'bg-white hover:bg-slate-50/80 border-slate-200'
+                          ? 'bg-sky-50/70 border-sky-300/80 border-l-4 border-l-sky-600 shadow-xs ring-1 ring-sky-300/40'
+                          : 'bg-white hover:bg-slate-50/80 border-slate-200/80 shadow-2xs'
                           }`}
                       >
                         <div className="flex items-start justify-between mb-1">
                           <div className="text-[11px] font-mono text-slate-500 font-tabular">
-                            {p.time} • <span className="text-slate-700 font-bold">{p.operatory?.replace(/Op /i, 'Room ') || 'Room 1'}</span>
+                            {p.time} • <span className="text-slate-700 font-semibold">{p.operatory?.replace(/Op /i, 'Room ') || 'Room 1'}</span>
                           </div>
 
                           {p.status === 'done' ? (
-                            <span className="bg-emerald-50 text-emerald-800 text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-emerald-200 flex items-center gap-1 shadow-2xs">
+                            <span className="bg-emerald-50 text-emerald-800 text-[10px] font-semibold px-2 py-0.5 rounded-full border border-emerald-200/90 flex items-center gap-1 shadow-2xs">
                               <CheckCircle2 className="w-3 h-3 text-emerald-600" />
                               <span>Done</span>
                             </span>
                           ) : p.status === 'recording' || (isActive && !isMicStandby && !isPaused) ? (
-                            <span className="bg-rose-100 text-rose-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-rose-200 flex items-center gap-1">
+                            <span className="bg-rose-50 text-rose-800 text-[10px] font-semibold px-2 py-0.5 rounded-full border border-rose-200/90 flex items-center gap-1 shadow-2xs">
                               <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-ping" />
                               <span>Recording ({formatTimer(recordingSeconds)})</span>
                             </span>
                           ) : p.status === 'processing' ? (
-                            <span className="bg-amber-50 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-200 flex items-center gap-1">
+                            <span className="bg-amber-50 text-amber-800 text-[10px] font-semibold px-2 py-0.5 rounded-full border border-amber-200/90 flex items-center gap-1 shadow-2xs">
                               <RefreshCw className="w-3 h-3 text-amber-600 animate-spin" />
-                              <span>Generating Note...</span>
+                              <span>Generating...</span>
                             </span>
                           ) : p.status === 'recreate' ? (
                             <button
@@ -3084,40 +3084,40 @@ ${clinician}`;
                                 e.stopPropagation();
                                 executeBackgroundNoteFinalization(p.id, false);
                               }}
-                              className="bg-rose-50 hover:bg-rose-100 text-rose-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-rose-200 flex items-center gap-1 transition-colors cursor-pointer"
+                              className="bg-rose-50 hover:bg-rose-100 text-rose-800 text-[10px] font-semibold px-2 py-0.5 rounded-full border border-rose-200 flex items-center gap-1 transition-colors cursor-pointer"
                               title="Note generation had an issue. Click to recreate note."
                             >
                               <RotateCw className="w-3 h-3 text-rose-600" />
                               <span>Recreate</span>
                             </button>
                           ) : p.status === 'note_generated' ? (
-                            <span className="bg-teal-50 text-teal-800 text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-teal-200 flex items-center gap-1">
+                            <span className="bg-teal-50 text-teal-800 text-[10px] font-semibold px-2 py-0.5 rounded-full border border-teal-200/90 flex items-center gap-1 shadow-2xs">
                               <Sparkles className="w-3 h-3 text-teal-600" />
                               <span>Note Generated</span>
                             </span>
                           ) : isActive && isPaused ? (
-                            <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-200 flex items-center gap-1">
+                            <span className="bg-amber-50 text-amber-800 text-[10px] font-semibold px-2 py-0.5 rounded-full border border-amber-200/90 flex items-center gap-1 shadow-2xs">
                               <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
                               <span>Paused</span>
                             </span>
                           ) : isActive ? (
-                            <span className="bg-sky-100 text-sky-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-sky-200 flex items-center gap-1">
+                            <span className="bg-sky-50 text-sky-800 text-[10px] font-semibold px-2 py-0.5 rounded-full border border-sky-200/90 flex items-center gap-1 shadow-2xs">
                               <span className="w-1.5 h-1.5 rounded-full bg-sky-500" />
                               <span>In Chair</span>
                             </span>
                           ) : p.diarizedTranscript && p.diarizedTranscript.length > 0 ? (
-                            <span className="bg-emerald-50 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-200 flex items-center gap-1">
+                            <span className="bg-emerald-50 text-emerald-800 text-[10px] font-semibold px-2 py-0.5 rounded-full border border-emerald-200/90 flex items-center gap-1 shadow-2xs">
                               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                               <span>Live ({p.diarizedTranscript.length})</span>
                             </span>
                           ) : (
-                            <span className="bg-slate-100 text-slate-600 text-[10px] font-semibold px-2 py-0.5 rounded-full">
+                            <span className="bg-slate-100/90 text-slate-600 text-[10px] font-medium px-2 py-0.5 rounded-full border border-slate-200/70">
                               {p.id === encountersForDate.find(o => o.id !== activePatientId && o.status !== 'done' && o.status !== 'note_generated')?.id ? 'Up Next' : 'Ready'}
                             </span>
                           )}
                         </div>
 
-                        <h3 className={`text-sm font-bold tracking-tight mb-0.5 ${isActive ? 'text-sky-950 font-extrabold' : 'text-slate-800'}`}>
+                        <h3 className={`text-sm font-semibold tracking-tight mb-0.5 ${isActive ? 'text-sky-950 font-bold' : 'text-slate-800'}`}>
                           {p.patientName}
                         </h3>
                         <p className="text-xs text-slate-600 leading-relaxed truncate">
