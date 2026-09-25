@@ -576,6 +576,31 @@ export const DENTAL_PHONETIC_RULES: PhoneticRule[] = [
     description: 'Phonetic "cave it" / "kavit" -> Cavit'
   },
   {
+    pattern: /\b(?:not\s+safe\s+to\s+give\s+you\s+|give\s+you\s+)?anti\s*virus\b/gi,
+    replacement: 'antibiotics',
+    description: 'Phonetic "antivirus" in bacterial dental context -> antibiotics'
+  },
+  {
+    pattern: /\bdressing\s+inside\s+the\s+(?:poop|pipe|pulping)\b/gi,
+    replacement: 'dressing inside the pulp chamber',
+    description: 'Acoustic misinterpretation "inside the poop" -> inside the pulp chamber'
+  },
+  {
+    pattern: /\boutside\s+the\s+tool\b/gi,
+    replacement: 'outside the tooth',
+    description: 'Phonetic "outside the tool" -> outside the tooth'
+  },
+  {
+    pattern: /\btemporary\s+(?:Canon|cannon)\b/gi,
+    replacement: 'temporary crown',
+    description: 'Phonetic "temporary Canon" -> temporary crown'
+  },
+  {
+    pattern: /\bput\s+the\s+temperature\b/gi,
+    replacement: 'place temporary restoration',
+    description: 'Phonetic "put the temperature" -> place temporary restoration'
+  },
+  {
     pattern: /\bgutta\s*perka\b/gi,
     replacement: 'gutta-percha',
     description: 'Phonetic "gutta perka" -> gutta-percha'

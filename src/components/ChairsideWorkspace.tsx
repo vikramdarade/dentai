@@ -35,7 +35,8 @@ import {
   Trash2,
   UploadCloud,
   RotateCw,
-  Volume2
+  Volume2,
+  Lock
 } from 'lucide-react';
 import { createOperatoryDspChain, type OperatoryDspChain } from '../lib/operatoryAudioDsp';
 import { addScheduleItem, parseTimeToMinutes, ScheduleItemStatus } from '../lib/dayScheduleStorage';
@@ -122,6 +123,52 @@ function consultationInstant(record: Consultation): number {
     if (Number.isFinite(parsed)) return parsed;
   }
   return NaN;
+}
+
+/**
+ * Calculates capture confidence (0-100%) for live conversation.
+ * Gated at >=95% to ensure clinical accuracy before calling AI note generation.
+ */
+export function calculateCaptureConfidence(transcript: { text: string; sender?: string }[]): number {
+  if (!transcript || transcript.length === 0) return 0;
+
+  const fullText = transcript.map(t => t.text || '').join(' ').trim();
+  if (!fullText) return 0;
+
+  const words = fullText.split(/\s+/).filter(Boolean);
+  if (words.length < 3) return 10;
+
+  let score = 0;
+
+  // 1. Teeth and anatomical identifiers (FDI or standard, e.g., #16, tooth 24, molar, upper right)
+  const hasTeeth = /(#\d{1,2}|tooth\s+\d{1,2}|teeth|\b[1-4][1-8]\b|upper|lower|molar|premolar|incisor|canine)/i.test(fullText);
+  if (hasTeeth) score += 30;
+
+  // 2. Clinical symptoms and examination findings (pain, caries, fracture, pocket, etc.)
+  const hasFindings = /(pain|ache|sensitive|sensitivity|caries|decay|filling|cavity|fracture|crack|bop|bleeding|pocket|mobility|swelling|abscess|ulcer|lichen|stain|wear|attrition|cold test|percussion|vital|non-vital)/i.test(fullText);
+  if (hasFindings) score += 30;
+
+  // 3. Clinical procedures or interventions (prep, composite, clean, anesthetic, extraction, etc.)
+  const hasProcedure = /(prep|excavat|drill|composite|amalgam|resin|scaled|scaling|clean|cure|etch|bond|liner|theracal|anesthetic|lignocaine|articaine|extraction|luxat|suture|rct|extirpat|pulp|dressing|cavit|crown|impression|bite|polish|fluoride|provisional)/i.test(fullText);
+  if (hasProcedure) score += 25;
+
+  // 4. Clinical plan, advice, or post-operative guidance
+  const hasPlan = /(treatment plan|next visit|return in|review in|schedule|prescribe|prescribed|prescription|painkiller|paracetamol|ibuprofen|antibiotic|salt water|soft diet|gauze|advice|recall)/i.test(fullText);
+  if (hasPlan) score += 15;
+
+  // If the complete clinical triad is present (tooth + findings + procedure), ensure threshold is met
+  if (hasTeeth && hasFindings && hasProcedure) {
+    score = Math.max(score, 95);
+  }
+
+  // Volume check
+  if (words.length >= 25) {
+    score += 10;
+  } else if (words.length >= 12) {
+    score += 5;
+  }
+
+  return Math.min(100, score);
 }
 
 export default function ChairsideWorkspace({
@@ -425,6 +472,67 @@ export default function ChairsideWorkspace({
     if (encountersForDate.length === 0) return null;
     return encountersForDate.find(p => p.id === activePatientId) || encountersForDate[0] || null;
   }, [encountersForDate, activePatientId]);
+
+  const activeConsult = useMemo(() => {
+    if (!activeEncounter) return null;
+    return consultations.find(c => c.id === activeEncounter.id) || null;
+  }, [consultations, activeEncounter]);
+
+  // Per-section clinician verification state (AHPRA legal compliance standard)
+  const [verifiedSections, setVerifiedSections] = useState<Record<string, Record<string, boolean>>>({});
+
+  // Active transcript & capture confidence calculation
+  const activeEncounterTranscript = useMemo(() => {
+    if (!activeEncounter) return [];
+    return localLiveTranscripts[activeEncounter.id] || activeEncounter.diarizedTranscript || [];
+  }, [activeEncounter, localLiveTranscripts]);
+
+  const captureConfidence = useMemo(() => {
+    return calculateCaptureConfidence(activeEncounterTranscript);
+  }, [activeEncounterTranscript]);
+
+  const isCaptureConfident = captureConfidence >= 95;
+
+  const activeId = activeEncounter?.id || '';
+  const currentVerified = verifiedSections[activeId] || {};
+  const isSubjectiveVerified = Boolean(currentVerified.subjective);
+  const isObjectiveVerified = Boolean(currentVerified.objective);
+  const isAssessmentVerified = Boolean(currentVerified.assessment);
+  const isPlanVerified = Boolean(currentVerified.plan);
+  const allSectionsVerified = isSubjectiveVerified && isObjectiveVerified && isAssessmentVerified && isPlanVerified;
+
+  const unverifiedSectionNames = useMemo(() => {
+    const missing: string[] = [];
+    if (!isSubjectiveVerified) missing.push('Subjective');
+    if (!isObjectiveVerified) missing.push('Objective');
+    if (!isAssessmentVerified) missing.push('Assessment');
+    if (!isPlanVerified) missing.push('Plan');
+    return missing;
+  }, [isSubjectiveVerified, isObjectiveVerified, isAssessmentVerified, isPlanVerified]);
+
+  const handleVerifyAllSections = useCallback(() => {
+    if (!activeEncounter) return;
+    setVerifiedSections(prev => ({
+      ...prev,
+      [activeEncounter.id]: {
+        subjective: true,
+        objective: true,
+        assessment: true,
+        plan: true
+      }
+    }));
+  }, [activeEncounter]);
+
+  const handleToggleSectionVerification = useCallback((field: 'subjective' | 'objective' | 'assessment' | 'plan') => {
+    if (!activeEncounter) return;
+    setVerifiedSections(prev => ({
+      ...prev,
+      [activeEncounter.id]: {
+        ...(prev[activeEncounter.id] || {}),
+        [field]: !(prev[activeEncounter.id]?.[field])
+      }
+    }));
+  }, [activeEncounter]);
 
   // ─────────────────────────────────────────────────────────────
   // 3. LIVE AUDIO RECORDING, DSP ACOUSTIC SQUELCH & WEBAUDIO GRAPH
@@ -779,6 +887,17 @@ export default function ChairsideWorkspace({
     };
   }, [activeEncounter?.id, activeEncounter?.soap, editedSoapNotes]);
 
+  const hasGeneratedNote = useMemo(() => {
+    return Boolean(
+      (activeEncounter && (activeEncounter.status === 'note_generated' || activeEncounter.status === 'done')) ||
+      activeConsult?.noteOrigin ||
+      (currentSoap.subjective && currentSoap.subjective.trim().length > 0) ||
+      (currentSoap.objective && currentSoap.objective.trim().length > 0) ||
+      (currentSoap.assessment && currentSoap.assessment.trim().length > 0) ||
+      (currentSoap.plan && currentSoap.plan.trim().length > 0)
+    );
+  }, [activeEncounter, activeConsult, currentSoap]);
+
   // Handle inline clinical SOAP edit with instant optimistic UI & database auto-save
   const handleSoapChange = useCallback(async (field: 'subjective' | 'objective' | 'assessment' | 'plan', value: string) => {
     if (!activeEncounter) return;
@@ -793,6 +912,15 @@ export default function ChairsideWorkspace({
       }
     }));
     setSoapSaveStatus(prev => ({ ...prev, [targetId]: 'saving' }));
+
+    // Auto-verify section because clinician actively authored/reviewed it
+    setVerifiedSections(prev => ({
+      ...prev,
+      [targetId]: {
+        ...(prev[targetId] || {}),
+        [field]: true
+      }
+    }));
 
     // 2. Persist to consultation in database
     const existingConsultation = consultationsRef.current.find(c => c.id === targetId);
@@ -2165,6 +2293,9 @@ VERIFICATION: Verified from patient conversation
 
   // Copy Note for PMS (Transitions status to 'Done')
   const handleCopyPMS = (consultToCopy?: Consultation) => {
+    if (!consultToCopy && !allSectionsVerified) {
+      return;
+    }
     const target = consultToCopy || consultations.find(c => c.id === activeEncounter?.id);
     const noteText = getFormattedNoteText(consultToCopy);
     if (!noteText) return;
@@ -2312,7 +2443,9 @@ ${clinician}`;
       // ⌘C / Ctrl+C: Copy Note for PMS when not focused on an input
       else if (isModifier && e.key.toLowerCase() === 'c' && !isInput) {
         e.preventDefault();
-        handleCopyPMS();
+        if (allSectionsVerified) {
+          handleCopyPMS();
+        }
       }
       // ⌘B / Ctrl+B: Open Batch Tray
       else if (isModifier && e.key.toLowerCase() === 'b' && !isInput) {
@@ -3003,29 +3136,144 @@ ${clinician}`;
                               Saved to Chart
                             </span>
                           ) : null}
-                          <span className="bg-emerald-50 text-emerald-800 text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-emerald-200 flex items-center gap-1 shadow-2xs">
-                            <Check className="w-3 h-3 text-emerald-600" />
-                            Verified from Audio
-                          </span>
+                          {activeConsult?.noteOrigin?.engine === 'offline-draft' ? (
+                            <span className="bg-amber-50 text-amber-800 text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-amber-300 flex items-center gap-1 shadow-2xs" title="Draft generated using local deterministic rules because cloud AI service was unavailable">
+                              <AlertTriangle className="w-3 h-3 text-amber-600" />
+                              Offline Fallback Draft
+                            </span>
+                          ) : activeConsult?.grounding?.isFullyGrounded ? (
+                            <span className="bg-emerald-50 text-emerald-800 text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-emerald-200 flex items-center gap-1 shadow-2xs">
+                              <Check className="w-3 h-3 text-emerald-600" />
+                              Verified from Audio
+                            </span>
+                          ) : (
+                            <span className="bg-slate-100 text-slate-700 text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-slate-200 flex items-center gap-1 shadow-2xs">
+                              <FileText className="w-3 h-3 text-slate-500" />
+                              Clinical Draft
+                            </span>
+                          )}
                         </div>
                       </div>
 
-                      {/* Main 1-Click Copy for PMS Action (Auto-adapted to clinic PMS) */}
-                      <button
-                        onClick={() => handleCopyPMS()}
-                        className={`w-full py-2.5 px-4 rounded-xl font-bold text-xs flex items-center justify-center space-x-2 transition-all shadow-sm cursor-pointer active:scale-[0.98] ${copiedNote
-                          ? 'bg-emerald-600 text-white shadow-emerald-600/20'
-                          : 'bg-[#0071E3] hover:bg-[#0077ED] text-white shadow-[#0071E3]/25'
-                          }`}
-                      >
-                        {copiedNote ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                        <span>
-                          {copiedNote
-                            ? `Copied for ${selectedPmsTarget === 'd4w' ? 'Dental4Windows' : selectedPmsTarget === 'exact' ? 'EXACT' : selectedPmsTarget === 'cliniko' ? 'Cliniko' : 'Practice Software'}!`
-                            : `Copy for ${selectedPmsTarget === 'd4w' ? 'Dental4Windows' : selectedPmsTarget === 'exact' ? 'EXACT' : selectedPmsTarget === 'cliniko' ? 'Cliniko' : 'Practice Software'} (⌘C)`}
-                        </span>
-                      </button>
+                      {/* Top Action Bar: Generate Note Button (Gated at >= 95% Confidence) OR Copy to Practice Management (Gated on All Sections Verified) */}
+                      {isGeneratingFromConversation || (activeEncounter && backgroundFinalizingIds.has(activeEncounter.id)) ? (
+                        <div className="w-full py-2.5 px-4 rounded-xl font-bold text-xs flex items-center justify-center space-x-2 bg-amber-50 border border-amber-200 text-amber-800 shadow-xs">
+                          <RefreshCw className="w-4 h-4 animate-spin text-amber-600" />
+                          <span>Generating Clinical Note...</span>
+                        </div>
+                      ) : !hasGeneratedNote ? (
+                        /* No note generated yet: Generate Note button with 95% gate */
+                        isCaptureConfident ? (
+                          <button
+                            onClick={() => handleRegenerateFromConversation()}
+                            className="w-full py-2.5 px-4 rounded-xl font-bold text-xs flex items-center justify-between bg-gradient-to-r from-[#0060BA] to-[#0071E3] hover:from-[#0050A0] hover:to-[#0060BA] text-white shadow-md shadow-[#0071E3]/25 cursor-pointer transition active:scale-[0.98]"
+                          >
+                            <div className="flex items-center space-x-2">
+                              <Sparkles className="w-4 h-4 text-amber-300" />
+                              <span>Generate Note</span>
+                            </div>
+                            <span className="text-[10px] bg-white/20 px-2 py-0.5 rounded-full font-mono font-bold">
+                              {captureConfidence}% Ready
+                            </span>
+                          </button>
+                        ) : (
+                          <div className="w-full py-2.5 px-3.5 rounded-xl font-medium text-xs flex items-center justify-between bg-slate-50 border border-slate-200 text-slate-500">
+                            <div className="flex items-center space-x-2">
+                              <Mic className="w-3.5 h-3.5 text-slate-400 animate-pulse" />
+                              <span>Ready at ≥95% capture</span>
+                            </div>
+                            <div className="flex items-center space-x-2">
+                              <div className="w-16 bg-slate-200 rounded-full h-1.5 overflow-hidden">
+                                <div
+                                  className="bg-sky-500 h-1.5 rounded-full transition-all duration-300"
+                                  style={{ width: `${captureConfidence}%` }}
+                                />
+                              </div>
+                              <span className="font-mono text-[10px] font-bold text-slate-600">
+                                {captureConfidence}%
+                              </span>
+                            </div>
+                          </div>
+                        )
+                      ) : (
+                        /* Note is generated: Practice Management Copy Button + Section Verification Lock */
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => handleCopyPMS()}
+                              disabled={!allSectionsVerified}
+                              className={`flex-1 py-2.5 px-4 rounded-xl font-bold text-xs flex items-center justify-center space-x-2 transition-all shadow-sm ${
+                                !allSectionsVerified
+                                  ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed shadow-none'
+                                  : copiedNote
+                                  ? 'bg-emerald-600 text-white shadow-emerald-600/20 cursor-pointer active:scale-[0.98]'
+                                  : 'bg-[#0071E3] hover:bg-[#0077ED] text-white shadow-[#0071E3]/25 cursor-pointer active:scale-[0.98]'
+                              }`}
+                              title={!allSectionsVerified ? `Verify all 4 sections before copying. Remaining: ${unverifiedSectionNames.join(', ')}` : 'Copy for Practice Management (⌘C)'}
+                            >
+                              {!allSectionsVerified ? (
+                                <Lock className="w-4 h-4 text-slate-400" />
+                              ) : copiedNote ? (
+                                <Check className="w-4 h-4" />
+                              ) : (
+                                <Copy className="w-4 h-4" />
+                              )}
+                              <span>
+                                {copiedNote
+                                  ? 'Copied to Practice Management!'
+                                  : !allSectionsVerified
+                                  ? 'Copy to Practice Management (Verify all sections)'
+                                  : 'Copy to Practice Management (⌘C)'}
+                              </span>
+                            </button>
+
+                            {isCaptureConfident && (
+                              <button
+                                onClick={() => handleRegenerateFromConversation()}
+                                title="Regenerate note from live conversation"
+                                className="py-2.5 px-3 rounded-xl border border-slate-200 hover:border-sky-400 bg-white hover:bg-sky-50 text-slate-700 text-xs font-semibold flex items-center space-x-1.5 transition cursor-pointer"
+                              >
+                                <RotateCw className="w-3.5 h-3.5 text-sky-600" />
+                                <span className="hidden sm:inline">Regenerate</span>
+                              </button>
+                            )}
+                          </div>
+
+                          {!allSectionsVerified && (
+                            <div className="flex items-center justify-between px-1 text-[11px]">
+                              <span className="text-amber-800 font-medium">
+                                Needs verification: <strong className="text-amber-950">{unverifiedSectionNames.join(', ')}</strong>
+                              </span>
+                              <button
+                                type="button"
+                                onClick={handleVerifyAllSections}
+                                className="font-bold text-sky-700 hover:text-sky-900 hover:underline cursor-pointer"
+                              >
+                                Verify All Sections
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
+
+                    {/* Offline Fallback Banner */}
+                    {activeConsult?.noteOrigin?.engine === 'offline-draft' && (
+                      <div className="p-3 bg-amber-50/90 border border-amber-200 rounded-xl text-amber-900 text-xs flex items-start gap-2.5">
+                        <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                        <div className="space-y-1">
+                          <div className="font-bold text-[11px] text-amber-950 flex items-center gap-2">
+                            <span>Offline Fallback Draft Active</span>
+                            <span className="font-normal text-[10px] text-amber-700 bg-amber-100/80 px-2 py-0.5 rounded border border-amber-300/50">
+                              Cloud AI credits depleted (402)
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-amber-800 leading-relaxed">
+                            Google Gemini returned a billing limit notification (prepayment credits depleted). This note was assembled locally from transcript quotes. Please review and verify before copying to your practice management system.
+                          </p>
+                        </div>
+                      </div>
+                    )}
 
                     {/* Structured Note Cards with Direct Inline Editing */}
                     <div className="space-y-3 pt-1 text-xs max-h-[460px] overflow-y-auto custom-scrollbar pr-1">
@@ -3038,9 +3286,26 @@ ${clinician}`;
                                 <User className="w-3.5 h-3.5 text-[#0071E3]" />
                                 SUBJECTIVE (S):
                               </span>
-                              <span className="text-[10px] text-slate-400 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity font-medium">
-                                Click to edit
-                              </span>
+                              <div className="flex items-center space-x-2">
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleSectionVerification('subjective')}
+                                  className={`text-[10px] font-bold px-2 py-0.5 rounded-md border flex items-center gap-1 transition cursor-pointer ${
+                                    isSubjectiveVerified
+                                      ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                                      : 'bg-slate-100 hover:bg-emerald-50 text-slate-600 hover:text-emerald-800 border-slate-200'
+                                  }`}
+                                >
+                                  {isSubjectiveVerified ? (
+                                    <>
+                                      <Check className="w-2.5 h-2.5 text-emerald-600" />
+                                      <span>Verified</span>
+                                    </>
+                                  ) : (
+                                    <span>Verify</span>
+                                  )}
+                                </button>
+                              </div>
                             </div>
                             <textarea
                               value={currentSoap.subjective}
@@ -3058,9 +3323,26 @@ ${clinician}`;
                                 <Activity className="w-3.5 h-3.5 text-teal-700" />
                                 OBJECTIVE (O):
                               </span>
-                              <span className="text-[10px] text-slate-400 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity font-medium">
-                                Click to edit
-                              </span>
+                              <div className="flex items-center space-x-2">
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleSectionVerification('objective')}
+                                  className={`text-[10px] font-bold px-2 py-0.5 rounded-md border flex items-center gap-1 transition cursor-pointer ${
+                                    isObjectiveVerified
+                                      ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                                      : 'bg-slate-100 hover:bg-emerald-50 text-slate-600 hover:text-emerald-800 border-slate-200'
+                                  }`}
+                                >
+                                  {isObjectiveVerified ? (
+                                    <>
+                                      <Check className="w-2.5 h-2.5 text-emerald-600" />
+                                      <span>Verified</span>
+                                    </>
+                                  ) : (
+                                    <span>Verify</span>
+                                  )}
+                                </button>
+                              </div>
                             </div>
                             <textarea
                               value={currentSoap.objective}
@@ -3078,9 +3360,26 @@ ${clinician}`;
                                 <Shield className="w-3.5 h-3.5 text-amber-500" />
                                 ASSESSMENT (A):
                               </span>
-                              <span className="text-[10px] text-slate-400 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity font-medium">
-                                Click to edit
-                              </span>
+                              <div className="flex items-center space-x-2">
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleSectionVerification('assessment')}
+                                  className={`text-[10px] font-bold px-2 py-0.5 rounded-md border flex items-center gap-1 transition cursor-pointer ${
+                                    isAssessmentVerified
+                                      ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                                      : 'bg-slate-100 hover:bg-emerald-50 text-slate-600 hover:text-emerald-800 border-slate-200'
+                                  }`}
+                                >
+                                  {isAssessmentVerified ? (
+                                    <>
+                                      <Check className="w-2.5 h-2.5 text-emerald-600" />
+                                      <span>Verified</span>
+                                    </>
+                                  ) : (
+                                    <span>Verify</span>
+                                  )}
+                                </button>
+                              </div>
                             </div>
                             <textarea
                               value={currentSoap.assessment}
@@ -3098,9 +3397,26 @@ ${clinician}`;
                                 <Sparkles className="w-3.5 h-3.5 text-[#0071E3]" />
                                 PLAN & PROCEDURE (P):
                               </span>
-                              <span className="text-[10px] text-slate-400 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity font-medium">
-                                Click to edit
-                              </span>
+                              <div className="flex items-center space-x-2">
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleSectionVerification('plan')}
+                                  className={`text-[10px] font-bold px-2 py-0.5 rounded-md border flex items-center gap-1 transition cursor-pointer ${
+                                    isPlanVerified
+                                      ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                                      : 'bg-slate-100 hover:bg-emerald-50 text-slate-600 hover:text-emerald-800 border-slate-200'
+                                  }`}
+                                >
+                                  {isPlanVerified ? (
+                                    <>
+                                      <Check className="w-2.5 h-2.5 text-emerald-600" />
+                                      <span>Verified</span>
+                                    </>
+                                  ) : (
+                                    <span>Verify</span>
+                                  )}
+                                </button>
+                              </div>
                             </div>
                             <textarea
                               value={currentSoap.plan}

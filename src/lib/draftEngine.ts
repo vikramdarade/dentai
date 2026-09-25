@@ -67,6 +67,7 @@ import { NoteTemplate, TemplateSection, isCanonicalField } from './dentalLibrary
 import { TranscriptItem } from '../types';
 import { reconcileEntitiesBackward } from '../grounding/backwardReconciliation';
 import type { TimestampedUtterance } from '../grounding/types';
+import { normalizeSpokenDentalText } from './dentalPhoneticLexicon';
 
 export type DraftResult = {
   /** Canonical findings (top-level, e.g. chiefComplaint) plus template extras. */
@@ -119,6 +120,10 @@ export const splitSentences = (text: string): string[] =>
 export const NON_CLINICAL_UTTERANCE_RE =
   /^(ok(ay)?|yes|yeah|yep|no|nope|hmm|mmm|uh|right|sure|alright|thanks|thank you|fine|good|great|mm-hmm|uh-huh|please|sit back|open wide|there we go)[.!?]*$/i;
 
+/** Filter non-clinical exam simulations, practical exam announcements, or video meta commentary. */
+export const NON_CLINICAL_META_RE =
+  /\b(?:today'?s\s+video|practical\s+exam|dental\s+practical\s+exam|communication\s+(?:cost|task)|recorded\s+for\s+the\s+exam|this\s+video\s+is\s+for|subscribe\s+to\s+our\s+channel)\b/i;
+
 /** Global speaker prefix remover: strips "Dialogue:", "Dentist:", "Patient:" from anywhere in the text. */
 export const SENDER_PREFIX_GLOBAL_RE = /(?:^|\b)(?:dentist|patient|dialogue|clinical\s+comment)\s*:\s*/gi;
 
@@ -130,14 +135,22 @@ export const SENDER_PREFIX_GLOBAL_RE = /(?:^|\b)(?:dentist|patient|dialogue|clin
 export const GREETING_OPENER_RE =
   /^(?:alright|okay|ok|right|so|well|now|good\s+(?:morning|afternoon|evening)|hi|hello|hey|thanks|thank\s+you|look|great|lovely|perfect)\b[,\s]+/i;
 
-/** Removes speaker prefixes and greeting openers from a single sentence. */
+/** Removes speaker prefixes, greeting openers, and stutters from a single sentence. */
 export function cleanSentenceForNote(sentence: string): string {
   if (!sentence) return '';
-  return sentence
+  let s = sentence
     .replace(SENDER_PREFIX_GLOBAL_RE, '')
     .replace(GREETING_OPENER_RE, '')
     .replace(/\s+/g, ' ')
     .trim();
+
+  // Normalize phonetic dental errors
+  s = normalizeSpokenDentalText(s);
+
+  // Eliminate immediate single-word stutter loops: "with with", "I, I, I", "we'll we'll", "if, if, if"
+  s = s.replace(/\b([a-zA-Z']+)(?:[,\s]+\1\b)+/gi, '$1');
+
+  return s;
 }
 
 /**
@@ -145,8 +158,14 @@ export function cleanSentenceForNote(sentence: string): string {
  * Eliminates browser speech recognition echo loops where phrases repeat consecutively.
  */
 export function collapseStutterLoops(text: string): string {
-  if (!text || text.length < 15) return text;
+  if (!text || text.length < 3) return text;
   let s = text.trim();
+
+  // Immediate single-word stutter loops: "with with", "I, I, I", "we'll we'll", "if, if, if", "next next"
+  s = s.replace(/\b([a-zA-Z']+)(?:[,\s]+\1\b)+/gi, '$1');
+
+  // Immediate two-word stutter loops: "that's right that's right", "we need to we need to"
+  s = s.replace(/\b([a-zA-Z']+\s+[a-zA-Z']+)(?:[,\s]+\1\b)+/gi, '$1');
 
   // 1. Detect repeated adjacent word sequences of length 3 to 30 words
   const words = s.split(/\s+/);
@@ -280,7 +299,7 @@ export function extractCandidateSentences(transcript: TranscriptItem[]): string[
     const parts = cleaned
       .split(/(?<=[.!?])\s+/)
       .map((p) => collapseStutterLoops(cleanSentenceForNote(p)))
-      .filter((p) => Boolean(p) && !NON_CLINICAL_UTTERANCE_RE.test(p));
+      .filter((p) => Boolean(p) && !NON_CLINICAL_UTTERANCE_RE.test(p) && !NON_CLINICAL_META_RE.test(p));
 
     for (const p of parts) {
       if (p.length >= 5) {
@@ -303,7 +322,7 @@ const SECTION_KEYWORDS: Record<string, string[]> = {
   periapicalAssessment: ['radiograph', 'x-ray', 'periapical', 'canal', 'root', 'apex', 'working length', 'image', 'radiolucency', 'bone loss', 'widening', 'pdl', 'cbct', 'bitewing', 'apical'],
   toothIsolation: ['occlusion', 'high spot', 'articulat', 'polish', 'bite', 'grind', 'rubber dam', 'clamp', 'cotton roll', 'matrix', 'gingival dam'],
   treatmentPerformed: ['filled', 'filling', 'restored', 'restoration', 'scaled', 'scale', 'polished', 'sealed', 'sealant', 'fluoride', 'extract', 'extraction', 'removed', 'removal', 'root canal', 'rct', 'access', 'extirpation', 'extirpated', 'obturated', 'temporary', 'dressing', 'cemented', 'anaesthetic', 'anesthetic', 'lignocaine', 'articaine', 'mepivacaine', 'adrenaline', 'cartridge', 'infiltration', 'ianb', 'ian', 'block', 'injection', 'rubber dam', 'matrix', 'wedge', 'etch', 'etched', 'bond', 'composite', 'resin', 'cured', 'cleaned', 'performed', 'completed', 'caries excavation', 'take the tooth out', 'splint', 'splinting', 'ipr', 'interproximal reduction', 'aligner', 'attachments', 'sutures', 'suture', 'flap', 'guttering', 'bone guttering', 'elevated', 'luxated', 'delivered', 'alveogyl', 'surgicel', 'hemostatic', 'biodentine', 'pulp cap', 'recemented', 'sandblasted', 'dam barrier', 'whitening', 'bleaching', 'hydrogen peroxide', 'tooth mousse', 'fluoride varnish', 'hall crown', 'pmc', 'try-in', 'impression', 'occlusal rim', 'custom tray', 'implant placement', 'torque', 'healing abutment', 'nightguard', 'occlusal splint', 'corticosteroid', 'kenalog', 'orabase', 'incised', 'drained', 'excavated', 'bite', 'registration', 'rim', 'framework', 'denture', 'nitrous', 'analgesia', 'pulpotomy', 'haemostasis', 'mta', 'crimped', 'contoured', 'relative analgesia', 'retraction', 'cord'],
-  plan: ['plan', 'treatment plan', 'booked', 'schedule', 'return', 'review', 'next', 'will', 'arrange', 'recommend', 'estimate', 'appointment', 'options', 'aligner', 'crown', 'rehabilitation', 'therapy', 'prescribed', 'clindamycin', 'paracetamol', 'ibuprofen'],
+  plan: ['treatment plan', 'schedule next', 'next appointment', 'booked', 'return in', 'review in', 'recommend', 'estimate', 'appointment', 'options', 'aligner', 'crown', 'rehabilitation', 'therapy', 'prescribed', 'prescribe', 'prescription', 'painkiller', 'analgesic', 'antibiotic', 'referral', 'clindamycin', 'amoxicillin', 'paracetamol', 'ibuprofen'],
   behaviourAssessment: ['behaviour', 'cooperat', 'anxious', 'nervous', 'scared', 'tell-show-do', 'child', 'settled', 'cried', 'distraction', 'frankl', 'positive'],
   restorative: ['filling', 'restoration', 'composite', 'amalgam', 'resin', 'shade', 'bond', 'matrix', 'curing', 'etch', 'prep', 'cavity', 'biodentine', 'pulp cap'],
   provisionalNote: ['provisional', 'temporary', 'temporis', 'shade', 'lab', 'impression', 'ferrule', 'core', 'try-in', 'rim', 'wax'],
@@ -354,8 +373,15 @@ function extractAdaCodesSpoken(transcript: TranscriptItem[]): { code: string; de
 
 function pickRelevant(sentences: string[], keywords: string[], maxChars: number): string {
   const matched = sentences.filter((sentence) => {
+    if (NON_CLINICAL_META_RE.test(sentence)) return false;
     const lower = sentence.toLowerCase();
-    return keywords.some((kw) => lower.includes(kw));
+    return keywords.some((kw) => {
+      if (kw.length <= 4) {
+        const regex = new RegExp(`\\b${kw}\\b`, 'i');
+        return regex.test(lower);
+      }
+      return lower.includes(kw);
+    });
   });
 
   const seen = new Set<string>();
@@ -386,6 +412,8 @@ function cleanSectionText(raw: string): string {
   let s = raw.replace(/\s+/g, ' ').trim();
   if (!s) return '';
   s = s.replace(SENDER_PREFIX_GLOBAL_RE, '').trim();
+  s = normalizeSpokenDentalText(s);
+  s = collapseStutterLoops(s);
   if (!s) return '';
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
