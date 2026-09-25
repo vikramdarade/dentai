@@ -10,6 +10,7 @@ import {
   Calendar,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Plus,
   Shield,
   User,
@@ -622,6 +623,39 @@ export default function ChairsideWorkspace({
   const hasPlayedWarningChimeRef = useRef<boolean>(false);
   const [isGeneratingFromConversation, setIsGeneratingFromConversation] = useState(false);
   const audioContextRef = useRef<AudioContext | null>(null);
+
+  // Ergonomic Collapsible Day Schedule Sidebar & Utility Menu
+  const [isScheduleCollapsed, setIsScheduleCollapsed] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('dentai_schedule_collapsed') === 'true';
+    }
+    return false;
+  });
+
+  const [showToolsMenu, setShowToolsMenu] = useState(false);
+  const toolsMenuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (toolsMenuRef.current && !toolsMenuRef.current.contains(e.target as Node)) {
+        setShowToolsMenu(false);
+      }
+    };
+    if (showToolsMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [showToolsMenu]);
+
+  const handleToggleScheduleCollapse = () => {
+    setIsScheduleCollapsed(prev => {
+      const next = !prev;
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('dentai_schedule_collapsed', String(next));
+      }
+      return next;
+    });
+  };
 
   // ─────────────────────────────────────────────────────────────
   // 3b. INLINE EDITABLE SOAP CLINICAL NOTE OVERRIDES & AUTOSAVE
@@ -2998,38 +3032,8 @@ ${clinician}`;
             </div>
           </div>
 
-          <div className="flex items-center space-x-2.5">
-            <button
-              onClick={onOpenHistoryHub}
-              className="px-3 py-1.5 rounded-xl border border-slate-200 hover:border-sky-500 bg-white hover:bg-sky-50/50 text-slate-700 text-xs font-semibold flex items-center space-x-1.5 shadow-2xs transition cursor-pointer"
-              title="Patient Records & History Hub"
-            >
-              <LayoutDashboard className="w-3.5 h-3.5 text-slate-600" />
-              <span>Past Records</span>
-            </button>
-
-            {onOpenPipeline && (
-              <button
-                onClick={onOpenPipeline}
-                className="px-3 py-1.5 rounded-xl border border-slate-200 hover:border-amber-500 bg-white hover:bg-amber-50/50 text-slate-700 text-xs font-semibold flex items-center space-x-1.5 shadow-2xs transition cursor-pointer"
-                title="Treatment Pipeline & Worklist"
-              >
-                <TrendingUp className="w-3.5 h-3.5 text-amber-600" />
-                <span>Worklist</span>
-              </button>
-            )}
-
-            <button
-              type="button"
-              onClick={() => setShowDayGuide(true)}
-              className="px-3 py-1.5 rounded-xl border border-slate-200 hover:border-sky-500 bg-white hover:bg-sky-50/50 text-slate-700 text-xs font-semibold flex items-center space-x-1.5 shadow-2xs transition cursor-pointer"
-              title="Day Guide & Shortcuts (Press ?)"
-            >
-              <HelpCircle className="w-3.5 h-3.5 text-sky-600" />
-              <span>Guide</span>
-              <kbd className="text-[9px] font-mono font-bold bg-slate-100 text-slate-500 px-1 py-0.2 rounded border border-slate-200">?</kbd>
-            </button>
-
+          <div className="flex items-center space-x-2">
+            {/* Direct High-Frequency Operatory Actions */}
             <button
               type="button"
               onClick={() => setShowDeliverablesModal(true)}
@@ -3052,6 +3056,67 @@ ${clinician}`;
               </span>
             </button>
 
+            {/* Streamlined Tools Dropdown (Past Records, Worklist, Guide) */}
+            <div className="relative" ref={toolsMenuRef}>
+              <button
+                type="button"
+                onClick={() => setShowToolsMenu(prev => !prev)}
+                className={`px-2.5 py-1.5 rounded-xl border text-xs font-semibold flex items-center space-x-1.5 shadow-2xs transition cursor-pointer ${
+                  showToolsMenu
+                    ? 'bg-slate-100 border-slate-300 text-slate-900'
+                    : 'bg-white hover:bg-slate-50 border-slate-200 text-slate-700'
+                }`}
+                title="Practice administration and reference tools"
+              >
+                <span>Tools</span>
+                <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
+              </button>
+
+              {showToolsMenu && (
+                <div className="absolute right-0 mt-1.5 w-52 bg-white rounded-xl border border-slate-200 shadow-lg py-1 z-50 text-xs">
+                  <button
+                    onClick={() => {
+                      setShowToolsMenu(false);
+                      onOpenHistoryHub();
+                    }}
+                    className="w-full px-3 py-2 text-left hover:bg-slate-50 flex items-center space-x-2 text-slate-700 cursor-pointer"
+                  >
+                    <LayoutDashboard className="w-3.5 h-3.5 text-slate-500" />
+                    <span>Past Patient Records</span>
+                  </button>
+
+                  {onOpenPipeline && (
+                    <button
+                      onClick={() => {
+                        setShowToolsMenu(false);
+                        onOpenPipeline();
+                      }}
+                      className="w-full px-3 py-2 text-left hover:bg-slate-50 flex items-center space-x-2 text-slate-700 cursor-pointer"
+                    >
+                      <TrendingUp className="w-3.5 h-3.5 text-amber-600" />
+                      <span>Treatment Worklist</span>
+                    </button>
+                  )}
+
+                  <div className="h-[1px] bg-slate-100 my-1" />
+
+                  <button
+                    onClick={() => {
+                      setShowToolsMenu(false);
+                      setShowDayGuide(true);
+                    }}
+                    className="w-full px-3 py-2 text-left hover:bg-slate-50 flex items-center justify-between text-slate-700 cursor-pointer"
+                  >
+                    <div className="flex items-center space-x-2">
+                      <HelpCircle className="w-3.5 h-3.5 text-sky-600" />
+                      <span>Operatory Guide</span>
+                    </div>
+                    <kbd className="text-[10px] font-mono bg-slate-100 text-slate-500 px-1 py-0.5 rounded border border-slate-200">?</kbd>
+                  </button>
+                </div>
+              )}
+            </div>
+
             <div className="h-6 w-[1px] bg-slate-200 mx-1" />
 
             <div className="text-right">
@@ -3073,14 +3138,80 @@ ${clinician}`;
 
         {/* Content Area: 2-Pane Hybrid Split (Left 28% Clinic Day Schedule + Right 72% Apple Clinical Document) */}
         <div className="flex-1 flex flex-row overflow-hidden">
-          {/* ─── PANE 1: CLINIC DAY SCHEDULE (28% ~320px) ─── */}
-          <section className="w-[320px] flex-shrink-0 bg-white border-r border-slate-200 flex flex-col justify-between overflow-hidden shadow-2xs">
-            <div className="flex-1 overflow-y-auto p-3.5 space-y-3 custom-scrollbar">
-              {/* Schedule Title & Import Actions */}
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">Clinic Day Schedule</h3>
-                  <div className="flex items-center space-x-1">
+          {/* ─── PANE 1: CLINIC DAY SCHEDULE (Collapsible) ─── */}
+          <section className={`flex-shrink-0 bg-white border-r border-slate-200 flex flex-col justify-between overflow-hidden shadow-2xs transition-all duration-200 ${
+            isScheduleCollapsed ? 'w-14 items-center py-3' : 'w-[320px]'
+          }`}>
+            {isScheduleCollapsed ? (
+              <div className="flex flex-col items-center space-y-3.5 w-full h-full">
+                {/* Expand Toggle Button */}
+                <button
+                  onClick={handleToggleScheduleCollapse}
+                  className="w-9 h-9 rounded-xl border border-slate-200 hover:border-sky-500 bg-slate-50 hover:bg-sky-50 text-slate-600 hover:text-sky-700 flex items-center justify-center transition shadow-2xs cursor-pointer"
+                  title="Expand Clinic Day Schedule"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+
+                {/* Patient Roster Quick Pill */}
+                <div
+                  onClick={handleToggleScheduleCollapse}
+                  className="flex flex-col items-center py-2 px-1 rounded-xl bg-slate-50 hover:bg-sky-50 border border-slate-200 hover:border-sky-300 cursor-pointer transition shadow-2xs w-10"
+                  title={`${encountersForDate.length} patients scheduled today. Click to expand.`}
+                >
+                  <Calendar className="w-3.5 h-3.5 text-slate-500 mb-1" />
+                  <span className="text-[10px] font-bold text-slate-700">
+                    {Math.max(1, encountersForDate.findIndex(p => p.id === activePatientId) + 1)}/{Math.max(1, encountersForDate.length)}
+                  </span>
+                </div>
+
+                {/* Quick Walk-In Button */}
+                <button
+                  onClick={() => {
+                    setIsScheduleCollapsed(false);
+                    setShowWalkInCard(true);
+                  }}
+                  className="w-8 h-8 rounded-lg border border-slate-200 hover:border-sky-400 bg-white text-slate-600 hover:text-sky-700 flex items-center justify-center shadow-2xs transition cursor-pointer"
+                  title="Add Walk-In Patient"
+                >
+                  <Plus className="w-4 h-4" />
+                </button>
+
+                {/* Quick Paste Button */}
+                <button
+                  onClick={handleOpenDaysheetModal}
+                  className="w-8 h-8 rounded-lg border border-slate-200 hover:border-sky-400 bg-white text-slate-600 hover:text-sky-700 flex items-center justify-center shadow-2xs transition cursor-pointer"
+                  title="Paste Schedule (⌘V)"
+                >
+                  <Clipboard className="w-3.5 h-3.5" />
+                </button>
+
+                {/* Vertical Label */}
+                <div
+                  onClick={handleToggleScheduleCollapse}
+                  className="flex-1 flex items-center justify-center cursor-pointer select-none"
+                >
+                  <span className="text-[10px] font-bold tracking-widest text-slate-400 hover:text-slate-600 uppercase -rotate-90 whitespace-nowrap">
+                    Day Schedule
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <div className="flex-1 overflow-y-auto p-3.5 space-y-3 custom-scrollbar">
+                {/* Schedule Title & Import Actions */}
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center space-x-1.5">
+                      <button
+                        onClick={handleToggleScheduleCollapse}
+                        className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition cursor-pointer"
+                        title="Collapse Day Schedule"
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                      </button>
+                      <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">Day Schedule</h3>
+                    </div>
+                    <div className="flex items-center space-x-1">
                     <button
                       onClick={handlePrevDay}
                       className="text-slate-400 hover:text-slate-800 p-0.5 rounded cursor-pointer transition"
@@ -3321,6 +3452,7 @@ ${clinician}`;
                   }))}
               </div>
             </div>
+            )}
           </section>
 
           {/* ─── PANE 2: OPERATORY WORKSPACE COLUMN (MAIN + PINNED FOOTBAR) ─── */}
@@ -3377,9 +3509,7 @@ ${clinician}`;
                   onCopyPMS={(format) => handleCopyPMS(undefined, format === 'universal' ? 'pms' : format)}
                   copiedFormat={copiedPmsTarget}
                   onOpenDeliverables={() => setShowDeliverablesModal(true)}
-                  verifiedSections={verifiedSections[effectiveEncounter.id] || {}}
-                  onToggleVerifySection={handleToggleSectionVerification}
-                  onVerifyAll={handleVerifyAllSections}
+                  onNextPatient={handleNextPatient}
                   hasActualGeneratedNote={Boolean(effectiveEncounter.soap?.assessment || effectiveEncounter.soap?.plan || currentProgressNote)}
                   captureConfidence={captureConfidence}
                 />
