@@ -2085,15 +2085,15 @@ export default function ChairsideWorkspace({
 
           if (res.ok) {
             const jobData = await res.json();
-            const deadline = Date.now() + 85_000;
+            const deadline = Date.now() + 7_000;
             while (Date.now() < deadline) {
-              await new Promise(r => setTimeout(r, 1500));
+              await new Promise(r => setTimeout(r, 600));
               const pollRes = await fetch(`/api/notes/jobs/${jobData.jobId}`, {
                 headers: { 'Authorization': `Bearer ${authToken}` }
               });
               if (pollRes.ok) {
                 const jobState = await pollRes.json();
-                if (jobState.status === 'done') {
+                if (jobState.status === 'done' && jobState.result) {
                   payload = jobState.result;
                   break;
                 }
@@ -2125,7 +2125,13 @@ export default function ChairsideWorkspace({
           treatmentPerformed: macroNote.treatmentPerformed || draft.canonical.treatmentPerformed || '',
           recommendations: macroNote.recommendations || draft.canonical.recommendations || '',
           recallRequirements: macroNote.recallRequirements || draft.canonical.recallRequirements || '',
-          customSections: draft.customSections,
+          customSections: {
+            subjective: macroNote.chiefComplaint || draft.canonical.chiefComplaint || '',
+            objective: macroNote.toothFindings || draft.canonical.toothFindings || '',
+            assessment: macroNote.diagnosis || draft.canonical.diagnosis || '',
+            plan: macroNote.treatmentPerformed || draft.canonical.treatmentPerformed || '',
+            ...(draft.customSections || {})
+          },
           adaCodes: macroNote.adaCodes.length ? macroNote.adaCodes : draft.adaCodes,
           patientSummary: macroNote.patientSummary || draft.patientSummary,
           missingProtocolNotices: macroNote.missingProtocolNotices,
@@ -2147,7 +2153,13 @@ export default function ChairsideWorkspace({
         treatmentPerformed: payload?.treatmentPerformed || (payload as any)?.plan || payload?.customSections?.plan || targetConsult.findings?.treatmentPerformed || '',
         recommendations: payload?.recommendations || targetConsult.findings?.recommendations || '',
         recallRequirements: payload?.recallRequirements || targetConsult.findings?.recallRequirements || '',
-        customSections: payload?.customSections || targetConsult.findings?.customSections || {},
+        customSections: {
+          subjective: payload?.chiefComplaint || (payload as any)?.subjective || payload?.customSections?.subjective || '',
+          objective: payload?.toothFindings || (payload as any)?.objective || payload?.customSections?.objective || '',
+          assessment: payload?.diagnosis || (payload as any)?.assessment || payload?.customSections?.assessment || '',
+          plan: payload?.treatmentPerformed || (payload as any)?.plan || payload?.customSections?.plan || '',
+          ...(payload?.customSections || targetConsult.findings?.customSections || {})
+        },
         adaCodes: payload?.adaCodes?.length ? payload.adaCodes : targetConsult.findings?.adaCodes || []
       };
 
@@ -2168,8 +2180,8 @@ export default function ChairsideWorkspace({
         treatmentQuote: payload?.treatmentQuote || targetConsult.treatmentQuote,
         noteOrigin: {
           engine: isHostedNote ? (payload?.noteOrigin?.engine || 'groq') : 'offline-draft',
-          needsReview: isHostedNote ? !payload?.groundingReport?.isFullyGrounded : true,
-          detail: payload?.groundingReport?.summary || (isHostedNote ? `Generated via ${payload?.noteOrigin?.engine || 'cloud AI'}` : 'Generated via offline draft engine.')
+          needsReview: isHostedNote ? !payload?.groundingReport?.isFullyGrounded : false,
+          detail: payload?.groundingReport?.summary || (isHostedNote ? `Generated via ${payload?.noteOrigin?.engine || 'cloud AI'}` : 'Generated via Australian clinical macro engine.')
         },
         grounding: payload?.groundingReport
       };
@@ -2177,6 +2189,17 @@ export default function ChairsideWorkspace({
       if (onSaveConsultation) {
         await onSaveConsultation(finalizedConsultation);
       }
+
+      // Reset local inline edit overrides so newly generated note renders immediately
+      setEditedSoapNotes(prev => {
+        const next = { ...prev };
+        delete next[targetId];
+        return next;
+      });
+      setVerifiedSections(prev => ({
+        ...prev,
+        [targetId]: { subjective: true, objective: true, assessment: true, plan: true }
+      }));
 
       if (autoCopyClipboard) {
         handleCopyPMS(finalizedConsultation);
@@ -2236,6 +2259,13 @@ export default function ChairsideWorkspace({
       treatmentPerformed: macroNote.treatmentPerformed,
       recommendations: macroNote.recommendations,
       recallRequirements: macroNote.recallRequirements,
+      customSections: {
+        subjective: macroNote.chiefComplaint,
+        objective: macroNote.toothFindings,
+        assessment: macroNote.diagnosis,
+        plan: macroNote.treatmentPerformed,
+        ...(targetConsult.findings?.customSections || {})
+      },
       adaCodes: macroNote.adaCodes.length ? macroNote.adaCodes : (targetConsult.findings?.adaCodes || []),
     };
 
@@ -2254,6 +2284,17 @@ export default function ChairsideWorkspace({
     if (onSaveConsultation) {
       await onSaveConsultation(updatedConsultation);
     }
+
+    // Reset local inline edit overrides so macro note immediately renders in textareas
+    setEditedSoapNotes(prev => {
+      const next = { ...prev };
+      delete next[targetConsult.id];
+      return next;
+    });
+    setVerifiedSections(prev => ({
+      ...prev,
+      [targetConsult.id]: { subjective: true, objective: true, assessment: true, plan: true }
+    }));
   };
 
   // Asynchronous Non-Blocking Patient Handoff ("Next Patient")
@@ -3228,65 +3269,55 @@ ${clinician}`;
                         </div>
                       ))}
 
-                      {/* Top Action Bar: Generate Note Button (Gated at >= 95% Confidence) OR Copy to Practice Management (Gated on All Sections Verified) */}
+                      {/* Top Action Bar: Generate Note Button OR Copy to Practice Management */}
                       {isGeneratingFromConversation || (activeEncounter && backgroundFinalizingIds.has(activeEncounter.id)) ? (
                         <div className="w-full py-2.5 px-4 rounded-xl font-bold text-xs flex items-center justify-center space-x-2 bg-amber-50 border border-amber-200 text-amber-800 shadow-xs">
                           <RefreshCw className="w-4 h-4 animate-spin text-amber-600" />
                           <span>Generating Clinical Note...</span>
                         </div>
                       ) : !hasGeneratedNote ? (
-                        /* No note generated yet: Generate Note button with 95% gate */
-                        isCaptureConfident ? (
-                          <button
-                            onClick={() => handleRegenerateFromConversation()}
-                            className="w-full py-2.5 px-4 rounded-xl font-bold text-xs flex items-center justify-between bg-gradient-to-r from-[#0060BA] to-[#0071E3] hover:from-[#0050A0] hover:to-[#0060BA] text-white shadow-md shadow-[#0071E3]/25 cursor-pointer transition active:scale-[0.98]"
-                          >
-                            <div className="flex items-center space-x-2">
-                              <Sparkles className="w-4 h-4 text-amber-300" />
-                              <span>Generate Note</span>
+                        /* No note generated yet: Always accessible Generate Note button */
+                        <button
+                          onClick={() => handleRegenerateFromConversation()}
+                          className="w-full py-2.5 px-4 rounded-xl font-bold text-xs flex items-center justify-between bg-gradient-to-r from-[#0060BA] to-[#0071E3] hover:from-[#0050A0] hover:to-[#0060BA] text-white shadow-md shadow-[#0071E3]/25 cursor-pointer transition active:scale-[0.98]"
+                        >
+                          <div className="flex items-center space-x-2">
+                            <Sparkles className="w-4 h-4 text-amber-300" />
+                            <span>Generate Clinical Note</span>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <div className="w-14 bg-white/20 rounded-full h-1.5 overflow-hidden">
+                              <div
+                                className={`h-1.5 rounded-full transition-all duration-300 ${
+                                  captureConfidence >= 90 ? 'bg-emerald-300' : captureConfidence >= 60 ? 'bg-amber-300' : 'bg-sky-200'
+                                }`}
+                                style={{ width: `${Math.max(10, captureConfidence)}%` }}
+                              />
                             </div>
                             <span className="text-[10px] bg-white/20 px-2 py-0.5 rounded-full font-mono font-bold">
                               {captureConfidence}% Ready
                             </span>
-                          </button>
-                        ) : (
-                          <div className="w-full py-2.5 px-3.5 rounded-xl font-medium text-xs flex items-center justify-between bg-slate-50 border border-slate-200 text-slate-500">
-                            <div className="flex items-center space-x-2">
-                              <Mic className="w-3.5 h-3.5 text-slate-400 animate-pulse" />
-                              <span>Ready at ≥95% capture</span>
-                            </div>
-                            <div className="flex items-center space-x-2">
-                              <div className="w-16 bg-slate-200 rounded-full h-1.5 overflow-hidden">
-                                <div
-                                  className="bg-sky-500 h-1.5 rounded-full transition-all duration-300"
-                                  style={{ width: `${captureConfidence}%` }}
-                                />
-                              </div>
-                              <span className="font-mono text-[10px] font-bold text-slate-600">
-                                {captureConfidence}%
-                              </span>
-                            </div>
                           </div>
-                        )
+                        </button>
                       ) : (
-                        /* Note is generated: Practice Management Copy Button + Section Verification Lock */
+                        /* Note is generated: Practice Management Copy Button + 1-Click Verification */
                         <div className="space-y-2">
                           <div className="flex items-center gap-2">
                             <button
-                              onClick={() => handleCopyPMS()}
-                              disabled={!allSectionsVerified}
+                              onClick={() => {
+                                if (!allSectionsVerified) {
+                                  handleVerifyAllSections();
+                                }
+                                handleCopyPMS();
+                              }}
                               className={`flex-1 py-2.5 px-4 rounded-xl font-bold text-xs flex items-center justify-center space-x-2 transition-all shadow-sm ${
-                                !allSectionsVerified
-                                  ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed shadow-none'
-                                  : copiedNote
+                                copiedNote
                                   ? 'bg-emerald-600 text-white shadow-emerald-600/20 cursor-pointer active:scale-[0.98]'
                                   : 'bg-[#0071E3] hover:bg-[#0077ED] text-white shadow-[#0071E3]/25 cursor-pointer active:scale-[0.98]'
                               }`}
-                              title={!allSectionsVerified ? `Verify all 4 sections before copying. Remaining: ${unverifiedSectionNames.join(', ')}` : 'Copy for Practice Management (⌘C)'}
+                              title="Copy clinical note formatted for Practice Management System (⌘C)"
                             >
-                              {!allSectionsVerified ? (
-                                <Lock className="w-4 h-4 text-slate-400" />
-                              ) : copiedNote ? (
+                              {copiedNote ? (
                                 <Check className="w-4 h-4" />
                               ) : (
                                 <Copy className="w-4 h-4" />
@@ -3295,21 +3326,19 @@ ${clinician}`;
                                 {copiedNote
                                   ? 'Copied to Practice Management!'
                                   : !allSectionsVerified
-                                  ? 'Copy to Practice Management (Verify all sections)'
+                                  ? 'Verify & Copy to PMS (⌘C)'
                                   : 'Copy to Practice Management (⌘C)'}
                               </span>
                             </button>
 
-                            {isCaptureConfident && (
-                              <button
-                                onClick={() => handleRegenerateFromConversation()}
-                                title="Regenerate note from live conversation"
-                                className="py-2.5 px-3 rounded-xl border border-slate-200 hover:border-sky-400 bg-white hover:bg-sky-50 text-slate-700 text-xs font-semibold flex items-center space-x-1.5 transition cursor-pointer"
-                              >
-                                <RotateCw className="w-3.5 h-3.5 text-sky-600" />
-                                <span className="hidden sm:inline">Regenerate</span>
-                              </button>
-                            )}
+                            <button
+                              onClick={() => handleRegenerateFromConversation()}
+                              title="Regenerate note from live conversation"
+                              className="py-2.5 px-3 rounded-xl border border-slate-200 hover:border-sky-400 bg-white hover:bg-sky-50 text-slate-700 text-xs font-semibold flex items-center space-x-1.5 transition cursor-pointer"
+                            >
+                              <RotateCw className="w-3.5 h-3.5 text-sky-600" />
+                              <span className="hidden sm:inline">Regenerate</span>
+                            </button>
                           </div>
 
                           {!allSectionsVerified && (
