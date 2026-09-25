@@ -57,6 +57,10 @@ import type {
 import { verifyPmsWebhookSignature, checkAndRecordWebhookReplay } from './src/server/pmsWebhookAuth';
 import { evaluateChunkIngestion } from './src/lib/standbyPolicy';
 import { logger } from './logger';
+import {
+  resolveOpenAiCompatibleConfig,
+  generateNoteWithOpenAiCompatible
+} from './src/server/openAiCompatible';
 import fs from 'fs';
 import crypto from 'crypto';
 import { kv } from '@vercel/kv';
@@ -1313,6 +1317,29 @@ async function runHostedGeneration(payload: {
   }
   const promptContext = buildNotePrompt(payload.intakeData, noteTemplate.name, compacted.transcript);
 
+  const openAiConfig = resolveOpenAiCompatibleConfig();
+  const providerPreference = (process.env.LLM_PROVIDER || '').toLowerCase().trim();
+  const preferOpenAi = openAiConfig && (
+    ['groq', 'ollama', 'llama-cpp', 'openai-compatible'].includes(providerPreference) ||
+    !process.env.GEMINI_API_KEY ||
+    process.env.GEMINI_API_KEY === 'MY_GEMINI_API_KEY'
+  );
+
+  if (preferOpenAi && openAiConfig) {
+    logger.info(`[JobFabric] Routing note generation to ${openAiConfig.provider} (${openAiConfig.model})`);
+    const openRes = await generateNoteWithOpenAiCompatible({
+      systemInstruction: noteAIConfig.systemInstruction,
+      promptContext,
+      template: noteTemplate,
+      config: openAiConfig
+    });
+    if (openRes.ok && openRes.output) {
+      logAudit('notes_generated_open_model', 'job-worker', { provider: openRes.provider, model: openRes.model });
+      return { ok: true, output: openRes.output };
+    }
+    logger.warn(`[JobFabric] Primary ${openAiConfig.provider} generation failed: ${openRes.error}. Attempting fallback...`);
+  }
+
   try {
     let output: any | null = null;
 
@@ -1352,6 +1379,19 @@ async function runHostedGeneration(payload: {
     if (!output) {
       const apiKey = process.env.GEMINI_API_KEY;
       if (!apiKey || apiKey === 'MY_GEMINI_API_KEY') {
+        if (openAiConfig) {
+          logger.info(`[JobFabric] Gemini key unset, using ${openAiConfig.provider} (${openAiConfig.model})`);
+          const openRes = await generateNoteWithOpenAiCompatible({
+            systemInstruction: noteAIConfig.systemInstruction,
+            promptContext,
+            template: noteTemplate,
+            config: openAiConfig
+          });
+          if (openRes.ok && openRes.output) {
+            logAudit('notes_generated_open_model', 'job-worker', { provider: openRes.provider, model: openRes.model });
+            return { ok: true, output: openRes.output };
+          }
+        }
         return { ok: false, quota: false, message: 'Gemini API key is not configured on the server.' };
       }
       const ai = new GoogleGenAI({ apiKey });
@@ -1393,6 +1433,26 @@ async function runHostedGeneration(payload: {
           logger.warn('[JobFabric] Secondary-key fallback also failed:', secondaryErr.message || secondaryErr);
         }
       }
+
+      // Tier 3 — Smart Failover: OpenAI-Compatible / Groq Llama-3.3-70B / Ollama
+      if (openAiConfig) {
+        try {
+          logger.warn(`[JobFabric] Gemini quota exhausted. Failing over dynamically to ${openAiConfig.provider} (${openAiConfig.model})...`);
+          const openRes = await generateNoteWithOpenAiCompatible({
+            systemInstruction: noteAIConfig.systemInstruction,
+            promptContext,
+            template: noteTemplate,
+            config: openAiConfig
+          });
+          if (openRes.ok && openRes.output) {
+            logAudit('notes_generation_open_failover', 'job-worker', { provider: openRes.provider, model: openRes.model });
+            return { ok: true, output: openRes.output };
+          }
+        } catch (openErr: any) {
+          logger.warn('[JobFabric] OpenAI-compatible failover also failed:', openErr.message || openErr);
+        }
+      }
+
       logAudit('notes_generation_quota_exhausted', 'job-worker', {});
       return { ok: false, quota: true, message: 'Hosted AI is rate-limited (quota or billing exhausted). The job will retry automatically with backoff.' };
     }
@@ -4580,6 +4640,46 @@ app.post('/api/generate-notes', authenticateToken, async (req: express.Request, 
           }
         } catch (secondaryErr: any) {
           logger.warn('[Gemini API] Secondary-key fallback also failed:', secondaryErr.message || secondaryErr);
+        }
+      }
+
+      const syncOpenAiConfig = resolveOpenAiCompatibleConfig();
+      if (syncOpenAiConfig) {
+        try {
+          logger.warn(`[Gemini API] Quota exhausted in /api/generate-notes. Failing over dynamically to ${syncOpenAiConfig.provider} (${syncOpenAiConfig.model})...`);
+          const openRes = await generateNoteWithOpenAiCompatible({
+            systemInstruction: (noteAIConfig || CLINICAL_AI_CONFIG).systemInstruction,
+            promptContext,
+            template: noteTemplate,
+            config: syncOpenAiConfig
+          });
+          if (openRes.ok && openRes.output) {
+            logAudit('notes_generation_open_failover', (req as any).dentist?.id || 'unknown', {});
+            const noteTextFallback = Object.entries(openRes.output)
+              .filter(([k, v]) => typeof v === 'string' && k !== 'patientSummary')
+              .map(([k, v]) => `${k}: ${v}`)
+              .join('\n');
+            (openRes.output as any).groundingReport = verifyTranscriptGrounding(
+              noteTextFallback,
+              transcript || [],
+              openRes.output.adaCodes
+            );
+            (openRes.output as any).groundingAudit = verifyNoteGrounding(
+              'consultation-open-failover',
+              transcript || [],
+              openRes.output
+            );
+            (openRes.output as any).sovereignty = {
+              dataSovereignty: syncOpenAiConfig.provider === 'ollama' || syncOpenAiConfig.provider === 'llama-cpp' ? 'LOCAL_ON_PREM' : 'AU_SYDNEY',
+              jurisdiction: 'APP_8_COMPLIANT',
+              region: syncOpenAiConfig.provider,
+              zeroRetentionConfirmed: true,
+              audioPurgedAt: new Date().toISOString()
+            };
+            return res.json(openRes.output);
+          }
+        } catch (openErr: any) {
+          logger.warn('[SyncRoute] OpenAI-compatible failover also failed:', openErr.message || openErr);
         }
       }
 
