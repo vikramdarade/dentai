@@ -23,6 +23,9 @@ export interface LiveConversationPanelProps {
   onKeepListening: () => void;
   onManualDialogueSubmit?: (text: string) => void;
   audioVisualizerRef?: React.RefObject<HTMLCanvasElement | null>;
+  waveformRefs?: React.MutableRefObject<(HTMLDivElement | null)[]>;
+  micListening?: boolean;
+  micError?: string | null;
 }
 
 export const LiveConversationPanel: React.FC<LiveConversationPanelProps> = ({
@@ -40,6 +43,9 @@ export const LiveConversationPanel: React.FC<LiveConversationPanelProps> = ({
   onKeepListening,
   onManualDialogueSubmit,
   audioVisualizerRef,
+  waveformRefs,
+  micListening = false,
+  micError = null,
 }) => {
   const [manualText, setManualText] = useState('');
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -70,7 +76,7 @@ export const LiveConversationPanel: React.FC<LiveConversationPanelProps> = ({
       <div className="px-4 py-3 border-b border-slate-200/90 flex items-center justify-between bg-slate-50/50">
         <div className="flex items-center space-x-2">
           <div className="flex items-center space-x-1.5">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span className={`w-2 h-2 rounded-full ${micListening && !isPaused && !isMicStandby ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`} />
             <h3 className="text-xs font-bold text-slate-900 tracking-wide uppercase">
               Live Conversation
             </h3>
@@ -96,9 +102,9 @@ export const LiveConversationPanel: React.FC<LiveConversationPanelProps> = ({
       </div>
 
       {/* Operatory Microphone HUD Bar */}
-      <div className="px-4 py-3 bg-slate-50/90 border-b border-slate-200 flex items-center justify-between gap-3">
+      <div className="px-4 py-3 bg-slate-50/90 border-b border-slate-200 flex items-center justify-between gap-3 flex-wrap sm:flex-nowrap">
         {/* Timer & Mic Controls */}
-        <div className="flex items-center space-x-3">
+        <div className="flex items-center space-x-2.5">
           {isMicStandby ? (
             <button
               onClick={onStartAudio}
@@ -126,10 +132,26 @@ export const LiveConversationPanel: React.FC<LiveConversationPanelProps> = ({
             <span className="text-slate-400 text-xs">REC:</span>
             <span>{formatTimer(recordingSeconds)}</span>
           </div>
+
+          {/* Active Listening Indicator */}
+          {micListening && !isPaused && !isMicStandby ? (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-2xs">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span>Listening</span>
+            </span>
+          ) : isPaused ? (
+            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200 shadow-2xs">
+              <span>Paused</span>
+            </span>
+          ) : isMicStandby ? (
+            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-100 text-slate-600 border border-slate-200 shadow-2xs">
+              <span>Standby</span>
+            </span>
+          ) : null}
         </div>
 
-        {/* Audio Visualizer Canvas or Wave Activity */}
-        <div className="flex items-center space-x-2 flex-1 max-w-[200px]">
+        {/* Real-time 60fps WebAudio Waveform */}
+        <div className="flex items-center space-x-2 flex-1 max-w-[200px] justify-end">
           {audioVisualizerRef ? (
             <canvas
               ref={audioVisualizerRef}
@@ -138,20 +160,43 @@ export const LiveConversationPanel: React.FC<LiveConversationPanelProps> = ({
               className="w-full h-7 rounded-lg bg-white border border-slate-200 shadow-inner"
             />
           ) : (
-            <div className="flex items-center space-x-1 w-full justify-end">
-              {[40, 75, 55, 90, 60, 30].map((h, i) => (
-                <span
+            <div
+              className="flex items-end justify-end gap-[3px] h-7 px-2.5 py-1 bg-white rounded-lg border border-slate-200 shadow-2xs w-full"
+              title="Real-time operatory acoustic activity"
+            >
+              {Array.from({ length: 13 }).map((_, i) => (
+                <div
                   key={i}
-                  className={`w-1 rounded-full ${
-                    !isMicStandby && !isPaused ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'
+                  ref={el => {
+                    if (waveformRefs) waveformRefs.current[i] = el;
+                  }}
+                  className={`w-1 rounded-full transition-all duration-75 ${
+                    micListening && !isPaused && !isMicStandby
+                      ? 'bg-emerald-500'
+                      : isPaused
+                      ? 'bg-amber-400'
+                      : 'bg-slate-300'
                   }`}
-                  style={{ height: !isMicStandby && !isPaused ? `${h}%` : '20%', minHeight: '6px' }}
+                  style={{ height: '20%', minHeight: '4px' }}
                 />
               ))}
             </div>
           )}
         </div>
       </div>
+
+      {/* Microphone Error Notice Banner */}
+      {micError && (
+        <div className="bg-rose-50 border-b border-rose-200 px-4 py-2 flex items-center justify-between text-xs text-rose-900">
+          <div className="flex items-center space-x-2 font-medium">
+            <AlertTriangle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+            <span>{micError}</span>
+          </div>
+          <span className="text-[10px] text-rose-700 font-medium bg-white/90 px-2 py-0.5 rounded border border-rose-200">
+            Check mic permissions
+          </span>
+        </div>
+      )}
 
       {/* 30-Second Silence Sleep Early Warning Banner (Rule 8) */}
       {isSilenceWarning && (
@@ -179,11 +224,50 @@ export const LiveConversationPanel: React.FC<LiveConversationPanelProps> = ({
       >
         {transcript.length === 0 && !interimTranscript ? (
           <div className="h-full flex flex-col items-center justify-center text-center p-6 text-slate-400">
-            <Mic className="w-8 h-8 mb-2 text-slate-300" />
-            <p className="text-xs font-semibold text-slate-600">Waiting for operatory conversation</p>
-            <p className="text-[11px] text-slate-400 max-w-[260px] mt-1">
-              Speak naturally at the chair. Utterances are captured and organized by speaker.
+            <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-2 shadow-2xs border ${
+              micListening && !isPaused && !isMicStandby
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-600 animate-pulse'
+                : 'bg-slate-50 border-slate-200 text-slate-400'
+            }`}>
+              <Mic className="w-6 h-6" />
+            </div>
+            <p className="text-xs font-semibold text-slate-700">
+              {micListening && !isPaused && !isMicStandby
+                ? 'Microphone is active & listening'
+                : isPaused
+                ? 'Recording paused'
+                : 'Waiting for operatory conversation'}
             </p>
+            <p className="text-[11px] text-slate-400 max-w-[280px] mt-1">
+              {micListening && !isPaused && !isMicStandby
+                ? 'Speak naturally at the chair, or click a quick sample phrase below to test note generation:'
+                : 'Speak naturally at the chair. Utterances are captured and organized by speaker.'}
+            </p>
+
+            {/* Quick 1-click test utterance chips */}
+            {onManualDialogueSubmit && (
+              <div className="mt-4 flex flex-col items-center gap-2 max-w-sm">
+                <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
+                  Quick operatory dictation:
+                </span>
+                <div className="flex flex-wrap gap-1.5 justify-center">
+                  {[
+                    'Tooth 16 MO composite restoration under infiltration',
+                    'Recurrent decay on 46, periapical radiograph taken',
+                    'Full mouth scale and clean with prophylaxis paste'
+                  ].map((sample, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => onManualDialogueSubmit(sample)}
+                      className="text-[11px] bg-white hover:bg-sky-50 text-slate-700 hover:text-sky-700 px-2.5 py-1 rounded-lg border border-slate-200 hover:border-sky-300 transition shadow-2xs cursor-pointer text-left font-medium"
+                    >
+                      + "{sample.slice(0, 30)}..."
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           <>

@@ -545,10 +545,12 @@ export default function ChairsideWorkspace({
   const [verifiedSections, setVerifiedSections] = useState<Record<string, Record<string, boolean>>>({});
 
   // Active transcript & capture confidence calculation
+  const currentOperatoryEncounter = activeEncounter || effectiveEncounter;
+
   const activeEncounterTranscript = useMemo(() => {
-    if (!activeEncounter) return [];
-    return localLiveTranscripts[activeEncounter.id] || activeEncounter.diarizedTranscript || [];
-  }, [activeEncounter, localLiveTranscripts]);
+    if (!currentOperatoryEncounter) return [];
+    return localLiveTranscripts[currentOperatoryEncounter.id] || currentOperatoryEncounter.diarizedTranscript || [];
+  }, [currentOperatoryEncounter, localLiveTranscripts]);
 
   const captureConfidence = useMemo(() => {
     return calculateCaptureConfidence(activeEncounterTranscript);
@@ -556,7 +558,7 @@ export default function ChairsideWorkspace({
 
   const isCaptureConfident = captureConfidence >= 95;
 
-  const activeId = activeEncounter?.id || '';
+  const activeId = currentOperatoryEncounter?.id || 'chair-active';
   const currentVerified = verifiedSections[activeId] || {};
   const isSubjectiveVerified = Boolean(currentVerified.subjective);
   const isObjectiveVerified = Boolean(currentVerified.objective);
@@ -574,28 +576,30 @@ export default function ChairsideWorkspace({
   }, [isSubjectiveVerified, isObjectiveVerified, isAssessmentVerified, isPlanVerified]);
 
   const handleVerifyAllSections = useCallback(() => {
-    if (!activeEncounter) return;
+    const enc = activeEncounter || effectiveEncounter;
+    if (!enc) return;
     setVerifiedSections(prev => ({
       ...prev,
-      [activeEncounter.id]: {
+      [enc.id]: {
         subjective: true,
         objective: true,
         assessment: true,
         plan: true
       }
     }));
-  }, [activeEncounter]);
+  }, [activeEncounter, effectiveEncounter]);
 
   const handleToggleSectionVerification = useCallback((field: 'subjective' | 'objective' | 'assessment' | 'plan') => {
-    if (!activeEncounter) return;
+    const enc = activeEncounter || effectiveEncounter;
+    if (!enc) return;
     setVerifiedSections(prev => ({
       ...prev,
-      [activeEncounter.id]: {
-        ...(prev[activeEncounter.id] || {}),
-        [field]: !(prev[activeEncounter.id]?.[field])
+      [enc.id]: {
+        ...(prev[enc.id] || {}),
+        [field]: !(prev[enc.id]?.[field])
       }
     }));
-  }, [activeEncounter]);
+  }, [activeEncounter, effectiveEncounter]);
 
   // ─────────────────────────────────────────────────────────────
   // 3. LIVE AUDIO RECORDING, DSP ACOUSTIC SQUELCH & WEBAUDIO GRAPH
@@ -699,7 +703,7 @@ export default function ChairsideWorkspace({
   const isRecordingRef = useRef(isRecording);
   const isPausedRef = useRef(isPaused);
   const isMicStandbyRef = useRef(isMicStandby);
-  const activeEncounterRef = useRef(activeEncounter);
+  const activeEncounterRef = useRef<PatientEncounter | null>(activeEncounter || effectiveEncounter);
   const consultationsRef = useRef(consultations);
   const localLiveTranscriptsRef = useRef(localLiveTranscripts);
 
@@ -719,10 +723,10 @@ export default function ChairsideWorkspace({
     isRecordingRef.current = isRecording;
     isPausedRef.current = isPaused;
     isMicStandbyRef.current = isMicStandby;
-    activeEncounterRef.current = activeEncounter;
+    activeEncounterRef.current = activeEncounter || effectiveEncounter;
     consultationsRef.current = consultations;
     localLiveTranscriptsRef.current = localLiveTranscripts;
-  }, [isRecording, isPaused, isMicStandby, activeEncounter, consultations, localLiveTranscripts]);
+  }, [isRecording, isPaused, isMicStandby, activeEncounter, effectiveEncounter, consultations, localLiveTranscripts]);
 
   // Flush any debounced consultation saves immediately before state transitions or note finalization
   const flushPendingConsultationSave = useCallback(async () => {
@@ -1645,7 +1649,7 @@ export default function ChairsideWorkspace({
 
   // 2. Synchronize recording / pause / standby / patient transition without tearing down recognizer
   useEffect(() => {
-    const shouldListen = isRecording && !isPaused && !isMicStandby && Boolean(activeEncounter);
+    const shouldListen = isRecording && !isPaused && !isMicStandby && Boolean(activeEncounter || effectiveEncounter);
 
     if (!shouldListen) {
       if (recognitionRef.current) {
@@ -1669,7 +1673,7 @@ export default function ChairsideWorkspace({
         }
       }
     }
-  }, [isRecording, isPaused, isMicStandby, activeEncounter?.id]);
+  }, [isRecording, isPaused, isMicStandby, activeEncounter?.id, effectiveEncounter?.id]);
 
   // Elapsed Timer with wall-clock epoch accuracy (immune to Chromium tab throttling)
   // Adaptive 3-Minute Silence Sleep with 30s Pre-Pause Audio-Visual Warning (at 2m 30s)
@@ -2170,8 +2174,35 @@ export default function ChairsideWorkspace({
   const executeBackgroundNoteFinalization = async (targetId: string, autoCopyClipboard = false) => {
     try {
       await flushPendingConsultationSave();
-      const targetConsult = consultations.find(c => c.id === targetId);
-      if (!targetConsult) return;
+      const targetConsult: Consultation = consultations.find(c => c.id === targetId) || {
+        id: targetId,
+        dentistId: currentUser?.id,
+        dentistName: dentistName || 'Attending Clinician',
+        firstName: effectiveEncounter.patientName || 'In-Chair Patient',
+        lastName: '',
+        dob: effectiveEncounter.dob || '',
+        date: currentDateStr,
+        time: effectiveEncounter.time || formatClinicTime(new Date()),
+        status: 'Completed',
+        appointmentType: effectiveEncounter.appointmentType || 'examination',
+        templateId: 'standard',
+        transcript: (localLiveTranscriptsRef.current[targetId] || localLiveTranscripts[targetId] || effectiveEncounter.diarizedTranscript || []).map(t => ({
+          sender: (t.role === 'patient' || (t as any).sender === 'Patient' ? 'Patient' : t.role === 'dentist' || (t as any).sender === 'Dentist' ? 'Dentist' : 'Dialogue') as TranscriptItem['sender'],
+          text: t.text
+        })),
+        findings: {
+          chiefComplaint: '',
+          history: '',
+          toothFindings: '',
+          findingsGingival: '',
+          diagnosis: '',
+          treatmentPerformed: '',
+          recommendations: '',
+          recallRequirements: '',
+          adaCodes: []
+        },
+        patientSummary: ''
+      };
 
       const template = getTemplateById(targetConsult.templateId || 'standard');
 
@@ -2606,10 +2637,34 @@ export default function ChairsideWorkspace({
 
   // Generate note text formatted for PMS clipboard (incorporating clinician inline edits & PMS adapter)
   const getFormattedNoteText = useCallback((consultToCopy?: Consultation): string => {
-    const target = consultToCopy || consultations.find(c => c.id === activeEncounter?.id) || activeConsult;
+    const targetId = activeEncounter?.id || effectiveEncounter.id;
+    const fallbackConsult: Consultation = {
+      id: effectiveEncounter.id,
+      firstName: effectiveEncounter.patientName,
+      lastName: '',
+      dob: effectiveEncounter.dob || '',
+      date: currentDateStr,
+      time: effectiveEncounter.time,
+      appointmentType: effectiveEncounter.appointmentType || 'examination',
+      status: 'Completed',
+      templateId: 'standard',
+      transcript: (localLiveTranscriptsRef.current[effectiveEncounter.id] || localLiveTranscripts[effectiveEncounter.id] || []).map(i => ({ sender: (i.sender || 'Dentist') as any, text: i.text })),
+      findings: {
+        chiefComplaint: '',
+        history: '',
+        toothFindings: '',
+        findingsGingival: '',
+        diagnosis: '',
+        treatmentPerformed: '',
+        recommendations: '',
+        recallRequirements: '',
+        adaCodes: []
+      },
+      patientSummary: ''
+    };
+    const target = consultToCopy || consultations.find(c => c.id === targetId) || activeConsult || fallbackConsult;
     if (!target) return '';
 
-    const targetId = target.id;
     // 1. If clinician actively authored/edited the progress note directly in the text box, return that exact text!
     if (targetId && editedProgressNotes[targetId] !== undefined) {
       return editedProgressNotes[targetId];
@@ -2619,7 +2674,7 @@ export default function ChairsideWorkspace({
       return target.clinicalProgressNote;
     }
 
-    const isCurrentActive = target.id === activeEncounter?.id;
+    const isCurrentActive = target.id === targetId;
     const subj = isCurrentActive && editedSoapNotes[targetId]?.subjective !== undefined
       ? editedSoapNotes[targetId]!.subjective
       : (target.findings?.chiefComplaint ? `${target.findings.chiefComplaint} ${target.findings.history || ''}` : '');
@@ -2642,7 +2697,7 @@ export default function ChairsideWorkspace({
         toothFindings: obj,
         diagnosis: assess,
         treatmentPerformed: planText,
-        adaCodes: isCurrentActive && activeEncounter?.cdtCodes ? activeEncounter.cdtCodes.map(c => ({ code: c.code, description: c.desc })) : (target.findings?.adaCodes || [])
+        adaCodes: isCurrentActive && (activeEncounter?.cdtCodes || effectiveEncounter.cdtCodes) ? (activeEncounter?.cdtCodes || effectiveEncounter.cdtCodes)!.map(c => ({ code: c.code, description: c.desc })) : (target.findings?.adaCodes || [])
       }
     };
 
@@ -2656,7 +2711,7 @@ export default function ChairsideWorkspace({
         return '';
       }
     }
-  }, [activeEncounter, activeConsult, consultations, editedProgressNotes, editedSoapNotes]);
+  }, [activeEncounter, effectiveEncounter, activeConsult, consultations, currentDateStr, editedProgressNotes, editedSoapNotes]);
 
   const currentProgressNote = useMemo(() => {
     return getFormattedNoteText();
@@ -2671,7 +2726,32 @@ export default function ChairsideWorkspace({
 
   // Copy Note for Practice Management (Universal PMS, D4W, or Exact)
   const handleCopyPMS = (consultToCopy?: Consultation, format: 'pms' | 'd4w' | 'exact' = 'pms') => {
-    const target = consultToCopy || consultations.find(c => c.id === activeEncounter?.id);
+    const targetId = activeEncounter?.id || effectiveEncounter.id;
+    const fallbackConsult: Consultation = {
+      id: effectiveEncounter.id,
+      firstName: effectiveEncounter.patientName,
+      lastName: '',
+      dob: effectiveEncounter.dob || '',
+      date: currentDateStr,
+      time: effectiveEncounter.time,
+      appointmentType: effectiveEncounter.appointmentType || 'examination',
+      status: 'Completed',
+      templateId: 'standard',
+      transcript: (localLiveTranscriptsRef.current[effectiveEncounter.id] || localLiveTranscripts[effectiveEncounter.id] || []).map(i => ({ sender: (i.sender || 'Dentist') as any, text: i.text })),
+      findings: {
+        chiefComplaint: '',
+        history: '',
+        toothFindings: '',
+        findingsGingival: '',
+        diagnosis: '',
+        treatmentPerformed: '',
+        recommendations: '',
+        recallRequirements: '',
+        adaCodes: []
+      },
+      patientSummary: ''
+    };
+    const target = consultToCopy || consultations.find(c => c.id === targetId) || fallbackConsult;
     const renderer = PMS_RENDERERS[format];
     let noteText = '';
     if (renderer && target) {
@@ -3269,7 +3349,7 @@ ${clinician}`;
               {/* Main Two-Panel Adaptive Split: Left (Live Speech & Mic HUD) / Right (Note Canvas & PMS Sync) */}
               <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4 min-h-0">
                 <LiveConversationPanel
-                  transcript={effectiveEncounter.diarizedTranscript || []}
+                  transcript={activeEncounterTranscript}
                   interimTranscript={interimTranscript}
                   isMicStandby={isMicStandby}
                   isPaused={isPaused}
@@ -3282,6 +3362,9 @@ ${clinician}`;
                   onTogglePause={handleTogglePause}
                   onKeepListening={handleKeepListening}
                   onManualDialogueSubmit={(text) => handleAppendTranscriptText(text, 'Dentist')}
+                  waveformRefs={waveformRefs}
+                  micListening={micListening}
+                  micError={micError}
                 />
 
                 <ClinicalNoteEditorPanel
