@@ -22,7 +22,6 @@ export interface LiveConversationPanelProps {
   onTogglePause: () => void;
   onKeepListening: () => void;
   onManualDialogueSubmit?: (text: string) => void;
-  audioVisualizerRef?: React.RefObject<HTMLCanvasElement | null>;
   waveformRefs?: React.MutableRefObject<(HTMLDivElement | null)[]>;
   micListening?: boolean;
   micError?: string | null;
@@ -42,7 +41,6 @@ export const LiveConversationPanel: React.FC<LiveConversationPanelProps> = ({
   onTogglePause,
   onKeepListening,
   onManualDialogueSubmit,
-  audioVisualizerRef,
   waveformRefs,
   micListening = false,
   micError = null,
@@ -152,36 +150,27 @@ export const LiveConversationPanel: React.FC<LiveConversationPanelProps> = ({
 
         {/* Real-time 60fps WebAudio Waveform */}
         <div className="flex items-center space-x-2 flex-1 max-w-[200px] justify-end">
-          {audioVisualizerRef ? (
-            <canvas
-              ref={audioVisualizerRef}
-              width={180}
-              height={28}
-              className="w-full h-7 rounded-lg bg-white border border-slate-200 shadow-inner"
-            />
-          ) : (
-            <div
-              className="flex items-end justify-end gap-[3px] h-7 px-2.5 py-1 bg-white rounded-lg border border-slate-200 shadow-2xs w-full"
-              title="Real-time operatory acoustic activity"
-            >
-              {Array.from({ length: 13 }).map((_, i) => (
-                <div
-                  key={i}
-                  ref={el => {
-                    if (waveformRefs) waveformRefs.current[i] = el;
-                  }}
-                  className={`w-1 rounded-full transition-all duration-75 ${
-                    micListening && !isPaused && !isMicStandby
-                      ? 'bg-emerald-500'
-                      : isPaused
-                      ? 'bg-amber-400'
-                      : 'bg-slate-300'
-                  }`}
-                  style={{ height: '20%', minHeight: '4px' }}
-                />
-              ))}
-            </div>
-          )}
+          <div
+            className="flex items-end justify-end gap-[3px] h-7 px-2.5 py-1 bg-white rounded-lg border border-slate-200 shadow-2xs w-full"
+            title="Real-time operatory acoustic activity"
+          >
+            {Array.from({ length: 13 }).map((_, i) => (
+              <div
+                key={i}
+                ref={el => {
+                  if (waveformRefs) waveformRefs.current[i] = el;
+                }}
+                className={`w-1 rounded-full transition-all duration-75 ${
+                  micListening && !isPaused && !isMicStandby
+                    ? 'bg-emerald-500'
+                    : isPaused
+                    ? 'bg-amber-400'
+                    : 'bg-slate-300'
+                }`}
+                style={{ height: '20%', minHeight: '4px' }}
+              />
+            ))}
+          </div>
         </div>
       </div>
 

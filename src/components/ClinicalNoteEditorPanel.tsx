@@ -6,7 +6,6 @@ import {
   Check,
   CheckCircle2,
   Tag,
-  Camera,
   Layers,
   RefreshCw,
   ArrowRight
@@ -23,10 +22,8 @@ export interface ClinicalNoteEditorPanelProps {
   onCopyPMS: (format: 'd4w' | 'exact' | 'universal') => void;
   copiedFormat: string | null;
   onOpenDeliverables?: () => void;
-  onOpenCamera?: () => void;
   onNextPatient?: () => void;
   hasActualGeneratedNote: boolean;
-  captureConfidence?: number;
 }
 
 export const ClinicalNoteEditorPanel: React.FC<ClinicalNoteEditorPanelProps> = ({
@@ -39,10 +36,8 @@ export const ClinicalNoteEditorPanel: React.FC<ClinicalNoteEditorPanelProps> = (
   onCopyPMS,
   copiedFormat,
   onOpenDeliverables,
-  onOpenCamera,
   onNextPatient,
   hasActualGeneratedNote,
-  captureConfidence = 100,
 }) => {
   const [selectedFormat, setSelectedFormat] = useState<'d4w' | 'exact' | 'universal'>('d4w');
 
@@ -115,28 +110,21 @@ export const ClinicalNoteEditorPanel: React.FC<ClinicalNoteEditorPanelProps> = (
             </button>
           </div>
 
-          {/* High-Contrast Copy to PMS / Next Patient Action */}
+          {/* Copy to PMS */}
           <button
-            onClick={() => {
-              if (copiedFormat === selectedFormat && onNextPatient) {
-                onNextPatient();
-              } else {
-                onCopyPMS(selectedFormat);
-              }
-            }}
+            onClick={() => onCopyPMS(selectedFormat)}
             disabled={!noteText.trim()}
             className={`flex items-center space-x-1.5 px-3.5 py-1.5 rounded-xl font-bold text-xs shadow-xs transition cursor-pointer disabled:opacity-40 ${
               copiedFormat === selectedFormat
                 ? 'bg-emerald-600 hover:bg-emerald-700 text-white ring-2 ring-emerald-400/40'
                 : 'bg-slate-900 hover:bg-slate-800 text-white'
             }`}
-            title={copiedFormat === selectedFormat ? 'Advance to next patient' : 'Copy formatted note to clipboard (⌘+C)'}
+            title="Copy formatted note to clipboard (⌘C)"
           >
             {copiedFormat === selectedFormat ? (
               <>
                 <Check className="w-3.5 h-3.5 text-emerald-200" />
-                <span>Copied! Next Patient</span>
-                <ArrowRight className="w-3.5 h-3.5 ml-0.5" />
+                <span>Copied!</span>
               </>
             ) : (
               <>
@@ -145,6 +133,18 @@ export const ClinicalNoteEditorPanel: React.FC<ClinicalNoteEditorPanelProps> = (
               </>
             )}
           </button>
+
+          {/* Next Patient — explicit separate button, never fires by accident */}
+          {onNextPatient && (
+            <button
+              onClick={onNextPatient}
+              className="flex items-center space-x-1 px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-sky-50 hover:border-sky-300 text-slate-700 text-xs font-bold transition shadow-2xs cursor-pointer"
+              title="Advance to next patient (⌘→)"
+            >
+              <span>Next Patient</span>
+              <ArrowRight className="w-3.5 h-3.5 text-sky-600" />
+            </button>
+          )}
         </div>
       </div>
 
@@ -168,16 +168,6 @@ export const ClinicalNoteEditorPanel: React.FC<ClinicalNoteEditorPanelProps> = (
 
         {/* Secondary Operatory Tools */}
         <div className="flex items-center space-x-1.5 flex-shrink-0">
-          {onOpenCamera && (
-            <button
-              onClick={onOpenCamera}
-              className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 text-xs transition cursor-pointer shadow-2xs"
-              title="Intraoral Camera Capture"
-            >
-              <Camera className="w-3.5 h-3.5 text-sky-600" />
-            </button>
-          )}
-
           {onOpenDeliverables && (
             <button
               onClick={onOpenDeliverables}

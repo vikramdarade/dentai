@@ -51,7 +51,6 @@ import { normalizeSpokenDentalText } from '../lib/dentalPhoneticLexicon';
 import { formatClinicDate, formatClinicTime, getClinicTodayIso } from '../utils/date';
 import { decideSilenceAction, SILENCE_SLEEP_SECONDS } from '../lib/silencePolicy';
 import { toPmsEncounter, renderUniversalProgressNote, renderD4W, renderExact } from '../lib/pms';
-import { parseClinicalEntities } from '../lib/clinicalEntityParser';
 import { ClinicMembership } from '../lib/clinics';
 import { CHAIRSIDE_MACRO_OPTIONS } from '../lib/australianClinicalMacros';
 import { DaysheetModal } from './DaysheetModal';
@@ -131,51 +130,7 @@ function consultationInstant(record: Consultation): number {
   return NaN;
 }
 
-/**
- * Calculates capture confidence (0-100%) for live conversation.
- * Gated at >=95% to ensure clinical accuracy before calling AI note generation.
- */
-export function calculateCaptureConfidence(transcript: { text: string; sender?: string }[]): number {
-  if (!transcript || transcript.length === 0) return 0;
 
-  const fullText = transcript.map(t => t.text || '').join(' ').trim();
-  if (!fullText) return 0;
-
-  const words = fullText.split(/\s+/).filter(Boolean);
-  if (words.length < 3) return 10;
-
-  let score = 0;
-
-  // 1. Teeth and anatomical identifiers (FDI or standard, e.g., #16, tooth 24, molar, upper right)
-  const hasTeeth = /(#\d{1,2}|tooth\s+\d{1,2}|teeth|\b[1-4][1-8]\b|upper|lower|molar|premolar|incisor|canine)/i.test(fullText);
-  if (hasTeeth) score += 30;
-
-  // 2. Clinical symptoms and examination findings (pain, caries, fracture, pocket, etc.)
-  const hasFindings = /(pain|ache|sensitive|sensitivity|caries|decay|filling|cavity|fracture|crack|bop|bleeding|pocket|mobility|swelling|abscess|ulcer|lichen|stain|wear|attrition|cold test|percussion|vital|non-vital)/i.test(fullText);
-  if (hasFindings) score += 30;
-
-  // 3. Clinical procedures or interventions (prep, composite, clean, anesthetic, extraction, etc.)
-  const hasProcedure = /(prep|excavat|drill|composite|amalgam|resin|scaled|scaling|clean|cure|etch|bond|liner|theracal|anesthetic|lignocaine|articaine|extraction|luxat|suture|rct|extirpat|pulp|dressing|cavit|crown|impression|bite|polish|fluoride|provisional)/i.test(fullText);
-  if (hasProcedure) score += 25;
-
-  // 4. Clinical plan, advice, or post-operative guidance
-  const hasPlan = /(treatment plan|next visit|return in|review in|schedule|prescribe|prescribed|prescription|painkiller|paracetamol|ibuprofen|antibiotic|salt water|soft diet|gauze|advice|recall)/i.test(fullText);
-  if (hasPlan) score += 15;
-
-  // If the complete clinical triad is present (tooth + findings + procedure), ensure threshold is met
-  if (hasTeeth && hasFindings && hasProcedure) {
-    score = Math.max(score, 95);
-  }
-
-  // Volume check
-  if (words.length >= 25) {
-    score += 10;
-  } else if (words.length >= 12) {
-    score += 5;
-  }
-
-  return Math.min(100, score);
-}
 
 export default function ChairsideWorkspace({
   currentUser,
@@ -216,12 +171,7 @@ export default function ChairsideWorkspace({
     return isToday ? `Today, ${formatted}` : formatted;
   }, [currentDate]);
 
-  const currentDateStr = useMemo(() => {
-    const year = currentDate.getFullYear();
-    const month = String(currentDate.getMonth() + 1).padStart(2, '0');
-    const day = String(currentDate.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  }, [currentDate]);
+  const currentDateStr = useMemo(() => currentDate.toISOString().slice(0, 10), [currentDate]);
 
   const handlePrevDay = () => {
     setIsMicStandby(true);
@@ -542,10 +492,7 @@ export default function ChairsideWorkspace({
     };
   }, [activeEncounter, isMicStandby, isPaused, localLiveTranscripts]);
 
-  // Per-section clinician verification state (AHPRA legal compliance standard)
-  const [verifiedSections, setVerifiedSections] = useState<Record<string, Record<string, boolean>>>({});
-
-  // Active transcript & capture confidence calculation
+  // Active transcript (no confidence gating — dentist decides when to regenerate)
   const currentOperatoryEncounter = activeEncounter || effectiveEncounter;
 
   const activeEncounterTranscript = useMemo(() => {
@@ -553,59 +500,10 @@ export default function ChairsideWorkspace({
     return localLiveTranscripts[currentOperatoryEncounter.id] || currentOperatoryEncounter.diarizedTranscript || [];
   }, [currentOperatoryEncounter, localLiveTranscripts]);
 
-  const captureConfidence = useMemo(() => {
-    return calculateCaptureConfidence(activeEncounterTranscript);
-  }, [activeEncounterTranscript]);
-
-  const isCaptureConfident = captureConfidence >= 95;
-
-  const activeId = currentOperatoryEncounter?.id || 'chair-active';
-  const currentVerified = verifiedSections[activeId] || {};
-  const isSubjectiveVerified = Boolean(currentVerified.subjective);
-  const isObjectiveVerified = Boolean(currentVerified.objective);
-  const isAssessmentVerified = Boolean(currentVerified.assessment);
-  const isPlanVerified = Boolean(currentVerified.plan);
-  const allSectionsVerified = isSubjectiveVerified && isObjectiveVerified && isAssessmentVerified && isPlanVerified;
-
-  const unverifiedSectionNames = useMemo(() => {
-    const missing: string[] = [];
-    if (!isSubjectiveVerified) missing.push('Subjective');
-    if (!isObjectiveVerified) missing.push('Objective');
-    if (!isAssessmentVerified) missing.push('Assessment');
-    if (!isPlanVerified) missing.push('Plan');
-    return missing;
-  }, [isSubjectiveVerified, isObjectiveVerified, isAssessmentVerified, isPlanVerified]);
-
-  const handleVerifyAllSections = useCallback(() => {
-    const enc = activeEncounter || effectiveEncounter;
-    if (!enc) return;
-    setVerifiedSections(prev => ({
-      ...prev,
-      [enc.id]: {
-        subjective: true,
-        objective: true,
-        assessment: true,
-        plan: true
-      }
-    }));
-  }, [activeEncounter, effectiveEncounter]);
-
-  const handleToggleSectionVerification = useCallback((field: 'subjective' | 'objective' | 'assessment' | 'plan') => {
-    const enc = activeEncounter || effectiveEncounter;
-    if (!enc) return;
-    setVerifiedSections(prev => ({
-      ...prev,
-      [enc.id]: {
-        ...(prev[enc.id] || {}),
-        [field]: !(prev[enc.id]?.[field])
-      }
-    }));
-  }, [activeEncounter, effectiveEncounter]);
-
   // ─────────────────────────────────────────────────────────────
   // 3. LIVE AUDIO RECORDING, DSP ACOUSTIC SQUELCH & WEBAUDIO GRAPH
   // ─────────────────────────────────────────────────────────────
-  const [isRecording] = useState(true);
+  const isRecording = true;
   const [recordingSeconds, setRecordingSeconds] = useState(0); // Anchored at 00:00 until clinician initiates
   const [manualDialogueText, setManualDialogueText] = useState('');
   const [isFinalizing, setIsFinalizing] = useState(false);
@@ -658,71 +556,16 @@ export default function ChairsideWorkspace({
   };
 
   // ─────────────────────────────────────────────────────────────
-  // 3b. INLINE EDITABLE SOAP CLINICAL NOTE OVERRIDES & AUTOSAVE
+  // 3b. PROGRESS NOTE EDITOR STATE
   // ─────────────────────────────────────────────────────────────
-  const [editedSoapNotes, setEditedSoapNotes] = useState<Record<string, {
-    subjective?: string;
-    objective?: string;
-    assessment?: string;
-    plan?: string;
-  }>>({});
-  const [soapSaveStatus, setSoapSaveStatus] = useState<Record<string, 'saved' | 'saving'>>({});
   const [editedProgressNotes, setEditedProgressNotes] = useState<Record<string, string>>({});
   const [progressNoteSaveStatus, setProgressNoteSaveStatus] = useState<Record<string, 'saved' | 'saving'>>({});
 
   // ─────────────────────────────────────────────────────────────
-  // 3c. CONTEXTUAL OPERATORY HELP & DIRECT GITHUB ISSUE CREATION
+  // 3c. CONTEXTUAL OPERATORY HELP
   // ─────────────────────────────────────────────────────────────
   const [showDayGuide, setShowDayGuide] = useState(false);
   const [guideActiveTab, setGuideActiveTab] = useState<'phases' | 'hotkeys' | 'dictation' | 'pms' | 'github'>('phases');
-  const [guideGhTitle, setGuideGhTitle] = useState('');
-  const [guideGhCategory, setGuideGhCategory] = useState('feature-request');
-  const [guideGhDescription, setGuideGhDescription] = useState('');
-  const [guideGhPriority, setGuideGhPriority] = useState('normal');
-  const [guideGhToken, setGuideGhToken] = useState('');
-  const [guideGhSubmitting, setGuideGhSubmitting] = useState(false);
-  const [guideGhResult, setGuideGhResult] = useState<{ ok: boolean; issueNumber?: number; issueUrl?: string; error?: string } | null>(null);
-
-  const handleSubmitChairsideGitHubIssue = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!guideGhTitle.trim() || !guideGhDescription.trim()) return;
-    setGuideGhSubmitting(true);
-    setGuideGhResult(null);
-    try {
-      const res = await fetch('/api/support/github-issue', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(guideGhToken.trim() ? { 'x-github-token': guideGhToken.trim() } : {})
-        },
-        body: JSON.stringify({
-          title: guideGhTitle,
-          description: guideGhDescription,
-          category: guideGhCategory,
-          priority: guideGhPriority,
-          customToken: guideGhToken.trim() || undefined,
-          telemetry: {
-            appVersion: '2.4.0',
-            screen: 'Chairside Operatory',
-            audioDsp: dspNoiseGateActive ? 'Active (120Hz/3400Hz/4200Hz)' : 'Bypassed',
-            patientEncounter: activeEncounter?.procedureText || 'General'
-          }
-        })
-      });
-      const data = await res.json();
-      if (res.ok && data.ok) {
-        setGuideGhResult({ ok: true, issueNumber: data.issueNumber, issueUrl: data.issueUrl });
-        setGuideGhTitle('');
-        setGuideGhDescription('');
-      } else {
-        setGuideGhResult({ ok: false, error: data.message || data.error || 'Failed to create GitHub issue' });
-      }
-    } catch (err: any) {
-      setGuideGhResult({ ok: false, error: err.message || 'Network error connecting to support endpoint' });
-    } finally {
-      setGuideGhSubmitting(false);
-    }
-  };
 
   // Real-time live interim speech and operatory microphone state
   const [interimTranscript, setInterimTranscript] = useState('');
@@ -1024,22 +867,8 @@ export default function ChairsideWorkspace({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleKeepListening, handleStartAudio, handleTogglePause, activeEncounter, handleQuickStartRecording]);
 
-  // Derived active SOAP with local inline edits applied
-  const currentSoap = useMemo(() => {
-    const rawSoap = activeEncounter?.soap || {
-      subjective: '',
-      objective: '',
-      assessment: '',
-      plan: ''
-    };
-    const overrides = (activeEncounter?.id && editedSoapNotes[activeEncounter.id]) || {};
-    return {
-      subjective: overrides.subjective !== undefined ? overrides.subjective : rawSoap.subjective,
-      objective: overrides.objective !== undefined ? overrides.objective : rawSoap.objective,
-      assessment: overrides.assessment !== undefined ? overrides.assessment : rawSoap.assessment,
-      plan: overrides.plan !== undefined ? overrides.plan : rawSoap.plan
-    };
-  }, [activeEncounter?.id, activeEncounter?.soap, editedSoapNotes]);
+  // Derived active SOAP (read-only from consultation record — no local override layer)
+  const currentSoap = activeEncounter?.soap ?? { subjective: '', objective: '', assessment: '', plan: '' };
 
   const hasGeneratedNote = useMemo(() => {
     return Boolean(
@@ -1049,65 +878,6 @@ export default function ChairsideWorkspace({
       (currentSoap.objective && currentSoap.objective.trim().length > 0 && currentSoap.assessment && currentSoap.assessment.trim().length > 0)
     );
   }, [activeEncounter, activeConsult, currentSoap]);
-
-  // Real-time passive clinical entity extraction (teeth, surfaces, anaesthetics)
-  const liveDetectedEntities = useMemo(() => {
-    const transcript = activeEncounter?.diarizedTranscript || [];
-    if (!transcript.length) return null;
-    return parseClinicalEntities(transcript.map(t => ({ text: t.text, sender: t.role === 'dentist' ? 'Dentist' : 'Patient' })));
-  }, [activeEncounter?.diarizedTranscript]);
-
-  // Handle inline clinical SOAP edit with instant optimistic UI & database auto-save
-  const handleSoapChange = useCallback(async (field: 'subjective' | 'objective' | 'assessment' | 'plan', value: string) => {
-    if (!activeEncounter) return;
-    const targetId = activeEncounter.id;
-
-    // 1. Optimistic UI update (0ms typing latency)
-    setEditedSoapNotes(prev => ({
-      ...prev,
-      [targetId]: {
-        ...(prev[targetId] || {}),
-        [field]: value
-      }
-    }));
-    setSoapSaveStatus(prev => ({ ...prev, [targetId]: 'saving' }));
-
-    // Auto-verify section because clinician actively authored/reviewed it
-    setVerifiedSections(prev => ({
-      ...prev,
-      [targetId]: {
-        ...(prev[targetId] || {}),
-        [field]: true
-      }
-    }));
-
-    // 2. Persist to consultation in database
-    const existingConsultation = consultationsRef.current.find(c => c.id === targetId);
-    if (existingConsultation && onSaveConsultation) {
-      const currentFindings = existingConsultation.findings || {};
-      const updatedFindings: ClinicalFindings = {
-        ...currentFindings,
-        chiefComplaint: field === 'subjective' ? value : (currentFindings.chiefComplaint || ''),
-        toothFindings: field === 'objective' ? value : (currentFindings.toothFindings || ''),
-        diagnosis: field === 'assessment' ? value : (currentFindings.diagnosis || ''),
-        treatmentPerformed: field === 'plan' ? value : (currentFindings.treatmentPerformed || '')
-      };
-
-      const updatedConsultation: Consultation = {
-        ...existingConsultation,
-        findings: updatedFindings
-      };
-
-      try {
-        await onSaveConsultation(updatedConsultation);
-        setSoapSaveStatus(prev => ({ ...prev, [targetId]: 'saved' }));
-      } catch (e) {
-        console.warn('Failed to auto-save inline edited SOAP note:', e);
-      }
-    } else {
-      setSoapSaveStatus(prev => ({ ...prev, [targetId]: 'saved' }));
-    }
-  }, [activeEncounter, onSaveConsultation]);
 
   // Handle inline clinical Progress Note edit with instant optimistic UI & database auto-save
   const handleProgressNoteChange = useCallback(async (value: string) => {
@@ -1119,17 +889,6 @@ export default function ChairsideWorkspace({
       [targetId]: value
     }));
     setProgressNoteSaveStatus(prev => ({ ...prev, [targetId]: 'saving' }));
-
-    // Auto-verify all sections because clinician actively authored/reviewed it
-    setVerifiedSections(prev => ({
-      ...prev,
-      [targetId]: {
-        subjective: true,
-        objective: true,
-        assessment: true,
-        plan: true
-      }
-    }));
 
     // 2. Persist to consultation in database
     const existingConsultation = consultationsRef.current.find(c => c.id === targetId);
@@ -1147,32 +906,6 @@ export default function ChairsideWorkspace({
       }
     } else {
       setProgressNoteSaveStatus(prev => ({ ...prev, [targetId]: 'saved' }));
-    }
-  }, [activeEncounter, onSaveConsultation]);
-
-  // Reset edited progress note back to original AI / macro-generated draft
-  const handleResetProgressNote = useCallback(async () => {
-    if (!activeEncounter) return;
-    const targetId = activeEncounter.id;
-
-    setEditedProgressNotes(prev => {
-      const next = { ...prev };
-      delete next[targetId];
-      return next;
-    });
-
-    const existingConsultation = consultationsRef.current.find(c => c.id === targetId);
-    if (existingConsultation && onSaveConsultation) {
-      const updatedConsultation: Consultation = {
-        ...existingConsultation,
-        clinicalProgressNote: undefined
-      };
-      try {
-        await onSaveConsultation(updatedConsultation);
-        setProgressNoteSaveStatus(prev => ({ ...prev, [targetId]: 'saved' }));
-      } catch (e) {
-        console.warn('Failed to reset progress note in database:', e);
-      }
     }
   }, [activeEncounter, onSaveConsultation]);
 
@@ -2473,17 +2206,6 @@ export default function ChairsideWorkspace({
         await onSaveConsultation(finalizedConsultation);
       }
 
-      // Reset local inline edit overrides so newly generated note renders immediately
-      setEditedSoapNotes(prev => {
-        const next = { ...prev };
-        delete next[targetId];
-        return next;
-      });
-      setVerifiedSections(prev => ({
-        ...prev,
-        [targetId]: { subjective: true, objective: true, assessment: true, plan: true }
-      }));
-
       if (autoCopyClipboard) {
         handleCopyPMS(finalizedConsultation);
       }
@@ -2595,21 +2317,11 @@ export default function ChairsideWorkspace({
       await onSaveConsultation(updatedConsultation);
     }
 
-    // Reset local inline edit overrides so macro note immediately renders in textareas
-    setEditedSoapNotes(prev => {
-      const next = { ...prev };
-      delete next[targetConsult.id];
-      return next;
-    });
     setEditedProgressNotes(prev => {
       const next = { ...prev };
       delete next[targetConsult.id];
       return next;
     });
-    setVerifiedSections(prev => ({
-      ...prev,
-      [targetConsult.id]: { subjective: true, objective: true, assessment: true, plan: true }
-    }));
   };
 
   // Asynchronous Non-Blocking Patient Handoff ("Next Patient")
@@ -2709,18 +2421,10 @@ export default function ChairsideWorkspace({
     }
 
     const isCurrentActive = target.id === targetId;
-    const subj = isCurrentActive && editedSoapNotes[targetId]?.subjective !== undefined
-      ? editedSoapNotes[targetId]!.subjective
-      : (target.findings?.chiefComplaint ? `${target.findings.chiefComplaint} ${target.findings.history || ''}` : '');
-    const obj = isCurrentActive && editedSoapNotes[targetId]?.objective !== undefined
-      ? editedSoapNotes[targetId]!.objective
-      : (target.findings?.toothFindings ? `${target.findings.toothFindings} ${target.findings.findingsGingival || ''}` : '');
-    const assess = isCurrentActive && editedSoapNotes[targetId]?.assessment !== undefined
-      ? editedSoapNotes[targetId]!.assessment
-      : (target.findings?.diagnosis || '');
-    const planText = isCurrentActive && editedSoapNotes[targetId]?.plan !== undefined
-      ? editedSoapNotes[targetId]!.plan
-      : (target.findings?.treatmentPerformed ? `${target.findings.treatmentPerformed} ${target.findings.recommendations || ''}` : '');
+    const subj = target.findings?.chiefComplaint ? `${target.findings.chiefComplaint} ${target.findings.history || ''}` : '';
+    const obj = target.findings?.toothFindings ? `${target.findings.toothFindings} ${target.findings.findingsGingival || ''}` : '';
+    const assess = target.findings?.diagnosis || '';
+    const planText = target.findings?.treatmentPerformed ? `${target.findings.treatmentPerformed} ${target.findings.recommendations || ''}` : '';
 
     // Construct synthesized consultation snapshot reflecting live clinician edits
     const liveConsult: Consultation = {
@@ -2745,7 +2449,7 @@ export default function ChairsideWorkspace({
         return '';
       }
     }
-  }, [activeEncounter, effectiveEncounter, activeConsult, consultations, currentDateStr, editedProgressNotes, editedSoapNotes]);
+  }, [activeEncounter, effectiveEncounter, activeConsult, consultations, currentDateStr, editedProgressNotes]);
 
   const currentProgressNote = useMemo(() => {
     return getFormattedNoteText();
@@ -2980,35 +2684,7 @@ ${clinician}`;
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [activeEncounter, encountersForDate, consultations, dentistName, showDaysheetModal, showPlainTextModal, showBatchTray, showDeliverablesModal]);
 
-  // Entity annotator for live speech feed
-  const renderAnnotatedText = (text: string) => {
-    const regex = /(#14|#8|#19|#30|#3|1\.8mL carpule|2% Lidocaine with 1:100,000 epinephrine|Theracal liner|Filtek Supreme A2 composite|Zirconia)/g;
-    const parts = text.split(regex);
-    return parts.map((part, i) => {
-      if (part.startsWith('#')) {
-        return (
-          <span key={i} className="inline-block bg-sky-100 text-sky-800 border border-sky-300 px-1.5 py-0.2 rounded font-mono font-bold text-xs mx-0.5 shadow-2xs">
-            {part}
-          </span>
-        );
-      }
-      if (part === '1.8mL carpule' || part === '2% Lidocaine with 1:100,000 epinephrine') {
-        return (
-          <span key={i} className="inline-block bg-amber-100 text-amber-900 border border-amber-300 px-1.5 py-0.2 rounded font-semibold text-xs mx-0.5 shadow-2xs">
-            {part}
-          </span>
-        );
-      }
-      if (part.includes('Theracal') || part.includes('Filtek') || part.includes('Zirconia')) {
-        return (
-          <span key={i} className="inline-block bg-purple-100 text-purple-900 border border-purple-300 px-1.5 py-0.2 rounded font-semibold text-xs mx-0.5 shadow-2xs">
-            {part}
-          </span>
-        );
-      }
-      return part;
-    });
-  };
+
 
   return (
     <div className="flex h-screen w-full bg-[#F8F9FA] text-slate-800 font-sans overflow-hidden antialiased select-none">
@@ -3511,7 +3187,6 @@ ${clinician}`;
                   onOpenDeliverables={() => setShowDeliverablesModal(true)}
                   onNextPatient={handleNextPatient}
                   hasActualGeneratedNote={Boolean(effectiveEncounter.soap?.assessment || effectiveEncounter.soap?.plan || currentProgressNote)}
-                  captureConfidence={captureConfidence}
                 />
               </div>
             </main>
@@ -3582,19 +3257,8 @@ ${clinician}`;
         onClose={() => setShowDayGuide(false)}
         guideActiveTab={guideActiveTab}
         setGuideActiveTab={setGuideActiveTab}
-        guideGhTitle={guideGhTitle}
-        setGuideGhTitle={setGuideGhTitle}
-        guideGhDescription={guideGhDescription}
-        setGuideGhDescription={setGuideGhDescription}
-        guideGhCategory={guideGhCategory}
-        setGuideGhCategory={setGuideGhCategory}
-        guideGhPriority={guideGhPriority}
-        setGuideGhPriority={setGuideGhPriority}
-        guideGhToken={guideGhToken}
-        setGuideGhToken={setGuideGhToken}
-        guideGhSubmitting={guideGhSubmitting}
-        guideGhResult={guideGhResult}
-        handleSubmitChairsideGitHubIssue={handleSubmitChairsideGitHubIssue}
+        dspNoiseGateActive={dspNoiseGateActive}
+        activeEncounterProcedure={activeEncounter?.procedureText}
       />
     </div>
   );

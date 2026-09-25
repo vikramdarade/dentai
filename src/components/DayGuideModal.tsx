@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { LifeBuoy, Play, X, Send, CheckCircle2, AlertTriangle, ExternalLink } from 'lucide-react';
 
 export interface DayGuideModalProps {
@@ -6,19 +6,8 @@ export interface DayGuideModalProps {
   onClose: () => void;
   guideActiveTab: 'phases' | 'hotkeys' | 'dictation' | 'pms' | 'github';
   setGuideActiveTab: (tab: 'phases' | 'hotkeys' | 'dictation' | 'pms' | 'github') => void;
-  guideGhTitle: string;
-  setGuideGhTitle: (val: string) => void;
-  guideGhDescription: string;
-  setGuideGhDescription: (val: string) => void;
-  guideGhCategory: string;
-  setGuideGhCategory: (val: string) => void;
-  guideGhPriority: string;
-  setGuideGhPriority: (val: string) => void;
-  guideGhToken: string;
-  setGuideGhToken: (val: string) => void;
-  guideGhSubmitting: boolean;
-  guideGhResult: { ok: boolean; issueNumber?: number; issueUrl?: string; error?: string } | null;
-  handleSubmitChairsideGitHubIssue: (e: React.FormEvent) => void;
+  dspNoiseGateActive?: boolean;
+  activeEncounterProcedure?: string;
 }
 
 export const DayGuideModal: React.FC<DayGuideModalProps> = ({
@@ -26,21 +15,60 @@ export const DayGuideModal: React.FC<DayGuideModalProps> = ({
   onClose,
   guideActiveTab,
   setGuideActiveTab,
-  guideGhTitle,
-  setGuideGhTitle,
-  guideGhDescription,
-  setGuideGhDescription,
-  guideGhCategory,
-  setGuideGhCategory,
-  guideGhPriority,
-  setGuideGhPriority,
-  guideGhToken,
-  setGuideGhToken,
-  guideGhSubmitting,
-  guideGhResult,
-  handleSubmitChairsideGitHubIssue,
+  dspNoiseGateActive = true,
+  activeEncounterProcedure,
 }) => {
+  // GitHub issue form state lives here — not in the 3600-line orchestrator
+  const [ghTitle, setGhTitle] = useState('');
+  const [ghCategory, setGhCategory] = useState('feature-request');
+  const [ghDescription, setGhDescription] = useState('');
+  const [ghPriority, setGhPriority] = useState('normal');
+  const [ghToken, setGhToken] = useState('');
+  const [ghSubmitting, setGhSubmitting] = useState(false);
+  const [ghResult, setGhResult] = useState<{ ok: boolean; issueNumber?: number; issueUrl?: string; error?: string } | null>(null);
+
   if (!isOpen) return null;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!ghTitle.trim() || !ghDescription.trim()) return;
+    setGhSubmitting(true);
+    setGhResult(null);
+    try {
+      const res = await fetch('/api/support/github-issue', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(ghToken.trim() ? { 'x-github-token': ghToken.trim() } : {})
+        },
+        body: JSON.stringify({
+          title: ghTitle,
+          description: ghDescription,
+          category: ghCategory,
+          priority: ghPriority,
+          customToken: ghToken.trim() || undefined,
+          telemetry: {
+            appVersion: '2.4.0',
+            screen: 'Chairside Operatory',
+            audioDsp: dspNoiseGateActive ? 'Active (120Hz/3400Hz/4200Hz)' : 'Bypassed',
+            patientEncounter: activeEncounterProcedure || 'General'
+          }
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        setGhResult({ ok: true, issueNumber: data.issueNumber, issueUrl: data.issueUrl });
+        setGhTitle('');
+        setGhDescription('');
+      } else {
+        setGhResult({ ok: false, error: data.message || data.error || 'Failed to create GitHub issue' });
+      }
+    } catch (err: any) {
+      setGhResult({ ok: false, error: err.message || 'Network error connecting to support endpoint' });
+    } finally {
+      setGhSubmitting(false);
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 overflow-y-auto">
@@ -53,10 +81,10 @@ export const DayGuideModal: React.FC<DayGuideModalProps> = ({
             </div>
             <div>
               <h3 className="text-base font-extrabold text-slate-900 tracking-tight">
-                Clinician Operatory Guide & Support
+                Clinician Operatory Guide &amp; Support
               </h3>
               <p className="text-xs text-slate-500 font-medium">
-                Apple Medical Grade workflow reference, hands-free hotkeys & direct GitHub dispatch
+                Apple Medical Grade workflow reference, hands-free hotkeys &amp; direct GitHub dispatch
               </p>
             </div>
           </div>
@@ -134,7 +162,7 @@ export const DayGuideModal: React.FC<DayGuideModalProps> = ({
                 <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-teal-800 block mb-1">
                   PHASE 1 • MORNING CLINICAL SETUP
                 </span>
-                <h4 className="text-xs font-bold text-slate-900 mb-1">Operatory Roster & Audio Verification</h4>
+                <h4 className="text-xs font-bold text-slate-900 mb-1">Operatory Roster &amp; Audio Verification</h4>
                 <p className="leading-relaxed text-slate-600">
                   Verify your day's patient roster in the left rail. For walk-in patients, click <strong>+ Encounter</strong> to add them in 5 seconds. The microphone defaults to <span className="font-mono text-sky-700 font-bold">STANDBY (00:00)</span> with zero runaway audio.
                 </p>
@@ -144,7 +172,7 @@ export const DayGuideModal: React.FC<DayGuideModalProps> = ({
                 <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-teal-800 block mb-1">
                   PHASE 2 • CHAIRSIDE APPOINTMENT
                 </span>
-                <h4 className="text-xs font-bold text-slate-900 mb-1">Hands-Free Audio & Noise Filter</h4>
+                <h4 className="text-xs font-bold text-slate-900 mb-1">Hands-Free Audio &amp; Noise Filter</h4>
                 <p className="leading-relaxed text-slate-600">
                   Seat the patient and tap <kbd className="px-1 py-0.5 bg-white border rounded font-mono text-[10px]">Spacebar</kbd>. The ascending chime confirms listening. The smart noise filter automatically quiets dental drills and background sounds.
                 </p>
@@ -154,7 +182,7 @@ export const DayGuideModal: React.FC<DayGuideModalProps> = ({
                 <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-teal-800 block mb-1">
                   PHASE 3 • POST-OP TURNOVER
                 </span>
-                <h4 className="text-xs font-bold text-slate-900 mb-1">Inline Notes & 1-Click Clipboard Copy</h4>
+                <h4 className="text-xs font-bold text-slate-900 mb-1">Inline Notes &amp; 1-Click Clipboard Copy</h4>
                 <p className="leading-relaxed text-slate-600">
                   Click directly into Subjective, Objective, Assessment, or Plan to customize any sentence with zero lag. Press <kbd className="px-1 py-0.5 bg-white border rounded font-mono text-[10px]">⌘C</kbd> to copy the formatted note for immediate insertion into your practice software.
                 </p>
@@ -218,7 +246,7 @@ export const DayGuideModal: React.FC<DayGuideModalProps> = ({
                     </tr>
                     <tr>
                       <td className="p-3 font-mono font-bold text-teal-800">?</td>
-                      <td className="p-3 font-bold text-slate-800">Open Guide & Shortcuts</td>
+                      <td className="p-3 font-bold text-slate-800">Open Guide &amp; Shortcuts</td>
                       <td className="p-3 text-slate-500">Instant access to shortcuts and help</td>
                     </tr>
                   </tbody>
@@ -230,7 +258,7 @@ export const DayGuideModal: React.FC<DayGuideModalProps> = ({
           {guideActiveTab === 'dictation' && (
             <div className="space-y-3">
               <div className="p-3.5 bg-teal-50/50 rounded-2xl border border-teal-100">
-                <h4 className="font-bold text-slate-900 mb-1">Acoustic & Dental Phonetic Recognition</h4>
+                <h4 className="font-bold text-slate-900 mb-1">Acoustic &amp; Dental Phonetic Recognition</h4>
                 <p className="text-slate-600">
                   DentAI's operatory phonetic lexicon automatically maps spoken colloquial dental terms into standardized clinical notations.
                 </p>
@@ -239,19 +267,19 @@ export const DayGuideModal: React.FC<DayGuideModalProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 <div className="p-3 bg-white border border-slate-200 rounded-xl">
                   <span className="text-[10px] font-bold uppercase text-slate-400 block mb-1">Tooth Notation</span>
-                  <p className="font-bold text-slate-800 text-xs">FDI & Universal System</p>
+                  <p className="font-bold text-slate-800 text-xs">FDI &amp; Universal System</p>
                   <p className="text-slate-500 mt-1 text-[11px]">Say: <em>"Tooth 14 occlusal"</em> or <em>"FDI 33 and 46"</em>. Both are recognized and mapped.</p>
                 </div>
 
                 <div className="p-3 bg-white border border-slate-200 rounded-xl">
                   <span className="text-[10px] font-bold uppercase text-slate-400 block mb-1">Anesthetic Phrasing</span>
-                  <p className="font-bold text-slate-800 text-xs">Carpule & Epinephrine</p>
+                  <p className="font-bold text-slate-800 text-xs">Carpule &amp; Epinephrine</p>
                   <p className="text-slate-500 mt-1 text-[11px]">Say: <em>"1 carpule 2% Lidocaine 1 to 100,000 epi via IANB"</em>. Mapped to D9215 / ADA 921.</p>
                 </div>
 
                 <div className="p-3 bg-white border border-slate-200 rounded-xl">
                   <span className="text-[10px] font-bold uppercase text-slate-400 block mb-1">Restorative Materials</span>
-                  <p className="font-bold text-slate-800 text-xs">Composites & Cements</p>
+                  <p className="font-bold text-slate-800 text-xs">Composites &amp; Cements</p>
                   <p className="text-slate-500 mt-1 text-[11px]">Say: <em>"Filtek Supreme A2 composite"</em>, <em>"Theracal liner"</em>, or <em>"RelyX Luting Plus"</em>.</p>
                 </div>
 
@@ -290,7 +318,7 @@ export const DayGuideModal: React.FC<DayGuideModalProps> = ({
                 </div>
 
                 <div className="p-3 bg-white border border-slate-200 rounded-xl">
-                  <p className="font-bold text-slate-800 text-xs">Cliniko & Titanium</p>
+                  <p className="font-bold text-slate-800 text-xs">Cliniko &amp; Titanium</p>
                   <p className="text-slate-500 text-[11px] mt-0.5">Open Treatment Notes &rarr; Add Note &rarr; Paste.</p>
                 </div>
               </div>
@@ -298,7 +326,7 @@ export const DayGuideModal: React.FC<DayGuideModalProps> = ({
           )}
 
           {guideActiveTab === 'github' && (
-            <form onSubmit={handleSubmitChairsideGitHubIssue} className="space-y-3">
+            <form onSubmit={handleSubmit} className="space-y-3">
               <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200">
                 <h4 className="font-bold text-slate-900 flex items-center gap-1.5 text-xs">
                   <Send className="w-3.5 h-3.5 text-teal-700" />
@@ -309,16 +337,16 @@ export const DayGuideModal: React.FC<DayGuideModalProps> = ({
                 </p>
               </div>
 
-              {guideGhResult && (
-                <div className={`p-3 rounded-xl text-xs font-semibold flex items-center justify-between gap-2 ${guideGhResult.ok ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-rose-50 text-rose-800 border border-rose-200'
+              {ghResult && (
+                <div className={`p-3 rounded-xl text-xs font-semibold flex items-center justify-between gap-2 ${ghResult.ok ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-rose-50 text-rose-800 border border-rose-200'
                   }`}>
                   <div className="flex items-center gap-2">
-                    {guideGhResult.ok ? <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" /> : <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />}
-                    <span>{guideGhResult.ok ? `Issue #${guideGhResult.issueNumber} created directly in GitHub!` : guideGhResult.error}</span>
+                    {ghResult.ok ? <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" /> : <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />}
+                    <span>{ghResult.ok ? `Issue #${ghResult.issueNumber} created directly in GitHub!` : ghResult.error}</span>
                   </div>
-                  {guideGhResult.issueUrl && (
+                  {ghResult.issueUrl && (
                     <a
-                      href={guideGhResult.issueUrl}
+                      href={ghResult.issueUrl}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-emerald-700 underline flex items-center gap-1 shrink-0"
@@ -335,8 +363,8 @@ export const DayGuideModal: React.FC<DayGuideModalProps> = ({
                 <input
                   type="text"
                   placeholder="e.g. Add support for ADA item 611 ceramic crown fee schedule"
-                  value={guideGhTitle}
-                  onChange={e => setGuideGhTitle(e.target.value)}
+                  value={ghTitle}
+                  onChange={e => setGhTitle(e.target.value)}
                   required
                   className="w-full h-9 px-3 bg-white border border-slate-200 rounded-xl text-xs font-medium focus:border-teal-700 outline-none"
                 />
@@ -346,22 +374,22 @@ export const DayGuideModal: React.FC<DayGuideModalProps> = ({
                 <div>
                   <label className="text-[10px] font-bold uppercase text-slate-500 block mb-1">Category</label>
                   <select
-                    value={guideGhCategory}
-                    onChange={e => setGuideGhCategory(e.target.value)}
+                    value={ghCategory}
+                    onChange={e => setGhCategory(e.target.value)}
                     className="w-full h-9 px-2 bg-white border border-slate-200 rounded-xl text-xs font-medium focus:border-teal-700 outline-none"
                   >
                     <option value="feature-request">Feature Request</option>
-                    <option value="clinical-audio">Microphone & Noise Filter</option>
-                    <option value="dental-lexicon">Dental Lexicon & Codes</option>
-                    <option value="pms-clipboard">PMS Clipboard & Export</option>
+                    <option value="clinical-audio">Microphone &amp; Noise Filter</option>
+                    <option value="dental-lexicon">Dental Lexicon &amp; Codes</option>
+                    <option value="pms-clipboard">PMS Clipboard &amp; Export</option>
                     <option value="operatory-bug">Bug Report</option>
                   </select>
                 </div>
                 <div>
                   <label className="text-[10px] font-bold uppercase text-slate-500 block mb-1">Priority</label>
                   <select
-                    value={guideGhPriority}
-                    onChange={e => setGuideGhPriority(e.target.value)}
+                    value={ghPriority}
+                    onChange={e => setGhPriority(e.target.value)}
                     className="w-full h-9 px-2 bg-white border border-slate-200 rounded-xl text-xs font-medium focus:border-teal-700 outline-none"
                   >
                     <option value="normal">Normal</option>
@@ -372,12 +400,12 @@ export const DayGuideModal: React.FC<DayGuideModalProps> = ({
               </div>
 
               <div>
-                <label className="text-[10px] font-bold uppercase text-slate-500 block mb-1">Clinical Context & Observation</label>
+                <label className="text-[10px] font-bold uppercase text-slate-500 block mb-1">Clinical Context &amp; Observation</label>
                 <textarea
                   rows={3}
                   placeholder="Describe what occurred chairside or the feature improvement desired..."
-                  value={guideGhDescription}
-                  onChange={e => setGuideGhDescription(e.target.value)}
+                  value={ghDescription}
+                  onChange={e => setGhDescription(e.target.value)}
                   required
                   className="w-full p-2.5 bg-white border border-slate-200 rounded-xl text-xs font-medium focus:border-teal-700 outline-none resize-none"
                 />
@@ -390,18 +418,18 @@ export const DayGuideModal: React.FC<DayGuideModalProps> = ({
                 <input
                   type="password"
                   placeholder="ghp_..."
-                  value={guideGhToken}
-                  onChange={e => setGuideGhToken(e.target.value)}
+                  value={ghToken}
+                  onChange={e => setGhToken(e.target.value)}
                   className="w-full h-8 px-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono outline-none"
                 />
               </div>
 
               <button
                 type="submit"
-                disabled={guideGhSubmitting || !guideGhTitle.trim() || !guideGhDescription.trim()}
+                disabled={ghSubmitting || !ghTitle.trim() || !ghDescription.trim()}
                 className="w-full h-10 rounded-xl bg-teal-800 hover:bg-teal-900 disabled:opacity-50 text-white text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer shadow-sm"
               >
-                {guideGhSubmitting ? (
+                {ghSubmitting ? (
                   <>
                     <div className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
                     <span>Creating issue via GitHub API…</span>
