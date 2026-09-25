@@ -29,7 +29,6 @@ data/*
 # Demo/recording artefacts and local exports
 demo/out/
 *.mp4
-!demo/dentai-demo.mp4
 !public/demo/dentai-demo.mp4
 test-results/
 playwright-report/

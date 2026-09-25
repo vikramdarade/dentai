@@ -3,12 +3,7 @@ import { AnimatePresence } from 'motion/react';
 import { Consultation, TranscriptItem, ClinicalFindings, GeneratedNotePayload, NoteOrigin, TranscriptProvenance, getTodayStr, getCurrentTimeStr } from './types';
 import { ClinicMembership } from './lib/clinics';
 import { getTemplateById, getDefaultTemplateIdForType, AppointmentType } from './lib/dentalLibrary';
-import { normalizedToPayload } from './lib/normalizeNoteOutput';
-import type { GroundingReport } from './lib/transcriptGrounding';
 import HistoryHub from './components/HistoryHub';
-import PatientIntake from './components/PatientIntake';
-import LiveRecording from './components/LiveRecording';
-import ClinicalSummary from './components/ClinicalSummary';
 import Login from './components/Login';
 import Landing from './components/Landing';
 import DemoMovie from './demo/DemoMovie';
@@ -24,9 +19,6 @@ import {
   clearAuth,
   saveLocalConsultations,
   getLocalConsultations,
-  saveActiveIntake,
-  getActiveIntake,
-  clearActiveIntake,
   getPendingSync,
   queuePendingSync,
   removePendingSync,
@@ -35,7 +27,7 @@ import {
 import { DayScheduleItem, updateScheduleItem, formatNoteForPmsClipboard } from './lib/dayScheduleStorage';
 import ChairsideWorkspace from './components/ChairsideWorkspace';
 
-type ViewType = 'workspace' | 'history' | 'intake' | 'record' | 'summary';
+type ViewType = 'workspace' | 'history';
 
 export default function App() {
   // Public (unauthenticated) screens, addressable by hash so they can be linked
@@ -106,21 +98,6 @@ export default function App() {
   // Inactivity warning states
   const [showInactivityWarning, setShowInactivityWarning] = useState(false);
   const [inactivityCountdown, setInactivityCountdown] = useState(30);
-  /** Live status line shown on the processing overlay (async job progress). */
-  const [processingHint, setProcessingHint] = useState<string | null>(null);
-
-  // Temporary container for active intake details (including the patient's
-  // recorded consent, which is stamped onto the consultation on save).
-  const [activeIntake, setActiveIntake] = useState<{
-    firstName: string;
-    lastName: string;
-    dob: string;
-    appointmentType: AppointmentType;
-    templateId?: string;
-    consent?: { obtainedAt: string; disclosureVersion: string };
-    scheduleItemId?: string;
-  } | null>(null);
-
   // Load token and currentUser from persistent storage on mount
   useEffect(() => {
     const { token, user } = getAuth();
@@ -145,12 +122,6 @@ export default function App() {
           console.warn('[Auth] Silent token verification failed (offline/serverless cold start):', err);
         });
 
-      // Restore active in-progress recording session if present!
-      const savedIntake = getActiveIntake();
-      if (savedIntake) {
-        setActiveIntake(savedIntake);
-        setView('record');
-      }
     }
     setIsAuthLoading(false);
   }, []);
@@ -450,16 +421,7 @@ export default function App() {
     } else {
       setConsultations([]);
     }
-    // Resume any in-progress consultation that survived a logout or session
-    // expiry — same recovery the cold-load mount path performs, so re-login
-    // without a page reload also restores the recording with its transcript.
-    const savedIntake = getActiveIntake();
-    if (savedIntake) {
-      setActiveIntake(savedIntake);
-      setView('record');
-    } else {
-      setView('workspace');
-    }
+    setView('workspace');
   };
 
   const handleLogout = async () => {
@@ -498,450 +460,44 @@ export default function App() {
     setView('workspace');
   };
 
-  const handleIntakeSubmit = (intakeData: {
-    firstName: string;
-    lastName: string;
-    dob: string;
-    appointmentType: AppointmentType;
-    templateId?: string;
-    consent?: { obtainedAt: string; disclosureVersion: string };
-  }) => {
-    setActiveIntake(intakeData);
-    saveActiveIntake(intakeData);
-    setView('record');
-  };
 
   const handleStartScheduledConsultation = (item: DayScheduleItem) => {
-    const nameParts = item.patientName.trim().split(/\s+/);
-    const firstName = nameParts[0] || 'Patient';
-    const lastName = nameParts.slice(1).join(' ') || '';
-
-    const intakeData = {
-      firstName,
-      lastName,
-      // Left empty rather than defaulted: a written DOB is identity data, and a
-      // fabricated one is indistinguishable from a real one later. The record
-      // shows it is missing instead.
-      dob: '',
-      appointmentType: item.appointmentType,
-      templateId: item.templateId || 'standard',
-      scheduleItemId: item.id
-    };
-
-    setActiveIntake(intakeData);
-    saveActiveIntake(intakeData);
-    updateScheduleItem(item.id, { status: 'recording' });
-    setView('record');
-  };
-
-  const handleRecordFinish = async (
-    finalTranscript: TranscriptItem[],
-    fallbackNote?: { engine: 'offline-draft' | 'on-device'; modelId?: string; payload: GeneratedNotePayload },
-    provenance?: TranscriptProvenance
-  ) => {
-    if (!activeIntake || !currentUser) return;
-    const template = getTemplateById(activeIntake.templateId || getDefaultTemplateIdForType(activeIntake.appointmentType));
-
-    try {
-      let payload: GeneratedNotePayload;
-      let noteOrigin: NoteOrigin;
-      // The server verifies every generated note against the transcript and
-      // returns the verdict with the job. It used to be dropped on the floor
-      // here, so a note containing teeth or procedures nobody said was shown as
-      // fully verified. Carried through to the record and the summary screen.
-      let grounding: GroundingReport | undefined;
-      // One id per consultation across every engine: the hosted-AI path sends
-      // it with the job so the server's durable completion lands on the same
-      // record the client saves; fallback paths use it for the local record.
-      const consultationId = crypto.randomUUID();
-
-      // Background Scribe for PMS Day Queue:
-      // When started from an appointment schedule item, immediately return to Day Schedule
-      // and synthesize the clinical note asynchronously in the background.
-      if (activeIntake.scheduleItemId && !fallbackNote) {
-        const schedId = activeIntake.scheduleItemId;
-        const currentIntake = { ...activeIntake };
-        const assignedConsultationId = consultationId;
-
-        const submitRes = await fetch('/api/notes/jobs', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${authToken}`
-          },
-          body: JSON.stringify({
-            intakeData: { ...currentIntake, templateId: template.id },
-            transcript: finalTranscript,
-            clinicId: activeClinic?.clinicId,
-            consultationId: assignedConsultationId,
-          }),
-        });
-
-        if (!submitRes.ok) {
-          const errData = await submitRes.json().catch(() => ({}));
-          updateScheduleItem(schedId, {
-            status: 'failed',
-            error: errData.error || 'Failed to submit background note job.'
-          });
-          clearActiveIntake();
-          sessionStorage.removeItem('dentai_active_transcript');
-          sessionStorage.removeItem('dentai_active_seconds');
-          sessionStorage.removeItem('dentai_active_preset_index');
-          sessionStorage.removeItem('dentai_active_item_times');
-          setView('history');
-          return;
-        }
-
-        const { jobId } = await submitRes.json();
-        updateScheduleItem(schedId, {
-          status: 'processing',
-          jobId,
-          consultationId: assignedConsultationId
-        });
-
-        // Immediately free up the UI and return to Day Schedule!
-        clearActiveIntake();
-        sessionStorage.removeItem('dentai_active_transcript');
-        sessionStorage.removeItem('dentai_active_seconds');
-        sessionStorage.removeItem('dentai_active_preset_index');
-        sessionStorage.removeItem('dentai_active_item_times');
-        setView('history');
-
-        // Detached background worker drains the job and auto-saves the consultation
-        (async () => {
-          try {
-            const deadline = Date.now() + 85_000;
-            let jobPayload: any = null;
-
-            while (Date.now() < deadline) {
-              await new Promise((r) => setTimeout(r, 2000));
-              const pollRes = await fetch(`/api/notes/jobs/${jobId}`, {
-                headers: { 'Authorization': `Bearer ${authToken}` }
-              });
-              if (!pollRes.ok) break;
-              const jobState = await pollRes.json();
-              if (jobState.status === 'done') {
-                jobPayload = normalizedToPayload(template, jobState.result);
-                grounding = jobState.result?.groundingReport;
-                break;
-              }
-              if (jobState.status === 'failed') break;
-            }
-
-            if (jobPayload) {
-              const findings: ClinicalFindings = {
-                chiefComplaint: jobPayload.canonical.chiefComplaint || '',
-                history: jobPayload.canonical.history || '',
-                toothFindings: jobPayload.canonical.toothFindings || '',
-                findingsGingival: jobPayload.canonical.findingsGingival || '',
-                diagnosis: jobPayload.canonical.diagnosis || '',
-                treatmentPerformed: jobPayload.canonical.treatmentPerformed || '',
-                recommendations: jobPayload.canonical.recommendations || '',
-                recallRequirements: jobPayload.canonical.recallRequirements || '6 Months (Standard)',
-                customSections: jobPayload.customSections || {},
-                adaCodes: jobPayload.adaCodes || []
-              };
-
-              // Establish patient identity before the record is stored, so the
-              // chairside prior-history lookup has a chart to read and an
-              // ambiguous name is flagged instead of guessed at.
-              const identity = await resolvePatientIdentity(currentIntake);
-
-              const newConsult: Consultation = {
-                id: assignedConsultationId,
-                dentistId: currentUser.id,
-                clinicId: activeClinic?.clinicId,
-                ...identity,
-                firstName: currentIntake.firstName,
-                lastName: currentIntake.lastName,
-                dob: currentIntake.dob,
-                appointmentType: currentIntake.appointmentType,
-                date: getTodayStr(),
-                time: getCurrentTimeStr(),
-                // Real timestamp: display date/time cannot be ordered reliably.
-                createdAt: new Date().toISOString(),
-                status: 'Completed',
-                transcript: finalTranscript,
-                templateId: template.id,
-                findings,
-                patientSummary: jobPayload.patientSummary || '',
-                noteOrigin: {
-                  engine: 'gemini',
-                  needsReview: !(grounding?.isFullyGrounded ?? false),
-                  detail: grounding && !grounding.isFullyGrounded ? grounding.summary : undefined
-                },
-                grounding
-              };
-
-              setConsultations((prev) => [newConsult, ...prev]);
-              saveLocalConsultations([newConsult, ...consultations], currentUser.id);
-
-              fetch('/api/consultations', {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${authToken}`
-                },
-                body: JSON.stringify(newConsult)
-              }).catch(() => {});
-
-              const formatted = formatNoteForPmsClipboard({
-                id: schedId,
-                time: '',
-                patientName: `${currentIntake.firstName} ${currentIntake.lastName}`,
-                procedureText: '',
-                appointmentType: currentIntake.appointmentType,
-                templateId: template.id,
-                status: 'ready'
-              }, newConsult);
-
-              updateScheduleItem(schedId, {
-                status: 'ready',
-                clinicalNote: formatted,
-                adaCodes: jobPayload.adaCodes || [],
-                completedAt: new Date().toISOString()
-              });
-            } else {
-              updateScheduleItem(schedId, {
-                status: 'failed',
-                error: 'Note generation timed out in background.'
-              });
-            }
-          } catch (err: any) {
-            updateScheduleItem(schedId, {
-              status: 'failed',
-              error: err?.message || 'Background synthesis error.'
-            });
-          }
-        })();
-
-        return;
-      }
-
-      if (fallbackNote) {
-        // Fallback tier produced the note on this device — no hosted AI fetch.
-        payload = fallbackNote.payload;
-        noteOrigin = {
-          engine: fallbackNote.engine,
-          needsReview: true,
-          detail:
-            fallbackNote.engine === 'on-device'
-              ? `Generated on this device with the local model${fallbackNote.modelId ? ` (${fallbackNote.modelId})` : ''} after the hosted AI was unavailable. Review before saving.`
-              : 'Drafted offline from the transcript (no AI available). Review and complete before saving.'
-        };
-      } else {
-        // Async-first generation (the scale pivot): submit a durable job and
-        // poll for the result. The server retries with backoff on quota, so a
-        // rate-limit no longer dead-ends the dentist; per-clinic metering
-        // degrades gracefully to the offline draft instead. The consultation
-        // id is generated ONCE here and sent with the job so the server-side
-        // durable completion and this client record converge on one id — a
-        // browser death mid-generate still leaves exactly one record.
-        setProcessingHint(null);
-        const submitRes = await fetch('/api/notes/jobs', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${authToken}`
-          },
-          body: JSON.stringify({
-            intakeData: { ...activeIntake, templateId: template.id },
-            transcript: finalTranscript,
-            clinicId: activeClinic?.clinicId,
-            consultationId,
-          }),
-        });
-
-        if (!submitRes.ok) {
-          const errorData = await submitRes.json().catch(() => ({}));
-          if (submitRes.status === 429 || errorData.code === 'QUOTA_DAILY' || errorData.code === 'QUOTA_EXCEEDED') {
-            setShowBillingModal(true);
-            throw new Error(errorData.error || 'AI note generation is rate-limited for your clinic today. Your recording is preserved — draft the note offline now, or retry later.');
-          }
-          if (submitRes.status === 503) {
-            throw new Error('AI note generation is not configured yet. Ask the administrator to add GEMINI_API_KEY in the environment settings. Your recording is still here.');
-          }
-          throw new Error(errorData.error || `Server returned error status ${submitRes.status}`);
-        }
-
-        const { jobId } = await submitRes.json();
-        const deadline = Date.now() + 50_000;
-        let jobPayload: any = null;
-
-        while (Date.now() < deadline) {
-          await new Promise((r) => setTimeout(r, 1500));
-          const pollRes = await fetch(`/api/notes/jobs/${jobId}`, {
-            headers: { 'Authorization': `Bearer ${authToken}` }
-          });
-          if (!pollRes.ok) {
-            const pollErr = await pollRes.json().catch(() => ({}));
-            throw new Error(pollErr.error || `Lost track of the note job (status ${pollRes.status}). Your transcript is preserved — retry or draft offline.`);
-          }
-          const jobState = await pollRes.json();
-
-          if (jobState.status === 'done') {
-            jobPayload = normalizedToPayload(template, jobState.result);
-            grounding = jobState.result?.groundingReport;
-            break;
-          }
-          if (jobState.status === 'failed') {
-            throw new Error(jobState.error || 'The AI could not generate this note. Your transcript is preserved — draft offline now.');
-          }
-          if (jobState.statusDetail) {
-            setProcessingHint(jobState.statusDetail);
-          } else if (jobState.nextAttemptAt) {
-            const waitS = Math.max(1, Math.round((Date.parse(jobState.nextAttemptAt) - Date.now()) / 1000));
-            setProcessingHint(`Cloud AI is busy (rate-limited) — retrying automatically in ~${waitS}s (attempt ${jobState.attempts}).`);
-          }
-        }
-
-        if (!jobPayload) {
-          throw new Error('Cloud AI is experiencing extended delays or traffic limits. Your transcript is preserved — generate your clinical note offline instantly.');
-        }
-        payload = jobPayload;
-        setProcessingHint(null);
-        // A hosted note is NOT automatically "needs no review": the server's
-        // grounding verdict decides. Unverified claims (a tooth, material, drug
-        // or ADA code that was never spoken) flip the record into needsReview so
-        // the clinician is shown what to check rather than trusting it.
-        noteOrigin = {
-          engine: 'gemini',
-          needsReview: !(grounding?.isFullyGrounded ?? false),
-          detail: grounding && !grounding.isFullyGrounded ? grounding.summary : undefined
-        };
-      }
-
-      const findings: ClinicalFindings = {
-        chiefComplaint: payload.canonical.chiefComplaint || '',
-        history: payload.canonical.history || '',
-        toothFindings: payload.canonical.toothFindings || '',
-        findingsGingival: payload.canonical.findingsGingival || '',
-        diagnosis: payload.canonical.diagnosis || '',
-        treatmentPerformed: payload.canonical.treatmentPerformed || '',
-        recommendations: payload.canonical.recommendations || '',
-        recallRequirements: payload.canonical.recallRequirements || '6 Months (Standard)',
-        customSections: payload.customSections || {},
-        adaCodes: payload.adaCodes || []
-      };
-
-      // Patient identity first: a record with no patientId shows no prior
-      // history, and an ambiguous name must be flagged rather than guessed at.
-      const identity = await resolvePatientIdentity(activeIntake);
-
+    const existing = consultations.find(c => c.id === item.id || (c as any).scheduleItemId === item.id);
+    if (existing) {
+      setSelectedConsultation(existing);
+    } else {
+      const nameParts = item.patientName.trim().split(/\s+/);
       const newConsult: Consultation = {
-        id: authToken ? consultationId : crypto.randomUUID(),
-        dentistId: currentUser.id,
+        id: item.id,
+        dentistId: currentUser?.id || '',
         clinicId: activeClinic?.clinicId,
-        ...identity,
-        firstName: activeIntake.firstName,
-        lastName: activeIntake.lastName,
-        dob: activeIntake.dob,
-        appointmentType: activeIntake.appointmentType,
+        firstName: nameParts[0] || 'Patient',
+        lastName: nameParts.slice(1).join(' ') || '',
+        dob: item.dob || '',
+        appointmentType: item.appointmentType || 'restorative',
         date: getTodayStr(),
-        time: getCurrentTimeStr(),
+        time: item.time || getCurrentTimeStr(),
         createdAt: new Date().toISOString(),
         status: 'In Review',
-        transcript: finalTranscript,
-        // Which capture produced this transcript, carried with the record: a note
-        // built from live speech recognition (speakers not separated) is not the
-        // same evidence as one built from diarized recorded audio, and a later
-        // reviewer needs to be able to tell them apart.
-        ...(provenance ? { transcriptProvenance: provenance } : {}),
-        templateId: template.id,
-        findings,
-        patientSummary: payload.patientSummary || '',
-        noteOrigin,
-        grounding,
-        // Patient consent travels with the record: what they were told, when,
-        // and under which disclosure version (APP 3/5 evidence).
-        consent: activeIntake.consent
-          ? { ...activeIntake.consent, recordedBy: currentUser.id }
-          : { obtainedAt: '', disclosureVersion: AI_DISCLOSURE_VERSION, recordedBy: currentUser.id }
-      };
-
-      // Always save to scoped local cache immediately to prevent data loss
-      const updatedConsultations = [newConsult, ...consultations];
-      setConsultations(updatedConsultations);
-      saveLocalConsultations(updatedConsultations, currentUser.id);
-      clearActiveIntake();
-      sessionStorage.removeItem('dentai_active_transcript');
-      sessionStorage.removeItem('dentai_active_seconds');
-      sessionStorage.removeItem('dentai_active_preset_index');
-      sessionStorage.removeItem('dentai_active_item_times');
-      setSelectedConsultation(newConsult);
-      setView('summary');
-
-      // Persist to server in background or sync. If the backend is unreachable, the
-      // consultation is queued and re-uploaded on the next successful load.
-      try {
-        const saveRes = await fetch('/api/consultations', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${authToken}`
-          },
-          body: JSON.stringify(newConsult)
-        });
-
-        if (saveRes.ok) {
-          const saved = await saveRes.json();
-          removePendingSync(newConsult.id);
-          const syncedList = [saved, ...consultations.filter(c => c.id !== newConsult.id)];
-          setConsultations(syncedList);
-          saveLocalConsultations(syncedList, currentUser.id);
-          setSelectedConsultation(saved);
-        } else {
-          queuePendingSync(newConsult);
+        transcript: [],
+        templateId: item.templateId || 'standard',
+        patientSummary: '',
+        findings: {
+          chiefComplaint: '',
+          history: '',
+          toothFindings: '',
+          findingsGingival: '',
+          diagnosis: '',
+          treatmentPerformed: '',
+          recommendations: '',
+          recallRequirements: '6 Months (Standard)',
+          customSections: {},
+          adaCodes: []
         }
-      } catch (saveErr) {
-        console.warn('Network issue while syncing consultation to backend; queued for retry.', saveErr);
-        queuePendingSync(newConsult);
-      }
-    } catch (err) {
-      console.error('Failed to generate clinical findings:', err);
-      throw err;
+      };
+      setSelectedConsultation(newConsult);
     }
-  };
-
-  /**
-   * Resolves the patient registry entry for an intake.
-   *
-   * The server links every write as well, but asking at intake is what lets the
-   * clinician be *told* when a name is ambiguous: two patients called John Smith
-   * must not share a chart, so the record is left unlinked until a human says
-   * which one this is. A failed resolve never blocks the consultation — the
-   * record is stored unlinked, which is the safe direction.
-   */
-  const resolvePatientIdentity = async (intake: {
-    firstName: string;
-    lastName: string;
-    dob: string;
-  }): Promise<{ patientId?: string; identityNeedsReview?: boolean }> => {
-    if (!authToken || !activeClinic?.clinicId) return {};
-    try {
-      const res = await fetch('/api/patients/resolve', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${authToken}`
-        },
-        body: JSON.stringify({
-          firstName: intake.firstName,
-          lastName: intake.lastName,
-          dob: intake.dob,
-          clinicId: activeClinic.clinicId
-        })
-      });
-      if (!res.ok) return {};
-      const data = await res.json();
-      if (data?.status === 'matched' || data?.status === 'created') {
-        return { patientId: data.patient?.id, identityNeedsReview: false };
-      }
-      if (data?.status === 'ambiguous') return { identityNeedsReview: true };
-      return {};
-    } catch {
-      return {};
-    }
+    setView('workspace');
   };
 
   const handleSaveConsultation = async (updated: Consultation) => {
@@ -1112,42 +668,7 @@ export default function App() {
         />
       )}
 
-      {view === 'intake' && (
-        <PatientIntake
-          onCancel={() => {
-            clearActiveIntake();
-            sessionStorage.removeItem('dentai_active_transcript');
-            sessionStorage.removeItem('dentai_active_seconds');
-            sessionStorage.removeItem('dentai_active_preset_index');
-            sessionStorage.removeItem('dentai_active_item_times');
-            setView('history');
-          }}
-          onSubmit={handleIntakeSubmit}
-        />
-      )}
 
-      {view === 'record' && activeIntake && (
-        <LiveRecording
-          patientName={`${activeIntake.firstName} ${activeIntake.lastName}`}
-          dob={activeIntake.dob}
-          appointmentType={activeIntake.appointmentType}
-          templateId={activeIntake.templateId || ''}
-          onBack={() => setView('intake')}
-          onFinish={handleRecordFinish}
-          processingHint={processingHint}
-          authToken={authToken}
-          activeClinicId={activeClinic?.clinicId}
-        />
-      )}
-
-      {view === 'summary' && selectedConsultation && (
-        <ClinicalSummary
-          consultation={selectedConsultation}
-          onSave={handleSaveConsultation}
-          onBack={handleCloseSummary}
-          dentistName={currentUser.name}
-        />
-      )}
       {/* Inactivity Security Warning Modal */}
       <AnimatePresence>
         {showInactivityWarning && (
