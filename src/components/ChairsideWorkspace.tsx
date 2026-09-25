@@ -2607,14 +2607,14 @@ export default function ChairsideWorkspace({
       return target.clinicalProgressNote;
     }
 
-    // 4. Grounding Integrity Guard (Rule 12):
-    // If an encounter has NO transcript audio, NO macro applied, and is not a completed visit with prior findings,
-    // DO NOT generate or template findings! Return '' so canvas shows clean placeholder.
-    const transcriptList = localLiveTranscriptsRef.current[targetId] || localLiveTranscripts[targetId] || target.transcript || [];
+    // 4. Grounding Integrity Guard (Rule 12 & Rule 18):
+    // If this is the generic in-chair scratchpad (chair-active) or an encounter with NO transcript audio in the current session:
+    const isGenericChairActive = targetId === 'chair-active' || target.id === 'chair-active';
+    const transcriptList = localLiveTranscriptsRef.current[targetId] || localLiveTranscripts[targetId] || (isGenericChairActive ? [] : (target.transcript || []));
     const hasAudio = transcriptList.length > 0;
-    const isMacroOrigin = target.noteOrigin?.engine === 'australian-clinical-macro';
-    const isCompleted = target.status === 'Completed' || target.status === 'Signed';
-    const hasObservedFindings = Boolean(
+    const isMacroOrigin = !isGenericChairActive && target.noteOrigin?.engine === 'australian-clinical-macro';
+    const isCompleted = !isGenericChairActive && (target.status === 'Completed' || target.status === 'Signed');
+    const hasObservedFindings = !isGenericChairActive && Boolean(
       target.findings?.toothFindings?.trim() ||
       target.findings?.chiefComplaint?.trim() ||
       target.findings?.diagnosis?.trim() ||

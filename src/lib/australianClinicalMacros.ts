@@ -77,11 +77,11 @@ export const ROUTINE_RESTORATION_MACRO: ClinicalMacroDefinition = {
     { code: '532', description: 'Adhesive resin restoration - 2 surface - posterior' },
   ],
   templateGenerator: (vars) => {
-    const toothDisplay = vars.teeth.length > 0 ? vars.teeth.map(t => `#${t}`).join(', ') : 'tooth';
+    const toothDisplay = vars.teeth.length > 0 ? vars.teeth.map(t => `#${t}`).join(', ') : '[Tooth #]';
     const surfaceDisplay = vars.surfaces.length > 0 ? `(${vars.surfaces.join('')})` : '';
     const teethSurfaces = vars.toothSurfacePairs.length > 0
       ? vars.toothSurfacePairs.map(p => `#${p.tooth} (${p.surface})`).join(', ')
-      : `${toothDisplay} ${surfaceDisplay}`.trim();
+      : vars.teeth.length > 0 ? `${toothDisplay} ${surfaceDisplay}`.trim() : '[Tooth #]';
 
     const missingNotices: string[] = [];
     if (!vars.consentObtained) {

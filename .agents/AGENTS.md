@@ -109,3 +109,15 @@
       - Conscious sedation vitals & recovery must be captured independently from the underlying surgical or restorative treatment.
     - **Chained Entity Extraction**: Tooth extraction regexes must extract complete lists and conjunctions (`teeth 14 and 16`, `teeth 16, 26, 36, 46`, `13 to 23`) and map all relevant teeth to the clinical record.
 
+18. **Ephemerality of In-Chair Scratchpads (`chair-active`)**:
+    - The fallback encounter `chair-active` exists strictly in-memory as a transient workspace scratchpad.
+    - It must NEVER be persisted to disk or localStorage with completed findings. Completed consultations must always be minted with an immutable unique timestamped ID (`consult-${Date.now()}` or UUID).
+    - A fresh `chair-active` session with 0 lines of audio recorded must always display a pristine blank canvas with placeholder, never inheriting stale findings from prior sessions.
+
+19. **Zero Anatomical Fabrication in Macro Defaults**:
+    - When a procedure macro is selected before teeth or surfaces have been spoken, the template must use non-assertive placeholders (e.g. `[Tooth #]` and `[Surfaces]`), never inventing concrete tooth anatomy (like `#16 MO`).
+    - Inventing tooth numbers or cavity classifications without verbal evidence violates AHPRA and ADA professional documentation standards.
+
+20. **Appointment-Type Clinical Scope Alignment**:
+    - Diagnostic consultations (`Comprehensive Examination`, `Periodic Examination`) must never automatically populate or default to invasive operative cavity preparations or surgical restorations without explicit clinician intervention or verbal dialogue.
+
