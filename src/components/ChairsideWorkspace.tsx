@@ -528,6 +528,19 @@ export default function ChairsideWorkspace({
   const isMicStandbyRef = useRef(isMicStandby);
   const activeEncounterRef = useRef(activeEncounter);
   const consultationsRef = useRef(consultations);
+  const localLiveTranscriptsRef = useRef(localLiveTranscripts);
+
+  // Auto-restart flap detection (matching LiveRecording.tsx architecture)
+  const lastSessionStartRef = useRef<number>(0);
+  const unstableRestartsRef = useRef<number>(0);
+  const RESTART_MIN_SESSION_MS = 1500;
+  const MAX_UNSTABLE_RESTARTS = 3;
+
+  // Background consultation debounced autosave (prevents per-word HTTP PUT flooding)
+  const saveDebounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const pendingSaveConsultationRef = useRef<Consultation | null>(null);
+  const lastUtteranceTimeRef = useRef<Record<string, number>>({});
+  const handleAppendTranscriptRef = useRef<(text: string, sender?: 'Dentist' | 'Patient' | 'Dialogue') => Promise<void> | void>(() => {});
 
   useEffect(() => {
     isRecordingRef.current = isRecording;
@@ -535,7 +548,37 @@ export default function ChairsideWorkspace({
     isMicStandbyRef.current = isMicStandby;
     activeEncounterRef.current = activeEncounter;
     consultationsRef.current = consultations;
-  }, [isRecording, isPaused, isMicStandby, activeEncounter, consultations]);
+    localLiveTranscriptsRef.current = localLiveTranscripts;
+  }, [isRecording, isPaused, isMicStandby, activeEncounter, consultations, localLiveTranscripts]);
+
+  // Flush any debounced consultation saves immediately before state transitions or note finalization
+  const flushPendingConsultationSave = useCallback(async () => {
+    if (saveDebounceTimerRef.current) {
+      clearTimeout(saveDebounceTimerRef.current);
+      saveDebounceTimerRef.current = null;
+    }
+    if (pendingSaveConsultationRef.current && onSaveConsultation) {
+      const consultToSave = pendingSaveConsultationRef.current;
+      pendingSaveConsultationRef.current = null;
+      try {
+        await onSaveConsultation(consultToSave);
+      } catch (e) {
+        console.warn('Failed to flush debounced consultation save:', e);
+      }
+    }
+  }, [onSaveConsultation]);
+
+  // Unmount safety: flush pending consultation saves
+  useEffect(() => {
+    return () => {
+      if (saveDebounceTimerRef.current) {
+        clearTimeout(saveDebounceTimerRef.current);
+      }
+      if (pendingSaveConsultationRef.current && onSaveConsultation) {
+        onSaveConsultation(pendingSaveConsultationRef.current).catch(() => {});
+      }
+    };
+  }, [onSaveConsultation]);
 
   // Wall-clock epoch timestamp anchor (immune to Chromium tab throttling when in Dentrix/Eaglesoft)
   const sessionStartTimeRef = useRef<number>(Date.now());
@@ -638,6 +681,8 @@ export default function ChairsideWorkspace({
       const next = !prev;
       if (!next) {
         lastVoicedTimeRef.current = Date.now();
+      } else {
+        void flushPendingConsultationSave();
       }
       setIsSilenceWarning(false);
       isSilenceWarningRef.current = false;
@@ -645,9 +690,10 @@ export default function ChairsideWorkspace({
       playMedicalChime(next ? 'pause' : 'start');
       return next;
     });
-  }, [playMedicalChime]);
+  }, [playMedicalChime, flushPendingConsultationSave]);
 
   const handleStopAudioToStandby = useCallback(() => {
+    void flushPendingConsultationSave();
     if (dspRef.current) {
       dspRef.current.destroy();
       dspRef.current = null;
@@ -660,12 +706,13 @@ export default function ChairsideWorkspace({
     hasPlayedWarningChimeRef.current = false;
     setInterimTranscript('');
     playMedicalChime('stop');
-  }, [playMedicalChime]);
+  }, [playMedicalChime, flushPendingConsultationSave]);
 
   const handleSelectPatient = useCallback((patientId: string) => {
     hasUserManuallySelectedRef.current = true;
     if (patientId === activePatientId) return;
 
+    void flushPendingConsultationSave();
     if (dspRef.current) {
       dspRef.current.destroy();
       dspRef.current = null;
@@ -686,7 +733,7 @@ export default function ChairsideWorkspace({
     setInterimTranscript('');
     sessionStartTimeRef.current = Date.now();
     lastVoicedTimeRef.current = Date.now();
-  }, [activePatientId, playMedicalChime]);
+  }, [activePatientId, playMedicalChime, flushPendingConsultationSave]);
 
   // Hands-Free Spacebar / Foot-Pedal Operatory Audio Toggle
   useEffect(() => {
@@ -1014,7 +1061,7 @@ export default function ChairsideWorkspace({
     };
   }, [isRecording, isPaused, isMicStandby, activeEncounter?.id, authToken]);
 
-  // Helper to append spoken or typed utterance with 0ms optimistic UI update & real database persistence
+  // Helper to append spoken or typed utterance with 0ms optimistic UI update & debounced database persistence
   const handleAppendTranscriptText = useCallback(
     async (text: string, sender: 'Dentist' | 'Patient' | 'Dialogue' = 'Dentist') => {
       if (!text.trim() || !activeEncounterRef.current) return;
@@ -1032,6 +1079,7 @@ export default function ChairsideWorkspace({
 
       const targetId = activeEncounterRef.current.id;
       const timeNow = formatClinicTime(new Date(), { second: '2-digit' });
+      const nowMs = Date.now();
 
       // Deduplication & prefix expansion check against the last utterance
       const normCurr = normalized.toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim();
@@ -1039,12 +1087,15 @@ export default function ChairsideWorkspace({
 
       let shouldReplace = false;
       let shouldDrop = false;
+      let shouldStitch = false;
+      let stitchedText = '';
 
-      // Check current transcripts synchronously
-      const currentList = localLiveTranscripts[targetId] || [];
+      // Check current transcripts synchronously from ref (decoupling hook dependency)
+      const currentList = localLiveTranscriptsRef.current[targetId] || [];
       if (currentList.length > 0) {
         const lastItem = currentList[currentList.length - 1];
         const normLast = lastItem.text.toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim();
+        const timeSinceLast = nowMs - (lastUtteranceTimeRef.current[targetId] || 0);
 
         // 1. Exact duplicate
         if (normCurr === normLast) {
@@ -1055,6 +1106,20 @@ export default function ChairsideWorkspace({
         } else if (normCurr.length > normLast.length && (normCurr.startsWith(normLast) || normCurr.includes(normLast))) {
           // 3. Progressive prefix expansion (current extends last)
           shouldReplace = true;
+        } else if (
+          sender === 'Dialogue' &&
+          lastItem.sender === 'Dialogue' &&
+          timeSinceLast < 3500
+        ) {
+          // 4. Conversational stitching for rapid speech or Chromium clause boundaries
+          // Check if last item ended in a continuation word or lacked terminal punctuation
+          const endsWithContinuation = /(^|\s)(the|to|for|we|are|have|and|or|with|is|a|an|of|in|on|at|by|from|that|this|our|your|my|their|as|but|so)[.,;]?$/i.test(lastItem.text.trim());
+          const lacksTerminalPunctuation = !/[.?!]$/.test(lastItem.text.trim());
+
+          if (endsWithContinuation || lacksTerminalPunctuation) {
+            shouldStitch = true;
+            stitchedText = `${lastItem.text.replace(/[.,;]+$/, '')} ${normalized}`;
+          }
         }
       }
 
@@ -1063,9 +1128,16 @@ export default function ChairsideWorkspace({
         return;
       }
 
+      lastUtteranceTimeRef.current[targetId] = nowMs;
+
       // 1. Instant optimistic UI update
       setLocalLiveTranscripts(prev => {
         const list = prev[targetId] || [];
+        if (shouldStitch && list.length > 0) {
+          const updated = [...list];
+          updated[updated.length - 1] = { sender, text: stitchedText, time: timeNow };
+          return { ...prev, [targetId]: updated };
+        }
         if (shouldReplace && list.length > 0) {
           const updated = [...list];
           updated[updated.length - 1] = { sender, text: normalized, time: timeNow };
@@ -1081,13 +1153,16 @@ export default function ChairsideWorkspace({
       });
       setInterimTranscript('');
 
-      // 2. Concurrently persist to database consultation
+      // 2. Debounced persistence to database consultation (prevents network thrash on every word)
       const existingConsultation = consultationsRef.current.find(c => c.id === targetId);
       if (existingConsultation) {
         const existingTranscript = existingConsultation.transcript || [];
         let updatedTranscript: TranscriptItem[];
 
-        if (shouldReplace && existingTranscript.length > 0) {
+        if (shouldStitch && existingTranscript.length > 0) {
+          updatedTranscript = [...existingTranscript];
+          updatedTranscript[updatedTranscript.length - 1] = { sender, text: stitchedText };
+        } else if (shouldReplace && existingTranscript.length > 0) {
           updatedTranscript = [...existingTranscript];
           updatedTranscript[updatedTranscript.length - 1] = { sender, text: normalized };
         } else {
@@ -1102,13 +1177,23 @@ export default function ChairsideWorkspace({
           transcript: updatedTranscript
         };
 
-        if (onSaveConsultation) {
-          await onSaveConsultation(updatedConsultation);
+        pendingSaveConsultationRef.current = updatedConsultation;
+        if (saveDebounceTimerRef.current) {
+          clearTimeout(saveDebounceTimerRef.current);
         }
+        saveDebounceTimerRef.current = setTimeout(async () => {
+          await flushPendingConsultationSave();
+        }, 2000);
       }
-    }, [localLiveTranscripts, onSaveConsultation]);
+    }, [flushPendingConsultationSave]
+  );
+
+  useEffect(() => {
+    handleAppendTranscriptRef.current = handleAppendTranscriptText;
+  }, [handleAppendTranscriptText]);
 
   // SpeechRecognition Hook with Operatory Acoustic Artifact Filtering & Live Interim Dialogue
+  // 1. Initialize once on mount (matches LiveRecording.tsx architecture to eliminate teardown thrashing)
   useEffect(() => {
     const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRec) {
@@ -1116,128 +1201,159 @@ export default function ChairsideWorkspace({
       return;
     }
 
-    if (!isRecording || isPaused || isMicStandby || !activeEncounter) {
+    const recognition = new SpeechRec();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    // Australian English pinned for dental phonetic lexicon
+    recognition.lang = 'en-AU';
+
+    recognition.onstart = () => {
+      lastSessionStartRef.current = Date.now();
+      setMicListening(true);
+      setMicError(null);
+    };
+
+    recognition.onerror = (event: any) => {
+      console.warn('Operatory SpeechRecognition event:', event.error);
+      if (event.error === 'not-allowed') {
+        setMicError('Microphone permission blocked. Please enable mic access in your browser.');
+      } else if (event.error !== 'no-speech') {
+        setMicError(`Mic notice: ${event.error}`);
+      }
+      setMicListening(false);
+    };
+
+    recognition.onend = () => {
+      setMicListening(false);
+      // Only flush pending interim if the session is NOT auto-restarting (e.g. recording stopped/paused by user)
+      const willRestart =
+        isRecordingRef.current &&
+        !isPausedRef.current &&
+        !isMicStandbyRef.current &&
+        Boolean(activeEncounterRef.current);
+
+      if (!willRestart) {
+        const pending = (lastInterimRef.current || '').trim();
+        if (pending && activeEncounterRef.current) {
+          const isNoise =
+            /^(sh+|ah+|um+|zz+|ss+|hh+|ff+|th+)(\s+(sh+|ah+|um+|zz+|ss+|hh+|ff+|th+))*$/i.test(pending) ||
+            /^[^a-zA-Z0-9]+$/.test(pending);
+          if (!isNoise) {
+            handleAppendTranscriptRef.current(pending, 'Dialogue');
+          }
+        }
+      }
+      lastInterimRef.current = '';
+      setInterimTranscript('');
+
+      // Auto-restart while active with flap protection (matching LiveRecording.tsx)
+      if (willRestart) {
+        const sessionMs = Date.now() - lastSessionStartRef.current;
+        if (sessionMs < RESTART_MIN_SESSION_MS) {
+          unstableRestartsRef.current += 1;
+        } else {
+          unstableRestartsRef.current = 0;
+        }
+
+        if (unstableRestartsRef.current >= MAX_UNSTABLE_RESTARTS) {
+          unstableRestartsRef.current = 0;
+          setMicError('Microphone disconnected repeatedly. Tap Start Audio to reconnect.');
+        } else {
+          setTimeout(() => {
+            try {
+              if (
+                isRecordingRef.current &&
+                !isPausedRef.current &&
+                !isMicStandbyRef.current &&
+                activeEncounterRef.current
+              ) {
+                recognition.start();
+              }
+            } catch (e) {
+              console.warn('Failed to auto-restart speech recognition:', e);
+            }
+          }, 50);
+        }
+      }
+    };
+
+    recognition.onresult = (event: any) => {
+      let interim = '';
+
+      for (let i = event.resultIndex; i < event.results.length; ++i) {
+        const res = event.results[i];
+        if (res.isFinal) {
+          lastInterimRef.current = '';
+          const rawText = res[0].transcript.trim();
+          const text = normalizeSpokenDentalText(rawText);
+          if (text && activeEncounterRef.current) {
+            const isMechanicalNoise =
+              /^(sh+|ah+|um+|zz+|ss+|hh+|ff+|th+)(\s+(sh+|ah+|um+|zz+|ss+|hh+|ff+|th+))*$/i.test(text) ||
+              /^[^a-zA-Z0-9]+$/.test(text);
+
+            if (!isMechanicalNoise) {
+              handleAppendTranscriptRef.current(text, 'Dialogue');
+            }
+          }
+          setInterimTranscript('');
+        } else {
+          interim += res[0].transcript;
+        }
+      }
+
+      if (interim.trim()) {
+        // Voice activity detected: reset silence timer
+        lastVoicedTimeRef.current = Date.now();
+        hasPlayedWarningChimeRef.current = false;
+        if (isSilenceWarningRef.current) {
+          setIsSilenceWarning(false);
+          isSilenceWarningRef.current = false;
+        }
+
+        const normInterim = normalizeSpokenDentalText(interim.trim());
+        lastInterimRef.current = normInterim;
+        setInterimTranscript(normInterim);
+      }
+    };
+
+    recognitionRef.current = recognition;
+
+    return () => {
       if (recognitionRef.current) {
-        try { recognitionRef.current.stop(); } catch { }
-        recognitionRef.current = null;
+        try {
+          recognitionRef.current.abort();
+        } catch {}
+      }
+    };
+  }, []);
+
+  // 2. Synchronize recording / pause / standby / patient transition without tearing down recognizer
+  useEffect(() => {
+    const shouldListen = isRecording && !isPaused && !isMicStandby && Boolean(activeEncounter);
+
+    if (!shouldListen) {
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.stop();
+        } catch {}
       }
       setMicListening(false);
       setInterimTranscript('');
-      return;
-    }
-
-    try {
-      const recognition = new SpeechRec();
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      // The product is built for Australian practices, so recognition is pinned
-      // to Australian English. This used to follow `navigator.language`, which
-      // meant any machine set to en-US or en-GB transcribed with US/UK phonetics
-      // — undermining the dental lexicon and the dialect-resilience claim on
-      // exactly the hardware a practice actually owns.
-      recognition.lang = 'en-AU';
-
-      recognition.onstart = () => {
-        setMicListening(true);
-        setMicError(null);
-      };
-
-      recognition.onerror = (event: any) => {
-        console.warn('Operatory SpeechRecognition event:', event.error);
-        if (event.error === 'not-allowed') {
-          setMicError('Microphone permission blocked. Please enable mic access in your browser.');
-        } else if (event.error !== 'no-speech') {
-          setMicError(`Mic notice: ${event.error}`);
-        }
-        setMicListening(false);
-      };
-
-      recognition.onend = () => {
-        setMicListening(false);
-        // Only flush pending interim if the session is NOT auto-restarting (e.g. recording stopped/paused by user)
-        const isAutoRestarting = isRecordingRef.current && !isPausedRef.current && !isMicStandbyRef.current && Boolean(activeEncounterRef.current);
-        if (!isAutoRestarting) {
-          const pending = (lastInterimRef.current || '').trim();
-          if (pending && activeEncounterRef.current) {
-            const isNoise =
-              /^(sh+|ah+|um+|zz+|ss+|hh+|ff+|th+)(\s+(sh+|ah+|um+|zz+|ss+|hh+|ff+|th+))*$/i.test(pending) ||
-              /^[^a-zA-Z0-9]+$/.test(pending);
-            if (!isNoise) {
-              handleAppendTranscriptText(pending, 'Dialogue');
-            }
-          }
-        }
-        lastInterimRef.current = '';
-        setInterimTranscript('');
-
-        // Web Speech API ends sessions automatically on silence or timeout.
-        // Fast auto-restart while active (50ms gap to eliminate dead listening windows):
-        if (isRecordingRef.current && !isPausedRef.current && !isMicStandbyRef.current && activeEncounterRef.current) {
-          setTimeout(() => {
-            try {
-              if (recognitionRef.current === recognition) {
-                recognition.start();
-              }
-            } catch { }
-          }, 50);
-        }
-      };
-
-      recognition.onresult = (event: any) => {
-        let final = '';
-        let interim = '';
-
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-          const res = event.results[i];
-          if (res.isFinal) {
-            final += res[0].transcript + ' ';
-          } else {
-            interim += res[0].transcript;
-          }
-        }
-
-        const trimmedFinal = final.trim();
-        if (trimmedFinal && activeEncounterRef.current) {
-          lastInterimRef.current = '';
-          const isMechanicalNoise =
-            /^(sh+|ah+|um+|zz+|ss+|hh+|ff+|th+)(\s+(sh+|ah+|um+|zz+|ss+|hh+|ff+|th+))*$/i.test(trimmedFinal) ||
-            /^[^a-zA-Z0-9]+$/.test(trimmedFinal);
-
-          if (!isMechanicalNoise) {
-            handleAppendTranscriptText(trimmedFinal, 'Dialogue');
-          }
-          setInterimTranscript('');
-        } else if (interim.trim()) {
-          // Voice activity detected: reset silence timer
-          lastVoicedTimeRef.current = Date.now();
-          hasPlayedWarningChimeRef.current = false;
-          if (isSilenceWarningRef.current) {
-            setIsSilenceWarning(false);
-            isSilenceWarningRef.current = false;
-          }
-
-          const normInterim = normalizeSpokenDentalText(interim.trim());
-          lastInterimRef.current = normInterim;
-          setInterimTranscript(normInterim);
-        }
-      };
-
-      recognition.start();
-      recognitionRef.current = recognition;
-    } catch (err) {
-      console.warn('SpeechRecognition failed to initialize:', err);
-    }
-
-    return () => {
-      if (interimTimerRef.current) {
-        clearTimeout(interimTimerRef.current);
-      }
+    } else {
+      unstableRestartsRef.current = 0;
       if (recognitionRef.current) {
-        try { recognitionRef.current.stop(); } catch { }
-        recognitionRef.current = null;
+        setMicError(null);
+        setInterimTranscript('');
+        try {
+          recognitionRef.current.start();
+        } catch (err: any) {
+          if (err?.name !== 'InvalidStateError') {
+            console.warn('SpeechRecognition start notice:', err);
+          }
+        }
       }
-    };
-  }, [isRecording, isPaused, isMicStandby, activeEncounter?.id, handleAppendTranscriptText]);
+    }
+  }, [isRecording, isPaused, isMicStandby, activeEncounter?.id]);
 
   // Elapsed Timer with wall-clock epoch accuracy (immune to Chromium tab throttling)
   // Adaptive 3-Minute Silence Sleep with 30s Pre-Pause Audio-Visual Warning (at 2m 30s)
@@ -1737,13 +1853,14 @@ export default function ChairsideWorkspace({
   // ─────────────────────────────────────────────────────────────
   const executeBackgroundNoteFinalization = async (targetId: string, autoCopyClipboard = false) => {
     try {
+      await flushPendingConsultationSave();
       const targetConsult = consultations.find(c => c.id === targetId);
       if (!targetConsult) return;
 
       const template = getTemplateById(targetConsult.templateId || 'standard');
 
       // Guarantee 0 lost lines: Merge in-memory local feed with persisted consultation transcript
-      const localFeed = localLiveTranscripts[targetId] || [];
+      const localFeed = localLiveTranscriptsRef.current[targetId] || localLiveTranscripts[targetId] || [];
       const remoteFeed = targetConsult.transcript || [];
 
       let liveTranscript: TranscriptItem[] = [];
