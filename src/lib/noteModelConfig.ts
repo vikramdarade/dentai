@@ -40,7 +40,6 @@ const THINKING_LEVEL_ENUM: Record<ThinkingLevelName, ThinkingLevel> = {
   high: ThinkingLevel.HIGH
 };
 
-export const THINKING_LEVELS: readonly ThinkingLevelName[] = ['minimal', 'low', 'medium', 'high'];
 
 /**
  * Default thinking level for clinical note generation.
@@ -55,7 +54,7 @@ export const DEFAULT_NOTE_THINKING_LEVEL: ThinkingLevelName = 'medium';
 /** Resolves the configured thinking level, ignoring junk values rather than crashing a consult. */
 export function resolveNoteThinkingLevel(env: Record<string, string | undefined> = process.env): ThinkingLevelName {
   const raw = (env.DENTAI_THINKING_LEVEL || '').trim().toLowerCase();
-  return (THINKING_LEVELS as readonly string[]).includes(raw)
+  return (Object.keys(THINKING_LEVEL_ENUM) as ThinkingLevelName[]).includes(raw as ThinkingLevelName)
     ? (raw as ThinkingLevelName)
     : DEFAULT_NOTE_THINKING_LEVEL;
 }

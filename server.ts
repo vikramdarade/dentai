@@ -2916,7 +2916,7 @@ app.post('/api/auth/login', credentialLimiter, async (req, res) => {
     // Durable brute-force protection: per account AND per source address, so
     // neither a distributed attack on one account nor a single host walking the
     // directory gets unlimited attempts.
-    const attemptKeys = loginAttemptKeys(dentist.id, req.ip);
+    const attemptKeys = loginAttemptKeys(dentist.id);
     for (const key of attemptKeys) {
       const lock = await getLoginLock(key);
       if (lock) {

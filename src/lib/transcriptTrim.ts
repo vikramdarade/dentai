@@ -21,7 +21,7 @@ export interface TrimStats {
 }
 
 const CLINICAL_TERM_RE =
-  /(percussion|sensitivity|pulp|decay|caries|bleeding|mobility|root canal|filling|composite|amalgam|extraction|extraction|crown|bridge|implant|denture|extraction|scaling|prophy|fluoride|anesthetic|anaesthetic|radiograph|x-ray|xray|occlusion|occlusal| perio|periodontal|furcation|recession|calculus|plaque|abscess|necrosis|pulpitis|crown prep|rubber dam|tooth\s*\d{1,2}|\b\d{1,2}\s*(?:mm)?\s*pocket|fdi|item\s*\d{3,4})/i;
+  /(percussion|sensitivity|pulp|decay|caries|bleeding|mobility|root canal|filling|composite|amalgam|extraction|crown|bridge|implant|denture|scaling|prophy|fluoride|anesthetic|anaesthetic|radiograph|x-ray|xray|occlusion|occlusal| perio|periodontal|furcation|recession|calculus|plaque|abscess|necrosis|pulpitis|crown prep|rubber dam|tooth\s*\d{1,2}|\b\d{1,2}\s*(?:mm)?\s*pocket|fdi|item\s*\d{3,4})/i;
 
 export function isClinicalText(text: string): boolean {
   return CLINICAL_TERM_RE.test(text);
@@ -52,8 +52,8 @@ export function getTranscriptStats(transcript: { text: string }[]): TrimStats {
 export const TRIM_THRESHOLDS = {
   /** Above this token estimate the client warns before generating. */
   clientWarnTokens: 6000,
-  /** Hard server-side token ceiling for a single generation request. */
-  serverMaxTokens: 14000,
+  /** Hard server-side token ceiling for a single generation request (extended for long surgical/sedation cases). */
+  serverMaxTokens: 200000,
   /** Minimum speech that must remain after trim for generation to proceed. */
   minClinicalItems: 2
 };

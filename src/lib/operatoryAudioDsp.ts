@@ -45,14 +45,6 @@ export const TURBINE_NOTCH_Q = 7.0; // Q = 7.0 gives a sharp notch spanning ~5,4
 export const SCALER_ROLLOFF_FREQ_HZ = 18000;
 export const DEFAULT_SNR_THRESHOLD_DB = 12.0;
 
-export const OPERATORY_DSP_DEFAULTS = {
-  highPassFreqHz: HIGH_PASS_RUMBLE_FREQ_HZ,
-  handpieceNotchCenterHz: TURBINE_NOTCH_CENTER_FREQ_HZ,
-  handpieceNotchQ: TURBINE_NOTCH_Q,
-  lowPassFreqHz: SCALER_ROLLOFF_FREQ_HZ,
-  butterworthQ: 0.707,
-  snrThresholdDb: DEFAULT_SNR_THRESHOLD_DB
-} as const;
 
 /**
  * Creates and connects the operatory acoustic DSP filter chain for a live microphone MediaStream.

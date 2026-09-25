@@ -77,8 +77,7 @@ export const LOGIN_LOCKOUT_MS = 15 * 60 * 1000;
  * would lock out every colleague in the practice. Rate-limit the address,
  * account-lock the credential.
  */
-export function loginAttemptKeys(dentistId: string, ip: string | undefined): string[] {
-  void ip;
+export function loginAttemptKeys(dentistId: string): string[] {
   return [`dentist:${dentistId}`];
 }
 
@@ -86,7 +85,6 @@ export function loginAttemptKeys(dentistId: string, ip: string | undefined): str
 
 /** Session lifetime for a chairside workstation. */
 export const SESSION_TTL_SECONDS = 12 * 60 * 60; // 12 hours, covers a clinic day;
-export const SESSION_TTL_SECONDS_MAX = 7 * 24 * 60 * 60;
 
 // --- Recovery tokens (operator-issued break-glass) -------------------------
 

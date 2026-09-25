@@ -5,7 +5,7 @@ import {
   resolveNoteThinkingLevel,
   DEFAULT_NOTE_THINKING_LEVEL,
   NOTE_TIMEOUTS,
-  THINKING_LEVELS
+  ThinkingLevelName
 } from '../src/lib/noteModelConfig';
 
 /**
@@ -40,8 +40,9 @@ describe('note generation thinking level', () => {
   });
 
   it('only ever produces a level the API accepts', () => {
+    const validLevels: ThinkingLevelName[] = ['minimal', 'low', 'medium', 'high'];
     for (const value of ['minimal', 'low', 'medium', 'high', '', 'nonsense']) {
-      expect(THINKING_LEVELS).toContain(resolveNoteThinkingLevel({ DENTAI_THINKING_LEVEL: value }));
+      expect(validLevels).toContain(resolveNoteThinkingLevel({ DENTAI_THINKING_LEVEL: value }));
     }
   });
 });
@@ -87,7 +88,7 @@ describe('applyNoteThinking', () => {
       medium: ThinkingLevel.MEDIUM,
       high: ThinkingLevel.HIGH
     };
-    for (const level of THINKING_LEVELS) {
+    for (const level of ['minimal', 'low', 'medium', 'high'] as ThinkingLevelName[]) {
       expect(applyNoteThinking({}, level).thinkingConfig.thinkingLevel).toBe(expected[level]);
     }
   });

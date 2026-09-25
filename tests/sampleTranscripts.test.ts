@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { SAMPLE_TRANSCRIPTS, getSampleForType } from '../src/lib/sampleTranscripts';
+import { SAMPLE_TRANSCRIPTS, getSampleForType } from './fixtures/sampleTranscripts';
 import { APPOINTMENT_TYPES, getDefaultTemplateIdForType, getTemplateById } from '../src/lib/dentalLibrary';
 import { generateOfflineDraft } from '../src/lib/draftEngine';
 import { TranscriptItem } from '../src/types';

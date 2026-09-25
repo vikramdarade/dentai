@@ -20,8 +20,8 @@
  *  - ADA item numbers are only ever spoken by the clinician with an explicit
  *    "item" flag — the same contract the draft engine enforces.
  */
-import { AppointmentType } from './dentalLibrary';
-import { TranscriptItem } from '../types';
+import { AppointmentType } from '../../src/lib/dentalLibrary';
+import { TranscriptItem } from '../../src/types';
 
 export interface SampleTranscript {
   /** The treatment type (and therefore the built-in template) this tests. */
