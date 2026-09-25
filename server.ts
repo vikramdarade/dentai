@@ -1808,8 +1808,16 @@ app.post('/api/notes/jobs', authenticateToken, async (req: any, res: express.Res
       });
     }
 
-    // Drain immediately so a quiet platform responds in one round-trip.
-    void tickNoteJobs(true);
+    // In serverless environments (Vercel/Lambda), unawaited background promises
+    // are frozen when the response completes. Await the drain so generation completes.
+    await tickNoteJobs(true);
+
+    if (dbEnabled) {
+      const immediate = (await dbGetNoteJob(job.id, req.dentist.id)) as JobRecord | null;
+      if (immediate && immediate.status === 'done') {
+        return res.status(200).json({ jobId: job.id, status: 'done', priority: job.priority, usage, result: immediate.result });
+      }
+    }
 
     return res.status(202).json({ jobId: job.id, status: 'queued', priority: job.priority, usage });
   } catch (err: any) {
@@ -1822,7 +1830,7 @@ app.post('/api/notes/jobs', authenticateToken, async (req: any, res: express.Res
 app.get('/api/notes/jobs/:id', authenticateToken, async (req: any, res: express.Response) => {
   try {
     const { id } = req.params;
-    void tickNoteJobs();
+    await tickNoteJobs();
 
     let job: JobRecord | null = null;
     if (dbEnabled) {
