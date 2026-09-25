@@ -350,10 +350,10 @@ export default function ChairsideWorkspace({
 
       // Map real SOAP findings (never synthesize findings when unobserved, per Rule 12)
       const soap = {
-        subjective: c.findings?.chiefComplaint || c.findings?.history || '',
-        objective: c.findings?.toothFindings || c.findings?.findingsGingival || '',
-        assessment: c.findings?.diagnosis || '',
-        plan: c.findings?.treatmentPerformed || c.findings?.recommendations || ''
+        subjective: c.findings?.chiefComplaint || c.findings?.history || c.findings?.customSections?.subjective || (c.findings as any)?.subjective || '',
+        objective: c.findings?.toothFindings || c.findings?.findingsGingival || c.findings?.customSections?.objective || (c.findings as any)?.objective || '',
+        assessment: c.findings?.diagnosis || c.findings?.customSections?.assessment || (c.findings as any)?.assessment || '',
+        plan: c.findings?.treatmentPerformed || c.findings?.recommendations || c.findings?.customSections?.plan || (c.findings as any)?.plan || ''
       };
 
       const cdtCodes = c.findings?.adaCodes?.map(a => ({
@@ -2123,12 +2123,12 @@ export default function ChairsideWorkspace({
       // a saved note asserting an examination and a procedure that may never have
       // happened. An empty field is visibly unfinished; a fabricated one is not.
       const updatedFindings: ClinicalFindings = {
-        chiefComplaint: payload?.chiefComplaint || targetConsult.findings?.chiefComplaint || '',
+        chiefComplaint: payload?.chiefComplaint || (payload as any)?.subjective || payload?.customSections?.subjective || targetConsult.findings?.chiefComplaint || '',
         history: payload?.history || targetConsult.findings?.history || '',
-        toothFindings: payload?.toothFindings || targetConsult.findings?.toothFindings || '',
+        toothFindings: payload?.toothFindings || (payload as any)?.objective || payload?.customSections?.objective || targetConsult.findings?.toothFindings || '',
         findingsGingival: payload?.findingsGingival || targetConsult.findings?.findingsGingival || '',
-        diagnosis: payload?.diagnosis || targetConsult.findings?.diagnosis || '',
-        treatmentPerformed: payload?.treatmentPerformed || targetConsult.findings?.treatmentPerformed || '',
+        diagnosis: payload?.diagnosis || (payload as any)?.assessment || payload?.customSections?.assessment || targetConsult.findings?.diagnosis || '',
+        treatmentPerformed: payload?.treatmentPerformed || (payload as any)?.plan || payload?.customSections?.plan || targetConsult.findings?.treatmentPerformed || '',
         recommendations: payload?.recommendations || targetConsult.findings?.recommendations || '',
         recallRequirements: payload?.recallRequirements || targetConsult.findings?.recallRequirements || '',
         customSections: payload?.customSections || targetConsult.findings?.customSections || {},

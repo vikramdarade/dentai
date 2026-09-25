@@ -106,6 +106,34 @@ export function normalizeTemplateOutput(template: NoteTemplate, raw: any): Norma
     }
   }
 
+  // Bidirectional bridge between SOAP format (subjective, objective, assessment, plan) and Canonical fields
+  if (!output.chiefComplaint && output.customSections.subjective) {
+    output.chiefComplaint = output.customSections.subjective;
+  }
+  if (!output.toothFindings && output.customSections.objective) {
+    output.toothFindings = output.customSections.objective;
+  }
+  if (!output.diagnosis && output.customSections.assessment) {
+    output.diagnosis = output.customSections.assessment;
+  }
+  if (!output.treatmentPerformed && output.customSections.plan) {
+    output.treatmentPerformed = output.customSections.plan;
+  }
+
+  // Mirror canonical fields into customSections for SOAP consumers
+  if (!output.customSections.subjective && output.chiefComplaint) {
+    output.customSections.subjective = String(output.chiefComplaint);
+  }
+  if (!output.customSections.objective && output.toothFindings) {
+    output.customSections.objective = String(output.toothFindings);
+  }
+  if (!output.customSections.assessment && output.diagnosis) {
+    output.customSections.assessment = String(output.diagnosis);
+  }
+  if (!output.customSections.plan && output.treatmentPerformed) {
+    output.customSections.plan = String(output.treatmentPerformed);
+  }
+
   output.patientSummary = sanitizeString(raw?.patientSummary);
   output.adaCodes = parseAdaCodes(raw?.adaCodes);
 
