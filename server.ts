@@ -1489,6 +1489,32 @@ function finalizeHostedNoteOutput(
   auditEntityId: string
 ) {
   const output: any = result.output;
+
+  // Cross-bridge SOAP and canonical fields so Objective, Assessment, Subjective and Plan are never blank
+  if (!output.chiefComplaint && output.subjective) output.chiefComplaint = output.subjective;
+  if (!output.subjective && output.chiefComplaint) output.subjective = output.chiefComplaint;
+
+  if (!output.toothFindings && output.objective) output.toothFindings = output.objective;
+  if (!output.objective && (output.toothFindings || output.findingsGingival)) {
+    output.objective = [output.toothFindings, output.findingsGingival].filter(Boolean).join('\n\n');
+  }
+
+  if (!output.diagnosis && output.assessment) output.diagnosis = output.assessment;
+  if (!output.assessment && output.diagnosis) output.assessment = output.diagnosis;
+
+  if (!output.treatmentPerformed && output.plan) output.treatmentPerformed = output.plan;
+  if (!output.plan && (output.treatmentPerformed || output.recommendations)) {
+    output.plan = [output.treatmentPerformed, output.recommendations].filter(Boolean).join('\n\n');
+  }
+
+  output.customSections = {
+    subjective: output.subjective || output.chiefComplaint || '',
+    objective: output.objective || output.toothFindings || '',
+    assessment: output.assessment || output.diagnosis || '',
+    plan: output.plan || output.treatmentPerformed || '',
+    ...(output.customSections || {})
+  };
+
   // Deterministically verify grounding against transcript
   const noteContentText = Object.entries(output)
     .filter(([k, v]) => typeof v === 'string' && k !== 'patientSummary')
@@ -4203,12 +4229,15 @@ Return: (1) structured clinical notes whose sections are defined by the supplied
 Your output must comply with Dental Board of Australia record-keeping guidelines and AHPRA Section 133 medicolegal standards.
 
 MANDATORY CLINICAL RULES:
-1. TELEGRAPHIC TOOTH-BY-TOOTH LEDGER (CRITICAL): In toothFindings, format every examined tooth with findings as a single discrete, telegraphic line for maximum PMS scanability:
-   #[FDI] ([Surfaces]): [Pathology / Defect] | [Diagnostic Tests: Cold/EPT/TTP/Probing] | Rec: [Intervention & ADA code if known]
+1. TELEGRAPHIC TOOTH-BY-TOOTH LEDGER (CRITICAL OBJECTIVE FINDINGS): In toothFindings, format every examined tooth with findings as a single discrete, telegraphic line for maximum PMS scanability:
+   #[FDI] ([Surfaces]): [Pathology / Defect / Treatment Indication] | [Diagnostic Tests if stated, else 'Visual/Tactile examination'] | Rec: [Intervention & ADA code if known]
    Examples:
    - #16 (MOD): DB cusp fracture & recurrent secondary caries | Cold (+ lingered >15s), TTP (+), EPT 62/80 | Rec: Endodontic therapy followed by full ceramic crown (ADA 611)
    - #24 (MO): Primary carious lesion into mid-dentin | Cold (+ normal), TTP (-) | Rec: 2-surface composite resin (ADA 532)
    - #36: Defective occlusal margin on existing amalgam | Asymptomatic | Rec: Monitor at recall
+   - #16 (MO): Dental caries into dentine | Direct visual & tactile examination | Rec: 2-surface composite resin (ADA 532)
+   Never leave toothFindings or objective empty when teeth were examined, prepared, or restored!
+   In diagnosis (Assessment), always record the primary diagnosis (e.g. "#16 (MO): Dental caries into dentine" or "Plaque-induced gingivitis" or "Defective restoration"). Never leave diagnosis blank when pathology or procedures were performed!
    Do NOT synthesize findings for unexamined teeth. Document strictly what was examined.
 2. FDI NOTATION EXCLUSIVITY: Use the FDI two-digit system exclusively (quadrants 1-4: 11-18, 21-28, 31-38, 41-48) whenever any tooth is referenced. Map spoken forms ("tooth one six", "tooth 16", "sixteen", "thirty three", "forty seven") to the correct two-digit FDI form.
 3. ACCENT & PHONETIC RESILIENCY: Correct phonetic errors contextually (e.g. "tooth category"/"feeling" -> filling/composite restoration; "tooth dirty tree" -> tooth 33; "root can all" -> root canal treatment; "pulp it is" -> pulpitis; "pocket depths tree two tree" -> 3-2-3 mm pocket depths).

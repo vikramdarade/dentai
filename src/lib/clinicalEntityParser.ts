@@ -235,6 +235,56 @@ export function parseClinicalEntities(
     }
   }
 
+  // 11. Chief Complaint & Presenting Symptoms
+  let complaint: string | undefined = undefined;
+  if (/(?:pain|ache|toothache|sensitive|sensitivity|broken|chipped|lost\s+filling|crack|food\s+packing)/i.test(lower)) {
+    const complaintParts: string[] = [];
+    if (/sensitive\s+to\s+(?:cold|hot|sweet|ice)/i.test(lower)) {
+      complaintParts.push('Sensitivity to thermal stimuli (cold/sweet)');
+    } else if (/sensitive|sensitivity/i.test(lower)) {
+      complaintParts.push('Mild sensitivity reported');
+    }
+    if (/throbbing|sharp\s+pain|dull\s+ache|toothache/i.test(lower)) {
+      complaintParts.push('Localised toothache reported');
+    }
+    if (/broken|chipped|fracture/i.test(lower)) {
+      complaintParts.push('Patient reported broken/chipped tooth');
+    }
+    if (/lost\s+filling/i.test(lower)) {
+      complaintParts.push('Lost previous restoration');
+    }
+    if (complaintParts.length > 0) {
+      complaint = complaintParts.join('. ') + '.';
+    }
+  } else if (/routine\s+(?:checkup|exam|clean)|check\s*up/i.test(lower)) {
+    complaint = 'Routine examination and clean; no acute pain reported.';
+  }
+
+  // 12. Medical & Social History
+  let history: string | undefined = undefined;
+  const historyParts: string[] = [];
+  if (/no\s+medical\s+(?:issues|conditions|history)|fit\s+and\s+well/i.test(lower)) {
+    historyParts.push('Medical history: Fit and well; nil significant medical conditions');
+  } else if (/medical\s+history/i.test(lower)) {
+    historyParts.push('Medical history reviewed and confirmed');
+  }
+  if (/allerg(?:y|ies)|penicillin|latex/i.test(lower)) {
+    const allergyMatch = lower.match(/(?:allergy|allergic)\s+to\s+([a-z\s]+?)(?:\.|,|$)/i);
+    if (allergyMatch) {
+      historyParts.push(`Known allergy: ${allergyMatch[1].trim()}`);
+    } else if (/no\s+allergies|nkda/i.test(lower)) {
+      historyParts.push('NKDA (No known drug allergies)');
+    }
+  }
+  if (/non[- ]smoker/i.test(lower)) {
+    historyParts.push('Non-smoker');
+  } else if (/smok(?:er|ing)/i.test(lower)) {
+    historyParts.push('Smoker');
+  }
+  if (historyParts.length > 0) {
+    history = historyParts.join('; ') + '.';
+  }
+
   return {
     teeth,
     surfaces: [...surfacesSet],
@@ -246,6 +296,9 @@ export function parseClinicalEntities(
     poigDiscussed,
     canalsCount,
     quadrants,
+    complaint,
+    history,
     spokencodes,
   };
 }
+

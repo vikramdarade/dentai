@@ -9,8 +9,7 @@
  *    findings.customSections[key],
  *  - patientSummary (string) and adaCodes (array) are always present.
  *
- * Server (server.ts), on-device model client (onDeviceModel.ts) and the
- * offline draft engine (draftEngine.ts) all import from here.
+ * Server (server.ts) and the offline draft engine (draftEngine.ts) all import from here.
  */
 import { NoteTemplate, isCanonicalField } from './dentalLibrary';
 import type {

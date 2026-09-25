@@ -40,7 +40,6 @@ Nothing else is collected. There is no advertising or analytics SDK in the app.
 | Note drafting (primary) | Vertex AI / Gemini (`@google/genai`) | `GCP_REGION`, default `australia-southeast1` | Transcript + intake sent; draft returned. Google does not train on this data under the Vertex/paid API terms. |
 | Note drafting (fallback key) | Gemini API with `GEMINI_FALLBACK_API_KEY` | Google default | Only used when the primary path fails. Same data. |
 | Note drafting (offline) | The clinician's own browser | Device | `src/lib/draftEngine.ts` — deterministic, nothing leaves the device. Flagged `needsReview`. |
-| On-device model (beta) | The clinician's own browser (WebGPU) | Device | `src/lib/onDeviceModel.ts`; model weights downloaded from a CDN. |
 | Live transcription | Browser SpeechRecognition engine, or the clinic's typing | Device / browser vendor | Where the browser engine is used, audio handling is the browser vendor's. A practice that requires no audio to leave the device should type or paste the transcript. |
 | Records, audit log, jobs, usage | Neon Postgres (`DATABASE_URL`) | Neon project region — **set this to Sydney (ap-southeast-2)** | Encrypted at rest by Neon. |
 | Application hosting, logs | Vercel | Deployment region — **set to Sydney (syd1)** | Request logs contain URLs, status and timing, not clinical content. Never log transcripts. |

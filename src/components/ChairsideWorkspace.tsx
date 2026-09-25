@@ -349,11 +349,27 @@ export default function ChairsideWorkspace({
       });
 
       // Map real SOAP findings (never synthesize findings when unobserved, per Rule 12)
+      const subjective = [c.findings?.chiefComplaint, c.findings?.history, c.findings?.customSections?.subjective, (c.findings as any)?.subjective]
+        .filter((val, idx, arr): val is string => Boolean(val && typeof val === 'string' && val.trim()) && arr.indexOf(val) === idx)
+        .join('\n\n');
+
+      const objective = [c.findings?.toothFindings, c.findings?.findingsGingival, c.findings?.customSections?.objective, (c.findings as any)?.objective]
+        .filter((val, idx, arr): val is string => Boolean(val && typeof val === 'string' && val.trim()) && arr.indexOf(val) === idx)
+        .join('\n\n');
+
+      const assessment = [c.findings?.diagnosis, c.findings?.customSections?.assessment, (c.findings as any)?.assessment]
+        .filter((val, idx, arr): val is string => Boolean(val && typeof val === 'string' && val.trim()) && arr.indexOf(val) === idx)
+        .join('\n\n');
+
+      const plan = [c.findings?.treatmentPerformed, c.findings?.recommendations, c.findings?.recallRequirements, c.findings?.customSections?.plan, (c.findings as any)?.plan]
+        .filter((val, idx, arr): val is string => Boolean(val && typeof val === 'string' && val.trim()) && arr.indexOf(val) === idx)
+        .join('\n\n');
+
       const soap = {
-        subjective: c.findings?.chiefComplaint || c.findings?.history || c.findings?.customSections?.subjective || (c.findings as any)?.subjective || '',
-        objective: c.findings?.toothFindings || c.findings?.findingsGingival || c.findings?.customSections?.objective || (c.findings as any)?.objective || '',
-        assessment: c.findings?.diagnosis || c.findings?.customSections?.assessment || (c.findings as any)?.assessment || '',
-        plan: c.findings?.treatmentPerformed || c.findings?.recommendations || c.findings?.customSections?.plan || (c.findings as any)?.plan || ''
+        subjective,
+        objective,
+        assessment,
+        plan
       };
 
       const cdtCodes = c.findings?.adaCodes?.map(a => ({
