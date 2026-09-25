@@ -347,18 +347,12 @@ export default function ChairsideWorkspace({
         };
       });
 
-      // Map real SOAP findings
+      // Map real SOAP findings (never synthesize findings when unobserved, per Rule 12)
       const soap = {
-        subjective: c.findings?.chiefComplaint
-          ? `${c.findings.chiefComplaint} ${c.findings.history || ''}`
-          : 'Patient presents for scheduled dental appointment.',
-        objective: c.findings?.toothFindings
-          ? `${c.findings.toothFindings} ${c.findings.findingsGingival || ''}`
-          : 'Clinical examination completed. Soft tissue within normal limits.',
-        assessment: c.findings?.diagnosis || 'Dental condition assessed and recorded.',
-        plan: c.findings?.treatmentPerformed
-          ? `${c.findings.treatmentPerformed} ${c.findings.recommendations || ''}`
-          : 'Treatment completed per clinical protocol.'
+        subjective: c.findings?.chiefComplaint || c.findings?.history || '',
+        objective: c.findings?.toothFindings || c.findings?.findingsGingival || '',
+        assessment: c.findings?.diagnosis || '',
+        plan: c.findings?.treatmentPerformed || c.findings?.recommendations || ''
       };
 
       const cdtCodes = c.findings?.adaCodes?.map(a => ({
@@ -891,10 +885,8 @@ export default function ChairsideWorkspace({
     return Boolean(
       (activeEncounter && (activeEncounter.status === 'note_generated' || activeEncounter.status === 'done')) ||
       activeConsult?.noteOrigin ||
-      (currentSoap.subjective && currentSoap.subjective.trim().length > 0) ||
-      (currentSoap.objective && currentSoap.objective.trim().length > 0) ||
-      (currentSoap.assessment && currentSoap.assessment.trim().length > 0) ||
-      (currentSoap.plan && currentSoap.plan.trim().length > 0)
+      (currentSoap.plan && currentSoap.plan.trim().length > 0) ||
+      (currentSoap.objective && currentSoap.objective.trim().length > 0 && currentSoap.assessment && currentSoap.assessment.trim().length > 0)
     );
   }, [activeEncounter, activeConsult, currentSoap]);
 
@@ -2945,24 +2937,6 @@ ${clinician}`;
                         <kbd className="px-1 text-[9px] font-mono bg-slate-200 rounded">Space</kbd>
                       </button>
                     )}
-
-                    <button
-                      onClick={handleFinalizeNote}
-                      disabled={isFinalizing}
-                      className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-bold flex items-center space-x-1.5 transition shadow-xs cursor-pointer disabled:opacity-50"
-                    >
-                      {isFinalizing ? (
-                        <>
-                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                          <span>Generating Note...</span>
-                        </>
-                      ) : (
-                        <>
-                          <Sparkles className="w-3.5 h-3.5" />
-                          <span>{activeEncounter?.status === 'ready' || (activeEncounter && editedSoapNotes[activeEncounter.id]) ? 'Regenerate Note (⌘↵)' : 'Generate Note (⌘↵)'}</span>
-                        </>
-                      )}
-                    </button>
                   </div>
                 </div>
 
