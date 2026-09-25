@@ -51,6 +51,7 @@ import {
 import { AuthUser } from '../utils/storage';
 import { AppointmentType, getTemplateById, APPOINTMENT_TYPES } from '../lib/dentalLibrary';
 import { generateOfflineDraft } from '../lib/draftEngine';
+import { generateMacroNote } from '../lib/macroEngine';
 import { normalizeSpokenDentalText } from '../lib/dentalPhoneticLexicon';
 import { formatClinicDate, formatClinicTime, getClinicTodayIso } from '../utils/date';
 import { decideSilenceAction, SILENCE_SLEEP_SECONDS } from '../lib/silencePolicy';
@@ -2095,14 +2096,23 @@ export default function ChairsideWorkspace({
         }
       }
 
-      // Offline deterministic fallback draft engine
+      // Offline deterministic Australian Macro Engine
       if (!payload) {
+        const macroNote = generateMacroNote(finalTranscript, template.id, targetConsult.appointmentType);
         const draft = generateOfflineDraft(template, finalTranscript, `${targetConsult.firstName || ''} ${targetConsult.lastName || ''}`.trim());
         payload = {
-          ...draft.canonical,
+          chiefComplaint: macroNote.chiefComplaint || draft.canonical.chiefComplaint || '',
+          history: macroNote.history || draft.canonical.history || '',
+          toothFindings: macroNote.toothFindings || draft.canonical.toothFindings || '',
+          findingsGingival: macroNote.findingsGingival || draft.canonical.findingsGingival || '',
+          diagnosis: macroNote.diagnosis || draft.canonical.diagnosis || '',
+          treatmentPerformed: macroNote.treatmentPerformed || draft.canonical.treatmentPerformed || '',
+          recommendations: macroNote.recommendations || draft.canonical.recommendations || '',
+          recallRequirements: macroNote.recallRequirements || draft.canonical.recallRequirements || '',
           customSections: draft.customSections,
-          adaCodes: draft.adaCodes,
-          patientSummary: draft.patientSummary
+          adaCodes: macroNote.adaCodes.length ? macroNote.adaCodes : draft.adaCodes,
+          patientSummary: macroNote.patientSummary || draft.patientSummary,
+          missingProtocolNotices: macroNote.missingProtocolNotices,
         };
       }
 
@@ -2184,6 +2194,49 @@ export default function ChairsideWorkspace({
       await executeBackgroundNoteFinalization(activeEncounter.id, false);
     } finally {
       setIsGeneratingFromConversation(false);
+    }
+  };
+
+  // 1-Tap Australian Procedure Macro Application
+  const handleApplyMacro = async (macroId: string) => {
+    if (!activeEncounter) return;
+    const targetConsult = consultations.find(c => c.id === activeEncounter.id);
+    if (!targetConsult) return;
+
+    const transcriptToUse = (localLiveTranscriptsRef.current[targetConsult.id] || targetConsult.transcript || []).map(t => ({
+      sender: (t.sender === 'Patient' ? 'Patient' : t.sender === 'Dialogue' ? 'Dialogue' : 'Dentist') as TranscriptItem['sender'],
+      text: t.text
+    }));
+
+    const macroNote = generateMacroNote(transcriptToUse, macroId, targetConsult.appointmentType);
+
+    const updatedFindings: ClinicalFindings = {
+      ...targetConsult.findings,
+      chiefComplaint: macroNote.chiefComplaint,
+      history: macroNote.history,
+      toothFindings: macroNote.toothFindings,
+      findingsGingival: macroNote.findingsGingival,
+      diagnosis: macroNote.diagnosis,
+      treatmentPerformed: macroNote.treatmentPerformed,
+      recommendations: macroNote.recommendations,
+      recallRequirements: macroNote.recallRequirements,
+      adaCodes: macroNote.adaCodes.length ? macroNote.adaCodes : (targetConsult.findings?.adaCodes || []),
+    };
+
+    const updatedConsultation: Consultation = {
+      ...targetConsult,
+      status: 'Completed',
+      patientSummary: macroNote.patientSummary,
+      findings: updatedFindings,
+      noteOrigin: {
+        engine: 'australian-clinical-macro' as any,
+        needsReview: false,
+        detail: `Generated via Australian ${macroNote.title} Macro`
+      }
+    };
+
+    if (onSaveConsultation) {
+      await onSaveConsultation(updatedConsultation);
     }
   };
 
@@ -3128,6 +3181,36 @@ ${clinician}`;
                           )}
                         </div>
                       </div>
+
+                      {/* 1-Tap Clinical Macro Switcher Bar */}
+                      <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider shrink-0">Macro:</span>
+                        {[
+                          { id: 'restoration_composite', label: 'Filling' },
+                          { id: 'general_exam_clean', label: 'Exam & Clean' },
+                          { id: 'simple_extraction', label: 'Extraction' },
+                          { id: 'emergency_pulp_extirpation', label: 'Root Canal' },
+                          { id: 'scaling_clean', label: 'Scale & Clean' },
+                          { id: 'fissure_sealant', label: 'Sealant' },
+                        ].map((m) => (
+                          <button
+                            key={m.id}
+                            type="button"
+                            onClick={() => handleApplyMacro(m.id)}
+                            className="text-[11px] font-semibold px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-sky-50 hover:border-sky-300 text-slate-700 whitespace-nowrap transition shadow-2xs cursor-pointer active:scale-95"
+                          >
+                            {m.label}
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* Missing Safety Protocol Notices (Receptionist-Friendly Anti-Jargon Standard) */}
+                      {((activeConsult?.findings as any)?.missingProtocolNotices || []).map((notice: string, idx: number) => (
+                        <div key={idx} className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-xs">
+                          <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                          <span className="font-medium">{notice}</span>
+                        </div>
+                      ))}
 
                       {/* Top Action Bar: Generate Note Button (Gated at >= 95% Confidence) OR Copy to Practice Management (Gated on All Sections Verified) */}
                       {isGeneratingFromConversation || (activeEncounter && backgroundFinalizingIds.has(activeEncounter.id)) ? (

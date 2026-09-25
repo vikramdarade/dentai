@@ -61,6 +61,7 @@ import {
   resolveOpenAiCompatibleConfig,
   generateNoteWithOpenAiCompatible
 } from './src/server/openAiCompatible';
+import { generateMacroNote } from './src/lib/macroEngine';
 import fs from 'fs';
 import crypto from 'crypto';
 import { kv } from '@vercel/kv';
@@ -1317,8 +1318,30 @@ async function runHostedGeneration(payload: {
   }
   const promptContext = buildNotePrompt(payload.intakeData, noteTemplate.name, compacted.transcript);
 
-  const openAiConfig = resolveOpenAiCompatibleConfig();
   const providerPreference = (process.env.LLM_PROVIDER || '').toLowerCase().trim();
+
+  if (['macro', 'deterministic'].includes(providerPreference)) {
+    logger.info('[JobFabric] Deterministic Australian Clinical Macro Engine selected');
+    const macroNote = generateMacroNote(compacted.transcript, noteTemplate.id, payload.intakeData.appointmentType);
+    const output = {
+      chiefComplaint: macroNote.chiefComplaint,
+      history: macroNote.history,
+      toothFindings: macroNote.toothFindings,
+      findingsGingival: macroNote.findingsGingival,
+      diagnosis: macroNote.diagnosis,
+      treatmentPerformed: macroNote.treatmentPerformed,
+      recommendations: macroNote.recommendations,
+      recallRequirements: macroNote.recallRequirements,
+      customSections: {},
+      adaCodes: macroNote.adaCodes,
+      patientSummary: macroNote.patientSummary,
+      missingProtocolNotices: macroNote.missingProtocolNotices,
+    };
+    logAudit('notes_generated_macro_engine', 'job-worker', { macroId: noteTemplate.id });
+    return { ok: true, output, provider: 'australian-clinical-macro', model: 'deterministic-v1' };
+  }
+
+  const openAiConfig = resolveOpenAiCompatibleConfig();
   const preferOpenAi = openAiConfig && (
     ['groq', 'ollama', 'llama-cpp', 'openai-compatible'].includes(providerPreference) ||
     !process.env.GEMINI_API_KEY ||
