@@ -560,6 +560,15 @@ export default function ChairsideWorkspace({
   // ─────────────────────────────────────────────────────────────
   const [editedProgressNotes, setEditedProgressNotes] = useState<Record<string, string>>({});
   const [progressNoteSaveStatus, setProgressNoteSaveStatus] = useState<Record<string, 'saved' | 'saving'>>({});
+  const [progressiveDrafts, setProgressiveDrafts] = useState<Record<string, string>>({});
+  const progressiveDraftTimerRef = useRef<Record<string, any>>({});
+  const [turnoverToast, setTurnoverToast] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!turnoverToast) return;
+    const timer = setTimeout(() => setTurnoverToast(null), 4500);
+    return () => clearTimeout(timer);
+  }, [turnoverToast]);
 
   // ─────────────────────────────────────────────────────────────
   // 3c. CONTEXTUAL OPERATORY HELP
@@ -720,6 +729,10 @@ export default function ChairsideWorkspace({
   }, [playMedicalChime]);
 
   const handleStartAudio = useCallback(() => {
+    setIsScheduleCollapsed(true);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('dentai_schedule_collapsed', 'true');
+    }
     sessionStartTimeRef.current = Date.now() - (recordingSeconds * 1000);
     lastVoicedTimeRef.current = Date.now();
     hasPlayedWarningChimeRef.current = false;
@@ -1272,6 +1285,50 @@ export default function ChairsideWorkspace({
           await flushPendingConsultationSave();
         }, 2000);
       }
+
+      // 3. Progressive speech drafting: updates clinical canvas dynamically on speech pauses
+      if (progressiveDraftTimerRef.current[targetId]) {
+        clearTimeout(progressiveDraftTimerRef.current[targetId]);
+      }
+      progressiveDraftTimerRef.current[targetId] = setTimeout(() => {
+        try {
+          const targetConsult = consultationsRef.current.find(c => c.id === targetId) || existingConsultation;
+          if (!targetConsult) return;
+          const template = getTemplateById(targetConsult.templateId);
+          const currTranscript = (localLiveTranscriptsRef.current[targetId] || []).map(i => ({ sender: i.sender as any, text: i.text }));
+          if (currTranscript.length === 0) return;
+          const patientFullName = `${targetConsult.firstName || ''} ${targetConsult.lastName || ''}`.trim();
+          const draft = generateOfflineDraft(template, currTranscript, patientFullName);
+
+          const draftConsult: Consultation = {
+            ...targetConsult,
+            transcript: currTranscript,
+            findings: {
+              ...targetConsult.findings,
+              chiefComplaint: draft.canonical.chiefComplaint || targetConsult.findings?.chiefComplaint || '',
+              history: draft.canonical.history || targetConsult.findings?.history || '',
+              toothFindings: draft.canonical.toothFindings || targetConsult.findings?.toothFindings || '',
+              findingsGingival: draft.canonical.findingsGingival || targetConsult.findings?.findingsGingival || '',
+              diagnosis: draft.canonical.diagnosis || targetConsult.findings?.diagnosis || '',
+              treatmentPerformed: draft.canonical.treatmentPerformed || targetConsult.findings?.treatmentPerformed || '',
+              recommendations: draft.canonical.recommendations || targetConsult.findings?.recommendations || '',
+              recallRequirements: draft.canonical.recallRequirements || targetConsult.findings?.recallRequirements || '',
+              adaCodes: draft.adaCodes?.length ? draft.adaCodes : (targetConsult.findings?.adaCodes || []),
+              customSections: {
+                ...(targetConsult.findings?.customSections || {}),
+                ...(draft.customSections || {})
+              }
+            },
+            patientSummary: draft.patientSummary || targetConsult.patientSummary
+          };
+          const formatted = renderUniversalProgressNote(toPmsEncounter(draftConsult));
+          if (formatted) {
+            setProgressiveDrafts(prev => ({ ...prev, [targetId]: formatted }));
+          }
+        } catch (err) {
+          console.warn('Progressive speech draft skipped:', err);
+        }
+      }, 800);
     }, [flushPendingConsultationSave]
   );
 
@@ -1935,6 +1992,85 @@ export default function ChairsideWorkspace({
     }
   };
 
+  const handleQuickInductPatient = useCallback(async (data: { patientName: string; dob?: string; operatory?: string; appointmentType?: AppointmentType }) => {
+    const names = data.patientName.trim().split(' ');
+    const firstName = names[0] || 'Patient';
+    const lastName = names.slice(1).join(' ');
+    const cleanTime = formatClinicTime(new Date());
+
+    const targetEncounter = activeEncounter || effectiveEncounter;
+    const existingConsult = targetEncounter ? consultations.find(c => c.id === targetEncounter.id) : undefined;
+    const hasAudio = targetEncounter && (localLiveTranscriptsRef.current[targetEncounter.id]?.length || targetEncounter.diarizedTranscript?.length);
+
+    // If active consultation is fresh without recorded audio, rename & reassign in-place
+    if (existingConsult && !hasAudio && existingConsult.status !== 'Completed') {
+      const updatedConsult: Consultation = {
+        ...existingConsult,
+        firstName,
+        lastName,
+        dob: data.dob || existingConsult.dob,
+        appointmentType: data.appointmentType || existingConsult.appointmentType,
+        findings: {
+          ...existingConsult.findings,
+          customSections: {
+            ...existingConsult.findings?.customSections,
+            operatory: data.operatory || existingConsult.findings?.customSections?.operatory || 'Room 1'
+          }
+        }
+      };
+      if (onSaveConsultation) {
+        await onSaveConsultation(updatedConsult);
+      }
+      setTurnoverToast(`Patient updated: ${data.patientName}`);
+      return;
+    }
+
+    // Otherwise create and activate a new walk-in patient
+    const newConsultation: Consultation = {
+      id: `patient-${Date.now()}`,
+      dentistId: currentUser?.id,
+      clinicId: activeClinicId || undefined,
+      firstName,
+      lastName,
+      dob: data.dob,
+      appointmentType: data.appointmentType || 'examination',
+      templateId: data.appointmentType === 'emergency' ? 'emergency' : 'standard',
+      date: getClinicTodayIso(),
+      time: cleanTime,
+      status: 'In Review',
+      patientSummary: '',
+      transcript: [],
+      findings: {
+        chiefComplaint: '',
+        history: '',
+        toothFindings: '',
+        findingsGingival: '',
+        diagnosis: '',
+        treatmentPerformed: '',
+        recommendations: '',
+        recallRequirements: '',
+        customSections: { operatory: data.operatory || 'Room 1' },
+        adaCodes: []
+      }
+    };
+
+    if (onSaveConsultation) {
+      await onSaveConsultation(newConsultation);
+    }
+
+    addScheduleItem({
+      time: cleanTime,
+      patientName: data.patientName,
+      dob: data.dob,
+      procedureText: `${(data.appointmentType || 'examination').charAt(0).toUpperCase() + (data.appointmentType || 'examination').slice(1)} • Clinical Consult`,
+      appointmentType: data.appointmentType || 'examination',
+      templateId: data.appointmentType === 'emergency' ? 'emergency' : 'standard'
+    });
+
+    handleSelectPatient(newConsultation.id);
+    setTurnoverToast(`In-chair patient set: ${data.patientName}`);
+  }, [activeEncounter, effectiveEncounter, consultations, onSaveConsultation, currentUser, activeClinicId, addScheduleItem, handleSelectPatient]);
+
   // ─────────────────────────────────────────────────────────────
   // 6. ASYNCHRONOUS NOTE FINALIZATION & NON-BLOCKING HANDOFF
   // ─────────────────────────────────────────────────────────────
@@ -2246,7 +2382,7 @@ export default function ChairsideWorkspace({
     const targetEncounter = activeEncounter || effectiveEncounter;
     const targetConsult: Consultation = consultations.find(c => c.id === targetEncounter.id) || {
       id: targetEncounter.id,
-      dentistId: currentUser?.id || 'dentist-01',
+      dentistId: currentUser?.id,
       dentistName: dentistName || 'Attending Clinician',
       firstName: targetEncounter.patientName || 'Patient',
       lastName: '',
@@ -2281,24 +2417,64 @@ export default function ChairsideWorkspace({
 
     const macroNote = generateMacroNote(transcriptToUse, macroId, targetConsult.appointmentType);
 
+    const existingFindings = targetConsult.findings || {
+      chiefComplaint: '',
+      history: '',
+      toothFindings: '',
+      findingsGingival: '',
+      diagnosis: '',
+      treatmentPerformed: '',
+      recommendations: '',
+      recallRequirements: '',
+      adaCodes: []
+    };
+
+    // Smart merge: retain spoken findings while incorporating macro procedure steps
+    const mergedComplaint = existingFindings.chiefComplaint 
+      ? (macroNote.chiefComplaint && !existingFindings.chiefComplaint.includes(macroNote.chiefComplaint)
+          ? `${existingFindings.chiefComplaint}. ${macroNote.chiefComplaint}`
+          : existingFindings.chiefComplaint)
+      : macroNote.chiefComplaint;
+
+    const mergedToothFindings = existingFindings.toothFindings
+      ? (macroNote.toothFindings && !existingFindings.toothFindings.includes(macroNote.toothFindings)
+          ? `${existingFindings.toothFindings}\n${macroNote.toothFindings}`
+          : existingFindings.toothFindings)
+      : macroNote.toothFindings;
+
+    const mergedTreatment = existingFindings.treatmentPerformed
+      ? (macroNote.treatmentPerformed && !existingFindings.treatmentPerformed.includes(macroNote.treatmentPerformed)
+          ? `${existingFindings.treatmentPerformed}\n${macroNote.treatmentPerformed}`
+          : existingFindings.treatmentPerformed)
+      : macroNote.treatmentPerformed;
+
+    const existingCodes = existingFindings.adaCodes || [];
+    const macroCodes = macroNote.adaCodes || [];
+    const mergedCodes = [...existingCodes];
+    for (const mc of macroCodes) {
+      if (!mergedCodes.some(c => c.code === mc.code && c.tooth === mc.tooth)) {
+        mergedCodes.push(mc);
+      }
+    }
+
     const updatedFindings: ClinicalFindings = {
-      ...targetConsult.findings,
-      chiefComplaint: macroNote.chiefComplaint,
-      history: macroNote.history,
-      toothFindings: macroNote.toothFindings,
-      findingsGingival: macroNote.findingsGingival,
-      diagnosis: macroNote.diagnosis,
-      treatmentPerformed: macroNote.treatmentPerformed,
-      recommendations: macroNote.recommendations,
-      recallRequirements: macroNote.recallRequirements,
+      ...existingFindings,
+      chiefComplaint: mergedComplaint,
+      history: existingFindings.history || macroNote.history,
+      toothFindings: mergedToothFindings,
+      findingsGingival: existingFindings.findingsGingival || macroNote.findingsGingival,
+      diagnosis: existingFindings.diagnosis || macroNote.diagnosis,
+      treatmentPerformed: mergedTreatment,
+      recommendations: existingFindings.recommendations || macroNote.recommendations,
+      recallRequirements: existingFindings.recallRequirements || macroNote.recallRequirements,
       customSections: {
-        subjective: macroNote.chiefComplaint,
-        objective: macroNote.toothFindings,
-        assessment: macroNote.diagnosis,
-        plan: macroNote.treatmentPerformed,
-        ...(targetConsult.findings?.customSections || {})
+        ...(existingFindings.customSections || {}),
+        subjective: mergedComplaint,
+        objective: mergedToothFindings,
+        assessment: existingFindings.diagnosis || macroNote.diagnosis,
+        plan: mergedTreatment,
       },
-      adaCodes: macroNote.adaCodes.length ? macroNote.adaCodes : (targetConsult.findings?.adaCodes || []),
+      adaCodes: mergedCodes,
     };
 
     const updatedConsultation: Consultation = {
@@ -2318,6 +2494,12 @@ export default function ChairsideWorkspace({
     }
 
     setEditedProgressNotes(prev => {
+      const next = { ...prev };
+      delete next[targetConsult.id];
+      return next;
+    });
+
+    setProgressiveDrafts(prev => {
       const next = { ...prev };
       delete next[targetConsult.id];
       return next;
@@ -2353,6 +2535,7 @@ export default function ChairsideWorkspace({
       setIsMicStandby(true);
       setIsPaused(false);
       setInterimTranscript('');
+      setTurnoverToast('Prior patient note saved to End of Day Notes — ready for batch copy.');
     }
   };
 
@@ -2415,9 +2598,31 @@ export default function ChairsideWorkspace({
     if (targetId && editedProgressNotes[targetId] !== undefined) {
       return editedProgressNotes[targetId];
     }
-    // 2. If the consultation already has a saved progress note, return it
+    // 2. If progressive speech draft exists for this target, return it
+    if (targetId && progressiveDrafts[targetId]) {
+      return progressiveDrafts[targetId];
+    }
+    // 3. If the consultation already has a saved progress note, return it
     if (target.clinicalProgressNote && target.clinicalProgressNote.trim().length > 0) {
       return target.clinicalProgressNote;
+    }
+
+    // 4. Grounding Integrity Guard (Rule 12):
+    // If an encounter has NO transcript audio, NO macro applied, and is not a completed visit with prior findings,
+    // DO NOT generate or template findings! Return '' so canvas shows clean placeholder.
+    const transcriptList = localLiveTranscriptsRef.current[targetId] || localLiveTranscripts[targetId] || target.transcript || [];
+    const hasAudio = transcriptList.length > 0;
+    const isMacroOrigin = target.noteOrigin?.engine === 'australian-clinical-macro';
+    const isCompleted = target.status === 'Completed' || target.status === 'Signed';
+    const hasObservedFindings = Boolean(
+      target.findings?.toothFindings?.trim() ||
+      target.findings?.chiefComplaint?.trim() ||
+      target.findings?.diagnosis?.trim() ||
+      target.findings?.treatmentPerformed?.trim()
+    );
+
+    if (!hasAudio && !isMacroOrigin && (!isCompleted || !hasObservedFindings)) {
+      return '';
     }
 
     const isCurrentActive = target.id === targetId;
@@ -2449,7 +2654,7 @@ export default function ChairsideWorkspace({
         return '';
       }
     }
-  }, [activeEncounter, effectiveEncounter, activeConsult, consultations, currentDateStr, editedProgressNotes]);
+  }, [activeEncounter, effectiveEncounter, activeConsult, consultations, currentDateStr, editedProgressNotes, progressiveDrafts]);
 
   const currentProgressNote = useMemo(() => {
     return getFormattedNoteText();
@@ -2915,7 +3120,7 @@ ${clinician}`;
                 <div className="flex items-center gap-2">
                   <button
                     onClick={handleOpenDaysheetModal}
-                    className="flex-1 py-1.5 px-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold flex items-center justify-between shadow-2xs transition cursor-pointer"
+                    className="w-full py-1.5 px-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold flex items-center justify-between shadow-2xs transition cursor-pointer"
                     title="Import Today's Schedule (⌘V)"
                   >
                     <div className="flex items-center space-x-1.5 truncate">
@@ -2925,18 +3130,6 @@ ${clinician}`;
                     <span className="bg-slate-800 text-slate-300 text-[9px] font-mono font-bold px-1.5 py-0.2 rounded border border-slate-700 ml-1">
                       ⌘V
                     </span>
-                  </button>
-
-                  <button
-                    onClick={() => setShowWalkInCard(prev => !prev)}
-                    className={`py-1.5 px-2.5 rounded-xl border text-xs font-bold flex items-center space-x-1 shadow-2xs transition cursor-pointer ${showWalkInCard
-                      ? 'bg-sky-50 border-sky-300 text-sky-800'
-                      : 'bg-white hover:bg-slate-50 border-slate-200 text-slate-700'
-                      }`}
-                    title="Add Walk-In Patient"
-                  >
-                    <Plus className="w-3.5 h-3.5 text-sky-600" />
-                    <span>Walk-In</span>
                   </button>
                 </div>
               </div>
@@ -3152,6 +3345,7 @@ ${clinician}`;
                 onOpenDaysheet={handleOpenDaysheetModal}
                 onOpenWalkIn={() => setShowWalkInCard(true)}
                 onUpdateAppointmentType={(type) => handleUpdateAppointmentType(effectiveEncounter.id, type)}
+                onQuickInductPatient={handleQuickInductPatient}
               />
 
               {/* Main Two-Panel Adaptive Split: Left (Live Speech & Mic HUD) / Right (Note Canvas & PMS Sync) */}
@@ -3186,7 +3380,20 @@ ${clinician}`;
                   copiedFormat={copiedPmsTarget}
                   onOpenDeliverables={() => setShowDeliverablesModal(true)}
                   onNextPatient={handleNextPatient}
-                  hasActualGeneratedNote={Boolean(effectiveEncounter.soap?.assessment || effectiveEncounter.soap?.plan || currentProgressNote)}
+                  hasActualGeneratedNote={Boolean(
+                    currentProgressNote.trim().length > 0 &&
+                    ((localLiveTranscripts[effectiveEncounter.id]?.length || effectiveEncounter.diarizedTranscript?.length || 0) > 0 ||
+                     effectiveEncounter.status === 'done' ||
+                     effectiveEncounter.status === 'note_generated' ||
+                     consultations.find(c => c.id === effectiveEncounter.id)?.noteOrigin?.engine === 'australian-clinical-macro')
+                  )}
+                  groundingBadge={
+                    (localLiveTranscripts[effectiveEncounter.id]?.length || effectiveEncounter.diarizedTranscript?.length || 0) > 0
+                      ? 'Verified from Audio'
+                      : consultations.find(c => c.id === effectiveEncounter.id)?.noteOrigin?.engine === 'australian-clinical-macro'
+                        ? 'Template Applied'
+                        : undefined
+                  }
                 />
               </div>
             </main>
@@ -3207,6 +3414,22 @@ ${clinician}`;
           </div>
         </div>
       </div>
+
+      {/* Non-Blocking Turnover Safety Net Toast */}
+      {turnoverToast && (
+        <div className="fixed bottom-16 right-6 z-50 animate-in fade-in slide-in-from-bottom-3 duration-200">
+          <div className="bg-slate-900/95 backdrop-blur-md text-white text-xs font-medium px-4 py-2.5 rounded-xl shadow-xl border border-slate-700/80 flex items-center space-x-2.5">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+            <span>{turnoverToast}</span>
+            <button
+              onClick={() => setTurnoverToast(null)}
+              className="text-slate-400 hover:text-white ml-2 cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Standalone Modal Overlays */}
       <DeliverablesModal

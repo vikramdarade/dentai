@@ -23,7 +23,8 @@ export interface ClinicalNoteEditorPanelProps {
   copiedFormat: string | null;
   onOpenDeliverables?: () => void;
   onNextPatient?: () => void;
-  hasActualGeneratedNote: boolean;
+  hasActualGeneratedNote?: boolean;
+  groundingBadge?: string;
 }
 
 export const ClinicalNoteEditorPanel: React.FC<ClinicalNoteEditorPanelProps> = ({
@@ -38,6 +39,7 @@ export const ClinicalNoteEditorPanel: React.FC<ClinicalNoteEditorPanelProps> = (
   onOpenDeliverables,
   onNextPatient,
   hasActualGeneratedNote,
+  groundingBadge,
 }) => {
   const [selectedFormat, setSelectedFormat] = useState<'d4w' | 'exact' | 'universal'>('d4w');
 
@@ -53,10 +55,14 @@ export const ClinicalNoteEditorPanel: React.FC<ClinicalNoteEditorPanelProps> = (
           <h3 className="text-xs font-bold text-slate-800 tracking-tight">
             Clinical Note Canvas
           </h3>
-          {hasActualGeneratedNote && (
-            <span className="text-[10px] font-semibold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200/90 flex items-center space-x-1 shadow-2xs">
-              <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-              <span>Verified from Audio</span>
+          {(groundingBadge || (hasActualGeneratedNote ? 'Verified from Audio' : null)) && (
+            <span className={`text-[10px] font-semibold px-2.5 py-0.5 rounded-full border flex items-center space-x-1 shadow-2xs ${
+              (groundingBadge || 'Verified from Audio') === 'Verified from Audio'
+                ? 'bg-emerald-50 text-emerald-800 border-emerald-200/90'
+                : 'bg-sky-50 text-sky-800 border-sky-200/90'
+            }`}>
+              <CheckCircle2 className={`w-3 h-3 ${(groundingBadge || 'Verified from Audio') === 'Verified from Audio' ? 'text-emerald-600' : 'text-sky-600'}`} />
+              <span>{groundingBadge || 'Verified from Audio'}</span>
             </span>
           )}
         </div>
