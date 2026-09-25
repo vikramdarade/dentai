@@ -56,7 +56,9 @@ import { generateMacroNote } from '../lib/macroEngine';
 import { normalizeSpokenDentalText } from '../lib/dentalPhoneticLexicon';
 import { formatClinicDate, formatClinicTime, getClinicTodayIso } from '../utils/date';
 import { decideSilenceAction, SILENCE_SLEEP_SECONDS } from '../lib/silencePolicy';
-import { toPmsEncounter, renderForPms, renderUniversalProgressNote } from '../lib/pms';
+import { toPmsEncounter, renderForPms, renderUniversalProgressNote, renderD4W, renderExact } from '../lib/pms';
+import { parseClinicalEntities } from '../lib/clinicalEntityParser';
+import { canStartChairsideRecording } from '../lib/draftEngine';
 import { ClinicMembership } from '../lib/clinics';
 
 interface ChairsideWorkspaceProps {
@@ -857,6 +859,55 @@ export default function ChairsideWorkspace({
     lastVoicedTimeRef.current = Date.now();
   }, [activePatientId, playMedicalChime, flushPendingConsultationSave]);
 
+  // Hands-Free Quick Start for unassigned / walk-in encounter
+  const handleQuickStartRecording = useCallback(async () => {
+    const cleanTime = formatClinicTime(new Date());
+    const tempId = `chairside-${Date.now()}`;
+    const newConsultation: Consultation = {
+      id: tempId,
+      dentistId: currentUser?.id || '',
+      clinicId: activeClinicId || undefined,
+      firstName: 'Chairside',
+      lastName: 'Walk-In',
+      dob: '',
+      appointmentType: 'examination',
+      templateId: 'general_exam_clean',
+      date: getClinicTodayIso(),
+      time: cleanTime,
+      status: 'In Review',
+      patientSummary: '',
+      transcript: [],
+      findings: {
+        chiefComplaint: '',
+        history: '',
+        toothFindings: '',
+        findingsGingival: '',
+        diagnosis: '',
+        treatmentPerformed: '',
+        recommendations: '',
+        recallRequirements: '',
+        adaCodes: []
+      }
+    };
+
+    if (onSaveConsultation) {
+      await onSaveConsultation(newConsultation);
+    }
+
+    addScheduleItem({
+      time: cleanTime,
+      patientName: 'Chairside Walk-In',
+      procedureText: 'General Examination',
+      appointmentType: 'examination',
+      templateId: 'general_exam_clean'
+    });
+
+    handleSelectPatient(newConsultation.id);
+    setTimeout(() => {
+      handleStartAudio();
+    }, 150);
+  }, [currentUser, activeClinicId, onSaveConsultation, handleSelectPatient, handleStartAudio]);
+
   // Hands-Free Spacebar / Foot-Pedal Operatory Audio Toggle
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -871,6 +922,8 @@ export default function ChairsideWorkspace({
           e.preventDefault();
           if (isSilenceWarningRef.current) {
             handleKeepListening();
+          } else if (!activeEncounter) {
+            void handleQuickStartRecording();
           } else if (isMicStandbyRef.current) {
             handleStartAudio();
           } else {
@@ -882,7 +935,7 @@ export default function ChairsideWorkspace({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleKeepListening, handleStartAudio, handleTogglePause]);
+  }, [handleKeepListening, handleStartAudio, handleTogglePause, activeEncounter, handleQuickStartRecording]);
 
   // Derived active SOAP with local inline edits applied
   const currentSoap = useMemo(() => {
@@ -909,6 +962,13 @@ export default function ChairsideWorkspace({
       (currentSoap.objective && currentSoap.objective.trim().length > 0 && currentSoap.assessment && currentSoap.assessment.trim().length > 0)
     );
   }, [activeEncounter, activeConsult, currentSoap]);
+
+  // Real-time passive clinical entity extraction (teeth, surfaces, anaesthetics)
+  const liveDetectedEntities = useMemo(() => {
+    const transcript = activeEncounter?.diarizedTranscript || [];
+    if (!transcript.length) return null;
+    return parseClinicalEntities(transcript.map(t => ({ text: t.text, sender: t.role === 'dentist' ? 'Dentist' : 'Patient' })));
+  }, [activeEncounter?.diarizedTranscript]);
 
   // Handle inline clinical SOAP edit with instant optimistic UI & database auto-save
   const handleSoapChange = useCallback(async (field: 'subjective' | 'objective' | 'assessment' | 'plan', value: string) => {
@@ -2522,7 +2582,47 @@ export default function ChairsideWorkspace({
       setCopiedEncounterIds(prev => new Set(prev).add(target.id));
     }
     setCopiedNote(true);
-    setTimeout(() => setCopiedNote(false), 2500);
+    setCopiedPmsTarget('pms');
+    setTimeout(() => {
+      setCopiedNote(false);
+      setCopiedPmsTarget(null);
+    }, 2500);
+  };
+
+  const [copiedPmsTarget, setCopiedPmsTarget] = useState<string | null>(null);
+
+  // Dedicated 1-Click Dental4Windows (D4W) Format Copy
+  const handleCopyD4W = (consultToCopy?: Consultation) => {
+    const target = consultToCopy || consultations.find(c => c.id === activeEncounter?.id);
+    if (!target) return;
+    try {
+      const pmsEncounter = toPmsEncounter(target);
+      const d4wText = renderD4W(pmsEncounter);
+      if (navigator.clipboard) navigator.clipboard.writeText(d4wText);
+      if (target.id) setCopiedEncounterIds(prev => new Set(prev).add(target.id));
+      setCopiedNote(true);
+      setCopiedPmsTarget('d4w');
+      setTimeout(() => { setCopiedNote(false); setCopiedPmsTarget(null); }, 2500);
+    } catch {
+      handleCopyPMS(consultToCopy);
+    }
+  };
+
+  // Dedicated 1-Click Software of Excellence (Exact) Format Copy
+  const handleCopyExact = (consultToCopy?: Consultation) => {
+    const target = consultToCopy || consultations.find(c => c.id === activeEncounter?.id);
+    if (!target) return;
+    try {
+      const pmsEncounter = toPmsEncounter(target);
+      const exactText = renderExact(pmsEncounter);
+      if (navigator.clipboard) navigator.clipboard.writeText(exactText);
+      if (target.id) setCopiedEncounterIds(prev => new Set(prev).add(target.id));
+      setCopiedNote(true);
+      setCopiedPmsTarget('exact');
+      setTimeout(() => { setCopiedNote(false); setCopiedPmsTarget(null); }, 2500);
+    } catch {
+      handleCopyPMS(consultToCopy);
+    }
   };
 
   // Copy All Notes in Batch
@@ -3204,6 +3304,32 @@ ${clinician}`;
                       </span>
                     </div>
 
+                    {liveDetectedEntities && (liveDetectedEntities.teeth.length > 0 || liveDetectedEntities.anaesthetic || (liveDetectedEntities.surfaces && liveDetectedEntities.surfaces.length > 0) || liveDetectedEntities.materials?.compositeShade) && (
+                      <div className="flex flex-wrap items-center gap-1.5 py-1.5 px-2.5 bg-slate-50 border border-slate-200/70 rounded-xl text-xs">
+                        <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider mr-1">Detected:</span>
+                        {liveDetectedEntities.teeth.map(t => (
+                          <span key={t} className="inline-flex items-center px-2 py-0.5 rounded-md font-semibold text-[11px] bg-sky-100/90 text-sky-800 border border-sky-200/60 shadow-2xs">
+                            🦷 #{t}
+                          </span>
+                        ))}
+                        {liveDetectedEntities.toothSurfacePairs.map((p, i) => (
+                          <span key={i} className="inline-flex items-center px-2 py-0.5 rounded-md font-semibold text-[11px] bg-indigo-100/90 text-indigo-800 border border-indigo-200/60 shadow-2xs">
+                            #{p.tooth} ({p.surface})
+                          </span>
+                        ))}
+                        {liveDetectedEntities.anaesthetic && (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-md font-semibold text-[11px] bg-emerald-100/90 text-emerald-800 border border-emerald-200/60 shadow-2xs">
+                            💉 {liveDetectedEntities.anaesthetic.agent}
+                          </span>
+                        )}
+                        {liveDetectedEntities.materials?.compositeShade && (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-md font-semibold text-[11px] bg-amber-100/90 text-amber-800 border border-amber-200/60 shadow-2xs">
+                            ✨ Shade {liveDetectedEntities.materials.compositeShade}
+                          </span>
+                        )}
+                      </div>
+                    )}
+
                     {/* Dialogue Stream */}
                     <div className="space-y-2.5 text-xs leading-relaxed max-h-[420px] overflow-y-auto custom-scrollbar pr-1">
                       {activeEncounter.diarizedTranscript && activeEncounter.diarizedTranscript.length > 0 ? (
@@ -3451,6 +3577,36 @@ ${clinician}`;
                             </button>
 
                             <button
+                              onClick={() => {
+                                if (!allSectionsVerified) handleVerifyAllSections();
+                                handleCopyD4W();
+                              }}
+                              className={`py-2.5 px-3 rounded-xl border text-xs font-semibold flex items-center space-x-1 transition cursor-pointer ${
+                                copiedNote && copiedPmsTarget === 'd4w'
+                                  ? 'bg-teal-600 border-teal-600 text-white shadow-xs'
+                                  : 'border-slate-200 hover:border-teal-500 bg-white hover:bg-teal-50 text-slate-700'
+                              }`}
+                              title="1-Click Copy formatted directly for Dental4Windows (D4W)"
+                            >
+                              <span>{copiedNote && copiedPmsTarget === 'd4w' ? 'Copied D4W' : 'D4W'}</span>
+                            </button>
+
+                            <button
+                              onClick={() => {
+                                if (!allSectionsVerified) handleVerifyAllSections();
+                                handleCopyExact();
+                              }}
+                              className={`py-2.5 px-3 rounded-xl border text-xs font-semibold flex items-center space-x-1 transition cursor-pointer ${
+                                copiedNote && copiedPmsTarget === 'exact'
+                                  ? 'bg-indigo-600 border-indigo-600 text-white shadow-xs'
+                                  : 'border-slate-200 hover:border-indigo-500 bg-white hover:bg-indigo-50 text-slate-700'
+                              }`}
+                              title="1-Click Copy formatted directly for Software of Excellence (Exact)"
+                            >
+                              <span>{copiedNote && copiedPmsTarget === 'exact' ? 'Copied Exact' : 'Exact'}</span>
+                            </button>
+
+                            <button
                               onClick={() => handleRegenerateFromConversation()}
                               title="Regenerate note from live conversation"
                               className="py-2.5 px-3 rounded-xl border border-slate-200 hover:border-sky-400 bg-white hover:bg-sky-50 text-slate-700 text-xs font-semibold flex items-center space-x-1.5 transition cursor-pointer"
@@ -3571,10 +3727,28 @@ ${clinician}`;
                 </div>
               </>
             ) : (
-              <div className="text-center py-20 text-slate-400">
-                <User className="w-12 h-12 mx-auto mb-3 text-slate-300" />
-                <h3 className="text-base font-bold text-slate-700">No Patient Selected</h3>
-                <p className="text-xs text-slate-500">Select an encounter from the Daysheet or add a walk-in to start charting.</p>
+              <div className="text-center py-16 px-4 max-w-md mx-auto space-y-5">
+                <div className="w-16 h-16 mx-auto rounded-2xl bg-sky-50 border border-sky-100 flex items-center justify-center text-sky-600 shadow-sm">
+                  <Mic className="w-8 h-8" />
+                </div>
+                <div className="space-y-1.5">
+                  <h3 className="text-base font-bold text-slate-800">Ready for Consultation</h3>
+                  <p className="text-xs text-slate-500 leading-relaxed">
+                    Step on your foot pedal or press <kbd className="px-1.5 py-0.5 bg-slate-100 border border-slate-300 rounded text-[11px] font-mono text-slate-700 font-semibold">Spacebar</kbd> to begin listening immediately. Patient details can be linked during or after the visit.
+                  </p>
+                </div>
+                <div>
+                  <button
+                    onClick={handleQuickStartRecording}
+                    className="w-full py-3.5 px-5 rounded-xl font-bold text-sm bg-[#0071E3] hover:bg-[#0077ED] active:scale-[0.98] text-white shadow-md shadow-[#0071E3]/25 flex items-center justify-center space-x-2.5 transition cursor-pointer"
+                  >
+                    <Mic className="w-4 h-4 animate-pulse" />
+                    <span>Quick Start Audio (Spacebar)</span>
+                  </button>
+                </div>
+                <p className="text-[11px] text-slate-400">
+                  Or select a scheduled patient from the Daysheet on the left rail.
+                </p>
               </div>
             )}
           </main>
