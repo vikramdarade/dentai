@@ -39,13 +39,20 @@
 
 9. **Receptionist-Friendly UI Language (Anti-Jargon Standard)**:
    - All user-facing UI copy must be readable by a 12th-grade receptionist or assistant.
-   - Strictly avoid engineering and acoustic jargon in the interface:
-     - No "DSP squelch" &rarr; use "Noise Filter"
-     - No "100% grounded / 0 hallucination vectors" &rarr; use "Verified from Audio"
-     - No "Ambient transcription feed / utterances" &rarr; use "Live Conversation / Lines Recorded"
-     - No "Batch Tray" &rarr; use "End of Day Notes"
-     - No "Master Export" &rarr; use "Copy All Notes"
-     - No "Aseptic Operatory Hotkeys" &rarr; use "Hands-Free Keyboard Shortcuts"
+   - Use the **approved term** on the right; never the banned term on the left:
+
+   | ❌ Banned | ✅ Use instead |
+   |---|---|
+   | DSP squelch / DSP filter | Noise Filter |
+   | 100% grounded / 0 hallucination vectors | Verified from Audio |
+   | Ambient transcription feed / utterances | Live Conversation / Lines Recorded |
+   | Batch Tray | End of Day Notes |
+   | Master Export / Copy All | Copy All Notes |
+   | Aseptic Operatory Hotkeys | Hands-Free Keyboard Shortcuts |
+   | Standby mode / Mic armed | Ready to Listen |
+   | Listening active / Mic live | Listening &amp; Taking Notes |
+   | Audio session / Recording session | Consultation Recording |
+   | SOAP note / structured note | Clinical Note |
 
 10. **Session Tokens Must Carry the Account's Session Epoch**:
     - A session token is HMAC-signed and embeds the account's `sessionEpoch`. `authenticateToken` rejects any token whose epoch differs from the account's.

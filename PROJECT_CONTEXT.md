@@ -10,7 +10,7 @@ DentAI is documentation software: it does not diagnose or prescribe, and the tre
 ## Tech Stack
 - **Frontend**: React 19 + TypeScript, Vite, Tailwind CSS v4 (`@tailwindcss/vite`), `motion` (Framer Motion), lucide-react. Web Audio API and the Web Speech API for capture.
 - **Backend**: Node.js (>= 22), Express 4, Helmet, durable rate limiting. A single Express app — there is no separate backend service.
-- **AI Engine**: Google Gemini via `@google/genai`. Default model is `gemini-3.6-flash`, resolved through one module (`src/lib/noteModelConfig.ts`) so the model id and thinking level cannot drift between call sites. Recorded audio is transcribed server-side with diarization (`src/server/transcription.ts`, override the model with `DENTAI_TRANSCRIPTION_MODEL`); the browser Web Speech transcript is only a fallback.
+- **AI Engine**: Google Gemini via `@google/genai` (default) or Claude via compatible endpoint. The active model id and thinking level live in **one place**: `src/lib/noteModelConfig.ts`. Never hardcode a model id at a call site — always import from that module so the model cannot drift across routes. Recorded audio is transcribed server-side with diarization (`src/server/transcription.ts`); the browser Web Speech transcript is only a fallback.
 - **Capture**: two paths, both now producing recorded audio — the chair-side phone beacon (slices uploaded to `/api/beacon/chair/:chairId/upload-chunk`) and the cockpit's own microphone (slices uploaded to `/api/transcribe/audio`, keyed by consultation). The recorded audio is the transcript the note is built from.
 - **Persistence**: PostgreSQL via `@neondatabase/serverless` (Neon-compatible) when `DATABASE_URL` is set; otherwise a JSON-file store with an in-memory read/write cache. Production requires Postgres — the file fallback fails closed unless `DENTAI_ALLOW_FILE_STORAGE=true`.
 - **Hosting**: Vercel serverless (`api/index.ts` re-exports the app from the esbuild bundle), with an external scheduler required for durable queue draining.
@@ -41,7 +41,14 @@ dentai/
 │   ├── App.tsx                   # Router + app state: hash routes for public screens,
 │   │                             #   `view` state machine for the authenticated app
 │   ├── components/
-│   │   ├── ChairsideWorkspace.tsx # Live chairside cockpit (capture, feed, SOAP editor)
+│   │   ├── ChairsideWorkspace.tsx # Live chairside cockpit (~3.3k lines). Orchestrates
+│   │   │                         #   recording state, DSP, silence timer, encounter routing,
+│   │   │                         #   note finalization, PMS copy. Does NOT own UI — renders
+│   │   │                         #   LiveConversationPanel + ClinicalNoteEditorPanel as children.
+│   │   ├── LiveConversationPanel.tsx  # Left pane: live feed, waveform, standby/listening state
+│   │   ├── ClinicalNoteEditorPanel.tsx # Right pane: note textarea, macro bar, Copy/NextPatient
+│   │   ├── OperatoryPatientBanner.tsx  # Patient identity strip at top of cockpit
+│   │   ├── DayGuideModal.tsx     # Guide + GitHub issue form (owns its own form state)
 │   │   ├── DayScheduleQueue.tsx  # Daily schedule list, walk-ins, in-place recording
 │   │   ├── ClinicalSummary.tsx   # Generated note review + grounding banner
 │   │   ├── HistoryHub.tsx        # Past consultations and chart history
@@ -85,8 +92,22 @@ dentai/
 ├── scripts/                      # Migration CLI, recovery tokens, backup, demo recorder
 ├── docs/                         # operations/, runbooks/, legal/, reviews/, ideas/
 ├── data/                         # JSON fallback store (dev only; NOT for production)
-└── tests/                        # 22 suites; vitest with --fileParallelism=false
+└── tests/                        # 47 suites (593 tests); vitest with --fileParallelism=false
 ```
+
+### ChairsideWorkspace internal structure
+
+This file is ~3,300 lines. Jump to the region you need — do NOT read the whole file.
+
+| Lines (approx) | Region |
+|---|---|
+| 1–100 | Imports, helper utils, component signature & props |
+| 100–700 | State declarations (recording, encounters, UI, save status) |
+| 700–1200 | Event handlers (audio start/stop/pause, silence timer, keyboard) |
+| 1200–2800 | Core logic (note finalization, macro engine, PMS copy, patient handoff) |
+| 2800–3266 | JSX render tree (two-pane layout, modals) |
+
+**Dead code removed Sep 2026** (do not re-introduce): `calculateCaptureConfidence`, `verifiedSections` + all SOAP verification handlers, `editedSoapNotes` + `handleSoapChange`, `handleResetProgressNote`, `liveDetectedEntities`, `renderAnnotatedText`.
 
 ---
 
