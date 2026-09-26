@@ -537,7 +537,9 @@ export default function App() {
     if (currentUser?.id) {
       saveLocalConsultations(newList, currentUser.id);
     }
-    setSelectedConsultation(updatedWithDentist);
+    if (view === 'history' || updatedWithDentist.status !== 'Completed') {
+      setSelectedConsultation(updatedWithDentist);
+    }
 
     if (!authToken) return;
 

@@ -48,7 +48,7 @@ import { AppointmentType, getTemplateById, APPOINTMENT_TYPES } from '../lib/dent
 import { generateOfflineDraft } from '../lib/draftEngine';
 import { generateMacroNote } from '../lib/macroEngine';
 import { normalizeSpokenDentalText } from '../lib/dentalPhoneticLexicon';
-import { formatClinicDate, formatClinicTime, getClinicTodayIso } from '../utils/date';
+import { formatClinicDate, formatClinicTime, getClinicTodayIso, getClinicTimeZone } from '../utils/date';
 import { decideSilenceAction, SILENCE_SLEEP_SECONDS } from '../lib/silencePolicy';
 import { toPmsEncounter, renderUniversalProgressNote, renderD4W, renderExact } from '../lib/pms';
 import { ClinicMembership } from '../lib/clinics';
@@ -205,7 +205,16 @@ export default function ChairsideWorkspace({
     return isToday ? `Today, ${formatted}` : formatted;
   }, [currentDate]);
 
-  const currentDateStr = useMemo(() => currentDate.toISOString().slice(0, 10), [currentDate]);
+  const currentDateStr = useMemo(() => {
+    const tz = getClinicTimeZone();
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone: tz,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    });
+    return formatter.format(currentDate);
+  }, [currentDate]);
 
   const handlePrevDay = () => {
     setIsMicStandby(true);
@@ -364,6 +373,7 @@ export default function ChairsideWorkspace({
       // were synthesized/documented, not merely an imported appointment reason.
       const hasActualGeneratedNote = Boolean(
         c.noteOrigin ||
+        (c.clinicalProgressNote && c.clinicalProgressNote.trim().length > 0) ||
         (c.findings?.treatmentPerformed && c.findings.treatmentPerformed.trim().length > 0) ||
         (c.findings?.diagnosis && c.findings.diagnosis.trim().length > 0) ||
         (c.findings?.adaCodes && c.findings.adaCodes.length > 0)
@@ -378,7 +388,7 @@ export default function ChairsideWorkspace({
         encounterStatus = 'processing';
       } else if (failedEncounterIds.has(c.id)) {
         encounterStatus = 'recreate';
-      } else if (hasActualGeneratedNote) {
+      } else if (c.status === 'Completed' || hasActualGeneratedNote) {
         encounterStatus = 'note_generated';
       } else {
         encounterStatus = 'ready';
@@ -409,12 +419,18 @@ export default function ChairsideWorkspace({
   // Filter encounters for the selected day sheet date (Pure genuine data sorted chronologically by time)
   const encountersForDate: PatientEncounter[] = useMemo(() => {
     const shortDate = formatClinicDate(currentDate, { month: 'short', day: 'numeric' });
+    const fullDate = formatClinicDate(currentDate, { month: 'short', day: 'numeric', year: 'numeric' });
     return patientEncounters
       .filter(p => {
         const orig = consultations.find(c => c.id === p.id);
         if (!orig?.date) return false;
         const d = orig.date.trim();
-        return d === currentDateStr || d === shortDate || d.startsWith(shortDate);
+        if (d === currentDateStr || d === shortDate || d.startsWith(shortDate) || d === fullDate) return true;
+        try {
+          const formattedOrig = formatClinicDate(d, { month: 'short', day: 'numeric' });
+          if (formattedOrig === shortDate) return true;
+        } catch {}
+        return false;
       })
       .sort((a, b) => parseTimeToMinutes(a.time) - parseTimeToMinutes(b.time));
   }, [patientEncounters, consultations, currentDateStr, currentDate]);
@@ -2347,6 +2363,17 @@ export default function ChairsideWorkspace({
       const isChairActive = targetConsult.id === 'chair-active';
       const persistId = (isFullFinalize && isChairActive) ? `consult-${Date.now()}` : targetConsult.id;
       const isHostedNote = Boolean(payload && payload.groundingReport);
+      let renderedNote = noteSnapshot || targetConsult.clinicalProgressNote;
+      if (!renderedNote || !renderedNote.trim()) {
+        try {
+          renderedNote = renderUniversalProgressNote(toPmsEncounter({
+            ...targetConsult,
+            transcript: finalTranscript,
+            findings: updatedFindings
+          }));
+        } catch {}
+      }
+
       const finalizedConsultation: Consultation = {
         ...targetConsult,
         id: persistId,
@@ -2359,7 +2386,7 @@ export default function ChairsideWorkspace({
         status: isFullFinalize ? 'Completed' : 'In Review',
         patientSummary: payload?.patientSummary || targetConsult.patientSummary || '',
         findings: updatedFindings,
-        clinicalProgressNote: noteSnapshot || targetConsult.clinicalProgressNote,
+        clinicalProgressNote: renderedNote,
         specialistReferral: payload?.specialistReferral || targetConsult.specialistReferral,
         patientConsent: payload?.patientConsent || targetConsult.patientConsent,
         treatmentQuote: payload?.treatmentQuote || targetConsult.treatmentQuote,
@@ -2373,6 +2400,19 @@ export default function ChairsideWorkspace({
 
       if (onSaveConsultation && (isFullFinalize || !isChairActive)) {
         await onSaveConsultation(finalizedConsultation);
+        if (isFullFinalize) {
+          const patientFullName = [finalizedConsultation.firstName, finalizedConsultation.lastName].filter(Boolean).join(' ') || 'In-Chair Patient';
+          addScheduleItem({
+            time: finalizedConsultation.time || formatClinicTime(new Date()),
+            patientName: patientFullName,
+            dob: finalizedConsultation.dob || '',
+            procedureText: finalizedConsultation.findings?.chiefComplaint || (finalizedConsultation.appointmentType === 'emergency' ? 'Emergency Examination' : 'General Consultation'),
+            appointmentType: finalizedConsultation.appointmentType || 'examination',
+            templateId: finalizedConsultation.templateId || 'standard',
+            status: 'done',
+            consultationId: finalizedConsultation.id
+          }, finalizedConsultation.date || currentDateStr);
+        }
       }
 
       if (autoCopyClipboard) {
@@ -2575,8 +2615,17 @@ export default function ChairsideWorkspace({
       sender: (t.sender === 'Patient' || (t as any).role === 'patient' ? 'Patient' : t.sender === 'Dialogue' || (t as any).role === 'dialogue' ? 'Dialogue' : 'Dentist') as TranscriptItem['sender'],
       text: t.text
     }));
-    const capturedNote = editedProgressNotes[currentId] || progressiveDrafts[currentId] || '';
-    const hasSubstantiveContent = capturedTranscript.length > 0 || capturedNote.trim().length > 0;
+    const capturedNote = editedProgressNotes[currentId] || progressiveDrafts[currentId] || (currentId === 'chair-active' ? '' : currentProgressNote) || '';
+    const existingConsult = consultations.find(c => c.id === currentId);
+    const hasExistingFindings = Boolean(
+      existingConsult?.findings?.treatmentPerformed?.trim() ||
+      existingConsult?.findings?.diagnosis?.trim() ||
+      existingConsult?.findings?.toothFindings?.trim() ||
+      existingConsult?.findings?.chiefComplaint?.trim() ||
+      (existingConsult?.findings?.adaCodes && existingConsult.findings.adaCodes.length > 0) ||
+      existingConsult?.clinicalProgressNote?.trim()
+    );
+    const hasSubstantiveContent = capturedTranscript.length > 0 || capturedNote.trim().length > 0 || hasExistingFindings;
 
     if (hasSubstantiveContent && !backgroundFinalizingIds.has(currentId)) {
       setBackgroundFinalizingIds(prev => new Set(prev).add(currentId));
@@ -2607,7 +2656,11 @@ export default function ChairsideWorkspace({
       setActivePatientId(nextPatient.id);
       sessionStartTimeRef.current = Date.now();
       setRecordingSeconds(0);
-      setTurnoverToast(`Switched to scheduled patient: ${nextPatient.patientName}`);
+      if (hasSubstantiveContent) {
+        setTurnoverToast(`Prior note saved to End of Day Notes. Switched to scheduled patient: ${nextPatient.patientName}`);
+      } else {
+        setTurnoverToast(`Switched to scheduled patient: ${nextPatient.patientName}`);
+      }
     } else {
       // Advance to next in-chair patient with auto-incrementing designation
       const nextNum = inChairPatientNumber + 1;
@@ -2632,7 +2685,11 @@ export default function ChairsideWorkspace({
         return next;
       });
 
-      setTurnoverToast(`Prior note saved to End of Day Notes. Ready for In-Chair Patient ${nextNum}.`);
+      if (hasSubstantiveContent) {
+        setTurnoverToast(`Prior note saved to End of Day Notes. Ready for In-Chair Patient ${nextNum}.`);
+      } else {
+        setTurnoverToast(`Ready for In-Chair Patient ${nextNum}.`);
+      }
     }
   };
 
@@ -2656,14 +2713,14 @@ export default function ChairsideWorkspace({
 
   // Completed Encounters for End-of-Day Batch Tray
   const completedEncounters = useMemo(() => {
-    return encountersForDate.filter(p => p.status === 'note_generated' || p.status === 'done' || p.status === 'ready');
+    return encountersForDate.filter(p => p.status === 'note_generated' || p.status === 'done');
   }, [encountersForDate]);
 
   const [selectedPmsTarget, setSelectedPmsTarget] = useState<'d4w' | 'exact' | 'cliniko' | 'generic'>('d4w');
 
   // Generate note text formatted for PMS clipboard (incorporating clinician inline edits & PMS adapter)
   const getFormattedNoteText = useCallback((consultToCopy?: Consultation): string => {
-    const targetId = activeEncounter?.id || effectiveEncounter.id;
+    const targetId = consultToCopy ? consultToCopy.id : (activeEncounter?.id || effectiveEncounter.id);
     const fallbackConsult: Consultation = {
       id: effectiveEncounter.id,
       firstName: effectiveEncounter.patientName,
@@ -2691,17 +2748,19 @@ export default function ChairsideWorkspace({
     const target = consultToCopy || consultations.find(c => c.id === targetId) || activeConsult || fallbackConsult;
     if (!target) return '';
 
-    const isGenericChairActive = targetId === 'chair-active' || target.id === 'chair-active';
-    const transcriptList = localLiveTranscriptsRef.current[targetId] || localLiveTranscripts[targetId] || (isGenericChairActive ? [] : (target.transcript || []));
+    const isGenericChairActive = target.id === 'chair-active';
+    const transcriptList = !isGenericChairActive && target.transcript && target.transcript.length > 0
+      ? target.transcript
+      : (localLiveTranscriptsRef.current[target.id] || localLiveTranscripts[target.id] || []);
     const hasAudio = transcriptList.length > 0;
 
     // 1. If clinician actively authored/edited the progress note directly in the text box, return that exact text!
-    if (targetId && editedProgressNotes[targetId] !== undefined) {
-      return editedProgressNotes[targetId];
+    if (editedProgressNotes[target.id] !== undefined) {
+      return editedProgressNotes[target.id];
     }
     // 2. If progressive speech draft exists for this target, return it
-    if (targetId && progressiveDrafts[targetId]) {
-      return progressiveDrafts[targetId];
+    if (progressiveDrafts[target.id]) {
+      return progressiveDrafts[target.id];
     }
     // 3. If the consultation already has a saved progress note, return it
     // Rule 18: 'chair-active' with NO audio in the current session must NEVER inherit a saved progress note
@@ -2717,7 +2776,8 @@ export default function ChairsideWorkspace({
       target.findings?.toothFindings?.trim() ||
       target.findings?.chiefComplaint?.trim() ||
       target.findings?.diagnosis?.trim() ||
-      target.findings?.treatmentPerformed?.trim()
+      target.findings?.treatmentPerformed?.trim() ||
+      target.clinicalProgressNote?.trim()
     );
 
     if (!hasAudio && !isMacroOrigin && (!isCompleted || !hasObservedFindings)) {

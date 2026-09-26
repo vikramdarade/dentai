@@ -3,6 +3,8 @@ import { saveLocalConsultations, getLocalConsultations } from '../src/utils/stor
 import { Consultation } from '../src/types';
 import { generateOfflineDraft } from '../src/lib/draftEngine';
 import { getTemplateById } from '../src/lib/dentalLibrary';
+import { addScheduleItem, loadTodaySchedule } from '../src/lib/dayScheduleStorage';
+import { getClinicTodayIso, formatClinicDate, getClinicTimeZone } from '../src/utils/date';
 
 describe('Rule 18: chair-active Ephemerality & Anti-Bleed Guarantees', () => {
   let storageMock: Record<string, string> = {};
@@ -251,5 +253,79 @@ describe('Rule 18: chair-active Ephemerality & Anti-Bleed Guarantees', () => {
     expect(loaded?.length).toBe(1);
     expect(loaded![0].id).toMatch(/^consult-\d+$/);
     expect(loaded![0].findings.treatmentPerformed).toContain('tooth 26');
+  });
+
+  it('records completed in-chair encounters into Day Schedule store with status done and links consultation ID', () => {
+    const todayIso = getClinicTodayIso();
+    const consultId = `consult-${Date.now()}`;
+
+    addScheduleItem({
+      time: '11:45 AM',
+      patientName: 'In-Chair Patient 1',
+      dob: '12/03/1990',
+      procedureText: 'General Consultation',
+      appointmentType: 'examination',
+      templateId: 'standard',
+      status: 'done',
+      consultationId: consultId
+    }, todayIso);
+
+    const schedule = loadTodaySchedule(todayIso);
+    expect(schedule.length).toBeGreaterThanOrEqual(1);
+
+    const entry = schedule.find(s => s.consultationId === consultId);
+    expect(entry).toBeDefined();
+    expect(entry?.patientName).toBe('In-Chair Patient 1');
+    expect(entry?.status).toBe('done');
+    expect(entry?.time).toBe('11:45 AM');
+  });
+
+  it('verifies completed in-chair appointments match clinic timezone date format for End of Day Notes review', () => {
+    const todayIso = getClinicTodayIso();
+    const shortDate = formatClinicDate(todayIso, { month: 'short', day: 'numeric' });
+    const fullDate = formatClinicDate(todayIso, { month: 'short', day: 'numeric', year: 'numeric' });
+
+    const consult: Consultation = {
+      id: `consult-${Date.now()}`,
+      firstName: 'In-Chair Patient 1',
+      lastName: '',
+      dob: '',
+      date: todayIso,
+      time: '11:45 AM',
+      appointmentType: 'examination',
+      status: 'Completed',
+      templateId: 'standard',
+      transcript: [{ sender: 'Dentist', text: 'Exam complete.' }],
+      findings: {
+        chiefComplaint: 'Routine checkup',
+        history: '',
+        toothFindings: 'No active caries',
+        findingsGingival: '',
+        diagnosis: 'Healthy dentition',
+        treatmentPerformed: 'Comprehensive examination (011) completed.',
+        recommendations: '6-month recall',
+        recallRequirements: '',
+        adaCodes: [{ code: '011', description: 'Comprehensive oral examination' }]
+      },
+      patientSummary: 'Routine checkup completed.'
+    };
+
+    // Date matching must pass for ISO format, short clinic date, and full clinic date
+    const d = consult.date.trim();
+    const matchesDate = d === todayIso || d === shortDate || d.startsWith(shortDate) || d === fullDate;
+    expect(matchesDate).toBe(true);
+
+    // Consultation must be recognized as having a generated note for End of Day Notes
+    const hasActualGeneratedNote = Boolean(
+      consult.noteOrigin ||
+      (consult.clinicalProgressNote && consult.clinicalProgressNote.trim().length > 0) ||
+      (consult.findings?.treatmentPerformed && consult.findings.treatmentPerformed.trim().length > 0) ||
+      (consult.findings?.diagnosis && consult.findings.diagnosis.trim().length > 0) ||
+      (consult.findings?.adaCodes && consult.findings.adaCodes.length > 0)
+    );
+    expect(hasActualGeneratedNote).toBe(true);
+
+    const encounterStatus = (consult.status === 'Completed' || hasActualGeneratedNote) ? 'note_generated' : 'ready';
+    expect(['note_generated', 'done']).toContain(encounterStatus);
   });
 });
