@@ -124,6 +124,10 @@ export const NON_CLINICAL_UTTERANCE_RE =
 export const NON_CLINICAL_META_RE =
   /\b(?:today'?s\s+video|practical\s+exam|dental\s+practical\s+exam|communication\s+(?:cost|task)|recorded\s+for\s+the\s+exam|this\s+video\s+is\s+for|subscribe\s+to\s+our\s+channel)\b/i;
 
+/** Filter ambient radio ads, podcasts, commercial broadcasts, and non-clinical media noise. */
+export const NON_CLINICAL_COMMERCIAL_RE =
+  /\b(?:vintage|don'?t\s+wear\s+it(?:,\s*|\s+)sell\s+it|earning\s+and\s+saving\s+money|save\s+money\s+on\s+vintage|footy\s+finals?|commercial\s+break|stay\s+tuned|podcast|spotify|advertisement|brought\s+to\s+you\s+by|special\s+sponsor)\b/i;
+
 /** Global speaker prefix remover: strips "Dialogue:", "Dentist:", "Patient:" from anywhere in the text. */
 export const SENDER_PREFIX_GLOBAL_RE = /(?:^|\b)(?:dentist|patient|dialogue|clinical\s+comment)\s*:\s*/gi;
 
@@ -135,12 +139,17 @@ export const SENDER_PREFIX_GLOBAL_RE = /(?:^|\b)(?:dentist|patient|dialogue|clin
 export const GREETING_OPENER_RE =
   /^(?:alright|okay|ok|right|so|well|now|good\s+(?:morning|afternoon|evening)|hi|hello|hey|thanks|thank\s+you|look|great|lovely|perfect)\b[,\s]+/i;
 
+/** Strips conversational fillers and colloquial speech disclaimers at clause starts. */
+export const CONVERSATIONAL_FILLER_RE =
+  /^(?:look|well|you know|as i said|like i said|i mean|to be honest|basically|so basically)\b[,\s]*/i;
+
 /** Removes speaker prefixes, greeting openers, and stutters from a single sentence. */
 export function cleanSentenceForNote(sentence: string): string {
   if (!sentence) return '';
   let s = sentence
     .replace(SENDER_PREFIX_GLOBAL_RE, '')
     .replace(GREETING_OPENER_RE, '')
+    .replace(CONVERSATIONAL_FILLER_RE, '')
     .replace(/\s+/g, ' ')
     .trim();
 
@@ -149,6 +158,10 @@ export function cleanSentenceForNote(sentence: string): string {
 
   // Eliminate immediate single-word stutter loops: "with with", "I, I, I", "we'll we'll", "if, if, if"
   s = s.replace(/\b([a-zA-Z']+)(?:[,\s]+\1\b)+/gi, '$1');
+
+  if (s) {
+    s = s.charAt(0).toUpperCase() + s.slice(1);
+  }
 
   return s;
 }
@@ -299,7 +312,7 @@ export function extractCandidateSentences(transcript: TranscriptItem[]): string[
     const parts = cleaned
       .split(/(?<=[.!?])\s+/)
       .map((p) => collapseStutterLoops(cleanSentenceForNote(p)))
-      .filter((p) => Boolean(p) && !NON_CLINICAL_UTTERANCE_RE.test(p) && !NON_CLINICAL_META_RE.test(p));
+      .filter((p) => Boolean(p) && !NON_CLINICAL_UTTERANCE_RE.test(p) && !NON_CLINICAL_META_RE.test(p) && !NON_CLINICAL_COMMERCIAL_RE.test(p));
 
     for (const p of parts) {
       if (p.length >= 5) {
@@ -316,21 +329,21 @@ const SECTION_KEYWORDS: Record<string, string[]> = {
   chiefComplaint: ['pain', 'ache', 'hurt', 'sensitive', 'sensitivity', 'discomfort', 'sore', 'bleeding', 'swelling', 'broken', 'chipped', 'cracked', 'complaint', 'since', 'started', 'sharp', 'dull', 'throbbing', 'lingering', 'night', 'wake', 'eating', 'chewing', 'cold', 'hot', 'sweet', 'dislodged', 'whitening', 'crowding', 'evaluation', 'struck', 'accident', 'returned'],
   subjective: ['pain', 'ache', 'hurt', 'sensitive', 'sensitivity', 'discomfort', 'sore', 'since', 'started', 'noticed', 'feeling', 'sharp', 'dull', 'throbbing', 'lingering', 'night', 'wake', 'eating', 'chewing', 'crowding', 'whiter', 'broken'],
   history: ['history', 'medication', 'allergic', 'allergy', 'smok', 'diabet', 'asthma', 'blood pressure', 'hypertension', 'brushing', 'flossing', 'hygiene', 'last visit', 'previously', 'had', 'penicillin', 'aspirin', 'apixaban', 'warfarin', 'inr', 'prolia', 'denosumab', 'osteoporosis', 'mronj', 'medical', 'nil of note', 'blood thinner', 'alert', 'injection', 'injections', 'gp'],
-  toothFindings: ['tooth', 'teeth', 'caries', 'cavity', 'decay', 'filling', 'restoration', 'fracture', 'crack', 'mobility', 'percussion', 'periapical', 'radiograph', 'x-ray', 'bitewing', 'occlusal', 'enamel', 'dentin', 'mesial', 'distal', 'buccal', 'lingual', 'incisal', 'palatal', 'cusp', 'cold', 'ept', 'ttp', 'tender', 'vital', 'non-vital', 'pocket', 'fissure', 'margin', 'wear', 'attrition', 'abfraction', 'erosion', 'incisor', 'incisors', 'canine', 'canines', 'premolar', 'premolars', 'molar', 'molars', 'crowding', 'spacing', 'overjet', 'overbite', 'class i', 'class ii', 'crown', 'bridge', 'denture', 'implant', 'splint', 'trauma', 'subluxation', 'luxation', 'socket', 'bone', 'osteitis', 'dry socket', 'lesion', 'ulcer', 'lichen planus', 'whitening', 'shade', 'bleaching', 'core', 'intact', 'shoppe', 'slooth', 'framework', 'undercut', 'clasp', 'rest', 'rests', 'ridge', 'space', 'edentulous'],
-  findingsGingival: ['gingiv', 'gum', 'pocket', 'bleeding on probing', 'bop', 'bpe', 'calculus', 'plaque', 'tartar', 'recession', 'periodontal', 'inflammation', 'stain', 'erythema', 'furcation', 'sulcular', 'mucosa', 'striae', 'erosive', 'desquamative'],
+  toothFindings: ['tooth', 'teeth', 'caries', 'cavity', 'decay', 'filling', 'restoration', 'fracture', 'crack', 'mobility', 'percussion', 'periapical', 'radiograph', 'x-ray', 'bitewing', 'occlusal', 'enamel', 'dentin', 'mesial', 'distal', 'buccal', 'lingual', 'incisal', 'palatal', 'cusp', 'cold', 'ept', 'ttp', 'tender', 'vital', 'non-vital', 'pocket', 'fissure', 'margin', 'tooth wear', 'teeth wear', 'incisal wear', 'occlusal wear', 'wear facets', 'wear patterns', 'attrition', 'abfraction', 'erosion', 'incisor', 'incisors', 'canine', 'canines', 'premolar', 'premolars', 'molar', 'molars', 'crowding', 'spacing', 'overjet', 'overbite', 'class i', 'class ii', 'crown', 'bridge', 'denture', 'implant', 'splint', 'trauma', 'subluxation', 'luxation', 'socket', 'bone', 'osteitis', 'dry socket', 'lesion', 'ulcer', 'lichen planus', 'shade', 'core', 'intact', 'shoppe', 'slooth', 'framework', 'undercut', 'clasp', 'rest', 'rests', 'ridge', 'space', 'edentulous'],
+  findingsGingival: ['gingiv', 'gum', 'pocket', 'bleeding on probing', 'bop', 'bpe', 'calculus', 'plaque', 'tartar', 'recession', 'periodontal', 'inflammation', 'erythema', 'furcation', 'sulcular', 'mucosa', 'palatal', 'palate', 'nicotinic stomatitis', 'stomatitis', 'leukoplakia', 'erythroplakia', 'ulcer', 'striae', 'erosive', 'desquamative'],
   objective: ['tooth', 'teeth', 'gingiv', 'gum', 'pocket', 'radiograph', 'x-ray', 'percussion', 'mobility', 'examination', 'examining', 'exam', 'found', 'observed', 'cold test', 'ttp', 'bpe', 'caries', 'incisor', 'incisors', 'canine', 'canines', 'premolar', 'premolars', 'molar', 'molars', 'crowding', 'overjet', 'overbite', 'sulcular', 'bleeding', 'socket', 'bone', 'shade', 'core', 'margins', 'striae', 'ulcer', 'mucoperiosteal', 'torque', 'framework', 'rests', 'clasp', 'denture'],
   periapicalAssessment: ['radiograph', 'x-ray', 'periapical', 'canal', 'root', 'apex', 'working length', 'image', 'radiolucency', 'bone loss', 'widening', 'pdl', 'cbct', 'bitewing', 'apical'],
   toothIsolation: ['occlusion', 'high spot', 'articulat', 'polish', 'bite', 'grind', 'rubber dam', 'clamp', 'cotton roll', 'matrix', 'gingival dam'],
-  treatmentPerformed: ['filled', 'filling', 'restored', 'restoration', 'scaled', 'scale', 'polished', 'sealed', 'sealant', 'fluoride', 'extract', 'extraction', 'removed', 'removal', 'root canal', 'rct', 'access', 'extirpation', 'extirpated', 'obturated', 'temporary', 'dressing', 'cemented', 'anaesthetic', 'anesthetic', 'lignocaine', 'articaine', 'mepivacaine', 'adrenaline', 'cartridge', 'infiltration', 'ianb', 'ian', 'block', 'injection', 'rubber dam', 'matrix', 'wedge', 'etch', 'etched', 'bond', 'composite', 'resin', 'cured', 'cleaned', 'performed', 'completed', 'caries excavation', 'take the tooth out', 'splint', 'splinting', 'ipr', 'interproximal reduction', 'aligner', 'attachments', 'sutures', 'suture', 'flap', 'guttering', 'bone guttering', 'elevated', 'luxated', 'delivered', 'alveogyl', 'surgicel', 'hemostatic', 'biodentine', 'pulp cap', 'recemented', 'sandblasted', 'dam barrier', 'whitening', 'bleaching', 'hydrogen peroxide', 'tooth mousse', 'fluoride varnish', 'hall crown', 'pmc', 'try-in', 'impression', 'occlusal rim', 'custom tray', 'implant placement', 'torque', 'healing abutment', 'nightguard', 'occlusal splint', 'corticosteroid', 'kenalog', 'orabase', 'incised', 'drained', 'excavated', 'bite', 'registration', 'rim', 'framework', 'denture', 'nitrous', 'analgesia', 'pulpotomy', 'haemostasis', 'mta', 'crimped', 'contoured', 'relative analgesia', 'retraction', 'cord'],
+  treatmentPerformed: ['filled', 'filling', 'restored', 'restoration', 'scaled', 'scale', 'polished', 'sealed', 'sealant', 'fluoride', 'extract', 'extraction', 'removed', 'removal', 'root canal', 'rct', 'access', 'extirpation', 'extirpated', 'obturated', 'temporary', 'dressing', 'cemented', 'anaesthetic', 'anesthetic', 'lignocaine', 'articaine', 'mepivacaine', 'adrenaline', 'cartridge', 'infiltration', 'ianb', 'ian', 'block', 'injection', 'rubber dam', 'matrix', 'wedge', 'etch', 'etched', 'bond', 'composite', 'resin', 'cured', 'cleaned', 'performed', 'completed', 'caries excavation', 'take the tooth out', 'splint', 'splinting', 'ipr', 'interproximal reduction', 'aligner', 'attachments', 'sutures', 'suture', 'flap', 'guttering', 'bone guttering', 'elevated', 'luxated', 'delivered', 'alveogyl', 'surgicel', 'hemostatic', 'biodentine', 'pulp cap', 'recemented', 'sandblasted', 'dam barrier', 'whitening applied', 'whitening completed', 'bleaching applied', 'in-chair whitening', 'bleaching completed', 'hydrogen peroxide', 'tooth mousse', 'fluoride varnish', 'hall crown', 'pmc', 'try-in', 'impression', 'occlusal rim', 'custom tray', 'implant placement', 'torque', 'healing abutment', 'nightguard', 'occlusal splint', 'corticosteroid', 'kenalog', 'orabase', 'incised', 'drained', 'excavated', 'bite', 'registration', 'rim', 'framework', 'denture', 'nitrous', 'analgesia', 'pulpotomy', 'haemostasis', 'mta', 'crimped', 'contoured', 'relative analgesia', 'retraction', 'cord'],
   plan: ['treatment plan', 'schedule next', 'next appointment', 'booked', 'return in', 'review in', 'recommend', 'estimate', 'appointment', 'options', 'aligner', 'crown', 'rehabilitation', 'therapy', 'prescribed', 'prescribe', 'prescription', 'painkiller', 'analgesic', 'antibiotic', 'referral', 'clindamycin', 'amoxicillin', 'paracetamol', 'ibuprofen', 'gp', 'doctor', 'clearance', 'medical clearance', 'check with'],
   behaviourAssessment: ['behaviour', 'cooperat', 'anxious', 'nervous', 'scared', 'tell-show-do', 'child', 'settled', 'cried', 'distraction', 'frankl', 'positive'],
   restorative: ['filling', 'restoration', 'composite', 'amalgam', 'resin', 'shade', 'bond', 'matrix', 'curing', 'etch', 'prep', 'cavity', 'biodentine', 'pulp cap'],
   provisionalNote: ['provisional', 'temporary', 'temporis', 'shade', 'lab', 'impression', 'ferrule', 'core', 'try-in', 'rim', 'wax'],
-  postOpInstructions: ['advice', 'avoid', 'soft diet', 'ice', 'analgesic', 'pain relief', 'paracetamol', 'ibuprofen', 'brush', 'rinse', 'salt water', 'warm', 'numb', 'instruct', 'care', 'hot drinks', 'numbness', 'warnings', 'swelling', 'dry socket', 'gauze', 'bite on gauze'],
-  recommendations: ['advice', 'avoid', 'soft', 'brush', 'floss', 'rinse', 'salt water', 'warm', 'paracetamol', 'ibuprofen', 'analgesic', 'diet', 'sugar', 'smok', 'stop', 'return if', 'watch', 'instruct', 'care', 'oral hygiene', 'warnings', 'post-operative', 'gp', 'doctor', 'clearance', 'medical clearance'],
-  diagnosis: ['diagnosis', 'pulpitis', 'periodontitis', 'gingivitis', 'abscess', 'caries', 'cavity', 'fracture', 'cracked tooth', 'periapical', 'infection', 'assessment', 'think', 'believe', 'likely', 'symptomatic', 'asymptomatic', 'reversible', 'irreversible', 'necrosis', 'subluxation', 'alveolar osteitis', 'dry socket', 'lichen planus', 'bruxism', 'edentulous'],
-  assessment: ['diagnosis', 'pulpitis', 'periodontitis', 'gingivitis', 'abscess', 'caries', 'fracture', 'assessment', 'likely', 'prognosis', 'subluxation', 'osteitis', 'lichen planus'],
-  recallRequirements: ['recall', 'review', 'months', 'weeks', 'appointment', 'booked', 'return', 'follow-up', 'follow up', 'next visit', 'standard', 'periodontal', 'splint removal', 'suture removal'],
+  postOpInstructions: ['advice', 'avoid', 'soft diet', 'ice', 'analgesic', 'pain relief', 'paracetamol', 'ibuprofen', 'brush', 'rinse', 'salt water', 'warm', 'numb', 'instruct', 'care', 'hot drinks', 'numbness', 'warnings', 'swelling', 'dry socket', 'gauze', 'bite on gauze', 'counseling', 'counselling'],
+  recommendations: ['advice', 'avoid', 'soft', 'brush', 'floss', 'rinse', 'salt water', 'warm', 'paracetamol', 'ibuprofen', 'analgesic', 'diet', 'sugar', 'smok', 'stop', 'return if', 'watch', 'instruct', 'care', 'oral hygiene', 'warnings', 'post-operative', 'gp', 'doctor', 'clearance', 'medical clearance', 'soft drink', 'soft drinks', 'sipping', 'cigar', 'cigars', 'cigarillo', 'cigarillos', 'smoking', 'tobacco', 'nicotinic stomatitis', 'counseling', 'counselling', 'hygiene instruction'],
+  diagnosis: ['diagnosis', 'pulpitis', 'periodontitis', 'gingivitis', 'abscess', 'caries', 'cavity', 'fracture', 'cracked tooth', 'periapical', 'infection', 'assessment', 'likely', 'symptomatic', 'asymptomatic', 'reversible', 'irreversible', 'necrosis', 'subluxation', 'alveolar osteitis', 'dry socket', 'lichen planus', 'bruxism', 'edentulous', 'nicotinic stomatitis', 'smoker\'s palate', 'smokers palate', 'stomatitis', 'leukoplakia', 'erythroplakia', 'hyperkeratosis', 'aphthous', 'ulcer', 'candidiasis', 'thrush', 'angular cheilitis', 'fibroma', 'papilloma'],
+  assessment: ['diagnosis', 'pulpitis', 'periodontitis', 'gingivitis', 'abscess', 'caries', 'fracture', 'assessment', 'likely', 'prognosis', 'subluxation', 'osteitis', 'lichen planus', 'nicotinic stomatitis', 'smoker\'s palate', 'smokers palate', 'stomatitis', 'leukoplakia', 'erythroplakia', 'hyperkeratosis', 'aphthous', 'ulcer'],
+  recallRequirements: ['recall', 'review', 'months', 'weeks', 'appointment', 'booked', 'return', 'follow-up', 'follow up', 'next visit', 'standard', 'periodontal', 'splint removal', 'suture removal', 'treatment plan', 'plan', 'planned', 'aligner', 'therapy', 'attachments', 'reduction', 'ipr'],
   emergency: ['pain', 'swelling', 'abscess', 'trauma', 'knocked', 'broken', 'urgent', 'severe', 'acute', 'struck', 'dislodged', 'throbbing', 'dry socket'],
 };
 
@@ -371,9 +384,86 @@ function extractAdaCodesSpoken(transcript: TranscriptItem[]): { code: string; de
   return [...found.entries()].map(([code, description]) => ({ code, description }));
 }
 
-function pickRelevant(sentences: string[], keywords: string[], maxChars: number): string {
+/**
+ * Evaluates whether a sentence represents an executed, completed dental procedure.
+ * Inquiries, prospective discussions, and questions are strictly prohibited.
+ */
+export function isCompletedTreatmentSentence(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+
+  // 1. Inquiries, prospective discussions, and questions are STRICTLY PROHIBITED
+  const inquiryOrQuestionPattern = /\b(can (we|you|i)|could (we|you|i)|should (we|you|i)|would (we|you|i)|might|wondering if|going to ask|wanted to ask|like to ask|thinking about|what about|interested in|options for|look into|question about)\b|\?$/i;
+  if (inquiryOrQuestionPattern.test(trimmed)) {
+    return false;
+  }
+
+  // 2. Must contain verified declarative clinical procedure action or executed modality
+  const completedActionPattern = /\b(placed|restored|filled|filling|extracted|removal|removed|administered|infiltrated|etched|bonded|cured|scaled|scale and clean|polished|applied|sutured|suture|sutures|extirpated|extirpation|obturated|obturation|cemented|excavated|excavation|debrided|completed|performed|take the tooth out|access opening|clean today|raised|flap|guttering|sectioned|elevated|irrigated|block given|registered|bite registration|try-in|seated)\b/i;
+  return completedActionPattern.test(trimmed);
+}
+
+/**
+ * Identifies preventative, dietary, hygiene, or lifestyle counseling utterances.
+ */
+export function isPreventativeCounselingSentence(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  return /\b(soft drink|soft drinks|soda|sipping|sugar|acidic?|dietary|cigar|cigars|cigarillo|cigarillos|smoking|smoke|smoker|tobacco|brushing|flossing|interdental|oral hygiene|mouthwash|fluoride rinse|limit to|snacking)\b/i.test(trimmed);
+}
+
+/** Normalized utterance key for O(1) single-ownership deduplication. */
+export function getUtteranceHash(text: string): string {
+  return text.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+/**
+ * Clinical Precedence Hierarchy for Single-Ownership Assignment:
+ * Diagnosis > Treatment Performed > Hard Tissue > Soft Tissue > Subjective > History > Recommendations > Plan
+ */
+export function getSectionPrecedence(key: string): number {
+  switch (key) {
+    case 'diagnosis':
+    case 'assessment':
+      return 1;
+    case 'treatmentPerformed':
+      return 2;
+    case 'toothFindings':
+    case 'restorative':
+    case 'toothIsolation':
+      return 3;
+    case 'findingsGingival':
+    case 'periapicalAssessment':
+      return 4;
+    case 'chiefComplaint':
+    case 'subjective':
+    case 'emergency':
+      return 5;
+    case 'history':
+    case 'medicalHistory':
+    case 'medicalScreen':
+      return 6;
+    case 'recommendations':
+    case 'postOpInstructions':
+    case 'behaviourAssessment':
+      return 7;
+    case 'plan':
+    case 'recallRequirements':
+    case 'provisionalNote':
+      return 8;
+    default:
+      return 9;
+  }
+}
+
+function pickRelevant(
+  sentences: string[],
+  keywords: string[],
+  maxChars: number
+): string {
   const matched = sentences.filter((sentence) => {
     if (NON_CLINICAL_META_RE.test(sentence)) return false;
+    if (NON_CLINICAL_COMMERCIAL_RE.test(sentence)) return false;
     const lower = sentence.toLowerCase();
     return keywords.some((kw) => {
       if (kw.length <= 4) {
@@ -450,6 +540,7 @@ export function generateOfflineDraft(
 
   const canonical: Record<string, string> = {};
   const customSections: Record<string, string> = {};
+
   for (const section of template.sections) {
     const value = fillSection(section, allSentences, patientSentences);
     if (isCanonicalField(section.key)) canonical[section.key] = value;
@@ -515,12 +606,45 @@ function fillSection(
     : allSentences;
 
   // Rule 17 & 20: Medical history, antiresorptives, osteoporosis, anticoagulants must NEVER leak into treatmentPerformed
+  // Gate: Treatment Performed requires completed action verbs and forbids inquiries/speculative questions
   if (section.key === 'treatmentPerformed') {
     pool = pool.filter(sentence => {
       const lower = sentence.toLowerCase();
       const isPureMedicalHistory = /\b(?:osteoporosis|denosumab|prolia|bisphosphonate|antiresorptive|anticoagulant|warfarin|eliquis|apixaban|xarelto|rivaroxaban|blood thinner|hypertension|blood pressure|heart disease|my gp|doctor clearance|medical clearance)\b/i.test(lower);
       const isDentalProcedure = /\b(?:filling|restoration|extract|tooth out|root canal|rct|scale|clean|polish|fluoride|rubber dam|articaine|lignocaine|anesthetic|anaesthetic|ianb|infiltration)\b/i.test(lower);
-      return !isPureMedicalHistory || isDentalProcedure;
+      if (isPureMedicalHistory && !isDentalProcedure) return false;
+      return isCompletedTreatmentSentence(sentence);
+    });
+  }
+
+  // Gate: Tooth Findings (Hard Tissue) must only capture clinician anatomical observations; reject patient inquiries and pure dietary/preventative counseling
+  if (section.key === 'toothFindings') {
+    pool = pool.filter(sentence => {
+      const inquiryOrQuestionPattern = /\b(can (we|you|i)|could (we|you|i)|should (we|you|i)|would (we|you|i)|might|wondering if|going to ask|wanted to ask|like to ask|thinking about|what about|interested in|options for|look into|question about)\b|\?$/i;
+      if (inquiryOrQuestionPattern.test(sentence)) return false;
+      if (isPreventativeCounselingSentence(sentence) && !/\b(caries|cavity|decay|filling|restoration|fracture|crack|mobility|percussion|vital|non-vital|lesion|pocket|wear facets?|attrition|abfraction|erosion)\b/i.test(sentence)) {
+        return false;
+      }
+      return true;
+    });
+  }
+
+  // Gate: Soft Tissue / Gingival findings must exclude patient inquiries
+  if (section.key === 'findingsGingival') {
+    pool = pool.filter(sentence => {
+      const inquiryOrQuestionPattern = /\b(can (we|you|i)|could (we|you|i)|should (we|you|i)|would (we|you|i)|might|wondering if|going to ask|wanted to ask|like to ask|thinking about|what about|interested in|options for|look into|question about)\b|\?$/i;
+      if (inquiryOrQuestionPattern.test(sentence)) return false;
+      return true;
+    });
+  }
+
+  // Gate: Diagnosis must exclude patient conversational disclaimers
+  if (section.key === 'diagnosis' || section.key === 'assessment') {
+    pool = pool.filter(sentence => {
+      if (/\b(i don't even think|i don't think|not really sure|just social|just socially|certainly not)\b/i.test(sentence)) {
+        return false;
+      }
+      return true;
     });
   }
 
@@ -531,9 +655,13 @@ function fillSection(
   //   One-word acknowledgements like "okay" are never promoted to content.
   if (!text && isComplaintStyle) {
     const fallback = patientSentences.filter(
-      (s) => !NON_CLINICAL_UTTERANCE_RE.test(s) && s.length >= 10
+      (s) => !NON_CLINICAL_UTTERANCE_RE.test(s) &&
+             !NON_CLINICAL_META_RE.test(s) &&
+             !NON_CLINICAL_COMMERCIAL_RE.test(s) &&
+             s.length >= 10
     );
-    const candidate = fallback.slice(0, 2).map((s) => (/[.!?]$/.test(s) ? s : `${s}.`)).join(' ');
+    const chosen = fallback.slice(0, 2);
+    const candidate = chosen.map((s) => (/[.!?]$/.test(s) ? s : `${s}.`)).join(' ');
     text = candidate;
   }
 
