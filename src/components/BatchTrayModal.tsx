@@ -8,8 +8,8 @@ export interface BatchTrayModalProps {
   onClose: () => void;
   completedEncounters: PatientEncounter[];
   consultations: Consultation[];
-  handleCopyAllBatchNotes: () => void;
-  allBatchCopied: boolean;
+  handleCopyAllBatchNotes?: () => void;
+  allBatchCopied?: boolean;
   copiedBatchIndex: number | null;
   setCopiedBatchIndex: (idx: number | null) => void;
   getFormattedNoteText: (consult?: Consultation) => string;
@@ -20,8 +20,6 @@ export const BatchTrayModal: React.FC<BatchTrayModalProps> = ({
   onClose,
   completedEncounters,
   consultations,
-  handleCopyAllBatchNotes,
-  allBatchCopied,
   copiedBatchIndex,
   setCopiedBatchIndex,
   getFormattedNoteText,
@@ -52,31 +50,19 @@ export const BatchTrayModal: React.FC<BatchTrayModalProps> = ({
           </button>
         </div>
 
-        {/* Master Action Banner */}
-        <div className="p-4 bg-slate-50/80 border-b border-slate-200 flex-shrink-0 space-y-2">
+        {/* Clinical Safety Guidance Banner */}
+        <div className="p-4 bg-sky-50/70 border-b border-sky-100 flex-shrink-0 space-y-1">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
-              Copy All Notes
+            <span className="text-[11px] font-bold text-sky-950 uppercase tracking-wider">
+              Single-Patient Review
             </span>
-            <span className="text-[10px] text-teal-700 bg-teal-50 px-2 py-0.5 rounded-full font-bold border border-teal-200">
-              Dentrix • Eaglesoft • Open Dental
+            <span className="text-[10px] text-sky-800 bg-sky-100/90 px-2 py-0.5 rounded-full font-bold border border-sky-200/80">
+              Cross-Patient Protection
             </span>
           </div>
-          <button
-            onClick={handleCopyAllBatchNotes}
-            disabled={completedEncounters.length === 0}
-            className={`w-full py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center space-x-2 transition shadow-xs cursor-pointer ${allBatchCopied
-              ? 'bg-emerald-600 text-white'
-              : 'bg-teal-800 hover:bg-teal-900 disabled:opacity-50 text-white'
-              }`}
-          >
-            {allBatchCopied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-            <span>
-              {allBatchCopied
-                ? `Copied All ${completedEncounters.length} Notes to Clipboard!`
-                : `Copy All Notes for PMS (${completedEncounters.length} Ready)`}
-            </span>
-          </button>
+          <p className="text-xs text-sky-800 leading-relaxed">
+            Bulk concatenation is restricted to prevent inadvertent cross-patient clipboard mixups. Please copy each note individually into its corresponding PMS chart below.
+          </p>
         </div>
 
         {/* Completed Notes Scroll Area */}

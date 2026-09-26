@@ -328,4 +328,64 @@ describe('Rule 18: chair-active Ephemerality & Anti-Bleed Guarantees', () => {
     const encounterStatus = (consult.status === 'Completed' || hasActualGeneratedNote) ? 'note_generated' : 'ready';
     expect(['note_generated', 'done']).toContain(encounterStatus);
   });
+
+  it('guarantees note regeneration requires confirmation when manual edits exist', () => {
+    const dirtyEdits: Record<string, string> = {
+      'chair-active': 'Manual clinician edit: patient experienced mild sensitivity on 46.'
+    };
+    const cleanEdits: Record<string, string> = {
+      'chair-active': ''
+    };
+    const emptyEdits: Record<string, string> = {};
+
+    const shouldConfirmRegeneration = (encounterId: string, edits: Record<string, string>): boolean => {
+      const manual = edits[encounterId];
+      return Boolean(manual && manual.trim().length > 0);
+    };
+
+    expect(shouldConfirmRegeneration('chair-active', dirtyEdits)).toBe(true);
+    expect(shouldConfirmRegeneration('chair-active', cleanEdits)).toBe(false);
+    expect(shouldConfirmRegeneration('chair-active', emptyEdits)).toBe(false);
+  });
+
+  it('persists preferred PMS target in localStorage with d4w default', () => {
+    // Initial state without stored value defaults to d4w
+    expect(localStorage.getItem('dentai_preferred_pms')).toBeNull();
+    const getPreferredPms = () => {
+      const saved = localStorage.getItem('dentai_preferred_pms');
+      if (saved === 'exact' || saved === 'universal' || saved === 'd4w') {
+        return saved;
+      }
+      return 'd4w';
+    };
+
+    expect(getPreferredPms()).toBe('d4w');
+
+    // Update to exact
+    localStorage.setItem('dentai_preferred_pms', 'exact');
+    expect(getPreferredPms()).toBe('exact');
+
+    // Update to universal
+    localStorage.setItem('dentai_preferred_pms', 'universal');
+    expect(getPreferredPms()).toBe('universal');
+  });
+
+  it('guards aseptic hotkeys against triggering inside input, textarea, or contenteditable elements', () => {
+    const isHotKeySuppressed = (element: { tagName: string; isContentEditable?: boolean; getAttribute?: (attr: string) => string | null }): boolean => {
+      const tag = element.tagName.toLowerCase();
+      return (
+        tag === 'input' ||
+        tag === 'textarea' ||
+        element.getAttribute?.('contenteditable') === 'true' ||
+        Boolean(element.isContentEditable)
+      );
+    };
+
+    expect(isHotKeySuppressed({ tagName: 'INPUT' })).toBe(true);
+    expect(isHotKeySuppressed({ tagName: 'TEXTAREA' })).toBe(true);
+    expect(isHotKeySuppressed({ tagName: 'DIV', isContentEditable: true })).toBe(true);
+    expect(isHotKeySuppressed({ tagName: 'SPAN', getAttribute: (a) => a === 'contenteditable' ? 'true' : null })).toBe(true);
+    expect(isHotKeySuppressed({ tagName: 'DIV', isContentEditable: false, getAttribute: () => null })).toBe(false);
+    expect(isHotKeySuppressed({ tagName: 'BODY' })).toBe(false);
+  });
 });

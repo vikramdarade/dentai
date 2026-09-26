@@ -41,7 +41,22 @@ export const ClinicalNoteEditorPanel: React.FC<ClinicalNoteEditorPanelProps> = (
   hasActualGeneratedNote,
   groundingBadge,
 }) => {
-  const [selectedFormat, setSelectedFormat] = useState<'d4w' | 'exact' | 'universal'>('d4w');
+  const [selectedFormat, setSelectedFormat] = useState<'d4w' | 'exact' | 'universal'>(() => {
+    try {
+      const saved = localStorage.getItem('dentai_preferred_pms');
+      if (saved === 'exact' || saved === 'universal' || saved === 'd4w') {
+        return saved;
+      }
+    } catch {}
+    return 'd4w';
+  });
+
+  const handleSelectFormat = (format: 'd4w' | 'exact' | 'universal') => {
+    setSelectedFormat(format);
+    try {
+      localStorage.setItem('dentai_preferred_pms', format);
+    } catch {}
+  };
 
   return (
     <div className="flex-1 flex flex-col bg-white rounded-2xl border border-slate-200/80 shadow-[0_2px_12px_-3px_rgba(15,23,42,0.04)] overflow-hidden">
@@ -87,7 +102,7 @@ export const ClinicalNoteEditorPanel: React.FC<ClinicalNoteEditorPanelProps> = (
           {/* PMS Format Selector (D4W, EXACT, Universal) */}
           <div className="flex rounded-xl border border-slate-200/90 bg-slate-100/70 p-0.5 shadow-2xs">
             <button
-              onClick={() => setSelectedFormat('d4w')}
+              onClick={() => handleSelectFormat('d4w')}
               className={`px-2.5 py-1 text-[11px] font-semibold rounded-lg cursor-pointer ${
                 selectedFormat === 'd4w'
                   ? 'bg-white text-slate-900 shadow-xs font-bold'
@@ -97,7 +112,7 @@ export const ClinicalNoteEditorPanel: React.FC<ClinicalNoteEditorPanelProps> = (
               D4W
             </button>
             <button
-              onClick={() => setSelectedFormat('exact')}
+              onClick={() => handleSelectFormat('exact')}
               className={`px-2.5 py-1 text-[11px] font-semibold rounded-lg cursor-pointer ${
                 selectedFormat === 'exact'
                   ? 'bg-white text-slate-900 shadow-xs font-bold'
@@ -107,7 +122,7 @@ export const ClinicalNoteEditorPanel: React.FC<ClinicalNoteEditorPanelProps> = (
               EXACT
             </button>
             <button
-              onClick={() => setSelectedFormat('universal')}
+              onClick={() => handleSelectFormat('universal')}
               className={`px-2.5 py-1 text-[11px] font-semibold rounded-lg cursor-pointer ${
                 selectedFormat === 'universal'
                   ? 'bg-white text-slate-900 shadow-xs font-bold'

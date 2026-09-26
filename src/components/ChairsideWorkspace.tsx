@@ -605,6 +605,7 @@ export default function ChairsideWorkspace({
   // 3b. PROGRESS NOTE EDITOR STATE
   // ─────────────────────────────────────────────────────────────
   const [editedProgressNotes, setEditedProgressNotes] = useState<Record<string, string>>({});
+  const [showRegenerateConfirm, setShowRegenerateConfirm] = useState(false);
   const [progressNoteSaveStatus, setProgressNoteSaveStatus] = useState<Record<string, 'saved' | 'saving'>>({});
   const [progressiveDrafts, setProgressiveDrafts] = useState<Record<string, string>>({});
   const progressiveDraftTimerRef = useRef<Record<string, any>>({});
@@ -897,32 +898,6 @@ export default function ChairsideWorkspace({
     }, 150);
   }, [currentUser, activeClinicId, onSaveConsultation, handleSelectPatient, handleStartAudio]);
 
-  // Hands-Free Spacebar / Foot-Pedal Operatory Audio Toggle
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.code === 'Space') {
-        const activeEl = document.activeElement;
-        const isInputFocused =
-          activeEl instanceof HTMLInputElement ||
-          activeEl instanceof HTMLTextAreaElement ||
-          activeEl?.getAttribute('contenteditable') === 'true';
-
-        if (!isInputFocused) {
-          e.preventDefault();
-          if (isSilenceWarningRef.current) {
-            handleKeepListening();
-          } else if (isMicStandbyRef.current) {
-            handleStartAudio();
-          } else {
-            handleTogglePause();
-          }
-        }
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleKeepListening, handleStartAudio, handleTogglePause]);
 
   // Derived active SOAP (read-only from consultation record — no local override layer)
   const currentSoap = activeEncounter?.soap ?? { subjective: '', objective: '', assessment: '', plan: '' };
@@ -2363,7 +2338,7 @@ export default function ChairsideWorkspace({
       const isChairActive = targetConsult.id === 'chair-active';
       const persistId = (isFullFinalize && isChairActive) ? `consult-${Date.now()}` : targetConsult.id;
       const isHostedNote = Boolean(payload && payload.groundingReport);
-      let renderedNote = noteSnapshot || targetConsult.clinicalProgressNote;
+      let renderedNote = noteSnapshot;
       if (!renderedNote || !renderedNote.trim()) {
         try {
           renderedNote = renderUniversalProgressNote(toPmsEncounter({
@@ -2371,7 +2346,9 @@ export default function ChairsideWorkspace({
             transcript: finalTranscript,
             findings: updatedFindings
           }));
-        } catch {}
+        } catch {
+          renderedNote = targetConsult.clinicalProgressNote || '';
+        }
       }
 
       const finalizedConsultation: Consultation = {
@@ -2446,7 +2423,18 @@ export default function ChairsideWorkspace({
   };
 
   // Immediate recovery: regenerate the clinical note directly from the live conversation
-  const handleRegenerateFromConversation = async () => {
+  const handleRegenerateFromConversation = () => {
+    const targetEncounter = activeEncounter || effectiveEncounter;
+    if (!targetEncounter) return;
+    const manualEdit = editedProgressNotes[targetEncounter.id];
+    if (manualEdit && manualEdit.trim().length > 0) {
+      setShowRegenerateConfirm(true);
+    } else {
+      executeRegenerateNote();
+    }
+  };
+
+  const executeRegenerateNote = async () => {
     const targetEncounter = activeEncounter || effectiveEncounter;
     if (!targetEncounter) return;
     setIsGeneratingFromConversation(true);
@@ -2983,11 +2971,16 @@ ${clinician}`;
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const isModifier = e.metaKey || e.ctrlKey;
-      const targetTag = (e.target as HTMLElement)?.tagName?.toLowerCase();
-      const isInput = targetTag === 'input' || targetTag === 'textarea';
+      const targetEl = e.target as HTMLElement;
+      const targetTag = targetEl?.tagName?.toLowerCase();
+      const isInput =
+        targetTag === 'input' ||
+        targetTag === 'textarea' ||
+        targetEl?.getAttribute('contenteditable') === 'true' ||
+        Boolean(targetEl?.isContentEditable);
 
       // Spacebar: Start Audio / Pause Audio / Keep Listening
-      if (e.key === ' ' && !isInput && !showDaysheetModal && !showBatchTray && !showDayGuide && !showDeliverablesModal) {
+      if (e.key === ' ' && !isInput && !showRegenerateConfirm && !showDaysheetModal && !showBatchTray && !showDayGuide && !showDeliverablesModal) {
         e.preventDefault();
         if (isSilenceWarningRef.current) {
           handleKeepListening();
@@ -3000,7 +2993,7 @@ ${clinician}`;
       }
 
       // ⌘→: Advance to Next Patient (hands-free transition without touching mouse)
-      if (!isInput && !showDaysheetModal && !showPlainTextModal && !showBatchTray && !showDayGuide && !showDeliverablesModal) {
+      if (!isInput && !showRegenerateConfirm && !showDaysheetModal && !showPlainTextModal && !showBatchTray && !showDayGuide && !showDeliverablesModal) {
         if (isModifier && (e.key === 'ArrowRight' || e.key === 'Right')) {
           e.preventDefault();
           handleNextPatient();
@@ -3014,28 +3007,29 @@ ${clinician}`;
       }
 
       // ? : Toggle Operatory Day Guide & GitHub Support
-      if (e.key === '?' && !isInput) {
+      if (e.key === '?' && !isInput && !showRegenerateConfirm) {
         e.preventDefault();
         setShowDayGuide(prev => !prev);
       }
 
       // ⌘V / Ctrl+V: Open Daysheet Importer when not focused on an input
-      if (isModifier && e.key.toLowerCase() === 'v' && !isInput) {
+      if (isModifier && e.key.toLowerCase() === 'v' && !isInput && !showRegenerateConfirm) {
         e.preventDefault();
         setShowDaysheetModal(true);
       }
       // ⌘C / Ctrl+C / ⌘⇧C: Copy Note for PMS when not focused on an input
-      else if (isModifier && e.key.toLowerCase() === 'c' && !isInput) {
+      else if (isModifier && e.key.toLowerCase() === 'c' && !isInput && !showRegenerateConfirm) {
         e.preventDefault();
         handleCopyPMS();
       }
       // ⌘B / Ctrl+B: Open Batch Tray
-      else if (isModifier && e.key.toLowerCase() === 'b' && !isInput) {
+      else if (isModifier && e.key.toLowerCase() === 'b' && !isInput && !showRegenerateConfirm) {
         e.preventDefault();
         setShowBatchTray(prev => !prev);
       }
       // Escape: Dismiss active modal overlays
       if (e.key === 'Escape') {
+        setShowRegenerateConfirm(false);
         setShowDayGuide(false);
         setShowBatchTray(false);
         setShowDaysheetModal(false);
@@ -3046,7 +3040,7 @@ ${clinician}`;
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeEncounter, encountersForDate, consultations, dentistName, showDaysheetModal, showPlainTextModal, showBatchTray, showDeliverablesModal]);
+  }, [activeEncounter, encountersForDate, consultations, dentistName, showDaysheetModal, showPlainTextModal, showBatchTray, showDeliverablesModal, showDayGuide, showRegenerateConfirm, handleKeepListening, handleStartAudio, handleTogglePause, handleNextPatient, handlePrevPatient, handleCopyPMS]);
 
 
 
@@ -3647,6 +3641,45 @@ ${clinician}`;
         dspNoiseGateActive={dspNoiseGateActive}
         activeEncounterProcedure={activeEncounter?.procedureText}
       />
+
+      {showRegenerateConfirm && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-[100] p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-50 border border-amber-200 text-amber-700 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-5 h-5 text-amber-600" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">Replace Manual Edits?</h3>
+                <p className="text-xs text-slate-500">Unsaved manual text detected in editor</p>
+              </div>
+            </div>
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Regenerating will replace your manual edits with fresh audio transcription from the recorded conversation. Continue?
+            </p>
+            <div className="flex items-center justify-end space-x-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowRegenerateConfirm(false)}
+                className="px-3.5 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowRegenerateConfirm(false);
+                  executeRegenerateNote();
+                }}
+                className="px-4 py-2 text-xs font-bold text-white bg-sky-700 hover:bg-sky-800 rounded-xl transition shadow-xs cursor-pointer flex items-center space-x-1.5"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>Replace & Regenerate</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
