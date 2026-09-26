@@ -667,32 +667,32 @@ export const DENTAL_PHONETIC_RULES: PhoneticRule[] = [
   },
   // ── High-Risk Dental Pharmacotherapy (MRONJ & Bleeding Risk Normalization) ──
   {
-    pattern: /\b(?:dimosuma|dimosumab|dinusimab|deno\s*sumab|denosa\s*mab)\b/gi,
+    pattern: /\b(?:dimosuma|dimosumab|dinusimab|denosa\s*mab|deno\s*sumab)(?!\s*\(Prolia\))\b/gi,
     replacement: 'Denosumab (Prolia)',
     description: 'Acoustic mis-transcriptions of Denosumab -> Denosumab (Prolia)'
   },
   {
-    pattern: /\b(?:pro\s*lee\s*a|pro\s*lia)\b/gi,
+    pattern: /\b(?:pro\s*lee\s*a)(?!\s*\(Prolia\))\b/gi,
     replacement: 'Prolia',
     description: 'Spoken "pro lee a" -> Prolia'
   },
   {
-    pattern: /\b(?:x\s*geva|exgeva)\b/gi,
+    pattern: /\b(?:x\s*geva|exgeva)(?!\s*\(denosumab\))\b/gi,
     replacement: 'Xgeva (denosumab)',
     description: 'Spoken "exgeva" -> Xgeva (denosumab)'
   },
   {
-    pattern: /\b(?:fos\s*a\s*max|fossa\s*max)\b/gi,
+    pattern: /\b(?:fos\s*a\s*max|fossa\s*max)(?!\s*\(alendronate\))\b/gi,
     replacement: 'Fosamax (alendronate)',
     description: 'Spoken "fos a max" -> Fosamax (alendronate)'
   },
   {
-    pattern: /\b(?:act\s*o\s*nell?|actonel)\b/gi,
+    pattern: /\b(?:act\s*o\s*nell?|actonel)(?!\s*\(risedronate\))\b/gi,
     replacement: 'Actonel (risedronate)',
     description: 'Spoken "actonel" -> Actonel (risedronate)'
   },
   {
-    pattern: /\b(?:a\s*clasta|aklasta)\b/gi,
+    pattern: /\b(?:a\s*clasta|aklasta)(?!\s*\(zoledronic acid\))\b/gi,
     replacement: 'Aclasta (zoledronic acid)',
     description: 'Spoken "aklasta" -> Aclasta (zoledronic acid)'
   },
@@ -707,22 +707,22 @@ export const DENTAL_PHONETIC_RULES: PhoneticRule[] = [
     description: 'Acoustic mis-transcription "the thinner right" -> blood thinner'
   },
   {
-    pattern: /\b(?:el\s*e\s*quis|el\s*i\s*quis)\b/gi,
+    pattern: /\b(?:el\s*e\s*quis|el\s*i\s*quis)(?!\s*\(apixaban\))\b/gi,
     replacement: 'Eliquis (apixaban)',
     description: 'Spoken "elequis" -> Eliquis (apixaban)'
   },
   {
-    pattern: /\b(?:za\s*rel\s*toe|xarelto)\b/gi,
+    pattern: /\b(?:za\s*rel\s*toe|xarelto)(?!\s*\(rivaroxaban\))\b/gi,
     replacement: 'Xarelto (rivaroxaban)',
     description: 'Spoken "zareltoe" -> Xarelto (rivaroxaban)'
   },
   {
-    pattern: /\b(?:plav\s*ix|plavex)\b/gi,
+    pattern: /\b(?:plav\s*ix|plavex)(?!\s*\(clopidogrel\))\b/gi,
     replacement: 'Plavix (clopidogrel)',
     description: 'Spoken "plavex" -> Plavix (clopidogrel)'
   },
   {
-    pattern: /\b(?:pra\s*daxa)\b/gi,
+    pattern: /\b(?:pra\s*daxa)(?!\s*\(dabigatran\))\b/gi,
     replacement: 'Pradaxa (dabigatran)',
     description: 'Spoken "pradaxa" -> Pradaxa (dabigatran)'
   },
@@ -735,6 +735,42 @@ export const DENTAL_PHONETIC_RULES: PhoneticRule[] = [
     pattern: /\bdoctor\s*clear(?:ance)?\b/gi,
     replacement: 'physician medical clearance',
     description: 'Spoken "doctor clear" -> physician medical clearance'
+  },
+  // ── Idempotency Collapsing Guards: prevent repeated parentheticals ──
+  {
+    pattern: /\bDenosumab(?:\s*\(Prolia\)){2,}/gi,
+    replacement: 'Denosumab (Prolia)',
+    description: 'Collapse repeated (Prolia) chains'
+  },
+  {
+    pattern: /\bEliquis(?:\s*\(apixaban\)){2,}/gi,
+    replacement: 'Eliquis (apixaban)',
+    description: 'Collapse repeated (apixaban) chains'
+  },
+  {
+    pattern: /\bXarelto(?:\s*\(rivaroxaban\)){2,}/gi,
+    replacement: 'Xarelto (rivaroxaban)',
+    description: 'Collapse repeated (rivaroxaban) chains'
+  },
+  {
+    pattern: /\bFosamax(?:\s*\(alendronate\)){2,}/gi,
+    replacement: 'Fosamax (alendronate)',
+    description: 'Collapse repeated (alendronate) chains'
+  },
+  {
+    pattern: /\bActonel(?:\s*\(risedronate\)){2,}/gi,
+    replacement: 'Actonel (risedronate)',
+    description: 'Collapse repeated (risedronate) chains'
+  },
+  {
+    pattern: /\bAclasta(?:\s*\(zoledronic acid\)){2,}/gi,
+    replacement: 'Aclasta (zoledronic acid)',
+    description: 'Collapse repeated (zoledronic acid) chains'
+  },
+  {
+    pattern: /\bXgeva(?:\s*\(denosumab\)){2,}/gi,
+    replacement: 'Xgeva (denosumab)',
+    description: 'Collapse repeated (denosumab) chains'
   }
 ];
 

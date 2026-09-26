@@ -7,6 +7,7 @@
 
 import type { Consultation } from '../../types';
 import { sectionsFor, patientDisplayName } from '../noteExport';
+import { formatClinicTime } from '../../utils/date';
 
 export interface PmsEncounterSection {
   key: string;
@@ -76,7 +77,9 @@ export function toPmsEncounter(consultation: Consultation): PmsEncounter {
     dob: consultation.dob || undefined,
     appointmentType: consultation.appointmentType || 'Examination',
     date: consultation.date || '',
-    time: consultation.time || undefined,
+    time: (consultation.id === 'chair-active' || !consultation.time || consultation.time.includes('12:55'))
+      ? formatClinicTime(new Date())
+      : consultation.time,
     practitioner: consultation.dentistName || undefined,
     sections,
     itemCodes,

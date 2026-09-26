@@ -127,6 +127,37 @@ describe('Rule 18: chair-active Ephemerality & Anti-Bleed Guarantees', () => {
     expect(normalized).toContain('osteoporosis');
   });
 
+  it('is strictly idempotent and never duplicates brand/generic parentheticals on repeated passes', async () => {
+    const { normalizeSpokenDentalText } = await import('../src/lib/dentalPhoneticLexicon');
+    let text = 'And the other medication that we also concerned about is the Dimosuma, is that the injection that you take?';
+    
+    // Run 5 consecutive passes through the normalizer
+    for (let i = 0; i < 5; i++) {
+      text = normalizeSpokenDentalText(text);
+    }
+
+    expect(text).toContain('Denosumab (Prolia)');
+    expect(text).not.toContain('(Prolia) (Prolia)');
+    expect(text).not.toContain('(Prolia) (Prolia) (Prolia)');
+  });
+
+  it('strictly excludes medical history and antiresorptive injections from treatmentPerformed', () => {
+    const template = getTemplateById('standard');
+    const transcript = [
+      { sender: 'Dentist' as const, text: 'The other medication is the denosumab injection that you take for osteoporosis.' },
+      { sender: 'Patient' as const, text: 'Yes, I am taking denosumab injection for osteoporosis.' },
+      { sender: 'Dentist' as const, text: 'Today we placed a composite restoration on tooth 16.' }
+    ];
+
+    const draft = generateOfflineDraft(template, transcript, 'In-Chair Patient');
+
+    // Denosumab must be in history, NOT in treatmentPerformed
+    expect(draft.canonical.history.toLowerCase()).toContain('denosumab');
+    expect(draft.canonical.treatmentPerformed.toLowerCase()).not.toContain('denosumab');
+    expect(draft.canonical.treatmentPerformed.toLowerCase()).not.toContain('osteoporosis');
+    expect(draft.canonical.treatmentPerformed.toLowerCase()).toContain('tooth 16');
+  });
+
   it('deduplicates consultations by ID in local storage to prevent queue bloat', () => {
     const consults: Consultation[] = [
       { id: 'c-1', firstName: 'Alice', lastName: 'A', dob: '', appointmentType: 'examination', date: '2026-09-26', time: '9:00', status: 'In Review', transcript: [], findings: { chiefComplaint: '', history: '', toothFindings: '', findingsGingival: '', diagnosis: '', treatmentPerformed: '', recommendations: '', recallRequirements: '' }, patientSummary: '' },
@@ -139,5 +170,86 @@ describe('Rule 18: chair-active Ephemerality & Anti-Bleed Guarantees', () => {
 
     expect(loaded?.length).toBe(2);
     expect(loaded?.map(c => c.id)).toEqual(['c-1', 'c-2']);
+  });
+
+  it('updates universal progress note header in-place when inline patient details are edited', async () => {
+    const { toPmsEncounter } = await import('../src/lib/pms/canonical');
+    const { renderUniversalProgressNote } = await import('../src/lib/pms/adapters/universalProgressNote');
+
+    const initialConsult: Consultation = {
+      id: 'chair-active',
+      firstName: 'In-Chair Patient 1',
+      lastName: '',
+      dob: '',
+      date: '2026-09-26',
+      time: '11:30 AM',
+      appointmentType: 'examination',
+      status: 'In Review',
+      transcript: [{ sender: 'Dentist', text: 'Good morning.' }],
+      findings: {
+        chiefComplaint: 'Checkup',
+        history: '',
+        toothFindings: '',
+        findingsGingival: '',
+        diagnosis: '',
+        treatmentPerformed: '',
+        recommendations: '',
+        recallRequirements: ''
+      },
+      patientSummary: ''
+    };
+
+    let note = renderUniversalProgressNote(toPmsEncounter(initialConsult));
+    expect(note).toContain('PATIENT: In-Chair Patient 1');
+
+    // Inline edit happens (immediately or later)
+    const updatedConsult: Consultation = {
+      ...initialConsult,
+      firstName: 'Sarah',
+      lastName: 'Jenkins',
+      dob: '15/04/1988'
+    };
+
+    note = renderUniversalProgressNote(toPmsEncounter(updatedConsult));
+    expect(note).toContain('PATIENT: Sarah Jenkins (DOB: 15/04/1988)');
+    expect(note).not.toContain('In-Chair Patient 1');
+  });
+
+  it('mints immutable timestamped IDs for completed chair-active encounters so they persist in storage without polluting scratchpad', () => {
+    const chairConsult: Consultation = {
+      id: 'chair-active',
+      firstName: 'In-Chair Patient 1',
+      lastName: '',
+      dob: '',
+      appointmentType: 'restorative',
+      date: '2026-09-26',
+      time: '11:45 AM',
+      status: 'Completed',
+      transcript: [{ sender: 'Dentist', text: 'Tooth 26 restoration complete.' }],
+      findings: {
+        chiefComplaint: '',
+        history: '',
+        toothFindings: '',
+        findingsGingival: '',
+        diagnosis: '',
+        treatmentPerformed: 'Resin composite restoration placed on tooth 26.',
+        recommendations: '',
+        recallRequirements: ''
+      },
+      patientSummary: ''
+    };
+
+    // When saved, completed chair-active encounters are converted to consult-${timestamp}
+    const mintedConsult: Consultation = {
+      ...chairConsult,
+      id: `consult-${Date.now()}`
+    };
+
+    saveLocalConsultations([mintedConsult], 'dentist-vik');
+    const loaded = getLocalConsultations('dentist-vik');
+
+    expect(loaded?.length).toBe(1);
+    expect(loaded![0].id).toMatch(/^consult-\d+$/);
+    expect(loaded![0].findings.treatmentPerformed).toContain('tooth 26');
   });
 });

@@ -510,9 +510,19 @@ function fillSection(
   const keywords = SECTION_KEYWORDS[section.key] || [];
   const isComplaintStyle = section.key === 'chiefComplaint' || section.key === 'subjective';
 
-  const pool = isComplaintStyle
+  let pool = isComplaintStyle
     ? [...new Set([...patientSentences, ...allSentences])]
     : allSentences;
+
+  // Rule 17 & 20: Medical history, antiresorptives, osteoporosis, anticoagulants must NEVER leak into treatmentPerformed
+  if (section.key === 'treatmentPerformed') {
+    pool = pool.filter(sentence => {
+      const lower = sentence.toLowerCase();
+      const isPureMedicalHistory = /\b(?:osteoporosis|denosumab|prolia|bisphosphonate|antiresorptive|anticoagulant|warfarin|eliquis|apixaban|xarelto|rivaroxaban|blood thinner|hypertension|blood pressure|heart disease|my gp|doctor clearance|medical clearance)\b/i.test(lower);
+      const isDentalProcedure = /\b(?:filling|restoration|extract|tooth out|root canal|rct|scale|clean|polish|fluoride|rubber dam|articaine|lignocaine|anesthetic|anaesthetic|ianb|infiltration)\b/i.test(lower);
+      return !isPureMedicalHistory || isDentalProcedure;
+    });
+  }
 
   let text = pickRelevant(pool, keywords, 1400);
 

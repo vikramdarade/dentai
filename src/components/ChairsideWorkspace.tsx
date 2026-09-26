@@ -179,6 +179,13 @@ export default function ChairsideWorkspace({
   const hasUserManuallySelectedRef = useRef(false);
   const lastKnownWalkinIdRef = useRef<string | null>(null);
 
+  // In-chair dynamic session state (supports inline editing immediately & later, with auto-increment)
+  const [inChairPatientNumber, setInChairPatientNumber] = useState<number>(1);
+  const [inChairPatientCustomName, setInChairPatientCustomName] = useState<string>('');
+  const [inChairPatientDob, setInChairPatientDob] = useState<string>('');
+  const [inChairOperatory, setInChairOperatory] = useState<string>('Room 1');
+  const [inChairApptType, setInChairApptType] = useState<AppointmentType>('examination');
+
   useEffect(() => {
     if (initialPatientId) {
       setActivePatientId(initialPatientId);
@@ -495,22 +502,25 @@ export default function ChairsideWorkspace({
   // Fallback to active chairside encounter when no pre-scheduled appointment exists
   const effectiveEncounter = useMemo<PatientEncounter>(() => {
     if (activeEncounter) return activeEncounter;
+    const defaultName = inChairPatientNumber === 1 ? 'In-Chair Patient' : `In-Chair Patient ${inChairPatientNumber}`;
+    const displayName = inChairPatientCustomName.trim() || defaultName;
     return {
       id: 'chair-active',
       consultationId: 'chair-active',
       time: formatClinicTime(new Date()),
-      operatory: 'Room 1',
-      patientName: 'In-Chair Patient',
-      procedureText: 'General Consultation',
-      appointmentType: 'examination' as AppointmentType,
-      templateId: 'standard',
+      operatory: inChairOperatory,
+      patientName: displayName,
+      dob: inChairPatientDob || '',
+      procedureText: inChairApptType === 'emergency' ? 'Emergency Examination' : 'General Consultation',
+      appointmentType: inChairApptType,
+      templateId: inChairApptType === 'emergency' ? 'emergency' : 'standard',
       status: isMicStandby ? 'ready' : isPaused ? 'ready' : 'recording',
       alerts: parseClinicalAlerts(undefined, localLiveTranscripts['chair-active'] || []),
       diarizedTranscript: localLiveTranscripts['chair-active'] || [],
       soap: { subjective: '', objective: '', assessment: '', plan: '' },
       cdtCodes: []
     };
-  }, [activeEncounter, isMicStandby, isPaused, localLiveTranscripts]);
+  }, [activeEncounter, inChairPatientNumber, inChairPatientCustomName, inChairPatientDob, inChairOperatory, inChairApptType, isMicStandby, isPaused, localLiveTranscripts]);
 
   // Active transcript (no confidence gating — dentist decides when to regenerate)
   const currentOperatoryEncounter = activeEncounter || effectiveEncounter;
@@ -2026,22 +2036,30 @@ export default function ChairsideWorkspace({
   };
 
   const handleQuickInductPatient = useCallback(async (data: { patientName: string; dob?: string; operatory?: string; appointmentType?: AppointmentType }) => {
-    const names = data.patientName.trim().split(' ');
+    const trimmedName = data.patientName.trim();
+    const names = trimmedName.split(' ');
     const firstName = names[0] || 'Patient';
     const lastName = names.slice(1).join(' ');
-    const cleanTime = formatClinicTime(new Date());
 
     const targetEncounter = activeEncounter || effectiveEncounter;
-    const existingConsult = targetEncounter ? consultations.find(c => c.id === targetEncounter.id) : undefined;
-    const hasAudio = targetEncounter && (localLiveTranscriptsRef.current[targetEncounter.id]?.length || targetEncounter.diarizedTranscript?.length);
+    const targetId = targetEncounter.id;
 
-    // If active consultation is fresh without recorded audio, rename & reassign in-place
-    if (existingConsult && !hasAudio && existingConsult.status !== 'Completed') {
+    // Always persist to in-chair dynamic state so edits immediately and permanently reflect
+    if (!activeEncounter || activeEncounter.id === 'chair-active') {
+      setInChairPatientCustomName(trimmedName);
+      if (data.dob !== undefined) setInChairPatientDob(data.dob.trim());
+      if (data.operatory) setInChairOperatory(data.operatory);
+      if (data.appointmentType) setInChairApptType(data.appointmentType);
+    }
+
+    // If an existing consultation record is attached to this encounter, update it in-place
+    const existingConsult = consultations.find(c => c.id === targetId);
+    if (existingConsult) {
       const updatedConsult: Consultation = {
         ...existingConsult,
         firstName,
         lastName,
-        dob: data.dob || existingConsult.dob,
+        dob: data.dob !== undefined ? data.dob.trim() : existingConsult.dob,
         appointmentType: data.appointmentType || existingConsult.appointmentType,
         findings: {
           ...existingConsult.findings,
@@ -2054,60 +2072,33 @@ export default function ChairsideWorkspace({
       if (onSaveConsultation) {
         await onSaveConsultation(updatedConsult);
       }
-      setTurnoverToast(`Patient updated: ${data.patientName}`);
-      return;
     }
 
-    // Otherwise create and activate a new walk-in patient
-    const newConsultation: Consultation = {
-      id: `patient-${Date.now()}`,
-      dentistId: currentUser?.id,
-      clinicId: activeClinicId || undefined,
-      firstName,
-      lastName,
-      dob: data.dob,
-      appointmentType: data.appointmentType || 'examination',
-      templateId: data.appointmentType === 'emergency' ? 'emergency' : 'standard',
-      date: getClinicTodayIso(),
-      time: cleanTime,
-      status: 'In Review',
-      patientSummary: '',
-      transcript: [],
-      findings: {
-        chiefComplaint: '',
-        history: '',
-        toothFindings: '',
-        findingsGingival: '',
-        diagnosis: '',
-        treatmentPerformed: '',
-        recommendations: '',
-        recallRequirements: '',
-        customSections: { operatory: data.operatory || 'Room 1' },
-        adaCodes: []
-      }
-    };
-
-    if (onSaveConsultation) {
-      await onSaveConsultation(newConsultation);
+    // Refresh any progressive draft so the patient header immediately reflects the updated name and DOB
+    if (progressiveDrafts[targetId]) {
+      const updatedHeaderDraft = progressiveDrafts[targetId].replace(
+        /PATIENT:\s*([^\n\r]+)/i,
+        `PATIENT: ${trimmedName}${data.dob ? ` (DOB: ${data.dob.trim()})` : ''}`
+      );
+      setProgressiveDrafts(prev => ({
+        ...prev,
+        [targetId]: updatedHeaderDraft
+      }));
     }
 
-    addScheduleItem({
-      time: cleanTime,
-      patientName: data.patientName,
-      dob: data.dob,
-      procedureText: `${(data.appointmentType || 'examination').charAt(0).toUpperCase() + (data.appointmentType || 'examination').slice(1)} • Clinical Consult`,
-      appointmentType: data.appointmentType || 'examination',
-      templateId: data.appointmentType === 'emergency' ? 'emergency' : 'standard'
-    });
-
-    handleSelectPatient(newConsultation.id);
-    setTurnoverToast(`In-chair patient set: ${data.patientName}`);
-  }, [activeEncounter, effectiveEncounter, consultations, onSaveConsultation, currentUser, activeClinicId, addScheduleItem, handleSelectPatient]);
+    setTurnoverToast(`Patient updated: ${trimmedName}`);
+  }, [activeEncounter, effectiveEncounter, consultations, onSaveConsultation, progressiveDrafts]);
 
   // ─────────────────────────────────────────────────────────────
   // 6. ASYNCHRONOUS NOTE FINALIZATION & NON-BLOCKING HANDOFF
   // ─────────────────────────────────────────────────────────────
-  const executeBackgroundNoteFinalization = async (targetId: string, autoCopyClipboard = false) => {
+  const executeBackgroundNoteFinalization = async (
+    targetId: string,
+    autoCopyClipboard = false,
+    isFullFinalize = false,
+    transcriptSnapshot?: TranscriptItem[],
+    noteSnapshot?: string
+  ) => {
     try {
       await flushPendingConsultationSave();
       const targetConsult: Consultation = consultations.find(c => c.id === targetId) || {
@@ -2119,10 +2110,10 @@ export default function ChairsideWorkspace({
         dob: effectiveEncounter.dob || '',
         date: currentDateStr,
         time: effectiveEncounter.time || formatClinicTime(new Date()),
-        status: 'Completed',
+        status: isFullFinalize ? 'Completed' : 'In Review',
         appointmentType: effectiveEncounter.appointmentType || 'examination',
         templateId: 'standard',
-        transcript: (localLiveTranscriptsRef.current[targetId] || localLiveTranscripts[targetId] || effectiveEncounter.diarizedTranscript || []).map(t => ({
+        transcript: (transcriptSnapshot || localLiveTranscriptsRef.current[targetId] || localLiveTranscripts[targetId] || effectiveEncounter.diarizedTranscript || []).map(t => ({
           sender: (t.role === 'patient' || (t as any).sender === 'Patient' ? 'Patient' : t.role === 'dentist' || (t as any).sender === 'Dentist' ? 'Dentist' : 'Dialogue') as TranscriptItem['sender'],
           text: t.text
         })),
@@ -2142,18 +2133,26 @@ export default function ChairsideWorkspace({
 
       const template = getTemplateById(targetConsult.templateId || 'standard');
 
-      // Guarantee 0 lost lines: Merge in-memory local feed with persisted consultation transcript
-      const localFeed = localLiveTranscriptsRef.current[targetId] || localLiveTranscripts[targetId] || [];
-      const remoteFeed = targetConsult.transcript || [];
-
+      // Guarantee 0 lost lines: Prioritize passed immutable snapshot, then merge in-memory local feed with persisted consultation transcript
       let liveTranscript: TranscriptItem[] = [];
-      if (localFeed.length >= remoteFeed.length && localFeed.length > 0) {
-        liveTranscript = localFeed.map(item => ({
-          sender: (item.sender === 'Patient' ? 'Patient' : item.sender === 'Dialogue' ? 'Dialogue' : 'Dentist') as TranscriptItem['sender'],
-          text: item.text
-        }));
-      } else if (remoteFeed.length > 0) {
-        liveTranscript = remoteFeed;
+      if (transcriptSnapshot && transcriptSnapshot.length > 0) {
+        liveTranscript = transcriptSnapshot;
+      } else {
+        const localFeed = localLiveTranscriptsRef.current[targetId] || localLiveTranscripts[targetId] || [];
+        const remoteFeed = targetConsult.transcript || [];
+        if (localFeed.length >= remoteFeed.length && localFeed.length > 0) {
+          liveTranscript = localFeed.map(item => {
+            const senderLower = ((item.sender || (item as any).role || (item as any).speaker || '').toLowerCase());
+            const sender: TranscriptItem['sender'] = senderLower.includes('patient')
+              ? 'Patient'
+              : senderLower.includes('dentist') || senderLower.includes('clinician')
+                ? 'Dentist'
+                : 'Dialogue';
+            return { sender, text: item.text };
+          });
+        } else if (remoteFeed.length > 0) {
+          liveTranscript = remoteFeed;
+        }
       }
       // No fabricated line here. This used to invent "Clinical procedure completed
       // successfully." when nothing was captured, which put a clinical statement
@@ -2202,7 +2201,7 @@ export default function ChairsideWorkspace({
       });
       const finalTranscript = transcriptChoice.transcript;
       transcriptSource = transcriptChoice.source;
-      const transcriptWarnings = [...transcriptionWarnings, ...transcriptChoice.warnings];
+      const finalWarnings = [...transcriptionWarnings, ...transcriptChoice.warnings];
 
       // Ensure all transcript senders conform to allowed roles before network transmission
       const sanitizedTranscript = finalTranscript.map(t => {
@@ -2325,10 +2324,7 @@ export default function ChairsideWorkspace({
 
       // Nothing here is invented. Every section falls back to whatever is already
       // on the record, and then to empty — because these fields are the clinical
-      // record. The previous boilerplate ("Teeth examined and stable.", "Gingiva
-      // stable.", "Procedure completed.") meant that an empty generation produced
-      // a saved note asserting an examination and a procedure that may never have
-      // happened. An empty field is visibly unfinished; a fabricated one is not.
+      // record. An empty field is visibly unfinished; a fabricated one is not.
       const updatedFindings: ClinicalFindings = {
         chiefComplaint: payload?.chiefComplaint || (payload as any)?.subjective || payload?.customSections?.subjective || targetConsult.findings?.chiefComplaint || '',
         history: payload?.history || targetConsult.findings?.history || '',
@@ -2348,18 +2344,22 @@ export default function ChairsideWorkspace({
         adaCodes: payload?.adaCodes?.length ? payload.adaCodes : targetConsult.findings?.adaCodes || []
       };
 
+      const isChairActive = targetConsult.id === 'chair-active';
+      const persistId = (isFullFinalize && isChairActive) ? `consult-${Date.now()}` : targetConsult.id;
       const isHostedNote = Boolean(payload && payload.groundingReport);
       const finalizedConsultation: Consultation = {
         ...targetConsult,
+        id: persistId,
         transcript: finalTranscript,
         transcriptProvenance: {
           source: transcriptSource,
           generatedAt: new Date().toISOString(),
-          warnings: transcriptWarnings
+          warnings: finalWarnings
         },
-        status: 'Completed',
+        status: isFullFinalize ? 'Completed' : 'In Review',
         patientSummary: payload?.patientSummary || targetConsult.patientSummary || '',
         findings: updatedFindings,
+        clinicalProgressNote: noteSnapshot || targetConsult.clinicalProgressNote,
         specialistReferral: payload?.specialistReferral || targetConsult.specialistReferral,
         patientConsent: payload?.patientConsent || targetConsult.patientConsent,
         treatmentQuote: payload?.treatmentQuote || targetConsult.treatmentQuote,
@@ -2371,7 +2371,7 @@ export default function ChairsideWorkspace({
         grounding: payload?.groundingReport
       };
 
-      if (onSaveConsultation) {
+      if (onSaveConsultation && (isFullFinalize || !isChairActive)) {
         await onSaveConsultation(finalizedConsultation);
       }
 
@@ -2386,14 +2386,20 @@ export default function ChairsideWorkspace({
   };
 
   const handleFinalizeNote = async () => {
-    if (!activeEncounter) return;
+    const targetEncounter = activeEncounter || effectiveEncounter;
+    if (!targetEncounter) return;
     // Apple Medical Standard: Immediately halt active microphone on finalization
     if (!isMicStandby) {
       handleStopAudioToStandby();
     }
     setIsFinalizing(true);
     try {
-      await executeBackgroundNoteFinalization(activeEncounter.id, true);
+      const snapTranscript = (localLiveTranscriptsRef.current[targetEncounter.id] || localLiveTranscripts[targetEncounter.id] || []).map(t => ({
+        sender: (t.sender === 'Patient' || (t as any).role === 'patient' ? 'Patient' : t.sender === 'Dialogue' || (t as any).role === 'dialogue' ? 'Dialogue' : 'Dentist') as TranscriptItem['sender'],
+        text: t.text
+      }));
+      const snapNote = editedProgressNotes[targetEncounter.id] || progressiveDrafts[targetEncounter.id] || '';
+      await executeBackgroundNoteFinalization(targetEncounter.id, true, true, snapTranscript, snapNote);
     } finally {
       setIsFinalizing(false);
     }
@@ -2401,10 +2407,27 @@ export default function ChairsideWorkspace({
 
   // Immediate recovery: regenerate the clinical note directly from the live conversation
   const handleRegenerateFromConversation = async () => {
-    if (!activeEncounter) return;
+    const targetEncounter = activeEncounter || effectiveEncounter;
+    if (!targetEncounter) return;
     setIsGeneratingFromConversation(true);
     try {
-      await executeBackgroundNoteFinalization(activeEncounter.id, false);
+      // Clear manual edits for this encounter so the regenerated note immediately shows in the canvas
+      setEditedProgressNotes(prev => {
+        const next = { ...prev };
+        delete next[targetEncounter.id];
+        return next;
+      });
+      const finalized = await executeBackgroundNoteFinalization(targetEncounter.id, false, false);
+      if (finalized) {
+        const universalNote = renderUniversalProgressNote(toPmsEncounter(finalized));
+        if (universalNote) {
+          setProgressiveDrafts(prev => ({
+            ...prev,
+            [targetEncounter.id]: universalNote
+          }));
+        }
+      }
+      setTurnoverToast('Clinical note regenerated from live conversation.');
     } finally {
       setIsGeneratingFromConversation(false);
     }
@@ -2541,34 +2564,75 @@ export default function ChairsideWorkspace({
 
   // Asynchronous Non-Blocking Patient Handoff ("Next Patient")
   const handleNextPatient = () => {
-    const currentIndex = encountersForDate.findIndex(p => p.id === activePatientId);
-    const nextPatient = encountersForDate[currentIndex + 1];
+    const currentTarget = activeEncounter || effectiveEncounter;
+    const currentId = currentTarget.id;
 
-    // Finalize current patient silently in background
-    if (activeEncounter && activeEncounter.status !== 'ready' && !backgroundFinalizingIds.has(activeEncounter.id)) {
-      const patientIdToFinalize = activeEncounter.id;
-      setBackgroundFinalizingIds(prev => new Set(prev).add(patientIdToFinalize));
-      executeBackgroundNoteFinalization(patientIdToFinalize, false).finally(() => {
+    // 1. Silent non-blocking finalization of current patient with immutable snapshot (Rule 14 & Rule 18)
+    // Guarantee 0 data loss: synchronously snapshot transcript and note before any state transition
+    const capturedTranscript: TranscriptItem[] = [
+      ...(localLiveTranscriptsRef.current[currentId] || localLiveTranscripts[currentId] || [])
+    ].map(t => ({
+      sender: (t.sender === 'Patient' || (t as any).role === 'patient' ? 'Patient' : t.sender === 'Dialogue' || (t as any).role === 'dialogue' ? 'Dialogue' : 'Dentist') as TranscriptItem['sender'],
+      text: t.text
+    }));
+    const capturedNote = editedProgressNotes[currentId] || progressiveDrafts[currentId] || '';
+    const hasSubstantiveContent = capturedTranscript.length > 0 || capturedNote.trim().length > 0;
+
+    if (hasSubstantiveContent && !backgroundFinalizingIds.has(currentId)) {
+      setBackgroundFinalizingIds(prev => new Set(prev).add(currentId));
+      executeBackgroundNoteFinalization(currentId, false, true, capturedTranscript, capturedNote).finally(() => {
         setBackgroundFinalizingIds(prev => {
           const nextSet = new Set(prev);
-          nextSet.delete(patientIdToFinalize);
+          nextSet.delete(currentId);
           return nextSet;
         });
       });
     }
 
-    // Switch immediate operatory focus to next scheduled patient
+    // 2. Immediate halt of active audio on patient transition (Rule 14)
+    if (!isMicStandbyRef.current) {
+      handleStopAudioToStandby();
+    } else {
+      setIsMicStandby(true);
+      setIsPaused(false);
+      setRecordingSeconds(0);
+      setInterimTranscript('');
+    }
+
+    // 3. Switch to next scheduled patient or auto-increment next in-chair patient
+    const currentIndex = encountersForDate.findIndex(p => p.id === activePatientId);
+    const nextPatient = currentIndex !== -1 ? encountersForDate[currentIndex + 1] : undefined;
+
     if (nextPatient) {
-      if (!isMicStandbyRef.current) {
-        playMedicalChime('stop');
-      }
       setActivePatientId(nextPatient.id);
       sessionStartTimeRef.current = Date.now();
       setRecordingSeconds(0);
-      setIsMicStandby(true);
-      setIsPaused(false);
-      setInterimTranscript('');
-      setTurnoverToast('Prior patient note saved to End of Day Notes — ready for batch copy.');
+      setTurnoverToast(`Switched to scheduled patient: ${nextPatient.patientName}`);
+    } else {
+      // Advance to next in-chair patient with auto-incrementing designation
+      const nextNum = inChairPatientNumber + 1;
+      setInChairPatientNumber(nextNum);
+      setInChairPatientCustomName('');
+      setInChairPatientDob('');
+      setActivePatientId('chair-active');
+      sessionStartTimeRef.current = Date.now();
+      setRecordingSeconds(0);
+
+      // Clean in-chair transient scratchpad buffers for fresh encounter (Rule 18)
+      setLocalLiveTranscripts(prev => ({ ...prev, 'chair-active': [] }));
+      localLiveTranscriptsRef.current['chair-active'] = [];
+      setProgressiveDrafts(prev => {
+        const next = { ...prev };
+        delete next['chair-active'];
+        return next;
+      });
+      setEditedProgressNotes(prev => {
+        const next = { ...prev };
+        delete next['chair-active'];
+        return next;
+      });
+
+      setTurnoverToast(`Prior note saved to End of Day Notes. Ready for In-Chair Patient ${nextNum}.`);
     }
   };
 
@@ -3409,7 +3473,7 @@ ${clinician}`;
                   noteText={currentProgressNote}
                   onNoteChange={handleProgressNoteChange}
                   isGenerating={isFinalizing || isGeneratingFromConversation}
-                  onGenerateNote={() => executeBackgroundNoteFinalization(effectiveEncounter.id, false)}
+                  onGenerateNote={handleRegenerateFromConversation}
                   onApplyMacro={(macroId) => handleApplyMacro(macroId)}
                   onCopyPMS={(format) => handleCopyPMS(undefined, format === 'universal' ? 'pms' : format)}
                   copiedFormat={copiedPmsTarget}

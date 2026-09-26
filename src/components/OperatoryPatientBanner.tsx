@@ -42,7 +42,7 @@ export const OperatoryPatientBanner: React.FC<OperatoryPatientBannerProps> = ({
   const [inductApptType, setInductApptType] = useState<AppointmentType>('examination');
 
   const handleOpenInduction = () => {
-    setInductName(encounter && encounter.patientName !== 'In-Chair Patient' ? encounter.patientName : '');
+    setInductName(encounter && !/^In-Chair Patient/i.test(encounter.patientName) ? encounter.patientName : '');
     setInductDob(encounter?.dob || '');
     setInductRoom(encounter?.operatory || 'Room 1');
     setInductApptType(encounter?.appointmentType || 'examination');
