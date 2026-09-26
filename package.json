@@ -26,6 +26,7 @@
     "ops:lockout": "tsx scripts/lockout-account.ts",
     "ops:backup": "sh ./scripts/ops/backup-database.sh",
     "ops:restore": "sh ./scripts/ops/restore-database.sh",
+    "ops:reset": "tsx scripts/ops/factory-reset.ts",
     "prepare": "husky"
   },
   "dependencies": {
