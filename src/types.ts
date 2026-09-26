@@ -2,6 +2,7 @@ import type { AppointmentType } from './lib/dentalLibrary';
 import type { GroundingReport } from './lib/transcriptGrounding';
 import type { UnifiedGroundingAudit } from './grounding/types';
 import type { AttestationSeal } from './lib/attestation';
+export * from './types/clinicalFact';
 
 export type { AppointmentType, UnifiedGroundingAudit, AttestationSeal };
 
