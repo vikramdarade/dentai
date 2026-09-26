@@ -501,12 +501,29 @@ export default function App() {
   };
 
   const handleSaveConsultation = async (updated: Consultation) => {
+    // Rule 18: Ephemerality of In-Chair Scratchpads ('chair-active')
+    // The fallback encounter 'chair-active' exists strictly in-memory as a transient scratchpad.
+    // It must NEVER be persisted to disk or server with ID 'chair-active'.
+    // If a session has completed findings, mint a new immutable ID.
+    if (updated.id === 'chair-active') {
+      if (updated.status === 'Completed') {
+        updated = {
+          ...updated,
+          id: `consult-${Date.now()}`
+        };
+      } else {
+        // Transient uncompleted scratchpad: update selected consult in-memory only
+        setSelectedConsultation(updated);
+        return;
+      }
+    }
+
     const updatedWithDentist = {
       ...updated,
       dentistId: updated.dentistId || currentUser?.id,
       clinicId: updated.clinicId || (activeClinic?.clinicId ? activeClinic.clinicId : undefined)
     };
-    // Immediately persist locally
+    // Immediately persist locally (sanitised by saveLocalConsultations)
     const index = consultations.findIndex((c) => c.id === updatedWithDentist.id);
     let newList = [...consultations];
 

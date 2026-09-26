@@ -64,10 +64,12 @@ export function clearAuth(): void {
 
 export function saveLocalConsultations(consultations: Consultation[], dentistId?: string): void {
   try {
+    // Rule 18: Never persist ephemeral in-chair scratchpad ('chair-active') to disk or localStorage!
+    const sanitized = consultations.filter(c => c && c.id !== 'chair-active');
     if (dentistId) {
-      localStorage.setItem(`${STORAGE_KEYS.CONSULTATIONS}_${dentistId}`, JSON.stringify(consultations));
+      localStorage.setItem(`${STORAGE_KEYS.CONSULTATIONS}_${dentistId}`, JSON.stringify(sanitized));
     } else {
-      localStorage.setItem(STORAGE_KEYS.CONSULTATIONS, JSON.stringify(consultations));
+      localStorage.setItem(STORAGE_KEYS.CONSULTATIONS, JSON.stringify(sanitized));
     }
   } catch (err) {
     console.error('[Storage] Failed to save consultations to local cache:', err);
@@ -76,19 +78,23 @@ export function saveLocalConsultations(consultations: Consultation[], dentistId?
 
 export function getLocalConsultations(dentistId?: string): Consultation[] | null {
   try {
+    let list: Consultation[] | null = null;
     if (dentistId) {
       const scopedData = localStorage.getItem(`${STORAGE_KEYS.CONSULTATIONS}_${dentistId}`);
       if (scopedData) {
-        return JSON.parse(scopedData);
+        list = JSON.parse(scopedData);
       }
     }
-    const data = localStorage.getItem(STORAGE_KEYS.CONSULTATIONS);
-    if (!data) return null;
-    const all: Consultation[] = JSON.parse(data);
-    if (dentistId) {
-      return all.filter(c => !c.dentistId || c.dentistId === dentistId);
+    if (!list) {
+      const data = localStorage.getItem(STORAGE_KEYS.CONSULTATIONS);
+      if (data) {
+        const all: Consultation[] = JSON.parse(data);
+        list = dentistId ? all.filter(c => !c.dentistId || c.dentistId === dentistId) : all;
+      }
     }
-    return all;
+    if (!list) return null;
+    // Rule 18: Purge any transient 'chair-active' encounters that might have been stored historically
+    return list.filter(c => c && c.id !== 'chair-active');
   } catch (err) {
     console.error('[Storage] Failed to load consultations from local cache:', err);
     return null;

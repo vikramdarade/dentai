@@ -130,7 +130,34 @@ function consultationInstant(record: Consultation): number {
   return NaN;
 }
 
+/**
+ * Extracts medical alerts deterministically from patient clinical findings and operatory dialogue.
+ * Supports antiresorptives (Denosumab / Prolia / MRONJ risk), anticoagulants, allergies, and GP clearance.
+ */
+function parseClinicalAlerts(
+  findings?: ClinicalFindings,
+  transcriptItems?: { text?: string }[]
+): { type: 'allergy' | 'medication' | 'general'; text: string }[] {
+  const alerts: { type: 'allergy' | 'medication' | 'general'; text: string }[] = [];
+  const hist = (findings?.history || '').toLowerCase();
+  const cc = (findings?.chiefComplaint || '').toLowerCase();
+  const tx = (transcriptItems || []).map(t => t.text || '').join(' ').toLowerCase();
+  const combined = `${hist} ${cc} ${tx}`;
 
+  if (combined.includes('allergy') || combined.includes('allergic')) {
+    alerts.push({ type: 'allergy', text: 'Patient Reported Drug Allergy' });
+  }
+  if (/\b(?:warfarin|anticoagulant|apixaban|rivaroxaban|eliquis|xarelto|blood thinner|inr)\b/i.test(combined)) {
+    alerts.push({ type: 'medication', text: 'Anticoagulant Regimen' });
+  }
+  if (/\b(?:denosumab|prolia|xgeva|bisphosphonate|fosamax|alendronate|zoledron|reclast|antiresorptive|osteoporosis)\b/i.test(combined)) {
+    alerts.push({ type: 'medication', text: 'Antiresorptive Regimen (MRONJ Risk — Denosumab / Prolia)' });
+  }
+  if (/\b(?:check with (?:your )?gp|gp clearance|medical clearance|consult (?:your )?gp|doctor clearance)\b/i.test(combined)) {
+    alerts.push({ type: 'general', text: 'GP Medical Clearance Required' });
+  }
+  return alerts;
+}
 
 export default function ChairsideWorkspace({
   currentUser,
@@ -218,16 +245,9 @@ export default function ChairsideWorkspace({
         ? `${c.appointmentType.charAt(0).toUpperCase() + c.appointmentType.slice(1)} • ${c.findings?.treatmentPerformed ? c.findings.treatmentPerformed.slice(0, 32) : 'Clinical Procedure'}`
         : 'Restorative Care';
 
-      // Parse medical alerts from genuine patient history or findings
-      const alerts: { type: 'allergy' | 'medication' | 'general'; text: string }[] = [];
-      const hist = (c.findings?.history || '').toLowerCase();
-      const cc = (c.findings?.chiefComplaint || '').toLowerCase();
-      if (hist.includes('allergy') || cc.includes('allergy')) {
-        alerts.push({ type: 'allergy', text: 'Patient Reported Drug Allergy' });
-      }
-      if (hist.includes('warfarin') || hist.includes('anticoagulant') || cc.includes('anticoagulant')) {
-        alerts.push({ type: 'medication', text: 'Anticoagulant Regimen' });
-      }
+      // Parse medical alerts from genuine patient history, findings, or live operatory transcript
+      const combinedTranscript = (c.transcript || []).concat(localLiveTranscripts[c.id] || []);
+      const alerts = parseClinicalAlerts(c.findings, combinedTranscript);
 
       // Prior clinical history for THIS patient, resolved through the patient
       // registry — never by name.
@@ -485,7 +505,7 @@ export default function ChairsideWorkspace({
       appointmentType: 'examination' as AppointmentType,
       templateId: 'standard',
       status: isMicStandby ? 'ready' : isPaused ? 'ready' : 'recording',
-      alerts: [],
+      alerts: parseClinicalAlerts(undefined, localLiveTranscripts['chair-active'] || []),
       diarizedTranscript: localLiveTranscripts['chair-active'] || [],
       soap: { subjective: '', objective: '', assessment: '', plan: '' },
       cdtCodes: []
@@ -733,7 +753,7 @@ export default function ChairsideWorkspace({
     if (typeof window !== 'undefined') {
       localStorage.setItem('dentai_schedule_collapsed', 'true');
     }
-    sessionStartTimeRef.current = Date.now() - (recordingSeconds * 1000);
+    sessionStartTimeRef.current = recordingSeconds > 0 ? Date.now() - (recordingSeconds * 1000) : Date.now();
     lastVoicedTimeRef.current = Date.now();
     hasPlayedWarningChimeRef.current = false;
     setIsSilenceWarning(false);
@@ -1292,7 +1312,22 @@ export default function ChairsideWorkspace({
       }
       progressiveDraftTimerRef.current[targetId] = setTimeout(() => {
         try {
-          const targetConsult = consultationsRef.current.find(c => c.id === targetId) || existingConsultation;
+          const targetConsult: Consultation = consultationsRef.current.find(c => c.id === targetId) || existingConsultation || {
+            id: targetId,
+            dentistId: currentUser?.id || '',
+            clinicId: activeClinicId || undefined,
+            firstName: effectiveEncounter.patientName !== 'In-Chair Patient' ? effectiveEncounter.patientName : 'In-Chair',
+            lastName: effectiveEncounter.patientName !== 'In-Chair Patient' ? '' : 'Patient',
+            dob: effectiveEncounter.dob || '',
+            appointmentType: effectiveEncounter.appointmentType || 'examination',
+            date: currentDateStr,
+            time: effectiveEncounter.time,
+            status: 'In Review',
+            templateId: effectiveEncounter.templateId || 'standard',
+            transcript: [],
+            findings: { chiefComplaint: '', history: '', toothFindings: '', findingsGingival: '', diagnosis: '', treatmentPerformed: '', recommendations: '', recallRequirements: '', adaCodes: [] },
+            patientSummary: ''
+          };
           if (!targetConsult) return;
           const template = getTemplateById(targetConsult.templateId);
           const currTranscript = (localLiveTranscriptsRef.current[targetId] || []).map(i => ({ sender: i.sender as any, text: i.text }));
@@ -2594,6 +2629,10 @@ export default function ChairsideWorkspace({
     const target = consultToCopy || consultations.find(c => c.id === targetId) || activeConsult || fallbackConsult;
     if (!target) return '';
 
+    const isGenericChairActive = targetId === 'chair-active' || target.id === 'chair-active';
+    const transcriptList = localLiveTranscriptsRef.current[targetId] || localLiveTranscripts[targetId] || (isGenericChairActive ? [] : (target.transcript || []));
+    const hasAudio = transcriptList.length > 0;
+
     // 1. If clinician actively authored/edited the progress note directly in the text box, return that exact text!
     if (targetId && editedProgressNotes[targetId] !== undefined) {
       return editedProgressNotes[targetId];
@@ -2603,15 +2642,13 @@ export default function ChairsideWorkspace({
       return progressiveDrafts[targetId];
     }
     // 3. If the consultation already has a saved progress note, return it
-    if (target.clinicalProgressNote && target.clinicalProgressNote.trim().length > 0) {
+    // Rule 18: 'chair-active' with NO audio in the current session must NEVER inherit a saved progress note
+    if (!isGenericChairActive && target.clinicalProgressNote && target.clinicalProgressNote.trim().length > 0) {
       return target.clinicalProgressNote;
     }
 
     // 4. Grounding Integrity Guard (Rule 12 & Rule 18):
     // If this is the generic in-chair scratchpad (chair-active) or an encounter with NO transcript audio in the current session:
-    const isGenericChairActive = targetId === 'chair-active' || target.id === 'chair-active';
-    const transcriptList = localLiveTranscriptsRef.current[targetId] || localLiveTranscripts[targetId] || (isGenericChairActive ? [] : (target.transcript || []));
-    const hasAudio = transcriptList.length > 0;
     const isMacroOrigin = !isGenericChairActive && target.noteOrigin?.engine === 'australian-clinical-macro';
     const isCompleted = !isGenericChairActive && (target.status === 'Completed' || target.status === 'Signed');
     const hasObservedFindings = !isGenericChairActive && Boolean(
@@ -3382,13 +3419,18 @@ ${clinician}`;
                   onNextPatient={handleNextPatient}
                   hasActualGeneratedNote={Boolean(
                     currentProgressNote.trim().length > 0 &&
-                    ((localLiveTranscripts[effectiveEncounter.id]?.length || effectiveEncounter.diarizedTranscript?.length || 0) > 0 ||
+                    (Boolean(progressiveDrafts[effectiveEncounter.id]) ||
                      effectiveEncounter.status === 'done' ||
                      effectiveEncounter.status === 'note_generated' ||
-                     consultations.find(c => c.id === effectiveEncounter.id)?.noteOrigin?.engine === 'australian-clinical-macro')
+                     consultations.find(c => c.id === effectiveEncounter.id)?.noteOrigin !== undefined)
                   )}
                   groundingBadge={
-                    (localLiveTranscripts[effectiveEncounter.id]?.length || effectiveEncounter.diarizedTranscript?.length || 0) > 0
+                    currentProgressNote.trim().length > 0 && (
+                      Boolean(progressiveDrafts[effectiveEncounter.id]) ||
+                      consultations.find(c => c.id === effectiveEncounter.id)?.noteOrigin?.engine === 'gemini' ||
+                      consultations.find(c => c.id === effectiveEncounter.id)?.noteOrigin?.engine === 'openai-compatible' ||
+                      consultations.find(c => c.id === effectiveEncounter.id)?.noteOrigin?.engine === 'groq'
+                    )
                       ? 'Verified from Audio'
                       : consultations.find(c => c.id === effectiveEncounter.id)?.noteOrigin?.engine === 'australian-clinical-macro'
                         ? 'Template Applied'
