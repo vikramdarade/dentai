@@ -664,6 +664,77 @@ export const DENTAL_PHONETIC_RULES: PhoneticRule[] = [
     pattern: /\bvi\s*crill\b/gi,
     replacement: 'Vicryl',
     description: 'Phonetic "vi crill" -> Vicryl'
+  },
+  // ── High-Risk Dental Pharmacotherapy (MRONJ & Bleeding Risk Normalization) ──
+  {
+    pattern: /\b(?:dimosuma|dimosumab|dinusimab|deno\s*sumab|denosa\s*mab)\b/gi,
+    replacement: 'Denosumab (Prolia)',
+    description: 'Acoustic mis-transcriptions of Denosumab -> Denosumab (Prolia)'
+  },
+  {
+    pattern: /\b(?:pro\s*lee\s*a|pro\s*lia)\b/gi,
+    replacement: 'Prolia',
+    description: 'Spoken "pro lee a" -> Prolia'
+  },
+  {
+    pattern: /\b(?:x\s*geva|exgeva)\b/gi,
+    replacement: 'Xgeva (denosumab)',
+    description: 'Spoken "exgeva" -> Xgeva (denosumab)'
+  },
+  {
+    pattern: /\b(?:fos\s*a\s*max|fossa\s*max)\b/gi,
+    replacement: 'Fosamax (alendronate)',
+    description: 'Spoken "fos a max" -> Fosamax (alendronate)'
+  },
+  {
+    pattern: /\b(?:act\s*o\s*nell?|actonel)\b/gi,
+    replacement: 'Actonel (risedronate)',
+    description: 'Spoken "actonel" -> Actonel (risedronate)'
+  },
+  {
+    pattern: /\b(?:a\s*clasta|aklasta)\b/gi,
+    replacement: 'Aclasta (zoledronic acid)',
+    description: 'Spoken "aklasta" -> Aclasta (zoledronic acid)'
+  },
+  {
+    pattern: /\b(?:bone\s*injection|osteoporosis\s*injection)\b/gi,
+    replacement: 'osteoporosis antiresorptive injection',
+    description: 'Colloquial "bone injection" -> osteoporosis antiresorptive injection'
+  },
+  {
+    pattern: /\b(?:the\s+thinner\s+right|a\s+thinner\s+right)\b/gi,
+    replacement: 'blood thinner',
+    description: 'Acoustic mis-transcription "the thinner right" -> blood thinner'
+  },
+  {
+    pattern: /\b(?:el\s*e\s*quis|el\s*i\s*quis)\b/gi,
+    replacement: 'Eliquis (apixaban)',
+    description: 'Spoken "elequis" -> Eliquis (apixaban)'
+  },
+  {
+    pattern: /\b(?:za\s*rel\s*toe|xarelto)\b/gi,
+    replacement: 'Xarelto (rivaroxaban)',
+    description: 'Spoken "zareltoe" -> Xarelto (rivaroxaban)'
+  },
+  {
+    pattern: /\b(?:plav\s*ix|plavex)\b/gi,
+    replacement: 'Plavix (clopidogrel)',
+    description: 'Spoken "plavex" -> Plavix (clopidogrel)'
+  },
+  {
+    pattern: /\b(?:pra\s*daxa)\b/gi,
+    replacement: 'Pradaxa (dabigatran)',
+    description: 'Spoken "pradaxa" -> Pradaxa (dabigatran)'
+  },
+  {
+    pattern: /\bGP\s*clear(?:ance)?\b/gi,
+    replacement: 'GP medical clearance',
+    description: 'Spoken "GP clear" -> GP medical clearance'
+  },
+  {
+    pattern: /\bdoctor\s*clear(?:ance)?\b/gi,
+    replacement: 'physician medical clearance',
+    description: 'Spoken "doctor clear" -> physician medical clearance'
   }
 ];
 

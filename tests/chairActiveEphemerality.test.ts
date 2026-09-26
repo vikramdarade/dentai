@@ -115,4 +115,29 @@ describe('Rule 18: chair-active Ephemerality & Anti-Bleed Guarantees', () => {
     const soapDraft = generateOfflineDraft(soapTemplate, transcript, 'In-Chair Patient');
     expect(soapDraft.customSections.plan.toLowerCase()).toContain('gp');
   });
+
+  it('normalizes spoken acoustic mis-transcriptions for high-risk dental pharmacotherapy', async () => {
+    const { normalizeSpokenDentalText } = await import('../src/lib/dentalPhoneticLexicon');
+    const input = 'Patient takes Dimosuma injection every 6 months for osteoporosis and the thinner right with elequis.';
+    const normalized = normalizeSpokenDentalText(input);
+
+    expect(normalized).toContain('Denosumab (Prolia)');
+    expect(normalized).toContain('blood thinner');
+    expect(normalized).toContain('Eliquis (apixaban)');
+    expect(normalized).toContain('osteoporosis');
+  });
+
+  it('deduplicates consultations by ID in local storage to prevent queue bloat', () => {
+    const consults: Consultation[] = [
+      { id: 'c-1', firstName: 'Alice', lastName: 'A', dob: '', appointmentType: 'examination', date: '2026-09-26', time: '9:00', status: 'In Review', transcript: [], findings: { chiefComplaint: '', history: '', toothFindings: '', findingsGingival: '', diagnosis: '', treatmentPerformed: '', recommendations: '', recallRequirements: '' }, patientSummary: '' },
+      { id: 'c-1', firstName: 'Alice Duplicate', lastName: 'A', dob: '', appointmentType: 'examination', date: '2026-09-26', time: '9:00', status: 'In Review', transcript: [], findings: { chiefComplaint: '', history: '', toothFindings: '', findingsGingival: '', diagnosis: '', treatmentPerformed: '', recommendations: '', recallRequirements: '' }, patientSummary: '' },
+      { id: 'c-2', firstName: 'Bob', lastName: 'B', dob: '', appointmentType: 'examination', date: '2026-09-26', time: '10:00', status: 'In Review', transcript: [], findings: { chiefComplaint: '', history: '', toothFindings: '', findingsGingival: '', diagnosis: '', treatmentPerformed: '', recommendations: '', recallRequirements: '' }, patientSummary: '' }
+    ];
+
+    saveLocalConsultations(consults, 'dentist-vik');
+    const loaded = getLocalConsultations('dentist-vik');
+
+    expect(loaded?.length).toBe(2);
+    expect(loaded?.map(c => c.id)).toEqual(['c-1', 'c-2']);
+  });
 });

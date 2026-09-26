@@ -885,8 +885,6 @@ export default function ChairsideWorkspace({
           e.preventDefault();
           if (isSilenceWarningRef.current) {
             handleKeepListening();
-          } else if (!activeEncounter) {
-            void handleQuickStartRecording();
           } else if (isMicStandbyRef.current) {
             handleStartAudio();
           } else {
@@ -898,7 +896,7 @@ export default function ChairsideWorkspace({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleKeepListening, handleStartAudio, handleTogglePause, activeEncounter, handleQuickStartRecording]);
+  }, [handleKeepListening, handleStartAudio, handleTogglePause]);
 
   // Derived active SOAP (read-only from consultation record — no local override layer)
   const currentSoap = activeEncounter?.soap ?? { subjective: '', objective: '', assessment: '', plan: '' };

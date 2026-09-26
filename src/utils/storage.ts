@@ -65,7 +65,15 @@ export function clearAuth(): void {
 export function saveLocalConsultations(consultations: Consultation[], dentistId?: string): void {
   try {
     // Rule 18: Never persist ephemeral in-chair scratchpad ('chair-active') to disk or localStorage!
-    const sanitized = consultations.filter(c => c && c.id !== 'chair-active');
+    // Deduplicate by consultation ID to prevent queue inflation
+    const seen = new Set<string>();
+    const sanitized: Consultation[] = [];
+    for (const c of consultations) {
+      if (c && c.id && c.id !== 'chair-active' && !seen.has(c.id)) {
+        seen.add(c.id);
+        sanitized.push(c);
+      }
+    }
     if (dentistId) {
       localStorage.setItem(`${STORAGE_KEYS.CONSULTATIONS}_${dentistId}`, JSON.stringify(sanitized));
     } else {
@@ -94,7 +102,16 @@ export function getLocalConsultations(dentistId?: string): Consultation[] | null
     }
     if (!list) return null;
     // Rule 18: Purge any transient 'chair-active' encounters that might have been stored historically
-    return list.filter(c => c && c.id !== 'chair-active');
+    // Deduplicate by ID
+    const seen = new Set<string>();
+    const deduplicated: Consultation[] = [];
+    for (const c of list) {
+      if (c && c.id && c.id !== 'chair-active' && !seen.has(c.id)) {
+        seen.add(c.id);
+        deduplicated.push(c);
+      }
+    }
+    return deduplicated;
   } catch (err) {
     console.error('[Storage] Failed to load consultations from local cache:', err);
     return null;

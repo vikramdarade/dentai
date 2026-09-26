@@ -3572,7 +3572,12 @@ app.post('/api/consultations', authenticateToken, async (req: any, res) => {
       await dbInsertConsultation(newConsultation);
     } else {
       const consultationsData = await readConsultationsDb();
-      consultationsData.consultations.unshift(newConsultation);
+      const existingIdx = consultationsData.consultations.findIndex((c: any) => c.id === newConsultation.id);
+      if (existingIdx !== -1) {
+        consultationsData.consultations[existingIdx] = newConsultation;
+      } else {
+        consultationsData.consultations.unshift(newConsultation);
+      }
       await writeConsultationsDb(consultationsData);
     }
     logAudit('consultation_created', req.dentist.id, { consultationId: newConsultation.id });
