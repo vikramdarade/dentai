@@ -60,6 +60,18 @@ describe('Dental Phonetic Lexicon & Speech Normalizer', () => {
     expect(normalizeSpokenDentalText('Liner die cal and cave it')).toBe('Liner Dycal and Cavit');
   });
 
+  it('corrects acoustic mis-transcriptions of extraction phrases ("2000 out" / "to 2000" -> take the tooth out)', () => {
+    expect(normalizeSpokenDentalText('The other option is to 2000 out')).toBe('The other option is to take the tooth out');
+    expect(normalizeSpokenDentalText('Taking the 2000 will leave a gap')).toBe('Taking the tooth out will leave a gap');
+    expect(normalizeSpokenDentalText('Even if you want to 2000 later')).toBe('Even if you want to take the tooth out later');
+    expect(normalizeSpokenDentalText('If you like to 2000')).toBe('If you like to take the tooth out');
+    expect(normalizeSpokenDentalText('Or we can 2000 out')).toBe('Or we can take the tooth out');
+    expect(normalizeSpokenDentalText('Refer you to a specialist to 2000')).toBe('Refer you to a specialist to take the tooth out');
+    // Financial / year values remain untouched
+    expect(normalizeSpokenDentalText('The implant costs 2000 dollars')).toBe('The implant costs 2000 dollars');
+    expect(normalizeSpokenDentalText('Patient was born in 2000')).toBe('Patient was born in 2000');
+  });
+
   it('gracefully handles empty, non-string, or clean clinical inputs', () => {
     expect(normalizeSpokenDentalText('')).toBe('');
     expect(normalizeSpokenDentalText('Sound enamel on tooth 16')).toBe('Sound enamel on tooth 16');

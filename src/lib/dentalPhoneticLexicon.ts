@@ -590,6 +590,33 @@ export const DENTAL_PHONETIC_RULES: PhoneticRule[] = [
     replacement: 'outside the tooth',
     description: 'Phonetic "outside the tool" -> outside the tooth'
   },
+  // ── Surgical & Extraction Acoustic Mis-Transcriptions ──
+  // Fast speech / accent error: Chrome hears "take the tooth [out]" / "taking the tooth [out]" as "2000" / "2000 out"
+  {
+    pattern: /\btaking\s+(?:the\s+)?2000(?:\s+out)?\b/gi,
+    replacement: (m) => (/^[A-Z]/.test(m) ? 'Taking the tooth out' : 'taking the tooth out'),
+    description: 'Acoustic mis-transcription "taking the 2000" -> taking the tooth out'
+  },
+  {
+    pattern: /\btake\s+(?:the\s+)?2000(?:\s+out)?\b/gi,
+    replacement: (m) => (/^[A-Z]/.test(m) ? 'Take the tooth out' : 'take the tooth out'),
+    description: 'Acoustic mis-transcription "take the 2000" / "take 2000 out" -> take the tooth out'
+  },
+  {
+    pattern: /\bto\s+2000\s+out\b/gi,
+    replacement: (m) => (/^[A-Z]/.test(m) ? 'To take the tooth out' : 'to take the tooth out'),
+    description: 'Acoustic mis-transcription "to 2000 out" -> to take the tooth out'
+  },
+  {
+    pattern: /\b2000\s+out\b/gi,
+    replacement: 'take the tooth out',
+    description: 'Acoustic mis-transcription "2000 out" -> take the tooth out'
+  },
+  {
+    pattern: /\b((?:options?\s+(?:is|are|either)\s+(?:to\s+)?|like\s+to\s+|want\s+to\s+|going\s+to\s+|we\s+can\s+|can\s+|or\s+to\s+|or\s+we\s+can\s+|specialist\s+to\s+)2000)\b(?!\s*(?:dollars?|bucks?|\.00|AUD|percent|patients?|teeth|mg|ml))\b/gi,
+    replacement: (_match, prefix) => prefix.replace(/2000$/, 'take the tooth out'),
+    description: 'Extraction context "like to 2000" / "we can 2000" -> take the tooth out'
+  },
   {
     pattern: /\btemporary\s+(?:Canon|cannon)\b/gi,
     replacement: 'temporary crown',
