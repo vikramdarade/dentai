@@ -182,9 +182,14 @@ export default function ChairsideWorkspace({
   // In-chair dynamic session state (supports inline editing immediately & later, with auto-increment)
   const [inChairPatientNumber, setInChairPatientNumber] = useState<number>(1);
   const [inChairPatientCustomName, setInChairPatientCustomName] = useState<string>('');
+  const inChairPatientCustomNameRef = useRef<string>('');
   const [inChairPatientDob, setInChairPatientDob] = useState<string>('');
   const [inChairOperatory, setInChairOperatory] = useState<string>('Room 1');
   const [inChairApptType, setInChairApptType] = useState<AppointmentType>('examination');
+
+  useEffect(() => {
+    inChairPatientCustomNameRef.current = inChairPatientCustomName;
+  }, [inChairPatientCustomName]);
 
   useEffect(() => {
     if (initialPatientId) {
@@ -485,6 +490,9 @@ export default function ChairsideWorkspace({
       return;
     }
 
+    // Do not hijack or redirect the ephemeral in-chair active encounter
+    if (activePatientId === 'chair-active') return;
+
     // If activePatientId does not exist in encountersForDate, select active or first
     if (!encountersForDate.some(p => p.id === activePatientId)) {
       if (liveDiscussionEncounter) {
@@ -506,8 +514,9 @@ export default function ChairsideWorkspace({
   }, [encountersForDate, activePatientId]);
 
   const activeEncounter = useMemo(() => {
-    if (encountersForDate.length === 0) return null;
-    return encountersForDate.find(p => p.id === activePatientId) || encountersForDate[0] || null;
+    if (activePatientId === 'chair-active' || encountersForDate.length === 0) return null;
+    if (!activePatientId) return encountersForDate[0] || null;
+    return encountersForDate.find(p => p.id === activePatientId) || null;
   }, [encountersForDate, activePatientId]);
 
   const activeConsult = useMemo(() => {
@@ -1203,6 +1212,20 @@ export default function ChairsideWorkspace({
       // Deduplication & prefix expansion check against the last utterance
       const normCurr = normalized.toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim();
       if (!normCurr) return;
+
+      // Detect spoken greeting name (e.g. "Hi Josh, great to see you") to auto-populate in-chair name
+      if (targetId === 'chair-active' && !inChairPatientCustomNameRef.current) {
+        const greetingMatch = normalized.match(/\b(?:hi|hello|welcome|morning|afternoon)\s+([A-Z][a-z]{1,20})\b/i);
+        if (greetingMatch && greetingMatch[1]) {
+          const candidateName = greetingMatch[1].trim();
+          const stopWords = ['there', 'everyone', 'again', 'doctor', 'nurse', 'assistant', 'today', 'mate', 'sir', 'madam'];
+          if (!stopWords.includes(candidateName.toLowerCase())) {
+            const capitalized = candidateName.charAt(0).toUpperCase() + candidateName.slice(1).toLowerCase();
+            setInChairPatientCustomName(capitalized);
+            inChairPatientCustomNameRef.current = capitalized;
+          }
+        }
+      }
 
       let shouldReplace = false;
       let shouldDrop = false;
@@ -2683,25 +2706,25 @@ export default function ChairsideWorkspace({
 
   const handlePrevPatient = () => {
     const currentIndex = encountersForDate.findIndex(p => p.id === activePatientId);
-    if (currentIndex <= 0) return;
-    const prevPatient = encountersForDate[currentIndex - 1];
+    const prevPatient = currentIndex > 0
+      ? encountersForDate[currentIndex - 1]
+      : (currentIndex === -1 && encountersForDate.length > 0 ? encountersForDate[encountersForDate.length - 1] : undefined);
+    if (!prevPatient) return;
 
-    if (prevPatient) {
-      if (!isMicStandbyRef.current) {
-        playMedicalChime('stop');
-      }
-      setActivePatientId(prevPatient.id);
-      sessionStartTimeRef.current = Date.now();
-      setRecordingSeconds(0);
-      setIsMicStandby(true);
-      setIsPaused(false);
-      setInterimTranscript('');
+    if (!isMicStandbyRef.current) {
+      playMedicalChime('stop');
     }
+    setActivePatientId(prevPatient.id);
+    sessionStartTimeRef.current = Date.now();
+    setRecordingSeconds(0);
+    setIsMicStandby(true);
+    setIsPaused(false);
+    setInterimTranscript('');
   };
 
-  // Completed Encounters for End-of-Day Batch Tray
+  // Completed Encounters for End-of-Day Batch Tray (preserves count during asynchronous finalization)
   const completedEncounters = useMemo(() => {
-    return encountersForDate.filter(p => p.status === 'note_generated' || p.status === 'done');
+    return encountersForDate.filter(p => p.status === 'note_generated' || p.status === 'done' || p.status === 'processing');
   }, [encountersForDate]);
 
   const [selectedPmsTarget, setSelectedPmsTarget] = useState<'d4w' | 'exact' | 'cliniko' | 'generic'>('d4w');
@@ -3363,7 +3386,53 @@ ${clinician}`;
 
               {/* Patient Schedule List */}
               <div className="space-y-2">
-                {encountersForDate.length === 0 ? (
+                {/* Active In-Chair Operatory Session Card (Always visible on today's schedule) */}
+                {currentDateStr === getClinicTodayIso() && (() => {
+                  const isChairActive = activePatientId === 'chair-active' || (!activePatientId && encountersForDate.length === 0);
+                  return (
+                    <div
+                      key="chair-active"
+                      onClick={() => handleSelectPatient('chair-active')}
+                      className={`p-3 rounded-xl border transition cursor-pointer text-left ${isChairActive
+                        ? 'bg-sky-50/70 border-sky-300/80 border-l-4 border-l-sky-600 shadow-xs ring-1 ring-sky-300/40'
+                        : 'bg-white hover:bg-slate-50/80 border-slate-200/80 shadow-2xs'
+                      }`}
+                      title={isChairActive ? 'Active consultation in operatory' : 'Click to switch back to active operatory'}
+                    >
+                      <div className="flex items-start justify-between mb-1">
+                        <div className="text-[11px] font-mono text-slate-500 font-tabular">
+                          {effectiveEncounter.time} • <span className="text-slate-700 font-semibold">{effectiveEncounter.operatory?.replace(/Op /i, 'Room ') || 'Room 1'}</span>
+                        </div>
+                        {isChairActive && !isMicStandby && !isPaused ? (
+                          <span className="bg-rose-50 text-rose-800 text-[10px] font-semibold px-2 py-0.5 rounded-full border border-rose-200/90 flex items-center gap-1 shadow-2xs">
+                            <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-ping" />
+                            <span>Recording ({formatTimer(recordingSeconds)})</span>
+                          </span>
+                        ) : isChairActive && isPaused ? (
+                          <span className="bg-amber-50 text-amber-800 text-[10px] font-semibold px-2 py-0.5 rounded-full border border-amber-200/90 flex items-center gap-1 shadow-2xs">
+                            <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                            <span>Paused</span>
+                          </span>
+                        ) : isChairActive ? (
+                          <span className="bg-sky-50 text-sky-800 text-[10px] font-semibold px-2 py-0.5 rounded-full border border-sky-200/90 flex items-center gap-1 shadow-2xs">
+                            <span className="w-1.5 h-1.5 rounded-full bg-sky-500" />
+                            <span>In Operatory</span>
+                          </span>
+                        ) : (
+                          <span className="bg-slate-100 text-slate-600 text-[10px] font-semibold px-2 py-0.5 rounded-full border border-slate-200 flex items-center gap-1 shadow-2xs">
+                            <span>Ready in Op</span>
+                          </span>
+                        )}
+                      </div>
+                      <div className="font-semibold text-xs text-slate-800 flex items-center justify-between">
+                        <span>{effectiveEncounter.patientName}</span>
+                        <span className="text-[10px] font-medium text-slate-500">{effectiveEncounter.procedureText}</span>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {encountersForDate.length === 0 && currentDateStr !== getClinicTodayIso() ? (
                   <div className="p-4 text-center border border-dashed border-slate-200 rounded-xl bg-slate-50/50 space-y-2.5">
                     <Calendar className="w-6 h-6 text-slate-400 mx-auto" />
                     <div>

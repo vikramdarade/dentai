@@ -127,6 +127,16 @@ export const BatchTrayModal: React.FC<BatchTrayModalProps> = ({
                     </div>
                   )}
 
+                  {/* Expandable Full Formatted Note Preview (Native HTML Details - Zero Overhead) */}
+                  <details className="mt-2 group text-xs">
+                    <summary className="text-slate-600 font-semibold cursor-pointer hover:text-sky-700 flex items-center space-x-1 select-none">
+                      <span>View Formatted Note</span>
+                    </summary>
+                    <pre className="mt-1.5 p-2.5 bg-slate-50 rounded-lg border border-slate-200/80 text-[11px] font-mono text-slate-700 whitespace-pre-wrap leading-relaxed max-h-60 overflow-y-auto custom-scrollbar">
+                      {getFormattedNoteText(consult)}
+                    </pre>
+                  </details>
+
                   {/* CDT Codes */}
                   {p.cdtCodes && p.cdtCodes.length > 0 && (
                     <div className="flex flex-wrap gap-1 pt-1">

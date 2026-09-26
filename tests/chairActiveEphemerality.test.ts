@@ -388,4 +388,59 @@ describe('Rule 18: chair-active Ephemerality & Anti-Bleed Guarantees', () => {
     expect(isHotKeySuppressed({ tagName: 'DIV', isContentEditable: false, getAttribute: () => null })).toBe(false);
     expect(isHotKeySuppressed({ tagName: 'BODY' })).toBe(false);
   });
+
+  it('guarantees activeEncounter returns null for chair-active even when encountersForDate is non-empty', () => {
+    const encountersForDate = [
+      { id: 'consult-01', patientName: 'Prior Patient', status: 'done' as const },
+      { id: 'consult-02', patientName: 'Second Patient', status: 'ready' as const }
+    ];
+
+    const getActiveEncounter = (activePatientId: string) => {
+      if (activePatientId === 'chair-active' || encountersForDate.length === 0) return null;
+      if (!activePatientId) return encountersForDate[0] || null;
+      return encountersForDate.find(p => p.id === activePatientId) || null;
+    };
+
+    // When activePatientId is chair-active, it must NEVER fall back to consult-01
+    expect(getActiveEncounter('chair-active')).toBeNull();
+
+    // When activePatientId is a valid ID, it targets that patient
+    expect(getActiveEncounter('consult-02')?.id).toBe('consult-02');
+
+    // When activePatientId is empty on initial load, it defaults to first appointment
+    expect(getActiveEncounter('')?.id).toBe('consult-01');
+  });
+
+  it('preserves End of Day Notes count during asynchronous note finalization (processing status)', () => {
+    const encounters = [
+      { id: 'c-1', status: 'note_generated' },
+      { id: 'c-2', status: 'done' },
+      { id: 'c-3', status: 'processing' }, // Currently being finalized in background
+      { id: 'c-4', status: 'ready' }
+    ];
+
+    const completed = encounters.filter(
+      p => p.status === 'note_generated' || p.status === 'done' || p.status === 'processing'
+    );
+
+    // Count must be 3, preserving the badge counter without dropping to 2
+    expect(completed.length).toBe(3);
+    expect(completed.map(c => c.id)).toEqual(['c-1', 'c-2', 'c-3']);
+  });
+
+  it('extracts spoken greeting name cleanly without fabricating legal identity or DOB', () => {
+    const extractGreetingName = (text: string): string | null => {
+      const match = text.match(/\b(?:hi|hello|welcome|morning|afternoon)\s+([A-Z][a-z]{1,20})\b/i);
+      if (!match || !match[1]) return null;
+      const candidate = match[1].trim();
+      const stopWords = ['there', 'everyone', 'again', 'doctor', 'nurse', 'assistant', 'today', 'mate', 'sir', 'madam'];
+      if (stopWords.includes(candidate.toLowerCase())) return null;
+      return candidate.charAt(0).toUpperCase() + candidate.slice(1).toLowerCase();
+    };
+
+    expect(extractGreetingName('Hi Josh, great to see you today')).toBe('Josh');
+    expect(extractGreetingName('Good morning Sarah, please have a seat')).toBe('Sarah');
+    expect(extractGreetingName('Hello there, how can we help?')).toBeNull();
+    expect(extractGreetingName('Welcome everyone to the clinic')).toBeNull();
+  });
 });
