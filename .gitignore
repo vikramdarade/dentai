@@ -42,3 +42,15 @@ backups/
 
 # Landing-page marketing assets referenced by src/components/Landing.tsx.
 assets/*
+IDEA.md
+tmp-debug-eval.ts
+
+# npm lockfile residue: this repository is Bun-only (package.json comment;
+# CI, husky and the preview all use bun.lock). An npm lockfile must never be
+# committed — it would silently disagree with bun.lock.
+package-lock.json
+
+# Registered git worktrees live under .worktrees/ (e.g. a stale detached
+# checkout). Their contents belong to that worktree, never to a release
+# commit made from the main checkout.
+.worktrees/

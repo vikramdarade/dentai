@@ -130,7 +130,10 @@ export default function DayScheduleQueue({
     return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
   });
   const [walkInReason, setWalkInReason] = useState('Emergency Dental Toothache');
-  const [walkInType, setWalkInType] = useState<AppointmentType>('emergency');
+  // Phase 13A (§18): the default encounter type is the SAFE GENERIC intake,
+  // never emergency — emergency triage semantics apply only when the
+  // clinician explicitly selects it.
+  const [walkInType, setWalkInType] = useState<AppointmentType>('examination');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -572,7 +575,10 @@ export default function DayScheduleQueue({
       procedureText: walkInReason.trim(),
       appointmentType: walkInType,
       templateId: walkInType === 'emergency' ? 'soap' : 'standard',
-      status: 'ready',
+      // Phase 13A (§19): a freshly added walk-in has NO note yet — status
+      // 'ready' is reserved for "note generated, awaiting PMS copy". Claiming
+      // it inflated the "Ready for D4W" count and the Express-Copy pass.
+      status: 'scheduled',
       source: 'manual'
     });
 

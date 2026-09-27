@@ -68,6 +68,14 @@ export interface SignOffRequestContext {
    */
   readonly previousSignOffNonce?: string | null;
   readonly requestNonce?: string;
+  /**
+   * Phase 13A: practitioner identity for the seal, supplied by the SERVER from
+   * the authenticated session (never from the client). Falls back to the
+   * static validator deps when absent — which keeps existing tests and
+   * deployments unchanged.
+   */
+  readonly practitionerName?: string;
+  readonly ahpraRegistration?: string;
 }
 
 export interface SignOffDeps {
@@ -77,6 +85,18 @@ export interface SignOffDeps {
   readonly logAudit: (event: string, dentistId: string, detail: Record<string, unknown>) => void | Promise<void>;
   /** Practitioner display name for the server-minted seal. */
   readonly dentistName: string;
+  /**
+   * Phase 13A: persists the minted seal onto the canonical consultation record
+   * in the SAME durable store the record is served from. When absent, the
+   * caller opts out (unit tests, inline validation) — but production wiring
+   * MUST provide it, otherwise "Signed" would live only in the client's
+   * memory and vanish on reload.
+   */
+  readonly persistSeal?: (
+    consultationId: string,
+    dentistId: string,
+    seal: AttestationSeal
+  ) => Promise<boolean>;
   readonly ahpraRegistration?: string;
   /** Fixed clock for tests; defaults to wall time. */
   readonly now?: () => Date;
@@ -158,6 +178,21 @@ export function createSignOffValidator(deps: SignOffDeps) {
       }
 
       // 3. Replay guard (a sign-off cannot be replayed with the same nonce).
+      //
+      // Phase 13A: the PERSISTED seal is the primary replay guard. A record
+      // that already carries an attestation on the canonical server copy is
+      // signed — regardless of what nonce the client sends, and regardless of
+      // whether the signing process restarted (which is exactly when the old
+      // in-memory consumed-nonce set forgets). This is what makes "signed
+      // survives reload" and "duplicate sign rejected" true server properties.
+      if ((consultation as unknown as { attestation?: { signatureHash?: string } }).attestation?.signatureHash) {
+        void Promise.resolve(deps.logAudit('signoff_rejected_replay', dentistId, { consultationId, alreadySealed: true }))
+          .catch(() => {});
+        return {
+          ok: false, reason: 'replay',
+          message: 'This record has already been signed. Further sign-offs are not permitted.',
+        };
+      }
       if (request.previousSignOffNonce) {
         return {
           ok: false, reason: 'replay',
@@ -232,12 +267,38 @@ export function createSignOffValidator(deps: SignOffDeps) {
         };
       }
 
-      // 8. Server mints the seal. The client never supplies it.
+      // 8. Server mints the seal. The client never supplies it, and the
+      // practitioner identity is server-derived: the route passes the
+      // authenticated session's name/AHPRA number per request (Phase 13A),
+      // falling back to the static validator configuration.
       const signedAt = now().toISOString();
-      const seal = createAttestationSeal(consultation, dentistId, deps.dentistName, deps.ahpraRegistration ?? '', signedAt);
+      const seal = createAttestationSeal(
+        consultation,
+        dentistId,
+        request.practitionerName ?? deps.dentistName,
+        request.ahpraRegistration ?? deps.ahpraRegistration ?? '',
+        signedAt
+      );
       const selfCheck = verifyAttestationSeal(consultation, seal);
       if (!selfCheck.isValid) {
         return { ok: false, reason: 'content_modified', message: selfCheck.reason ?? 'Content verification failed.' };
+      }
+
+      // 8b. Phase 13A: persist the seal onto the canonical record BEFORE the
+      // response leaves. The signed state must be a property of the durable
+      // record — rehydrated by every future session — not of one browser's
+      // memory. A persistence failure is a failed sign-off (fail closed):
+      // responding 200 with an unpersisted seal would make "Signed" a lie.
+      if (deps.persistSeal) {
+        const persisted = await deps.persistSeal(consultationId, dentistId, seal);
+        if (!persisted) {
+          void Promise.resolve(deps.logAudit('signoff_persist_failed', dentistId, { consultationId }))
+            .catch(() => {});
+          return {
+            ok: false, reason: 'content_modified' as const,
+            message: 'The attestation could not be durably recorded. The record was NOT signed — please try again.',
+          };
+        }
       }
 
       void Promise.resolve(deps.logAudit('consultation_signed_off', dentistId, {

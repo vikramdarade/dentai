@@ -20,6 +20,11 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+// Seed dates use the app's OWN clinic-day definition. A UTC-date seed broke
+// every roster-dependent case when the run crossed local midnight in a
+// clinic-timezone-ahead-of-UTC environment (e.g. Australian clinics): the
+// workspace organizes the day by getClinicTodayIso(), not by UTC date.
+import { getClinicTodayIso } from '../src/utils/date';
 
 const PORT = 31000 + Math.floor(Math.random() * 20000); // unique per run — an orphaned prior server must never shadow this run
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -71,7 +76,7 @@ async function seed(): Promise<{ token: string; user: any; records: any[]; ids: 
   const me = await api('GET', '/api/auth/me', token);
   const user = me.body?.dentist || me.body?.user || me.body;
 
-  const isoToday = new Date().toISOString().slice(0, 10);
+  const isoToday = getClinicTodayIso();
   const transcript = [
     { sender: 'Dentist', text: 'Tooth 36 has deep caries, percussion positive.' },
     { sender: 'Dentist', text: 'Extirpation completed on 36 today.' },

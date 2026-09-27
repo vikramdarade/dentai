@@ -63,6 +63,13 @@ import { ClinicalNoteEditorPanel } from './ClinicalNoteEditorPanel';
 import { AsepticShortcutFootbar } from './AsepticShortcutFootbar';
 import { deriveGroundingBadge } from '../lib/uiVerification';
 import { requestSignOff, type SignOffClientResult } from '../lib/signOffClient';
+import {
+  compareEncounters,
+  decidePatientSwitch,
+  resolveSubstantiveContent,
+  buildWalkInIntake,
+  generateWalkInId,
+} from '../lib/encounterSession';
 import type { AttestationSeal } from '../lib/attestation';
 
 interface ChairsideWorkspaceProps {
@@ -440,7 +447,17 @@ export default function ChairsideWorkspace({
         } catch {}
         return false;
       })
-      .sort((a, b) => parseTimeToMinutes(a.time) - parseTimeToMinutes(b.time));
+      .sort((a, b) => {
+        // Phase 13A (§20): shared deterministic ordering — normalized time →
+        // createdAt → stable id/name. Tolerates "9 AM", "09:00", "9:00 AM";
+        // unknown times no longer collapse onto a sentinel that silently
+        // reorders the clinical day.
+        const createdAtOf = (id: string) => consultations.find(c => c.id === id)?.createdAt;
+        return compareEncounters(
+          { ...a, createdAt: createdAtOf(a.id) },
+          { ...b, createdAt: createdAtOf(b.id) }
+        );
+      });
   }, [patientEncounters, consultations, currentDateStr, currentDate]);
 
   // Compute latest consultation date available for 1-click schedule jump
@@ -468,8 +485,14 @@ export default function ChairsideWorkspace({
     return { latestConsultDate: null, latestDateLabel: '' };
   }, [consultations]);
 
-  // Self-healing & real-time multi-browser operatory synchronization:
-  // Auto-focus active encounter if another browser added a walk-in patient or recorded dialogue
+  // Real-time multi-browser operatory synchronization — Phase 13A focus
+  // invariant (§5/§8): an external roster event (another browser's walk-in or
+  // live dialogue) may UPDATE the roster and SUGGEST a patient, but must
+  // NEVER silently move the active encounter. Every switch below goes through
+  // the ONE canonical transition (decidePatientSwitch): a clinical session
+  // (mic live or finalization in flight) or a manual selection lock makes
+  // external switching impossible; orphaned-active fallback (self-healing)
+  // still routes through the same gate.
   useEffect(() => {
     if (encountersForDate.length === 0) {
       if (activePatientId) setActivePatientId('');
@@ -486,35 +509,71 @@ export default function ChairsideWorkspace({
       p => p.diarizedTranscript && p.diarizedTranscript.length > 1
     );
 
-    // If a brand-new walk-in arrived from another browser, auto-focus it
-    if (walkInEncounter && walkInEncounter.id !== lastKnownWalkinIdRef.current) {
-      lastKnownWalkinIdRef.current = walkInEncounter.id;
-      setActivePatientId(walkInEncounter.id);
-      return;
-    }
-
     // Do not hijack or redirect the ephemeral in-chair active encounter
     if (activePatientId === 'chair-active') return;
 
-    // If activePatientId does not exist in encountersForDate, select active or first
+    // A clinical session is live while the microphone is recording/paused-mid-session or a
+    // background finalization is in flight. External events must not move focus during one.
+    const sessionActive = !isMicStandby || backgroundFinalizingIds.size > 0;
+
+    // Self-healing: the active patient vanished from the roster (deleted,
+    // date change, second browser). This is not a hijack — the current focus
+    // points at nothing — but it still goes through the canonical gate.
     if (!encountersForDate.some(p => p.id === activePatientId)) {
-      if (liveDiscussionEncounter) {
-        setActivePatientId(liveDiscussionEncounter.id);
-      } else {
-        setActivePatientId(encountersForDate[0].id);
+      const fallbackId = liveDiscussionEncounter?.id || encountersForDate[0].id;
+      const decision = decidePatientSwitch({
+        source: 'external-poll',
+        targetPatientId: fallbackId,
+        activePatientId,
+        sessionActive,
+      });
+      if (decision.ok) {
+        setActivePatientId(decision.targetPatientId);
+        if (decision.effects.markManuallySelected) hasUserManuallySelectedRef.current = true;
       }
       return;
     }
 
-    // If user hasn't explicitly locked onto a card and a live encounter exists, switch to it
-    if (!hasUserManuallySelectedRef.current) {
-      if (liveDiscussionEncounter) {
+    // If a brand-new walk-in arrived from another browser, remember it and —
+    // when no session is active and the user has not locked onto a card —
+    // SUGGEST it via the canonical gate (which refuses during a live session).
+    if (walkInEncounter && walkInEncounter.id !== lastKnownWalkinIdRef.current) {
+      lastKnownWalkinIdRef.current = walkInEncounter.id;
+      if (!hasUserManuallySelectedRef.current) {
+        const decision = decidePatientSwitch({
+          source: 'external-poll',
+          targetPatientId: walkInEncounter.id,
+          activePatientId,
+          sessionActive,
+        });
+        if (decision.ok) {
+          setActivePatientId(walkInEncounter.id);
+        } else {
+          // This project compiles without strictNullChecks, under which union
+          // narrowing is incomplete — explicit member check instead of `else if`
+          // on a discriminated field (same pattern as signOffClient handling).
+          const refusal = (decision as { refusal?: string }).refusal;
+          if (refusal === 'external-focus-lock') {
+            setTurnoverToast(`New walk-in added: ${walkInEncounter.patientName} — not switching (session active).`);
+          }
+        }
+      }
+      return;
+    }
+
+    // If user hasn't explicitly locked onto a card and a live encounter exists, suggest it.
+    if (!hasUserManuallySelectedRef.current && liveDiscussionEncounter) {
+      const decision = decidePatientSwitch({
+        source: 'external-poll',
+        targetPatientId: liveDiscussionEncounter.id,
+        activePatientId,
+        sessionActive,
+      });
+      if (decision.ok) {
         setActivePatientId(liveDiscussionEncounter.id);
-      } else if (walkInEncounter) {
-        setActivePatientId(walkInEncounter.id);
       }
     }
-  }, [encountersForDate, activePatientId]);
+  }, [encountersForDate, activePatientId, isMicStandby, backgroundFinalizingIds]);
 
   const activeEncounter = useMemo(() => {
     if (activePatientId === 'chair-active' || encountersForDate.length === 0) return null;
@@ -577,6 +636,20 @@ export default function ChairsideWorkspace({
     }
   }, [consultations, effectiveEncounter?.id]);
 
+  // Phase 13A (§23): the SERVER's persisted seal is the source of truth for
+  // the signed projection. `signOffSeal` remains as the in-session mirror for
+  // the just-signed instant (before the next roster refresh); the derived map
+  // makes "Signed" survive reload, patient switch and a second browser.
+  const serverSeals = useMemo(() => {
+    const map: Record<string, AttestationSeal> = {};
+    for (const c of consultations) {
+      const seal = (c as unknown as { attestation?: AttestationSeal }).attestation;
+      if (seal?.signatureHash) map[c.id] = seal;
+    }
+    return map;
+  }, [consultations]);
+  const effectiveSeals = useMemo(() => ({ ...serverSeals, ...signOffSeal }), [serverSeals, signOffSeal]);
+
   const handleSignOffActiveNote = useCallback(async () => {
     const targetId = activeEncounter?.id || effectiveEncounter.id;
     if (!authToken || !targetId || targetId === 'chair-active') return;
@@ -595,7 +668,11 @@ export default function ChairsideWorkspace({
         authToken,
         consultationId: targetId,
         expectedVersion,
-        requestNonce: `${targetId}:${expectedVersion}:${Date.now()}`
+        // Phase 13A: a DETERMINISTIC idempotency key. A timestamp-based nonce
+        // could never collide, so it guarded nothing; a per-(record,version)
+        // key lets the server recognize a genuine duplicate submission of the
+        // same signing intent. The primary replay guard is the persisted seal.
+        requestNonce: `${targetId}:${expectedVersion}`
       });
       // NOTE: explicit member extraction rather than relying on boolean-union
       // narrowing — this project compiles without strictNullChecks, under
@@ -697,6 +774,10 @@ export default function ChairsideWorkspace({
   const [progressiveDrafts, setProgressiveDrafts] = useState<Record<string, string>>({});
   const progressiveDraftTimerRef = useRef<Record<string, any>>({});
   const [turnoverToast, setTurnoverToast] = useState<string | null>(null);
+  // Phase 13A: which encounter the current turnover toast refers to, so the
+  // Signed/Unsigned badge reflects the PRIOR patient (the one handed off),
+  // not whichever patient is newly active on screen.
+  const [turnoverToastTargetId, setTurnoverToastTargetId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!turnoverToast) return;
@@ -2050,44 +2131,57 @@ export default function ChairsideWorkspace({
   const [walkInRoom, setWalkInRoom] = useState('Room 1');
   const [walkInTime, setWalkInTime] = useState(() => `Now (${formatClinicTime(new Date())})`);
   const [walkInReason, setWalkInReason] = useState('');
+  // Phase 13A (§18): the clinician picks the encounter type. Empty means "no
+  // selection" — the safe generic intake applies, never a guessed emergency.
+  const [walkInType, setWalkInType] = useState<AppointmentType | ''>('');
 
   const handleAddWalkInToStream = async () => {
     if (!walkInName.trim()) return;
-
-    const names = walkInName.trim().split(' ');
-    const firstName = names[0];
-    const lastName = names.slice(1).join(' ') || 'Walk-In';
 
     let cleanTime = walkInTime.includes('(') ? walkInTime.split('(')[1].replace(')', '').trim() : walkInTime;
     if (cleanTime.endsWith(' A')) cleanTime = cleanTime.replace(/ A$/, ' AM');
     if (cleanTime.endsWith(' P')) cleanTime = cleanTime.replace(/ P$/, ' PM');
 
+    // Phase 13A (§16–§18): collision-safe UUID id, explicit-or-safe-generic
+    // appointment type, and NO fabricated transcript line — the intake note is
+    // encounter metadata, not Dentist dialogue nobody spoke.
+    const intake = buildWalkInIntake({
+      patientName: walkInName,
+      dob: walkInDob,
+      appointmentType: walkInType || undefined,
+      time: cleanTime,
+      operatory: walkInRoom,
+      chiefComplaint: walkInReason,
+      newId: generateWalkInId,
+    });
+
     const newConsultation: Consultation = {
-      id: `walkin-${Date.now()}`,
+      id: intake.id,
       dentistId: currentUser?.id || '',
       clinicId: activeClinicId || undefined,
-      firstName,
-      lastName,
-      dob: walkInDob.trim(),
-      appointmentType: 'emergency',
-      templateId: 'emergency',
+      firstName: intake.firstName,
+      lastName: intake.lastName,
+      dob: intake.dob,
+      appointmentType: intake.appointmentType,
+      templateId: intake.templateId,
       date: getClinicTodayIso(),
-      time: cleanTime,
+      time: intake.time,
       status: 'In Review',
       patientSummary: '',
-      transcript: [
-        { sender: 'Dentist', text: `Emergency walk-in encounter started for ${firstName} ${lastName}.${walkInReason ? ` Chief complaint: ${walkInReason}` : ''}` }
-      ],
+      // §17: speech belongs in the transcript only when actually captured.
+      transcript: [],
       findings: {
-        chiefComplaint: walkInReason || 'Emergency walk-in consultation',
-        history: walkInReason ? `Emergency presentation: ${walkInReason}` : 'Patient presented for walk-in emergency evaluation.',
+        // Only what the patient actually stated. An absent complaint stays
+        // visibly absent instead of becoming "Emergency walk-in consultation".
+        chiefComplaint: intake.chiefComplaint,
+        history: '',
         toothFindings: '',
         findingsGingival: '',
         diagnosis: '',
         treatmentPerformed: '',
         recommendations: '',
         recallRequirements: '',
-        customSections: { operatory: walkInRoom },
+        customSections: { operatory: intake.operatory, intakeNote: intake.intakeNote },
         adaCodes: []
       }
     };
@@ -2096,19 +2190,21 @@ export default function ChairsideWorkspace({
       await onSaveConsultation(newConsultation);
     }
 
+    const typeLabel = APPOINTMENT_TYPES.find(t => t.value === intake.appointmentType)?.short || 'Consultation';
     addScheduleItem({
-      time: cleanTime,
-      patientName: `${firstName} ${lastName}`,
-      dob: walkInDob.trim(),
-      procedureText: `Emergency • ${walkInReason || 'Evaluation'}`,
-      appointmentType: 'emergency',
-      templateId: 'emergency'
+      time: intake.time,
+      patientName: `${intake.firstName} ${intake.lastName}`.trim(),
+      dob: intake.dob,
+      procedureText: `${typeLabel} • ${intake.chiefComplaint || 'Evaluation'}`,
+      appointmentType: intake.appointmentType,
+      templateId: intake.templateId
     });
 
-    handleSelectPatient(newConsultation.id);
+    handleSelectPatient(intake.id);
     setWalkInName('');
     setWalkInDob('');
     setWalkInReason('');
+    setWalkInType('');
     setShowWalkInCard(false);
   };
 
@@ -2184,6 +2280,14 @@ export default function ChairsideWorkspace({
   // ─────────────────────────────────────────────────────────────
   // 6. ASYNCHRONOUS NOTE FINALIZATION & NON-BLOCKING HANDOFF
   // ─────────────────────────────────────────────────────────────
+  // Phase 13A (§10): synchronous in-flight guard for finalization. Unlike
+  // `backgroundFinalizingIds` (React state, updated asynchronously and cleared
+  // when the async work resolves), this ref is set SYNCHRONOUSLY and only
+  // released when the attempt fully settles — so a rapid ⌘→ → ⌘← → ⌘→ (two
+  // calls within one render cycle) can never start a second concurrent
+  // finalization for the same consultation.
+  const finalizationInFlightRef = useRef<Set<string>>(new Set());
+
   const executeBackgroundNoteFinalization = async (
     targetId: string,
     autoCopyClipboard = false,
@@ -2191,6 +2295,14 @@ export default function ChairsideWorkspace({
     transcriptSnapshot?: TranscriptItem[],
     noteSnapshot?: string
   ) => {
+    // Re-entrancy guard: an in-flight finalization for this consultation owns
+    // the work end-to-end. This does NOT block the server's own durable-job
+    // dedupe (Phase 9), which also protects two-browser races.
+    if (finalizationInFlightRef.current.has(targetId)) {
+      console.info(`Finalization already in flight for ${targetId}; skipping duplicate request.`);
+      return undefined;
+    }
+    finalizationInFlightRef.current.add(targetId);
     try {
       await flushPendingConsultationSave();
       const targetConsult: Consultation = consultations.find(c => c.id === targetId) || {
@@ -2323,12 +2435,27 @@ export default function ChairsideWorkspace({
                 appointmentType: targetConsult.appointmentType,
                 templateId: template.id
               },
-              transcript: sanitizedTranscript
+              transcript: sanitizedTranscript,
+              // Phase 13A (§10): the synchronous path is keyed by consultation
+              // id server-side, so a rapid next/previous toggle (or a second
+              // browser) cannot start two concurrent generations for one
+              // encounter — the duplicate receives 409 and falls through to
+              // the idempotent durable-job path below.
+              consultationId: targetConsult.id
             })
           });
 
           if (directRes.ok) {
             payload = await directRes.json();
+          } else if (directRes.status === 409) {
+            // Phase 13A (§10): the server reports another request is ALREADY
+            // generating this note (rapid next/previous toggle across
+            // browsers, or a concurrent tab). That peer owns the generation
+            // and its save; this call must not duplicate it via the job queue
+            // or the offline draft. The 3.5s roster poll will surface the
+            // peer's completed note here.
+            console.info('Direct generation already in progress for this consultation; deferring to the in-flight request.');
+            return undefined;
           } else {
             console.info(`Direct note generation status: ${directRes.status}, falling back to background job queue.`);
           }
@@ -2505,7 +2632,21 @@ export default function ChairsideWorkspace({
 
       return finalizedConsultation;
     } catch (err) {
+      // Phase 13A (§14): a failed finalization is a VISIBLE, recoverable
+      // state — never a silent console entry while the UI claims success.
       console.error('Failed to finalize clinical note:', err);
+      setFailedEncounterIds(prev => new Set(prev).add(targetId));
+      setBackgroundFinalizingIds(prev => {
+        const next = new Set(prev);
+        next.delete(targetId);
+        return next;
+      });
+      setTurnoverToast('Note generation failed — the encounter is marked for retry on the day view.');
+      return undefined;
+    } finally {
+      // Phase 13A (§10): release the synchronous in-flight guard on every
+      // exit path, whether the attempt succeeded, failed, or was skipped.
+      finalizationInFlightRef.current.delete(targetId);
     }
   };
 
@@ -2700,29 +2841,34 @@ export default function ChairsideWorkspace({
   };
 
   // Asynchronous Non-Blocking Patient Handoff ("Next Patient")
+  // Phase 13A: the "nothing captured" decision consults the SERVER transcript
+  // (§12) — not just local browser buffers — so a record whose dialogue lives
+  // only in the server's diarized transcript can never be dismissed as empty.
   const handleNextPatient = () => {
     const currentTarget = activeEncounter || effectiveEncounter;
     const currentId = currentTarget.id;
 
     // 1. Silent non-blocking finalization of current patient with immutable snapshot (Rule 14 & Rule 18)
     // Guarantee 0 data loss: synchronously snapshot transcript and note before any state transition
-    const capturedTranscript: TranscriptItem[] = [
-      ...(localLiveTranscriptsRef.current[currentId] || localLiveTranscripts[currentId] || [])
-    ].map(t => ({
-      sender: (t.sender === 'Patient' || (t as any).role === 'patient' ? 'Patient' : t.sender === 'Dialogue' || (t as any).role === 'dialogue' ? 'Dialogue' : 'Dentist') as TranscriptItem['sender'],
-      text: t.text
-    }));
-    const capturedNote = editedProgressNotes[currentId] || progressiveDrafts[currentId] || (currentId === 'chair-active' ? '' : currentProgressNote) || '';
     const existingConsult = consultations.find(c => c.id === currentId);
-    const hasExistingFindings = Boolean(
-      existingConsult?.findings?.treatmentPerformed?.trim() ||
-      existingConsult?.findings?.diagnosis?.trim() ||
-      existingConsult?.findings?.toothFindings?.trim() ||
-      existingConsult?.findings?.chiefComplaint?.trim() ||
-      (existingConsult?.findings?.adaCodes && existingConsult.findings.adaCodes.length > 0) ||
-      existingConsult?.clinicalProgressNote?.trim()
-    );
-    const hasSubstantiveContent = capturedTranscript.length > 0 || capturedNote.trim().length > 0 || hasExistingFindings;
+    const contentDecision = resolveSubstantiveContent({
+      localTranscript: localLiveTranscriptsRef.current[currentId] || localLiveTranscripts[currentId],
+      serverTranscript: existingConsult?.transcript,
+      serverDiarizedTranscript: existingConsult?.transcriptProvenance?.source === 'server-diarized' ? existingConsult.transcript : undefined,
+      noteText: editedProgressNotes[currentId] || progressiveDrafts[currentId] || (currentId === 'chair-active' ? '' : currentProgressNote) || '',
+      hasExistingFindings: Boolean(
+        existingConsult?.findings?.treatmentPerformed?.trim() ||
+        existingConsult?.findings?.diagnosis?.trim() ||
+        existingConsult?.findings?.toothFindings?.trim() ||
+        existingConsult?.findings?.chiefComplaint?.trim() ||
+        (existingConsult?.findings?.adaCodes && existingConsult.findings.adaCodes.length > 0) ||
+        existingConsult?.clinicalProgressNote?.trim()
+      ),
+      finalizationPending: backgroundFinalizingIds.has(currentId),
+    });
+    const capturedTranscript = contentDecision.localSnapshot;
+    const capturedNote = editedProgressNotes[currentId] || progressiveDrafts[currentId] || (currentId === 'chair-active' ? '' : currentProgressNote) || '';
+    const hasSubstantiveContent = contentDecision.substantive;
 
     if (hasSubstantiveContent && !backgroundFinalizingIds.has(currentId)) {
       setBackgroundFinalizingIds(prev => new Set(prev).add(currentId));
@@ -2745,21 +2891,48 @@ export default function ChairsideWorkspace({
       setInterimTranscript('');
     }
 
-    // 3. Switch to next scheduled patient or auto-increment next in-chair patient
+    // 3. Switch to next scheduled patient or auto-increment next in-chair patient.
+    // Phase 13A: keyboard navigation is a MANUAL selection (§7) and goes
+    // through the ONE canonical switch transition (§6).
     const currentIndex = encountersForDate.findIndex(p => p.id === activePatientId);
     const nextPatient = currentIndex !== -1 ? encountersForDate[currentIndex + 1] : undefined;
 
     if (nextPatient) {
-      setActivePatientId(nextPatient.id);
+      const decision = decidePatientSwitch({
+        source: 'keyboard-next',
+        targetPatientId: nextPatient.id,
+        activePatientId,
+        sessionActive: false,
+      });
+      if (!decision.ok) return;
+      hasUserManuallySelectedRef.current = decision.effects.markManuallySelected;
+      setActivePatientId(decision.targetPatientId);
       sessionStartTimeRef.current = Date.now();
       setRecordingSeconds(0);
+      // Phase 13A (§14): never claim the note was saved — finalization is
+      // still in flight and can fail. The toast states what is actually true.
       if (hasSubstantiveContent) {
-        setTurnoverToast(`Prior note saved to End of Day Notes. Switched to scheduled patient: ${nextPatient.patientName}`);
+        setTurnoverToastTargetId(currentId);
+        setTurnoverToast(`Finalizing prior note in background. Switched to scheduled patient: ${nextPatient.patientName}`);
       } else {
+        setTurnoverToastTargetId(null);
         setTurnoverToast(`Switched to scheduled patient: ${nextPatient.patientName}`);
       }
     } else {
-      // Advance to next in-chair patient with auto-incrementing designation
+      // Advance to next in-chair patient with auto-incrementing designation.
+      // Phase 13A (§13): the scratchpad is wiped ONLY when the just-finished
+      // in-chair encounter has no meaningful content. When it does, the
+      // buffers are RETAINED (the encounter was already enqueued for
+      // finalization above and can be recovered from the day view) and the
+      // toast tells the clinician what happened — never a silent discard.
+      const decision = decidePatientSwitch({
+        source: 'keyboard-next',
+        targetPatientId: 'chair-active',
+        activePatientId,
+        sessionActive: false,
+      });
+      if (!decision.ok) return;
+      hasUserManuallySelectedRef.current = decision.effects.markManuallySelected;
       const nextNum = inChairPatientNumber + 1;
       setInChairPatientNumber(nextNum);
       setInChairPatientCustomName('');
@@ -2768,23 +2941,25 @@ export default function ChairsideWorkspace({
       sessionStartTimeRef.current = Date.now();
       setRecordingSeconds(0);
 
-      // Clean in-chair transient scratchpad buffers for fresh encounter (Rule 18)
-      setLocalLiveTranscripts(prev => ({ ...prev, 'chair-active': [] }));
-      localLiveTranscriptsRef.current['chair-active'] = [];
-      setProgressiveDrafts(prev => {
-        const next = { ...prev };
-        delete next['chair-active'];
-        return next;
-      });
-      setEditedProgressNotes(prev => {
-        const next = { ...prev };
-        delete next['chair-active'];
-        return next;
-      });
-
       if (hasSubstantiveContent) {
-        setTurnoverToast(`Prior note saved to End of Day Notes. Ready for In-Chair Patient ${nextNum}.`);
+        // Retain the buffers: finalization owns the durable copy; wiping here
+        // could destroy lines that arrived between snapshot and switch.
+        setTurnoverToastTargetId(currentId);
+        setTurnoverToast(`Finalizing prior note in background. Ready for In-Chair Patient ${nextNum}.`);
       } else {
+        // Genuinely nothing captured — the wipe loses nothing (Rule 18).
+        setLocalLiveTranscripts(prev => ({ ...prev, 'chair-active': [] }));
+        localLiveTranscriptsRef.current['chair-active'] = [];
+        setProgressiveDrafts(prev => {
+          const next = { ...prev };
+          delete next['chair-active'];
+          return next;
+        });
+        setEditedProgressNotes(prev => {
+          const next = { ...prev };
+          delete next['chair-active'];
+          return next;
+        });
         setTurnoverToast(`Ready for In-Chair Patient ${nextNum}.`);
       }
     }
@@ -2796,6 +2971,17 @@ export default function ChairsideWorkspace({
       ? encountersForDate[currentIndex - 1]
       : (currentIndex === -1 && encountersForDate.length > 0 ? encountersForDate[encountersForDate.length - 1] : undefined);
     if (!prevPatient) return;
+
+    // Phase 13A: back-navigation uses the ONE canonical switch transition and
+    // counts as manual selection, exactly like ⌘→ and a card click (§6/§7).
+    const decision = decidePatientSwitch({
+      source: 'keyboard-previous',
+      targetPatientId: prevPatient.id,
+      activePatientId,
+      sessionActive: false,
+    });
+    if (!decision.ok) return;
+    hasUserManuallySelectedRef.current = decision.effects.markManuallySelected;
 
     if (!isMicStandbyRef.current) {
       playMedicalChime('stop');
@@ -3420,6 +3606,21 @@ ${clinician}`;
                     className="w-full px-2.5 py-1.5 text-xs font-medium border border-slate-200 rounded-lg focus:outline-none focus:border-sky-600 bg-slate-50/50"
                   />
 
+                  {/* Phase 13A (§18): encounter type is an explicit choice.
+                      Unselected = safe generic intake; only an explicit
+                      Emergency applies emergency triage semantics. */}
+                  <select
+                    value={walkInType}
+                    onChange={e => setWalkInType(e.target.value as AppointmentType | '')}
+                    className="w-full px-2 py-1 text-[11px] font-medium border border-slate-200 rounded-lg bg-slate-50/50 text-slate-700"
+                    aria-label="Encounter type"
+                  >
+                    <option value="">Encounter type — General (safe default)</option>
+                    {APPOINTMENT_TYPES.map(t => (
+                      <option key={t.value} value={t.value}>{t.label}</option>
+                    ))}
+                  </select>
+
                   <div className="grid grid-cols-2 gap-1.5">
                     <input
                       type="text"
@@ -3583,13 +3784,21 @@ ${clinician}`;
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
+                                // Phase 13A (§14): the retry clears the failed
+                                // marker BEFORE re-running finalization, so a
+                                // second failure re-asserts it cleanly.
+                                setFailedEncounterIds(prev => {
+                                  const next = new Set(prev);
+                                  next.delete(p.id);
+                                  return next;
+                                });
                                 executeBackgroundNoteFinalization(p.id, false);
                               }}
                               className="bg-rose-50 hover:bg-rose-100 text-rose-800 text-[10px] font-semibold px-2 py-0.5 rounded-full border border-rose-200 flex items-center gap-1 transition-colors cursor-pointer"
-                              title="Note generation had an issue. Click to recreate note."
+                              title="Note generation failed. Click to retry."
                             >
                               <RotateCw className="w-3 h-3 text-rose-600" />
-                              <span>Recreate</span>
+                              <span>Retry</span>
                             </button>
                           ) : p.status === 'note_generated' ? (
                             <span className="bg-teal-50 text-teal-800 text-[10px] font-semibold px-2 py-0.5 rounded-full border border-teal-200/90 flex items-center gap-1 shadow-2xs">
@@ -3713,8 +3922,8 @@ ${clinician}`;
                   serverConsultation={consultations.find(c => c.id === effectiveEncounter.id) || null}
                   recordVersion={signOffTargetVersion ?? undefined}
                   onSignOff={handleSignOffActiveNote}
-                  isSignedByServer={Boolean(signOffSeal[effectiveEncounter.id]?.signatureHash)}
-                  serverSeal={signOffSeal[effectiveEncounter.id] || null}
+                  isSignedByServer={Boolean(effectiveSeals[effectiveEncounter.id]?.signatureHash)}
+                  serverSeal={effectiveSeals[effectiveEncounter.id] || null}
                   signOffError={signOffErrors[effectiveEncounter.id] || null}
                 />
               </div>
@@ -3743,6 +3952,14 @@ ${clinician}`;
           <div className="bg-slate-900/95 backdrop-blur-md text-white text-xs font-medium px-4 py-2.5 rounded-xl shadow-xl border border-slate-700/80 flex items-center space-x-2.5">
             <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
             <span>{turnoverToast}</span>
+            {/* Phase 13A (§22): the turnover toast carries the day's
+                attestation state so the clinician leaves each patient knowing
+                what is signed and what still awaits sign-off. */}
+            {turnoverToastTargetId && effectiveSeals[turnoverToastTargetId]?.signatureHash ? (
+              <span className="ml-1 rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-bold text-emerald-300 border border-emerald-400/30">Signed</span>
+            ) : (
+              <span className="ml-1 rounded-full bg-amber-500/20 px-2 py-0.5 text-[10px] font-bold text-amber-300 border border-amber-400/30">Unsigned</span>
+            )}
             <button
               onClick={() => setTurnoverToast(null)}
               className="text-slate-400 hover:text-white ml-2 cursor-pointer"

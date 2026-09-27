@@ -322,13 +322,28 @@ export default function App() {
     };
     syncActiveClinic();
 
-    // Cross-browser live operatory poll (fetches walk-ins & real-time dialogue every 3.5s)
+    // Cross-browser live operatory poll. 30s is ample for clinic-note sync and
+    // keeps serverless load sustainable; paused while the tab is hidden
+    // (browser throttles background timers anyway). Runs immediately on mount
+    // and again when the tab becomes visible after a period hidden, so data is
+    // fresh on refocus without paying for a tick the tab never saw.
     const pollTimer = setInterval(() => {
+      if (document.hidden) return;
       fetchConsultations();
       syncActiveClinic();
-    }, 3500);
+    }, 30_000);
+    const onVisibilityChange = () => {
+      if (!document.hidden) {
+        fetchConsultations();
+        syncActiveClinic();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
 
-    return () => clearInterval(pollTimer);
+    return () => {
+      clearInterval(pollTimer);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
   }, [authToken, currentUser?.id, activeClinicId]);
 
   /** Records visible in the active clinic scope (owner view includes colleagues, own records always visible). */

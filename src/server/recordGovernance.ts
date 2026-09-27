@@ -124,7 +124,11 @@ export function createRecordGovernance(deps: RecordGovernanceDeps): Middleware {
       // approval across a content-modifying edit — and self-authorise a
       // sign-off. Approval state is recomputed server-side below; the client's
       // copy is discarded on every write.
-      for (const derived of ['groundingAudit', 'groundingReport', 'sovereignty', 'facts', 'recordVersion', 'revisions', 'identityNeedsReview']) {
+      // Phase 13A: `attestation` joins the server-owned set. The seal is
+      // minted by the sign-off endpoint from the authenticated session and
+      // persisted server-side; a client that could POST/PUT its own seal
+      // would be able to assert "Signed" without the clinician ever signing.
+      for (const derived of ['groundingAudit', 'groundingReport', 'sovereignty', 'facts', 'recordVersion', 'revisions', 'identityNeedsReview', 'attestation']) {
         delete body[derived];
       }
 

@@ -420,7 +420,45 @@ const signOffValidator = createSignOffValidator({
     ) || null;
   },
   logAudit,
+  // Phase 13A fallback identity when the route cannot derive one from the
+  // session. The sign route always passes the authenticated dentist's real
+  // name; this keeps inline/legacy validation functional.
   dentistName: 'Practitioner',
+  // Phase 13A: the minted seal is persisted onto the canonical record in the
+  // same durable store the record is served from — "Signed" becomes a
+  // property of the record (survives reload, second browser, process
+  // restart) instead of one client's React state. Both storage modes write
+  // the SAME in-record field (consultation.attestation) so the projection is
+  // storage-independent.
+  persistSeal: async (consultationId: string, dentistId: string, seal) => {
+    try {
+      if (dbEnabled) {
+        const existing = (await dbListConsultations(dentistId)).find((c: any) => c.id === consultationId);
+        if (!existing) return false;
+        const updated = {
+          ...existing,
+          attestation: seal,
+          status: existing.status === 'In Review' ? 'Completed' : existing.status,
+        };
+        return await dbUpdateConsultation(consultationId, dentistId, updated);
+      }
+      const data = await readConsultationsDb();
+      const index = data.consultations.findIndex(
+        (c: any) => c.id === consultationId && c.dentistId === dentistId
+      );
+      if (index === -1) return false;
+      data.consultations[index] = {
+        ...data.consultations[index],
+        attestation: seal,
+        status: data.consultations[index].status === 'In Review' ? 'Completed' : data.consultations[index].status,
+      };
+      await writeConsultationsDb(data);
+      return true;
+    } catch (err) {
+      logger.error('Failed to persist sign-off seal:', err);
+      return false;
+    }
+  },
 });
 
 const recordGovernance = createRecordGovernance({
@@ -3738,6 +3776,11 @@ app.post('/api/consultations/:id/sign', authenticateToken, async (req: any, res)
     const result = await signOffValidator.validate(id, req.dentist.id, {
       expectedVersion: body.expectedVersion,
       requestNonce: typeof body.requestNonce === 'string' ? body.requestNonce : undefined,
+      // Phase 13A: practitioner identity for the seal comes from the
+      // authenticated session — never from the client body, never a static
+      // placeholder. The seal now attests WHO signed, not merely WHAT.
+      practitionerName: req.dentist.name,
+      ahpraRegistration: req.dentist.ahpraNumber || req.dentist.ahpraRegistration || '',
     });
     if (result.ok === false) {
       const status = result.reason === 'not_found' ? 404
@@ -3772,11 +3815,30 @@ app.put('/api/consultations/:id', authenticateToken, async (req: any, res) => {
       if (!existing) {
         return res.status(404).json({ error: 'Consultation not found or unauthorized.' });
       }
-      const merged = {
+      // Phase 13A: a signed record is immutable. The attestation digest covers
+      // the canonical clinical content, so ANY content-modifying edit would
+      // silently break the seal's meaning; instead the edit is refused and the
+      // clinician keeps the server copy. Server-owned integrity fields (the
+      // strip in recordGovernance removes them from the client body) are
+      // preserved from the existing record, never reset.
+      if (existing.attestation?.signatureHash) {
+        return res.status(409).json({
+          error: 'This note is signed and can no longer be edited. A correction requires a new revision and re-verification of the record.',
+          code: 'RECORD_SIGNED',
+        });
+      }
+      // recordVersion / revisions / identityNeedsReview arrive in the body
+      // ALREADY stamped/sanitized by the recordGovernance middleware (which
+      // strips any client-supplied copy) — the merge must let those stamped
+      // values win. Only `attestation` is preserved from the existing record:
+      // the middleware strips it from the body entirely, and the seal can
+      // never be client-supplied in either direction.
+      const merged: any = {
         ...existing,
         ...updatedPayload,
         id,
-        dentistId: req.dentist.id
+        dentistId: req.dentist.id,
+        attestation: existing.attestation,
       };
       try {
         const scope = await resolveClinicScope(req.dentist.id, merged.clinicId);
@@ -3819,11 +3881,23 @@ app.put('/api/consultations/:id', authenticateToken, async (req: any, res) => {
       return res.status(404).json({ error: 'Consultation not found or unauthorized.' });
     }
 
+    // Phase 13A: signed-record immutability (JSON store path) — same guard as
+    // the Postgres branch above.
+    if (consultationsData.consultations[index].attestation?.signatureHash) {
+      return res.status(409).json({
+        error: 'This note is signed and can no longer be edited. A correction requires a new revision and re-verification of the record.',
+        code: 'RECORD_SIGNED',
+      });
+    }
+
+    // Same contract as the Postgres branch: middleware-stamped
+    // recordVersion/revisions win; the seal is preserved, never client-set.
     consultationsData.consultations[index] = {
       ...consultationsData.consultations[index],
       ...updatedPayload,
       id,
-      dentistId: req.dentist.id
+      dentistId: req.dentist.id,
+      attestation: consultationsData.consultations[index].attestation,
     };
 
     try {
@@ -4580,6 +4654,11 @@ function resolveNoteTemplate(raw: any): { template: NoteTemplate; error?: string
 }
 
 // API endpoint to compile clinical findings and correspondence letter via Gemini
+// Phase 13A (§10): per-consultation in-flight gate for the synchronous note
+// generation path. Keyed by the client's consultation id; entries self-expire
+// so a crashed request cannot hold the gate permanently.
+const directGenerationInFlight = new Map<string, { settled: boolean }>();
+
 app.post('/api/generate-notes', authenticateToken, async (req: express.Request, res: express.Response) => {
   const gcpProject = process.env.GCP_PROJECT_ID;
   let promptContext = '';
@@ -4671,6 +4750,36 @@ app.post('/api/generate-notes', authenticateToken, async (req: express.Request, 
       templateId: intakeData.templateId || 'standard',
       transcriptLength: transcript.length
     });
+
+    // Phase 13A (§10): the durable job path already converges duplicate jobs
+    // by consultation id; the synchronous path now refuses a duplicate
+    // IN-FLIGHT request for the same consultation before any provider call.
+    // Without this, a rapid ⌘→ → ⌘← → ⌘→ (or two browsers finalizing the same
+    // encounter) triggers two concurrent hosted generations for one record —
+    // doubled cost, doubled audit entries, and competing writes racing to the
+    // same consultation. A refused duplicate falls through to the client's
+    // existing Tier-2 durable-job path, which is idempotent.
+    const directGenKey = typeof req.body?.consultationId === 'string' && req.body.consultationId.trim()
+      ? req.body.consultationId.trim()
+      : null;
+    if (directGenKey) {
+      const prior = directGenerationInFlight.get(directGenKey);
+      if (prior && !prior.settled) {
+        return res.status(409).json({
+          error: 'A note is already being generated for this consultation. The encounter status will update when it completes.',
+          code: 'GENERATION_IN_PROGRESS',
+        });
+      }
+      const entry = { settled: false };
+      directGenerationInFlight.set(directGenKey, entry);
+      res.on('finish', () => { entry.settled = true; });
+      res.on('close', () => { entry.settled = true; });
+      // Safety net: never let a crashed request hold the gate forever.
+      // Slightly above the hosted-generation timeout.
+      setTimeout(() => {
+        if (directGenerationInFlight.get(directGenKey) === entry) directGenerationInFlight.delete(directGenKey);
+      }, 130_000).unref();
+    }
 
     const result = await runHostedGeneration({ intakeData, transcript });
 
