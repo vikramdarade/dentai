@@ -78,6 +78,11 @@ export default function App() {
   });
   const [selectedConsultation, setSelectedConsultation] = useState<Consultation | null>(null);
 
+  // Phase 12F: a refused (409 stale) write is a visible conflict, never a
+  // silent overwrite in either direction. Holds the server's message, its
+  // current version and its copy of the record for reconciliation.
+  const [consultationConflict, setConsultationConflict] = useState<{ id: string; message: string; currentVersion?: number; serverRecord: Consultation | null } | null>(null);
+
   // Clinic ecosystem (Ecosystem Layer 1 — invite codes / multi-clinic practice)
   const [clinics, setClinics] = useState<ClinicMembership[]>([]);
   const [activeClinicId, setActiveClinicId] = useState<string | null>(null);
@@ -490,7 +495,7 @@ export default function App() {
           diagnosis: '',
           treatmentPerformed: '',
           recommendations: '',
-          recallRequirements: '6 Months (Standard)',
+          recallRequirements: '',
           customSections: {},
           adaCodes: []
         }
@@ -547,13 +552,20 @@ export default function App() {
       const isNew = index === -1;
       const url = isNew ? '/api/consultations' : `/api/consultations/${updatedWithDentist.id}`;
       const method = isNew ? 'POST' : 'PUT';
+      // Phase 12F: state the record version this edit was based on so the
+      // server can refuse a stale write (409) instead of last-write-wins.
+      // Only server-confirmed versions are sent — never a local guess.
+      const bodyForServer: any = { ...updatedWithDentist };
+      if (!isNew && typeof updatedWithDentist.recordVersion === 'number') {
+        bodyForServer.expectedVersion = updatedWithDentist.recordVersion;
+      }
       const res = await fetch(url, {
         method,
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${authToken}`
         },
-        body: JSON.stringify(updatedWithDentist)
+        body: JSON.stringify(bodyForServer)
       });
 
       if (res.ok) {
@@ -563,6 +575,28 @@ export default function App() {
         setConsultations(syncedList);
         if (currentUser?.id) {
           saveLocalConsultations(syncedList, currentUser.id);
+        }
+      } else if (res.status === 409) {
+        // Phase 12F: the record changed elsewhere (another device, the durable
+        // worker). The clinician's on-screen edits must NOT be silently
+        // overwritten by the server copy, and the server copy must NOT be
+        // overwritten by this stale write. Keep the clinician's edits in the
+        // working state, take the server's record + version for reconciliation,
+        // and surface a visible conflict so the clinician re-applies.
+        const conflict = await res.json().catch(() => ({}));
+        const serverRecord = conflict?.serverConsultation || null;
+        setConsultationConflict({
+          id: updatedWithDentist.id,
+          message: conflict?.error || 'This record changed on another device since you opened it.',
+          currentVersion: conflict?.currentVersion,
+          serverRecord
+        });
+        if (serverRecord) {
+          const reconciled = newList.map(c => c.id === serverRecord.id ? serverRecord : c);
+          setConsultations(reconciled);
+          if (currentUser?.id) {
+            saveLocalConsultations(reconciled, currentUser.id);
+          }
         }
       } else {
         queuePendingSync(updatedWithDentist);
@@ -644,6 +678,29 @@ export default function App() {
 
   return (
     <div id="dentai-viewport" className="min-h-screen bg-[#F8F7F5] selection:bg-primary-container selection:text-white">
+      {/* Phase 12F: a refused (409 stale) write is surfaced as a visible
+          conflict — the clinician's on-screen edits are preserved and the
+          server's copy is available for reconciliation. Never silent. */}
+      {consultationConflict && (
+        <div
+          className="fixed top-3 left-1/2 -translate-x-1/2 z-[60] max-w-lg w-[calc(100%-1.5rem)] bg-amber-50 border border-amber-300 text-amber-900 rounded-xl shadow-lg px-4 py-3 text-xs"
+          data-testid="stale-write-conflict"
+          role="alert"
+        >
+          <div className="font-bold mb-0.5">Record changed on another device</div>
+          <div className="text-amber-800">{consultationConflict.message}</div>
+          {consultationConflict.currentVersion != null && (
+            <div className="text-amber-700 mt-0.5">Server version: {consultationConflict.currentVersion} — review the latest version, re-apply your edits, then save again.</div>
+          )}
+          <button
+            onClick={() => setConsultationConflict(null)}
+            className="mt-2 px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-semibold cursor-pointer"
+            data-testid="stale-write-acknowledge"
+          >
+            Acknowledge
+          </button>
+        </div>
+      )}
       {view === 'workspace' && (
         <ChairsideWorkspace
           currentUser={currentUser}

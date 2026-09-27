@@ -392,6 +392,14 @@ export function isCompletedTreatmentSentence(text: string): boolean {
   const trimmed = text.trim();
   if (!trimmed) return false;
 
+  // Phase 5 (fail-closed): semantic negation guard. A negated procedure
+  // sentence ("no filling was placed", "extraction not done today") matches
+  // the executed-verb list below but must NEVER register as completed
+  // treatment (spec §9 example 2, §10).
+  if (hasSemanticNegation(trimmed)) {
+    return false;
+  }
+
   // 1. Inquiries, prospective discussions, and questions are STRICTLY PROHIBITED
   const inquiryOrQuestionPattern = /\b(can (we|you|i)|could (we|you|i)|should (we|you|i)|would (we|you|i)|might|wondering if|going to ask|wanted to ask|like to ask|thinking about|what about|interested in|options for|look into|question about)\b|\?$/i;
   if (inquiryOrQuestionPattern.test(trimmed)) {
@@ -548,13 +556,14 @@ export function generateOfflineDraft(
   }
 
   // Work Package 3.2: Backward Entity Reconciliation (Zero-Omission Standard)
+  // TranscriptItem carries no real audio timing, so utterances are passed
+  // through with timing explicitly unavailable — never with synthetic offsets.
   const fullDraftText = Object.values(canonical).concat(Object.values(customSections)).join(' ');
   const timestampedUtterances: TimestampedUtterance[] = dedupedTranscript.map((t, idx) => ({
     id: `utt-${idx + 1}`,
     sender: t.sender as any,
     text: t.text,
-    startTimeMs: idx * 2000,
-    endTimeMs: (idx + 1) * 2000
+    timingProvenance: 'unavailable' as const
   }));
   const reconciliation = reconcileEntitiesBackward(timestampedUtterances, fullDraftText);
 
@@ -673,6 +682,7 @@ function fillSection(
 // ---------------------------------------------------------------------------
 
 import { parseClinicalEntities } from './clinicalEntityParser';
+import { detectTreatmentStatus, hasSemanticNegation, type TreatmentStatus } from './treatmentStatus';
 import { generateMacroNote } from './macroEngine';
 import type { FormattedMacroNote } from './australianClinicalMacros';
 import type { AdaCodeItem } from '../types';
@@ -688,6 +698,13 @@ export interface NoteFieldProvenance<T = string> {
 
 export interface DeterministicClinicalNote {
   title: string;
+  /**
+   * Deterministic treatment status derived from what was actually spoken.
+   * `performed` means the transcript describes treatment as performed — it is
+   * a sign-off PREREQUISITE, never a certificate: fact-level verification
+   * still depends on evidence provenance and clinician review (performed ≠ verified).
+   */
+  treatmentStatus: TreatmentStatus;
   fields: {
     chiefComplaint: NoteFieldProvenance<string>;
     history: NoteFieldProvenance<string>;
@@ -770,11 +787,55 @@ export function prefillMacroSlots(
   const hasContent = transcript.length > 0;
   const isToothVerified = vars.teeth.length > 0;
 
+  // Exam type may still determine whether macro boilerplate is DISPLAYED in a
+  // section (rendering choice) — it must never confer verification (Phase 5).
   const isExamType = appointmentType === 'examination' || macroNote.title.toLowerCase().includes('exam');
-  const treatmentVerified = hasContent && (isToothVerified || isExamType || vars.spokencodes.length > 0 || /completed|restored|cured|extracted|prep|filling/i.test(macroNote.treatmentPerformed));
+
+  // ---- Phase 5 (fail-closed) verification logic ---------------------------
+  // A field is `verified` ONLY when its value is corroborated by a matched
+  // provenance quote from the transcript. Macro/parser-derived values without
+  // a direct spoken match are `inferred`; absent values are `missing`.
+  // Transcript existence, exam type, tooth mentions and spoken codes no longer
+  // confer verification on their own (Phase 1 audit findings 4 & 10).
+  const treatmentQuote = findProvenanceQuote(transcript, /(restor|filling|cured|extract|prep|scaling|clean|dam|ana?esthe|administer)/i);
+  const chiefComplaintQuote = findProvenanceQuote(transcript, /(complaint|hurts|pain|broken|checkup|exam|bleed|sensitive)/i);
+  const historyQuote = findProvenanceQuote(transcript, /(medical|health|allerg|medication|cardiac|asthma|penicillin)/i);
+  const gingivalQuote = findProvenanceQuote(transcript, /(gingiv|gums?|perio|probing|plaque|calculus|bleed)/i);
+  const diagnosisQuote = findProvenanceQuote(transcript, /(diagnos|caries|decay|pulpitis|abscess|lesion|fracture|cracked|infected|necros)/i);
+  const recallQuote = findProvenanceQuote(transcript, /(recall|month|year|return|review|next visit|check[- ]?up)/i);
+  const recommendationsQuote = findProvenanceQuote(transcript, /(post-op|instructions|avoid|soft diet|salt water|warm saline|hot food)/i);
+
+  // Deterministic treatment status derived from what was ACTUALLY SPOKEN —
+  // not from macro boilerplate, which legitimately contains discussed options
+  // ("No treatment – explained risk…") and warnings that would fool a
+  // whole-string classification. Blocking statuses (negated/declined/
+  // historical/planned/discussed) outrank `performed`; `performed` requires a
+  // clinician-narrated performed-treatment sentence.
+  // `performed` is a sign-off PREREQUISITE classification — never a
+  // certificate of clinical accuracy (performed ≠ verified): fact-level
+  // verification still rests on evidence provenance and clinician review.
+  const transcriptStatuses = transcript.map(t => detectTreatmentStatus(t.text || ''));
+  const spokenProcedureNegation = transcript.some(t => {
+    const s = t.text || '';
+    return hasSemanticNegation(s) && /\b(filling|restoration|crown|extraction|root canal|treatment|procedure)\b/i.test(s);
+  });
+  const blockingStatus = transcriptStatuses.find(s => s === 'negated' || s === 'declined' || s === 'historical' || s === 'planned' || s === 'discussed');
+  const spokenPerformed = transcriptStatuses.includes('performed');
+  const treatmentStatus: TreatmentStatus =
+    spokenProcedureNegation
+      ? 'negated'
+      : blockingStatus ?? (spokenPerformed ? 'performed' : 'unknown');
+  const treatmentVerified =
+    treatmentStatus === 'performed' &&
+    Boolean(treatmentQuote) &&
+    Boolean(macroNote.treatmentPerformed.trim());
+
+  const confidenceFor = (value: string, quote: string | undefined): FieldConfidence =>
+    !value.trim() ? 'missing' : quote ? 'verified' : 'inferred';
 
   const note: DeterministicClinicalNote = {
     title: macroNote.title,
+    treatmentStatus,
     fields: {
       toothNumber: {
         field: 'toothNumber',
@@ -791,59 +852,62 @@ export function prefillMacroSlots(
       anaesthetic: {
         field: 'anaesthetic',
         value: anaestheticVal,
-        confidence: anaestheticVal ? 'verified' : 'missing',
+        confidence: confidenceFor(anaestheticVal, anaestheticQuote),
         provenanceQuote: anaestheticQuote
       },
       materials: {
         field: 'materials',
         value: materialsVal,
-        confidence: materialsVal ? 'verified' : 'missing',
+        confidence: confidenceFor(materialsVal, materialsQuote),
         provenanceQuote: materialsQuote
       },
       chiefComplaint: {
         field: 'chiefComplaint',
         value: hasContent ? macroNote.chiefComplaint : '',
-        confidence: hasContent ? 'verified' : 'missing',
-        provenanceQuote: findProvenanceQuote(transcript, /(complaint|hurts|pain|broken|checkup|exam|bleed|sensitive)/i)
+        confidence: confidenceFor(hasContent ? macroNote.chiefComplaint : '', chiefComplaintQuote),
+        provenanceQuote: chiefComplaintQuote
       },
       history: {
         field: 'history',
         value: hasContent ? macroNote.history : '',
-        confidence: hasContent ? 'verified' : 'missing',
-        provenanceQuote: findProvenanceQuote(transcript, /(medical|health|allerg|medication|cardiac|asthma|penicillin)/i)
+        confidence: confidenceFor(hasContent ? macroNote.history : '', historyQuote),
+        provenanceQuote: historyQuote
       },
       toothFindings: {
         field: 'toothFindings',
         value: isToothVerified ? macroNote.toothFindings : (hasContent && isExamType ? macroNote.toothFindings : ''),
-        confidence: (isToothVerified || (hasContent && isExamType)) ? 'verified' : 'missing',
+        confidence: isToothVerified && toothQuote ? 'verified' : (isToothVerified || (hasContent && isExamType)) ? 'inferred' : 'missing',
         provenanceQuote: toothQuote
       },
       findingsGingival: {
         field: 'findingsGingival',
         value: hasContent ? macroNote.findingsGingival : '',
-        confidence: hasContent ? 'verified' : 'missing'
+        confidence: confidenceFor(hasContent ? macroNote.findingsGingival : '', gingivalQuote),
+        provenanceQuote: gingivalQuote
       },
       diagnosis: {
         field: 'diagnosis',
         value: hasContent ? macroNote.diagnosis : '',
-        confidence: hasContent ? 'verified' : 'missing'
+        confidence: confidenceFor(hasContent ? macroNote.diagnosis : '', diagnosisQuote),
+        provenanceQuote: diagnosisQuote
       },
       treatmentPerformed: {
         field: 'treatmentPerformed',
         value: hasContent ? macroNote.treatmentPerformed : '',
-        confidence: treatmentVerified ? 'verified' : 'missing',
-        provenanceQuote: findProvenanceQuote(transcript, /(restore|filling|cured|extract|prep|scaling|clean|dam|anesthetic)/i)
+        confidence: treatmentVerified ? 'verified' : (hasContent && macroNote.treatmentPerformed.trim() ? 'inferred' : 'missing'),
+        provenanceQuote: treatmentQuote
       },
       recommendations: {
         field: 'recommendations',
         value: hasContent ? macroNote.recommendations : '',
-        confidence: (hasContent && vars.poigDiscussed) ? 'verified' : 'missing',
-        provenanceQuote: findProvenanceQuote(transcript, /(post-op|instructions|avoid|soft diet|salt water|warm saline|hot food)/i)
+        confidence: (hasContent && vars.poigDiscussed && recommendationsQuote) ? 'verified' : (hasContent && macroNote.recommendations.trim() ? 'inferred' : 'missing'),
+        provenanceQuote: recommendationsQuote
       },
       recallRequirements: {
         field: 'recallRequirements',
         value: hasContent ? macroNote.recallRequirements : '',
-        confidence: hasContent ? 'verified' : 'missing'
+        confidence: confidenceFor(hasContent ? macroNote.recallRequirements : '', recallQuote),
+        provenanceQuote: recallQuote
       }
     },
     adaCodes: macroNote.adaCodes,
@@ -857,14 +921,19 @@ export function prefillMacroSlots(
 }
 
 /**
- * Validates clinical record sign-off integrity per AHPRA records standard:
- * Prohibits signing if mandatory clinical treatment description or required procedure tooth is missing.
+ * Validates clinical record sign-off integrity per AHPRA records standard.
+ * Phase 5 (fail-closed): sign-off requires a NON-EMPTY, transcript-corroborated
+ * treatment description whose deterministic status is `performed`. A non-empty
+ * note, exam type, tooth mention, spoken code or `performed` classification
+ * alone is never sufficient — the clinician's explicit review remains the
+ * verification act (performed ≠ verified).
  */
 export function canSignDeterministicNote(note: DeterministicClinicalNote): boolean {
   if (!note || !note.fields) return false;
-  if (note.fields.treatmentPerformed.confidence !== 'verified' || !note.fields.treatmentPerformed.value.trim()) {
-    return false;
-  }
+  const treatment = note.fields.treatmentPerformed;
+  if (!treatment.value.trim()) return false;
+  if (treatment.confidence !== 'verified') return false;
+  if (note.treatmentStatus !== 'performed') return false;
   return true;
 }
 

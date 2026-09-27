@@ -157,10 +157,38 @@ describe('Work Package 3.0: Deterministic Source Grounding & Evidentiary Verific
     it('enforces Receptionist-Friendly UI Language for trust badging (Rule 9)', () => {
       // Rule 9 strictly bans engineering jargon: "100% grounded / 0 hallucination vectors"
       const result = alignClaimsToUtterances([], mockTranscriptExtraction);
-      expect(result.statusBadge).toBe('Verified from Audio');
       expect(result.statusBadge).not.toContain('hallucination');
       expect(result.statusBadge).not.toContain('DSP');
       expect(result.statusBadge).not.toContain('vector');
+    });
+
+    // Phase 5 fail-closed remediation: an empty note has no corroborated
+    // claims, so it must NOT present as "Verified from Audio". Empty claims
+    // are not full grounding — absence of extractable text means the
+    // clinician must verify the note themselves.
+    it('treats empty claims as NOT fully grounded (fail-closed, no false badge)', () => {
+      const result = alignClaimsToUtterances([], mockTranscriptExtraction);
+      expect(result.isFullyGrounded).toBe(false);
+      expect(result.overallGroundingScore).toBe(0);
+      expect(result.statusBadge).not.toBe('Verified from Audio');
+    });
+
+    it('never fabricates timestamps for utterances without measured timing (zero-synthesis rule)', () => {
+      const untimed: TimestampedUtterance[] = [
+        { id: 'u-untimed-1', sender: 'Dentist', text: 'Composite restoration on tooth 36 MO today.', timingProvenance: 'unavailable' }
+      ];
+      const claims = [
+        { claimId: 'c1', category: 'procedure' as const, text: 'Composite restoration on tooth 36 MO', section: 'plan', isCorroborated: false, confidenceScore: 0, verificationNote: '' }
+      ];
+
+      const result = alignClaimsToUtterances(claims, untimed);
+      const evidence = result.claims[0]?.evidence;
+      expect(evidence).toBeDefined();
+      expect(evidence?.utteranceId).toBe('u-untimed-1');
+      // Timing is explicitly unavailable — never a synthetic offset:
+      expect(evidence?.startTimeMs).toBeUndefined();
+      expect(evidence?.endTimeMs).toBeUndefined();
+      expect(evidence?.audioSliceId).toBeUndefined();
     });
   });
 
@@ -291,6 +319,20 @@ describe('Work Package 3.0: Deterministic Source Grounding & Evidentiary Verific
       expect(audit.blockingReasons).toHaveLength(0);
       expect(audit.alignment.statusBadge).toBe('Verified from Audio');
       expect(audit.rogersConsent?.legalDefensibilityGrade).toBe('A_Defensible');
+    });
+
+    // Phase 12 release blocker regression: "nothing to check" is grounding
+    // ABSENT, not grounding proven. A claim-free note must never present as
+    // verified — the audit has no evidence base at all.
+    it('refuses to approve a claim-free note (no verifiable clinical claims)', () => {
+      const emptyNote = { canonical: { medicalHistory: '', subjective: '', objective: '', plan: '' } };
+      const audit = verifyNoteGrounding('cons-103', mockTranscriptExtraction, emptyNote);
+      expect(audit.isApprovedForSigning).toBe(false);
+      expect(audit.blockingReasons.some(r => r.includes('No verifiable clinical claims'))).toBe(true);
+
+      const whitespaceNote = { canonical: { subjective: '   ', plan: '' } };
+      const audit2 = verifyNoteGrounding('cons-104', mockTranscriptExtraction, whitespaceNote);
+      expect(audit2.isApprovedForSigning).toBe(false);
     });
   });
 });

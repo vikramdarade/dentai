@@ -28,6 +28,7 @@
 import { Type } from '@google/genai';
 import type { TranscriptItem } from '../types';
 import { applyNoteThinking } from '../lib/noteModelConfig';
+import { pipelineMetrics } from '../lib/pipelineMetrics';
 import {
   TRANSCRIPTION_LIMITS,
   assembleAudioChunks,
@@ -237,9 +238,11 @@ export function createAudioTranscriber(deps: AudioTranscriberDeps): AudioTranscr
       const bytes = input.bytes || base64Bytes(input.audioBase64);
 
       if (!input.audioBase64 || bytes === 0) {
+        pipelineMetrics.recordCounter('asrFailure');
         return { ok: false, code: 'NO_AUDIO', message: 'No audio was uploaded for this appointment.' };
       }
       if (bytes < TRANSCRIPTION_LIMITS.minAudioBytes) {
+        pipelineMetrics.recordCounter('asrFailure');
         return {
           ok: false,
           code: 'AUDIO_TOO_SMALL',
@@ -257,6 +260,7 @@ export function createAudioTranscriber(deps: AudioTranscriberDeps): AudioTranscr
       }
       const { client, vertexai } = resolved;
 
+      const asrStartMs = Date.now();
       let uploadedFileName: string | undefined;
       try {
         let part: any;
@@ -322,6 +326,14 @@ export function createAudioTranscriber(deps: AudioTranscriberDeps): AudioTranscr
           warnings.push('Part of the recording did not upload, so some of what was said is missing.');
         }
 
+        // Phase 9: ASR latency/failure observed PHI-free — only duration and
+        // outcome leave this function, never transcript content.
+        pipelineMetrics.recordStage({ stage: 'asr', durationMs: Math.max(1, Date.now() - asrStartMs), ok: true });
+        if (parsed.rejected > 0 || parsed.unlabelled > 0 || input.contiguous === false) {
+          // Partial ASR is a degraded success, not a silent one: the operator
+          // sees partial-transcript volume without any clinical text.
+          pipelineMetrics.recordCounter('partialAsrTranscript');
+        }
         return {
           ok: true,
           transcript: parsed.transcript,
@@ -336,6 +348,7 @@ export function createAudioTranscriber(deps: AudioTranscriberDeps): AudioTranscr
         };
       } catch (error: any) {
         deps.logger.error('Audio transcription failed', { message: error?.message });
+        pipelineMetrics.recordStage({ stage: 'asr', durationMs: Math.max(1, Date.now() - asrStartMs), ok: false });
         return {
           ok: false,
           code: 'TRANSCRIBE_FAILED',

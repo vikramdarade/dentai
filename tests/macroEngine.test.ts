@@ -12,14 +12,25 @@ describe('Australian Dental Clinical Entity Parser', () => {
     expect(vars.toothSurfacePairs).toEqual([{ tooth: '16', surface: 'MO' }]);
   });
 
-  it('extracts local anaesthetic details (agent, volume, technique)', () => {
+  it('extracts local anaesthetic details (agent, spoken quantity, technique) without deriving volumes', () => {
     const transcript = 'Administering one cartridge of 4% articaine with 1:100,000 adrenaline via buccal infiltration. Adequate numbness confirmed.';
     const vars = parseClinicalEntities(transcript);
 
     expect(vars.anaesthetic).toBeDefined();
     expect(vars.anaesthetic?.agent).toBe('4% Articaine');
-    expect(vars.anaesthetic?.volumeMl).toBe(2.2);
     expect(vars.anaesthetic?.technique).toBe('infiltration');
+    // Phase 10 (F-5): a spoken cartridge COUNT is preserved as spoken — the
+    // parser must NOT convert it into a derived 2.2 mL figure that reads as
+    // though the clinician spoke a volume.
+    expect(vars.anaesthetic?.cartridges).toBe(1);
+    expect(vars.anaesthetic?.volumeMl).toBeUndefined();
+  });
+
+  it('extracts an explicitly spoken millilitre volume as-is', () => {
+    const transcript = 'Administered 2.2 mL of 4% articaine infiltration.';
+    const vars = parseClinicalEntities(transcript);
+    expect(vars.anaesthetic?.volumeMl).toBe(2.2);
+    expect(vars.anaesthetic?.cartridges).toBeUndefined();
   });
 
   it('detects materials like composite shades, liners, and sutures', () => {
@@ -29,7 +40,9 @@ describe('Australian Dental Clinical Entity Parser', () => {
     expect(vars.materials?.compositeShade).toBe('A3');
     expect(vars.materials?.liner).toContain('Dycal');
     expect(vars.materials?.liner).toContain('Vitreobond');
-    expect(vars.materials?.sutureType).toContain('3-0 Prolene');
+    // Phase 10 sweep: the parser records the spoken BRAND only — gauge,
+    // absorbability and "placed" are not asserted on the clinician's behalf.
+    expect(vars.materials?.sutureType).toBe('Prolene');
   });
 
   it('detects verbal consent and aftercare instructions', () => {
@@ -56,12 +69,16 @@ describe('Deterministic Macro Detection & Generation', () => {
 
     const note = generateMacroNote(transcript);
     expect(note.title).toBe('Routine Restoration');
-    expect(note.treatmentPerformed).toContain('#36 (MO)');
+    expect(note.treatmentPerformed).toContain('Site: #36 (MO)');
     expect(note.treatmentPerformed).toContain('4% Articaine');
-    expect(note.treatmentPerformed).toContain('A3 composite');
+    expect(note.treatmentPerformed).toContain('shade A3');
     expect(note.treatmentPerformed).toContain('Occlusion checked');
-    expect(note.adaCodes.some(c => c.code === '532')).toBe(true);
-    expect(note.missingProtocolNotices).toHaveLength(0);
+    // Codes: only SPOKEN item numbers render — this transcript names none.
+    expect(note.adaCodes.length).toBe(0);
+    // Consent + aftercare were spoken (no notices for those), but no
+    // diagnosis was SPOKEN — the template must flag it, not fabricate one.
+    expect(note.missingProtocolNotices.join(' ')).toMatch(/no diagnosis/i);
+    expect(note.missingProtocolNotices.join(' ')).not.toMatch(/consent was not heard/i);
   });
 
   it('flags receptionist-friendly notice when consent or aftercare is missing', () => {
@@ -79,10 +96,11 @@ describe('Deterministic Macro Detection & Generation', () => {
 
     const note = generateMacroNote(transcript);
     expect(note.title).toBe('Surgical Extraction');
-    expect(note.treatmentPerformed).toContain('#38');
-    expect(note.treatmentPerformed).toContain('Bone gutter created');
-    expect(note.treatmentPerformed).toContain('3-0 Prolene');
-    expect(note.adaCodes.some(c => c.code === '324')).toBe(true);
+    expect(note.treatmentPerformed).toContain('Site: #38');
+    expect(note.treatmentPerformed).toContain('Prolene');
+    expect(note.treatmentPerformed).toContain('Gelatemp');
+    // Codes: only SPOKEN item numbers render — none named here.
+    expect(note.adaCodes.length).toBe(0);
   });
 
   it('detects Emergency Pulp Extirpation when Odontopaste and canals are mentioned', () => {
@@ -92,9 +110,9 @@ describe('Deterministic Macro Detection & Generation', () => {
 
     const note = generateMacroNote(transcript);
     expect(note.title).toBe('Emergency Pulp Extirpation');
-    expect(note.treatmentPerformed).toContain('#16');
-    expect(note.treatmentPerformed).toContain('3 canals located');
+    expect(note.treatmentPerformed).toContain('Site: #16');
+    expect(note.treatmentPerformed).toContain('Canals located: 3');
     expect(note.treatmentPerformed).toContain('Odontopaste');
-    expect(note.adaCodes.some(c => c.code === '414')).toBe(true);
+    expect(note.adaCodes.length).toBe(0);
   });
 });

@@ -1,0 +1,43 @@
+{
+  "releaseVersion": "0.1.0-rc.1",
+  "gitCommit": "2e31939597c5abacf10c523223d5f6f5f43279f4",
+  "contentTreeHash": "38355d03a762b3098a6df81db5a50ebb5fc915a3",
+  "builtFromTreeMatchesCandidate": false,
+  "generatedAt": "2026-09-27T11:31:51.270Z",
+  "frontend": {
+    "path": "dist/",
+    "digest": "sha256:e69a6426ddc2b6b94f36e7f146f6ce5827f9e93fcef92b299f404003e61cb6d6",
+    "files": [
+      "index-B188ofye.css sha256:ad4996ac5d3651417e58320b19f53f9fa75570ab7123a4ef0442f9ca4dbd0536",
+      "index-DU7ZqjN4.js sha256:d44ef862d5cf7470e680af28c55fc411618fbf0df3e526f496a542004d9371a3"
+    ]
+  },
+  "backend": {
+    "path": "server.js",
+    "digest": "sha256:96454801561a2d3c584fa3b730db1ec65e11767c0257a84e1e23929639d0c3cc"
+  },
+  "database": {
+    "migrations": "3/3 (001 baseline_schema, 002 custody_and_operability, 003 practice_acceptances)"
+  },
+  "runtime": {
+    "node": "v24.21.0"
+  },
+  "engine": {
+    "deterministicMacro": "deterministic-v1"
+  },
+  "evaluation": {
+    "goldSet": {
+      "cases": 217,
+      "adversarial": 17,
+      "regression": 5
+    },
+    "clinicalEval": {
+      "fixtures": 3,
+      "minimumScore": 0.9
+    },
+    "benchmark": {
+      "cases": 20,
+      "standard": "AHPRA & DBA clinical accuracy"
+    }
+  }
+}

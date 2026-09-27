@@ -39,6 +39,7 @@ import {
   isTranscriptionError,
   type TranscriptionLogger
 } from './transcription';
+import { pipelineMetrics } from '../lib/pipelineMetrics';
 
 export interface TranscriptionRouteDeps {
   logger: TranscriptionLogger;
@@ -358,6 +359,7 @@ export function registerTranscriptionRoutes(app: any, deps: TranscriptionRouteDe
         }
       }
 
+      const ingestionStartMs = Date.now();
       const mimeType = normalizeMime(
         req.body?.mimeType ?? (chairTelemetry?.audioMimeType as string | undefined),
         DEFAULT_AUDIO_MIME
@@ -368,6 +370,15 @@ export function registerTranscriptionRoutes(app: any, deps: TranscriptionRouteDe
         mimeType,
         bytes: audio.bytes,
         contiguous: audio.contiguous
+      });
+
+      // Phase 9: audio ingestion (assemble + pre-flight) observed PHI-free.
+      // The wall clock for the whole route is recorded by the request logger
+      // in server.ts; this is the ingestion sub-window only.
+      pipelineMetrics.recordStage({
+        stage: 'audio_ingestion',
+        durationMs: Math.max(1, Date.now() - ingestionStartMs),
+        ok: !isTranscriptionError(outcome)
       });
 
       if (isTranscriptionError(outcome)) {
@@ -384,6 +395,12 @@ export function registerTranscriptionRoutes(app: any, deps: TranscriptionRouteDe
 
         const status = outcome.code === 'NOT_CONFIGURED' ? 503 : outcome.code === 'AUDIO_TOO_LARGE_INLINE' ? 413 : 502;
         return res.status(status).json({ ok: false, code: outcome.code, error: outcome.message });
+      }
+
+      if (outcome.warnings.length > 0 || audio.contiguous === false) {
+        // Phase 9: a partial recording/transcript is surfaced to the operator
+        // as a count only — no clinical content, no warnings text.
+        pipelineMetrics.recordCounter('partialAsrTranscript');
       }
 
       // Metering: audio input is billed, so it is spent from the clinic's

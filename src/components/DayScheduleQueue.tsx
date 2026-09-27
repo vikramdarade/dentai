@@ -23,7 +23,9 @@ import {
   CheckCircle2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { verifyTranscriptGrounding } from '../lib/transcriptGrounding';
+// Phase 12D: the client-side grounding recompute was removed — the queue is a
+// consumer of the server's verdict (verifyTranscriptGrounding stays
+// server-side), never a second implementation of it.
 import {
   DayScheduleItem,
   loadTodaySchedule,
@@ -454,17 +456,19 @@ export default function DayScheduleQueue({
                 treatmentRendered: jobResult.treatmentRendered || jobResult.treatmentPerformed || targetItem.procedureText,
                 localAnaesthetic: jobResult.localAnaesthetic || '',
                 prescriptions: jobResult.prescriptions || '',
-                postOpAdvice: jobResult.postOpAdvice || 'Maintain regular oral hygiene.',
-                nextVisit: jobResult.nextVisit || '6 Months Recall'
+                postOpAdvice: jobResult.postOpAdvice || '',
+                nextVisit: jobResult.nextVisit || ''
               },
               adaCodes: rawAdaCodes
             });
 
-            // Calculate deterministic grounding report against verbatim operatory audio
-            let grounding = jobResult.groundingReport;
-            if (!grounding) {
-              grounding = verifyTranscriptGrounding(formatted, transcriptItems, rawAdaCodes);
-            }
+            // Phase 12D: consume ONLY the server-derived grounding verdict.
+            // The client-side verifyTranscriptGrounding recompute was removed:
+            // string-level verification computed in the browser is a second
+            // implementation of a clinical judgement, and its “approved” could
+            // disagree with the server's audit. Absence of a server report is
+            // fail-closed (unverified), never client-derived approval.
+            const grounding = jobResult.groundingReport;
 
             const fresh = updateScheduleItem(targetItem.id, {
               status: 'ready',
@@ -472,8 +476,8 @@ export default function DayScheduleQueue({
               transcript: transcriptItems,
               adaCodes: sanitizedAdaCodeStrings,
               completedAt: new Date().toISOString(),
-              // Default to the unsafe-to-assume direction: a missing grounding
-              // report must never present as "verified".
+              // Server-derived state only; the fail-closed defaults below mean
+              // a missing report always presents as requiring verification.
               groundingScore: grounding?.groundingScore ?? 0,
               isFullyGrounded: grounding?.isFullyGrounded ?? false,
               unverifiedClaims: grounding?.unverifiedClaims ?? []
@@ -908,8 +912,11 @@ export default function DayScheduleQueue({
                         Note Generated
                       </span>
 
-                      {/* Progressive Confidence Verification Badge */}
-                      {item.isFullyGrounded !== false ? (
+                      {/* Progressive Confidence Verification Badge —
+                          Phase 5 fail-closed: a missing grounding verdict is
+                          NOT verification, so only an explicit `true` shows
+                          the verified badge. */}
+                      {item.isFullyGrounded === true ? (
                         <span
                           className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200"
                           title="Transcript-grounded: All teeth, treatments, and findings transcribed from audio dialogue"
@@ -1250,8 +1257,8 @@ export default function DayScheduleQueue({
               {/* Header */}
               <div className="flex items-center justify-between pb-3 border-b border-slate-200">
                 <div className="flex items-center gap-3">
-                  <div className={`p-2.5 rounded-xl ${sideBySideItem.isFullyGrounded !== false ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-amber-50 text-amber-700 border border-amber-200'}`}>
-                    {sideBySideItem.isFullyGrounded !== false ? (
+                  <div className={`p-2.5 rounded-xl ${sideBySideItem.isFullyGrounded === true ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-amber-50 text-amber-700 border border-amber-200'}`}>
+                    {sideBySideItem.isFullyGrounded === true ? (
                       <ShieldCheck className="w-5 h-5 text-emerald-600" />
                     ) : (
                       <AlertCircle className="w-5 h-5 text-amber-600" />
@@ -1262,8 +1269,8 @@ export default function DayScheduleQueue({
                       <h3 className="text-base font-bold text-slate-900">
                         Clinical Verification: {sideBySideItem.patientName}
                       </h3>
-                      <span className={`px-2.5 py-0.5 rounded-md text-[11px] font-extrabold ${sideBySideItem.isFullyGrounded !== false ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
-                        {sideBySideItem.isFullyGrounded !== false ? 'Verified from Audio' : 'Clinician Verification Required'}
+                      <span className={`px-2.5 py-0.5 rounded-md text-[11px] font-extrabold ${sideBySideItem.isFullyGrounded === true ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
+                        {sideBySideItem.isFullyGrounded === true ? 'Verified from Audio' : 'Clinician Verification Required'}
                       </span>
                     </div>
                     <p className="text-xs text-slate-500 mt-0.5">

@@ -9,6 +9,7 @@
 
 import crypto from 'crypto';
 import type { Consultation, ClinicalFindings } from '../types';
+import { pipelineMetrics } from './pipelineMetrics';
 
 export interface AttestationSeal {
   /** SHA-256 cryptographic signature digest */
@@ -109,9 +110,19 @@ export function createAttestationSeal(
     .update(fullAttestationPayload, 'utf8')
     .digest('hex');
 
-  const auditStatus = consultation.groundingAudit?.isApprovedForSigning === false
-    ? 'Clinician Verification Required'
-    : 'Verified from Audio';
+  // Phase 5 (fail-closed): only an explicit approving audit supports the
+  // verified label. A missing/absent grounding audit is NOT verification —
+  // absent evidence of approval must default to clinician verification required.
+  const auditStatus = consultation.groundingAudit?.isApprovedForSigning === true
+    ? 'Verified from Audio'
+    : 'Clinician Verification Required';
+
+  // Phase 9: fail-closed rejections are observable. The rate of notes signing
+  // without a verified audit is the single most important clinical-safety
+  // signal this platform emits — recorded as a count only, never with content.
+  if (auditStatus !== 'Verified from Audio') {
+    pipelineMetrics.recordCounter('signOffRejection');
+  }
 
   return {
     signatureHash,

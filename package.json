@@ -1,7 +1,7 @@
 {
   "name": "react-example",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0-rc.1",
   "type": "module",
   "engines": {
     "node": ">=22"
@@ -19,6 +19,7 @@
     "test:postgres": "vitest run tests/postgres.test.ts --run --test-timeout=60000",
     "eval:notes": "tsx scripts/eval-notes.ts",
     "eval:benchmark": "tsx scripts/run-clinical-benchmark.ts",
+    "eval:gold-set": "tsx scripts/eval-gold-set.ts",
     "db:migrate": "tsx scripts/migrate.ts up",
     "db:migrate:status": "tsx scripts/migrate.ts status",
     "db:migrate:down": "tsx scripts/migrate.ts down",

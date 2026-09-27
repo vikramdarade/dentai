@@ -1,6 +1,7 @@
 import type { AppointmentType } from './lib/dentalLibrary';
 import type { GroundingReport } from './lib/transcriptGrounding';
 import type { UnifiedGroundingAudit } from './grounding/types';
+import type { ClinicalFact } from './types/clinicalFact';
 import type { AttestationSeal } from './lib/attestation';
 export * from './types/clinicalFact';
 
@@ -298,6 +299,14 @@ export interface Consultation {
   consent?: ConsultationConsent;
   /** Append-only revision trail (server-maintained). */
   revisions?: ConsultationRevision[];
+  /**
+   * Phase 12: canonical ClinicalFacts exactly as the server recorded them
+   * (trust-boundary validated, with per-fact verification state). The client
+   * displays them; it never re-derives, re-verifies or manufactures them.
+   */
+  facts?: ReadonlyArray<ClinicalFact>;
+  /** Server-maintained optimistic-concurrency version (stamped by the server). */
+  recordVersion?: number;
   // Treatment-revenue surface (revenue engine, quote and referral pipeline).
   proposedTreatments?: TreatmentOpportunity[];
   specialistReferral?: SpecialistReferral;

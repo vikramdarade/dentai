@@ -169,14 +169,17 @@ export function alignClaimsToUtterances(
   utterances: TimestampedUtterance[]
 ): SubsecondAlignmentResult {
   if (claims.length === 0) {
+    // Fail closed (Phase 5): an empty or unparseable note is NOT evidence of
+    // grounding. Absence of extractable claims must never present as
+    // "Verified from Audio" — the clinician must verify an empty note.
     return {
       totalClaimsCount: 0,
       corroboratedCount: 0,
       unverifiedCount: 0,
-      overallGroundingScore: 1.0,
-      isFullyGrounded: true,
+      overallGroundingScore: 0,
+      isFullyGrounded: false,
       claims: [],
-      statusBadge: 'Verified from Audio'
+      statusBadge: 'Clinician Verification Required'
     };
   }
 
@@ -270,7 +273,7 @@ export function alignClaimsToUtterances(
   const unverifiedCount = claims.length - corroboratedCount;
   const overallGroundingScore = totalWeights > 0
     ? parseFloat((totalWeightedScore / totalWeights).toFixed(2))
-    : 1.0;
+    : 0;
 
   const isFullyGrounded = unverifiedCount === 0 && overallGroundingScore >= 0.85;
 

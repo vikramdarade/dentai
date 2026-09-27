@@ -86,6 +86,10 @@ export function toPmsEncounter(consultation: Consultation): PmsEncounter {
     patientSummary: consultation.patientSummary ? consultation.patientSummary.trim() : undefined,
     needsReview: !!consultation.noteOrigin?.needsReview,
     attestation: consultation.attestation,
-    groundingBadge: consultation.groundingAudit?.alignment.statusBadge || (consultation.grounding?.isFullyGrounded ? 'Verified from Audio' : undefined)
+    // Phase 12A: the badge derives ONLY from the server's recomputed audit.
+    // The legacy client-supplied `grounding` report is no longer consulted —
+    // an approving verdict can only come from groundingAudit.isApprovedForSigning,
+    // which the server recomputes on every write and strips from client payloads.
+    groundingBadge: consultation.groundingAudit?.alignment.statusBadge
   };
 }

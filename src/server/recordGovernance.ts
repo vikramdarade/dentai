@@ -29,6 +29,7 @@
  */
 
 import crypto from 'crypto';
+import { pipelineMetrics } from '../lib/pipelineMetrics';
 
 export interface RecordGovernanceDeps {
   logger: {
@@ -115,6 +116,24 @@ export function createRecordGovernance(deps: RecordGovernanceDeps): Middleware {
 
       const body = req.body;
       if (!body || typeof body !== 'object') return next();
+
+      // Phase 11: server-derived integrity fields are NOT client-writable. The
+      // chairside client PUTs the whole consultation object (including the
+      // grounding audit it displays), so without this strip a stale or tampered
+      // client could re-assert an approving audit — or carry a previous
+      // approval across a content-modifying edit — and self-authorise a
+      // sign-off. Approval state is recomputed server-side below; the client's
+      // copy is discarded on every write.
+      for (const derived of ['groundingAudit', 'groundingReport', 'sovereignty', 'facts', 'recordVersion', 'revisions', 'identityNeedsReview']) {
+        delete body[derived];
+      }
+
+      // Phase 9: a clinician edit to an AI-generated record is a correction
+      // event — counted PHI-free (ids only) so the correction rate is
+      // observable without ever storing what was corrected.
+      if (isConsultationUpdate) {
+        pipelineMetrics.recordCounter('clinicianCorrection');
+      }
 
       const now = new Date().toISOString();
       const transcript = Array.isArray(body.transcript) ? body.transcript : [];

@@ -18,6 +18,8 @@
 
 import crypto from 'crypto';
 
+import releaseVersion from '../../package.json';
+
 export interface OpsRouteDeps {
   logger: {
     info: (message: string, context?: Record<string, any>) => void;
@@ -48,7 +50,16 @@ export interface OpsRouteDeps {
    * than intended is invisible in the model name but costs seconds per note.
    */
   generation?: () => Record<string, any>;
+  /**
+   * PHI-free clinical-pipeline metrics (stage latency histograms, failure
+   * counters, verification rate). Ids, durations and counts only — the
+   * PipelineMetrics type signatures make clinical content unrepresentable.
+   */
+  pipeline?: () => Record<string, any>;
 }
+
+/** Release version (package.json), surfaced on /api/health for provenance. */
+export const RELEASE_VERSION: string = (releaseVersion as { version?: string }).version || 'unknown';
 
 const STARTED_AT = Date.now();
 
@@ -204,6 +215,7 @@ export function registerOpsRoutes(app: any, deps: OpsRouteDeps): void {
     const degraded = deps.dbEnabled && database !== 'ok';
     res.status(degraded ? 503 : 200).json({
       status: degraded ? 'degraded' : 'ok',
+      version: RELEASE_VERSION,
       storage,
       database,
       schemaVersion: deps.schemaVersion,
@@ -228,6 +240,7 @@ export function registerOpsRoutes(app: any, deps: OpsRouteDeps): void {
       storage: deps.dbEnabled ? 'postgres' : 'file-fallback',
       openNoteJobs,
       generation: deps.generation ? deps.generation() : undefined,
+      pipeline: deps.pipeline ? deps.pipeline() : undefined,
       uptimeSeconds: Math.round((Date.now() - STARTED_AT) / 1000),
     });
   });

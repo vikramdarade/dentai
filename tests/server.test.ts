@@ -5,6 +5,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import packageJson from '../package.json';
 import { totpAt } from '../src/lib/totp';
 
 // Load environment variables (such as from .env.local)
@@ -158,6 +159,10 @@ describe('DentAI Server - Mocked Unit Tests', () => {
     expect(res.body.status).toBe('ok');
     expect(res.body.database).toBe('not-configured');
     expect(res.body.storage).toBe('file-fallback');
+    // Phase 12 Gate 4: the release version is visible on the public health
+    // surface and matches package.json — an operator can always answer "what
+    // is running?" from the health endpoint alone.
+    expect(res.body.version).toBe(packageJson.version);
     expect(typeof res.body.uptimeSeconds).toBe('number');
   });
 

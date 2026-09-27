@@ -28,24 +28,31 @@ export function verifyNoteGrounding(
   utterances: (TimestampedUtterance | { sender: string; text: string; timestamp?: string })[],
   note: string | { canonical?: Record<string, string>; customSections?: Record<string, string>; [k: string]: any }
 ): UnifiedGroundingAudit {
-  // Normalize utterances to TimestampedUtterance
+  // Normalize utterances to TimestampedUtterance. Timing is preserved only
+  // when it was actually measured from real audio; it is never fabricated
+  // (zero-synthesis rule). Untimed utterances keep their identity
+  // (id/sender/text) and are explicitly marked timingProvenance: 'unavailable'
+  // instead of being assigned synthetic offsets.
   const normalizedUtterances: TimestampedUtterance[] = utterances.map((u, idx) => {
-    if ('startTimeMs' in u && typeof (u as any).startTimeMs === 'number') {
-      return u as TimestampedUtterance;
-    }
-    const baseTimeMs = idx * 3000;
     const validSender: 'Dentist' | 'Patient' | 'Assistant' | 'Dialogue' =
       u.sender === 'Dentist' || u.sender === 'Patient' || u.sender === 'Assistant'
         ? u.sender
         : 'Dialogue';
 
+    if ('startTimeMs' in u && typeof (u as any).startTimeMs === 'number') {
+      const timed = u as TimestampedUtterance;
+      return {
+        ...timed,
+        sender: validSender,
+        timingProvenance: timed.timingProvenance ?? 'measured'
+      };
+    }
+
     return {
       id: `utt-${idx + 1}`,
       sender: validSender,
       text: u.text,
-      startTimeMs: baseTimeMs,
-      endTimeMs: baseTimeMs + 2500,
-      audioSliceId: `chunk-${String(idx + 1).padStart(3, '0')}`
+      timingProvenance: 'unavailable' as const
     };
   });
 
@@ -93,6 +100,14 @@ export function verifyNoteGrounding(
 
   if (alignment.overallGroundingScore < 0.85 && alignment.unverifiedCount > 2) {
     blockingReasons.push(`Low Grounding Score (${Math.round(alignment.overallGroundingScore * 100)}%): Multiple clinical claims lack audio corroboration.`);
+  }
+
+  // Phase 12 (release blocker, smallest fix): a note with NO verifiable
+  // clinical claims must never present as verified. "Nothing to check" is
+  // grounding ABSENT, not grounding proven — an empty or claim-free note was
+  // previously approved here because there was nothing to score.
+  if (claims.length === 0) {
+    blockingReasons.push('No verifiable clinical claims: this note has no content supported by the operatory audio.');
   }
 
   const isApprovedForSigning = blockingReasons.length === 0;

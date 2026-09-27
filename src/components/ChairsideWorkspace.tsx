@@ -61,6 +61,9 @@ import { OperatoryPatientBanner } from './OperatoryPatientBanner';
 import { LiveConversationPanel } from './LiveConversationPanel';
 import { ClinicalNoteEditorPanel } from './ClinicalNoteEditorPanel';
 import { AsepticShortcutFootbar } from './AsepticShortcutFootbar';
+import { deriveGroundingBadge } from '../lib/uiVerification';
+import { requestSignOff, type SignOffClientResult } from '../lib/signOffClient';
+import type { AttestationSeal } from '../lib/attestation';
 
 interface ChairsideWorkspaceProps {
   currentUser: AuthUser | null;
@@ -549,6 +552,81 @@ export default function ChairsideWorkspace({
 
   // Active transcript (no confidence gating — dentist decides when to regenerate)
   const currentOperatoryEncounter = activeEncounter || effectiveEncounter;
+
+  // ─────────────────────────────────────────────────────────────
+  // 2b. SERVER-AUTHORITATIVE SIGN-OFF (Phase 12E)
+  // ─────────────────────────────────────────────────────────────
+  // The record version a sign-off request is based on comes ONLY from server
+  // responses (fetched records, save responses, refusal payloads) — never from
+  // locally constructed state — so the server's optimistic-concurrency check
+  // is meaningful and a stale request is refused with 409, not guessed past.
+  const [serverRecordVersions, setServerRecordVersions] = useState<Record<string, number>>({});
+  // Signed state / refusal state — populated ONLY from server responses.
+  const [signOffSeal, setSignOffSeal] = useState<Record<string, AttestationSeal>>({});
+  const [signOffBusyId, setSignOffBusyId] = useState<string | null>(null);
+  const [signOffErrors, setSignOffErrors] = useState<Record<string, { code: string; message: string; currentVersion?: number }>>({});
+  const signOffTargetVersion = serverRecordVersions[effectiveEncounter?.id || '']
+    ?? consultations.find(c => c.id === effectiveEncounter?.id)?.recordVersion;
+
+  useEffect(() => {
+    const id = effectiveEncounter?.id;
+    if (!id || id === 'chair-active') return;
+    const rec = consultations.find(c => c.id === id);
+    if (rec && typeof rec.recordVersion === 'number') {
+      setServerRecordVersions(prev => (prev[id] === rec.recordVersion ? prev : { ...prev, [id]: rec.recordVersion }));
+    }
+  }, [consultations, effectiveEncounter?.id]);
+
+  const handleSignOffActiveNote = useCallback(async () => {
+    const targetId = activeEncounter?.id || effectiveEncounter.id;
+    if (!authToken || !targetId || targetId === 'chair-active') return;
+    if (signOffBusyId) return;
+    const expectedVersion = serverRecordVersions[targetId]
+      ?? consultations.find(c => c.id === targetId)?.recordVersion;
+    if (typeof expectedVersion !== 'number') {
+      // Without a server-stamped version the request cannot even be framed —
+      // refuse locally rather than guess a version.
+      setSignOffErrors(prev => ({ ...prev, [targetId]: { code: 'NO_VERSION', message: 'This record has not been saved to the server yet, so it cannot be signed.' } }));
+      return;
+    }
+    setSignOffBusyId(targetId);
+    try {
+      const result = await requestSignOff({
+        authToken,
+        consultationId: targetId,
+        expectedVersion,
+        requestNonce: `${targetId}:${expectedVersion}:${Date.now()}`
+      });
+      // NOTE: explicit member extraction rather than relying on boolean-union
+      // narrowing — this project compiles without strictNullChecks, under
+      // which narrowing of `{ ok: true } | { ok: false; … }` is incomplete.
+      if (result.ok) {
+        const approval = result as Extract<SignOffClientResult, { ok: true }>;
+        // Signed state is established by the server's response ONLY.
+        setSignOffSeal(prev => ({ ...prev, [targetId]: approval.seal }));
+        setSignOffErrors(prev => {
+          const next = { ...prev };
+          delete next[targetId];
+          return next;
+        });
+        setServerRecordVersions(prev => ({ ...prev, [targetId]: approval.recordVersion }));
+      } else {
+        // Display the server's refusal verbatim. A stale-version refusal means
+        // the record moved; the clinician must re-review — the client never
+        // silently re-signs or overwrites.
+        const refusal = result as Extract<SignOffClientResult, { ok: false }>;
+        setSignOffErrors(prev => ({
+          ...prev,
+          [targetId]: { code: refusal.code, message: refusal.message, currentVersion: refusal.currentVersion }
+        }));
+        if (refusal.currentVersion != null) {
+          setServerRecordVersions(prev => ({ ...prev, [targetId]: refusal.currentVersion }));
+        }
+      }
+    } finally {
+      setSignOffBusyId(null);
+    }
+  }, [activeEncounter, effectiveEncounter.id, authToken, signOffBusyId, serverRecordVersions, consultations]);
 
   const activeEncounterTranscript = useMemo(() => {
     if (!currentOperatoryEncounter) return [];
@@ -2390,11 +2468,17 @@ export default function ChairsideWorkspace({
         specialistReferral: payload?.specialistReferral || targetConsult.specialistReferral,
         patientConsent: payload?.patientConsent || targetConsult.patientConsent,
         treatmentQuote: payload?.treatmentQuote || targetConsult.treatmentQuote,
-        noteOrigin: {
-          engine: isHostedNote ? (payload?.noteOrigin?.engine || 'groq') : 'offline-draft',
-          needsReview: isHostedNote ? !payload?.groundingReport?.isFullyGrounded : false,
-          detail: payload?.groundingReport?.summary || (isHostedNote ? `Generated via ${payload?.noteOrigin?.engine || 'cloud AI'}` : 'Generated via Australian clinical macro engine.')
-        },
+        // Phase 12A: the engine stamp comes ONLY from the server payload. A
+        // legacy record's old engine label must not gate the macro badge, and
+        // the engine is never inferred client-side. Macro/template renderings
+        // keep needsReview: true — a template is not a verification event.
+        noteOrigin: payload?.noteOrigin
+          ? {
+              engine: (payload.noteOrigin as any).engine,
+              needsReview: true,
+              detail: payload?.groundingReport?.summary || `Generated via ${(payload.noteOrigin as any).engine || 'server engine'}`
+            }
+          : undefined,
         grounding: payload?.groundingReport
       };
 
@@ -2591,7 +2675,9 @@ export default function ChairsideWorkspace({
       findings: updatedFindings,
       noteOrigin: {
         engine: 'australian-clinical-macro' as any,
-        needsReview: false,
+        // Phase 5 (fail-closed): a macro-finalized appointment is a template
+        // rendering, not a verification event. Clinician review is required.
+        needsReview: true,
         detail: `Generated via Australian ${macroNote.title} Macro`
       }
     };
@@ -3609,18 +3695,27 @@ ${clinician}`;
                      effectiveEncounter.status === 'note_generated' ||
                      consultations.find(c => c.id === effectiveEncounter.id)?.noteOrigin !== undefined)
                   )}
-                  groundingBadge={
-                    currentProgressNote.trim().length > 0 && (
-                      Boolean(progressiveDrafts[effectiveEncounter.id]) ||
-                      consultations.find(c => c.id === effectiveEncounter.id)?.noteOrigin?.engine === 'gemini' ||
-                      consultations.find(c => c.id === effectiveEncounter.id)?.noteOrigin?.engine === 'openai-compatible' ||
-                      consultations.find(c => c.id === effectiveEncounter.id)?.noteOrigin?.engine === 'groq'
-                    )
-                      ? 'Verified from Audio'
-                      : consultations.find(c => c.id === effectiveEncounter.id)?.noteOrigin?.engine === 'australian-clinical-macro'
-                        ? 'Template Applied'
-                        : undefined
-                  }
+                  // Phase 12A: badge derivation lives in ONE fail-closed helper
+                  // (uiVerification.ts) — the verified badge requires the
+                  // server-derived condition
+                  // groundingAudit.isApprovedForSigning === true; a macro
+                  // rendering is always 'Template Applied'; anything else shows
+                  // no verified claim at all. The badge is derived from the
+                  // SERVER's consultation record (recomputed on every write),
+                  // never from note existence, facts, generation success or the
+                  // absence of errors.
+                  groundingBadge={deriveGroundingBadge(
+                    consultations.find(c => c.id === effectiveEncounter.id),
+                    consultations.find(c => c.id === effectiveEncounter.id)?.noteOrigin?.engine === 'australian-clinical-macro'
+                  ) ?? undefined}
+                  // Phase 12: the canonical facts/evidence strip and the
+                  // sign-off gate are consumers of the server's record only.
+                  serverConsultation={consultations.find(c => c.id === effectiveEncounter.id) || null}
+                  recordVersion={signOffTargetVersion ?? undefined}
+                  onSignOff={handleSignOffActiveNote}
+                  isSignedByServer={Boolean(signOffSeal[effectiveEncounter.id]?.signatureHash)}
+                  serverSeal={signOffSeal[effectiveEncounter.id] || null}
+                  signOffError={signOffErrors[effectiveEncounter.id] || null}
                 />
               </div>
             </main>

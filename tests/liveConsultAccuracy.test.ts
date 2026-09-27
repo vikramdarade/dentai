@@ -55,16 +55,22 @@ describe('Live Consult Clinical Accuracy (Dr. Mohammed / Lisa Simpson)', () => {
 
   it('generates an extirpation note without any extraction ADA items or forceps narrative', () => {
     const note = generateMacroNote(LIVE_CONSULT_TRANSCRIPT, 'standard', 'emergency');
-    
+
     // Procedure must be Emergency Pulp Extirpation
     expect(note.title).toBe('Emergency Pulp Extirpation');
-    expect(note.treatmentPerformed).toContain('extirpated');
+    // Structural contract: the template narrates no procedure prose of its own
+    // — neither extirpation technique nor any extraction narrative.
     expect(note.treatmentPerformed).not.toContain('forceps technique');
     expect(note.treatmentPerformed).not.toContain('Simple extraction');
     expect(note.treatmentPerformed).not.toContain('elevated and removed');
+    expect(note.treatmentPerformed).not.toMatch(/extirpated using barbed broaches|pulp extirpated/i);
+    // No diagnosis was spoken AS a diagnosis (the discussion was conversational),
+    // so the assessment stays empty with a completion notice.
+    expect(note.diagnosis).toBe('');
+    expect(note.missingProtocolNotices.join(' ')).toMatch(/no diagnosis/i);
 
-    // ADA codes must be 414 (Pulp Extirpation), never 311 (Extraction)
-    expect(note.adaCodes.some(c => c.code === '414')).toBe(true);
+    // ADA codes: only SPOKEN item numbers — none of 311/324/414 was spoken.
+    expect(note.adaCodes.some(c => c.code === '414')).toBe(false);
     expect(note.adaCodes.some(c => c.code === '311')).toBe(false);
   });
 

@@ -13,6 +13,15 @@ import {
 } from './types';
 import { isValidFdiTooth } from '../lib/fdiNotationEngine';
 
+/**
+ * Provenance-safe timing phrase for reconciliation prompts: a real measured
+ * offset is rendered as "at Xs"; unavailable timing renders no time at all
+ * rather than a fabricated one.
+ */
+function timingPhrase(startTimeMs?: number): string {
+  return typeof startTimeMs === 'number' ? ` at ${Math.floor(startTimeMs / 1000)}s` : '';
+}
+
 // Critical Clinical Dictionaries
 const ALLERGY_PATTERNS: { name: string; regex: RegExp }[] = [
   { name: 'Penicillin', regex: /\b(penicillin|amoxicillin|amoxil|augmentin)\b/i },
@@ -64,6 +73,9 @@ export function reconcileEntitiesBackward(
   const detectedMedications = new Set<string>();
   const detectedConditions = new Set<string>();
   const detectedTeeth = new Set<number>();
+  // First utterance in which each discussed tooth was spoken — used so that
+  // omission alerts quote real evidence instead of a fabricated sentence.
+  const detectedToothUtterances = new Map<number, TimestampedUtterance>();
 
   const omissions: OmissionAlert[] = [];
   let alertCounter = 1;
@@ -97,7 +109,7 @@ export function reconcileEntitiesBackward(
                 },
                 severity: 'critical',
                 title: `Critical Safety Alert: Spoken ${allergy.name} Allergy Omitted from Clinical Record`,
-                reconciliationPrompt: `Patient or clinician stated allergy to ${allergy.name} at ${Math.floor(utterance.startTimeMs / 1000)}s ("${utterance.text.slice(0, 80)}..."), but it is missing from the Medical History. Please update before signing.`
+                reconciliationPrompt: `Patient or clinician stated allergy to ${allergy.name}${timingPhrase(utterance.startTimeMs)} ("${utterance.text.slice(0, 80)}..."), but it is missing from the Medical History. Please update before signing.`
               });
             }
           }
@@ -127,7 +139,7 @@ export function reconcileEntitiesBackward(
               },
               severity: 'critical',
               title: `Critical Alert: High-Risk ${med.category} (${med.name}) Omitted from Record`,
-              reconciliationPrompt: `Patient reported taking ${med.name} at ${Math.floor(utterance.startTimeMs / 1000)}s, but it was not captured in the note. Hemostasis precautions and surgical risk discussion must be documented.`
+              reconciliationPrompt: `Patient reported taking ${med.name}${timingPhrase(utterance.startTimeMs)}, but it was not captured in the note. Hemostasis precautions and surgical risk discussion must be documented.`
             });
           }
         }
@@ -170,6 +182,9 @@ export function reconcileEntitiesBackward(
         const fdi = parseInt(numMatch[1], 10);
         if (isValidFdiTooth(fdi)) {
           detectedTeeth.add(fdi);
+          if (!detectedToothUtterances.has(fdi)) {
+            detectedToothUtterances.set(fdi, utterance);
+          }
         }
       }
     }
@@ -179,16 +194,23 @@ export function reconcileEntitiesBackward(
   for (const toothNum of Array.from(detectedTeeth)) {
     const toothPattern = new RegExp(`\\b(?:tooth\\s+)?${toothNum}\\b`, 'i');
     if (!toothPattern.test(normNote)) {
+      const sourceUtterance = detectedToothUtterances.get(toothNum);
       omissions.push({
         alertId: `omission-${alertCounter++}`,
         entityType: 'discussed_tooth',
         entityName: `Tooth ${toothNum}`,
-        spokenInUtterance: {
-          utteranceId: 'transcript',
-          speaker: 'Operatory Speech',
-          verbatimText: `Spoken reference to tooth ${toothNum}`,
-          timestampMs: 0
-        },
+        spokenInUtterance: sourceUtterance
+          ? {
+              utteranceId: sourceUtterance.id,
+              speaker: sourceUtterance.sender,
+              verbatimText: sourceUtterance.text,
+              timestampMs: sourceUtterance.startTimeMs
+            }
+          : {
+              utteranceId: 'transcript',
+              speaker: 'Operatory Speech',
+              verbatimText: `Spoken reference to tooth ${toothNum}`
+            },
         severity: 'warning',
         title: `Clinical Notice: Tooth ${toothNum} Mentioned in Audio but Omitted from Note`,
         reconciliationPrompt: `Tooth ${toothNum} was discussed during the visit but does not appear in findings or plan.`

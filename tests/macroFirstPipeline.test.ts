@@ -24,7 +24,17 @@ describe('Deterministic Macro Slot-Filling & Provenance Engine (Zero-AI)', () =>
     expect(result.fields.anaesthetic.confidence).toBe('verified');
     expect(result.fields.treatmentPerformed.value).toContain('46');
     expect(result.fields.treatmentPerformed.confidence).toBe('verified');
-    expect(result.adaCodes.length).toBeGreaterThan(0);
+    // Phase 10 B-1: ADA codes are clinical assertions — only SPOKEN codes
+    // render. This transcript names no item number, so no codes may appear.
+    expect(result.adaCodes.length).toBe(0);
+  });
+
+  it('renders ADA codes only when the item number was actually spoken', () => {
+    const transcript: TranscriptItem[] = [
+      { sender: 'Dentist', text: 'Today restoring tooth 46 MOD composite, item 532.' }
+    ];
+    const result = prefillMacroSlots(transcript, 'restorative');
+    expect(result.adaCodes.some(c => c.code === '532')).toBe(true);
   });
 
   it('leaves unvoiced fields blank with confidence=missing', () => {
@@ -68,6 +78,7 @@ describe('Deterministic Macro Slot-Filling & Provenance Engine (Zero-AI)', () =>
     const emptyResult = prefillMacroSlots(emptyTranscript, 'restorative');
 
     expect(canSignDeterministicNote(emptyResult)).toBe(false);
+    expect(emptyResult.treatmentStatus).toBe('unknown');
 
     const completeTranscript: TranscriptItem[] = [
       { sender: 'Dentist', text: 'Restoring tooth 26 occlusal composite, 2.2ml articaine given with verbal consent and post-op care advised.' }
@@ -75,5 +86,62 @@ describe('Deterministic Macro Slot-Filling & Provenance Engine (Zero-AI)', () =>
     const completeResult = prefillMacroSlots(completeTranscript, 'restorative');
 
     expect(canSignDeterministicNote(completeResult)).toBe(true);
+  });
+
+  // ---- Phase 5 fail-closed distinctions (constraint 14) --------------------
+
+  it('planned ≠ performed: a next-visit plan never becomes verified treatment or signable', () => {
+    const transcript: TranscriptItem[] = [
+      { sender: 'Dentist', text: 'We will restore 36 next visit.' }
+    ];
+    const result = prefillMacroSlots(transcript, 'restorative');
+
+    expect(result.treatmentStatus).toBe('planned');
+    expect(result.fields.treatmentPerformed.confidence).not.toBe('verified');
+    expect(canSignDeterministicNote(result)).toBe(false);
+  });
+
+  it('negated ≠ performed: "no filling was placed" blocks verified treatment and sign-off', () => {
+    const transcript: TranscriptItem[] = [
+      { sender: 'Dentist', text: 'No filling was placed on tooth 36 today.' }
+    ];
+    const result = prefillMacroSlots(transcript, 'restorative');
+
+    expect(result.treatmentStatus).toBe('negated');
+    expect(result.fields.treatmentPerformed.confidence).not.toBe('verified');
+    expect(canSignDeterministicNote(result)).toBe(false);
+  });
+
+  it('discussed ≠ performed: option discussion never becomes verified treatment', () => {
+    const transcript: TranscriptItem[] = [
+      { sender: 'Dentist', text: 'We discussed extracting 36 at the next appointment.' }
+    ];
+    const result = prefillMacroSlots(transcript, 'restorative');
+
+    expect(['discussed', 'planned']).toContain(result.treatmentStatus);
+    expect(canSignDeterministicNote(result)).toBe(false);
+  });
+
+  it('historical ≠ current: last-year crown never becomes verified treatment today', () => {
+    const transcript: TranscriptItem[] = [
+      { sender: 'Dentist', text: 'The patient had a crown placed on 36 last year.' }
+    ];
+    const result = prefillMacroSlots(transcript, 'restorative');
+
+    expect(result.treatmentStatus).toBe('historical');
+    expect(canSignDeterministicNote(result)).toBe(false);
+  });
+
+  it('performed ≠ verified: performed classification still leaves uncorroborated fields as inferred, not verified', () => {
+    // The macro injects rich boilerplate (isolation, materials, shade) that was
+    // never spoken. Status may be `performed`, but fields without a matched
+    // provenance quote must not present as verified.
+    const transcript: TranscriptItem[] = [
+      { sender: 'Dentist', text: 'Restoring tooth 46 today with composite.' }
+    ];
+    const result = prefillMacroSlots(transcript, 'restorative');
+
+    expect(result.treatmentStatus).toBe('performed');
+    expect(result.fields.materials.value === '' || result.fields.materials.confidence !== 'verified').toBe(true);
   });
 });

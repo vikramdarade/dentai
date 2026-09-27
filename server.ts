@@ -16,6 +16,7 @@ import {
 import { normalizeTemplateOutput } from './src/lib/normalizeNoteOutput';
 import { verifyTranscriptGrounding } from './src/lib/transcriptGrounding';
 import { verifyNoteGrounding } from './src/grounding';
+import { appendContradictionFlags } from './src/lib/contradictionFlags';
 import { applyNoteThinking, NOTE_TIMEOUTS, resolveNoteThinkingLevel } from './src/lib/noteModelConfig';
 import {
   compactTranscriptForGeneration,
@@ -57,6 +58,7 @@ import type {
 import { verifyPmsWebhookSignature, checkAndRecordWebhookReplay } from './src/server/pmsWebhookAuth';
 import { evaluateChunkIngestion } from './src/lib/standbyPolicy';
 import { logger } from './logger';
+import { pipelineMetrics } from './src/lib/pipelineMetrics';
 import {
   resolveOpenAiCompatibleConfig,
   generateNoteWithOpenAiCompatible
@@ -295,6 +297,7 @@ async function oldestJsonJobAgeMs(): Promise<number | null> {
 import { countUsageEvents, createAiMetering } from './src/server/aiMetering';
 import { createRecordGovernance } from './src/server/recordGovernance';
 import { createOpsGuard, registerOpsRoutes } from './src/server/opsRoutes';
+import { createSignOffValidator } from './src/server/signOffValidation';
 import { registerSessionSecurityRoutes } from './src/server/sessionSecurity';
 import { createSignupGuard } from './src/server/signupGuard';
 import { DEFAULT_RETENTION_YEARS } from './src/lib/compliance';
@@ -403,6 +406,23 @@ const jobSubmitMetering = createAiMetering(aiMeteringDeps, {
 app.use('/api/notes/jobs', jobSubmitMetering);
 
 // Consent, revisions and read auditing for every consultation write/read.
+// Phase 10 (F-4): sign-off is re-validated server-side. The client-held seal
+// stays an integrity mechanism, but approval conditions are re-evaluated here
+// against the canonical record — the client is never authoritative for
+// whether a note is signable.
+const signOffValidator = createSignOffValidator({
+  loadConsultation: async (id: string, dentistId: string) => {
+    if (dbEnabled) {
+      return (await dbListConsultations(dentistId)).find((c: any) => c.id === id) || null;
+    }
+    return (await readConsultationsDb()).consultations.find(
+      (c: any) => c.id === id && c.dentistId === dentistId
+    ) || null;
+  },
+  logAudit,
+  dentistName: 'Practitioner',
+});
+
 const recordGovernance = createRecordGovernance({
   logger,
   authenticate: authenticateToken,
@@ -450,6 +470,9 @@ registerOpsRoutes(app, {
       zeroRetentionEnforced: true,
     },
   }),
+  // Phase 9: stage-level pipeline observability (audio ingestion → ASR →
+  // extraction → validation → verification → rendering), PHI-free by type.
+  pipeline: () => pipelineMetrics.snapshot(),
 });
 // Patient registry surface — intake resolution, search, and one patient's
 // record history. Registered here so it precedes any other /api/patients route
@@ -1278,8 +1301,9 @@ ${effectiveTranscript.map((t: any) => `${t.sender}: ${t.text}`).join('\n')}
 
 /**
  * Wraps a promise with a timeout so external AI API hangs never freeze workers.
+ * Exported so the reliability suite pins this fail-safe contract.
  */
-function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+export function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
   let timer: NodeJS.Timeout;
   const timeoutPromise = new Promise<never>((_, reject) => {
     timer = setTimeout(() => reject(new Error(message)), ms);
@@ -1304,6 +1328,7 @@ async function runHostedGeneration(payload: {
   transcript: any[];
 }): Promise<{ ok: true; output: any; provider?: string; model?: string } | { ok: false; quota: true; message: string } | { ok: false; quota: false; message: string }> {
   const gcpProject = process.env.GCP_PROJECT_ID;
+  const hostedGenStartMs = Date.now();
   const resolved = resolveNoteTemplate(payload.intakeData);
   if (resolved.error) {
     return { ok: false, quota: false, message: resolved.error };
@@ -1360,6 +1385,13 @@ async function runHostedGeneration(payload: {
     if (openRes.ok && openRes.output) {
       logAudit('notes_generated_open_model', 'job-worker', { provider: openRes.provider, model: openRes.model });
       return { ok: true, output: openRes.output, provider: openRes.provider, model: openRes.model };
+    }
+    // Phase 9: unparsable or schema-invalid model output is a distinct failure
+    // class from transport/provider errors — counted PHI-free so alerting can
+    // watch model-regression separately from outages. HTTP failures are not
+    // double-counted here; they are classified in the outer catch.
+    if (!openRes.ok && /parse|invalid|schema/i.test(openRes.error || '')) {
+      pipelineMetrics.recordCounter('llmMalformedOutput');
     }
     logger.warn(`[JobFabric] Primary ${openAiConfig.provider} generation failed: ${openRes.error}. Attempting fallback...`);
   }
@@ -1502,6 +1534,19 @@ async function runHostedGeneration(payload: {
       logAudit('notes_generation_quota_exhausted', 'job-worker', {});
       return { ok: false, quota: true, message: 'Hosted AI is rate-limited (quota or billing exhausted). The job will retry automatically with backoff.' };
     }
+    // Phase 9: every non-quota hosted failure is a provider/LLM failure —
+    // counted PHI-free so alerting can distinguish timeout vs malformed vs
+    // other without any clinical content.
+    const errText = String(error?.message || '').toLowerCase();
+    if (errText.includes('timed out') || errText.includes('timeout')) {
+      pipelineMetrics.recordCounter('llmTimeout');
+      pipelineMetrics.recordCounter('providerTimeout');
+    } else if (/json|parse|unexpected token|schema/i.test(errText)) {
+      // Gemini returned text that could not be parsed into the note schema —
+      // a model-regression signal, distinct from transport failures.
+      pipelineMetrics.recordCounter('llmMalformedOutput');
+    }
+    pipelineMetrics.recordStage({ stage: 'extraction', durationMs: Math.max(1, Date.now() - hostedGenStartMs), ok: false });
     return { ok: false, quota: false, message: error.message || 'Unknown hosted AI failure.' };
   }
 }
@@ -1512,8 +1557,7 @@ function finalizeHostedNoteOutput(
   auditEntityId: string
 ) {
   const output: any = result.output;
-
-  // Cross-bridge SOAP and canonical fields so Objective, Assessment, Subjective and Plan are never blank
+  const finalizeStartMs = Date.now();
   if (!output.chiefComplaint && output.subjective) output.chiefComplaint = output.subjective;
   if (!output.subjective && output.chiefComplaint) output.subjective = output.chiefComplaint;
 
@@ -1548,7 +1592,30 @@ function finalizeHostedNoteOutput(
     transcript || [],
     output.adaCodes
   );
+
+  // ---- Phase 5: flag-only contradiction detection ------------------------
+  // Deterministic validation primitive only — no second reasoning layer and no
+  // second LLM call (Phase 6 is out of scope). These checks only APPEND
+  // verification-required conditions to the grounding report; they never
+  // rewrite or delete upstream clinical content. See contradictionFlags.ts.
+  const objectiveParts = [output.objective, output.toothFindings, output.assessment, output.diagnosis]
+    .filter((v: unknown): v is string => typeof v === 'string' && v.trim().length > 0);
+  appendContradictionFlags(groundingReport, {
+    noteTreatmentText: [output.treatmentPerformed, output.plan],
+    noteObjectiveText: objectiveParts,
+    transcript: (transcript || []).map((t: any) => ({ sender: t?.sender, text: t?.text }))
+  });
+
   output.groundingReport = groundingReport;
+  // ---- Phase 9: PHI-free stage metrics ---------------------------------
+  // Deterministic validation + contradiction detection are measured as the
+  // `validation` stage; the grounded-audit pass as part of it too. Only ids,
+  // durations and counts are recorded — never clinical content.
+  pipelineMetrics.recordStage({ stage: 'validation', durationMs: 0, ok: groundingReport.isFullyGrounded !== false });
+  if (groundingReport.unverifiedClaims.length > 0) {
+    pipelineMetrics.recordCounter('contradictionFlags', groundingReport.unverifiedClaims.length);
+  }
+  if (Array.isArray(output.facts) && output.facts.length > 0) pipelineMetrics.recordCaseWithFacts();
   output.groundingAudit = verifyNoteGrounding(
     auditEntityId,
     transcript || [],
@@ -1568,6 +1635,8 @@ function finalizeHostedNoteOutput(
     engine: (result as any).provider || 'gemini',
     model: (result as any).model || 'cloud-ai'
   };
+  pipelineMetrics.recordStage({ stage: 'rendering', durationMs: 0, ok: true });
+  pipelineMetrics.recordStage({ stage: 'total', durationMs: Math.max(1, Date.now() - finalizeStartMs), ok: true });
   return output;
 }
 
@@ -1635,9 +1704,14 @@ async function tickNoteJobs(force = false): Promise<void> {
         });
       }
 
+      const jobStartMs = Date.now();
       const result = await runHostedGeneration(job.payload);
 
       if (result.ok) {
+        // Phase 9: whole-appointment wall clock, from job claim to finished
+        // draft. Recorded even when persistence below fails, so "generation
+        // succeeded" stays visible when the record store is degraded.
+        pipelineMetrics.recordStage({ stage: 'total', durationMs: Math.max(1, Date.now() - jobStartMs), ok: true });
         const output = finalizeHostedNoteOutput(result, job.payload?.transcript || [], job.id);
         await persistJobPatch(job.id, job.dentistId, {
           status: 'done', attempts, result: output, error: null, nextAttemptAt: null
@@ -1645,6 +1719,11 @@ async function tickNoteJobs(force = false): Promise<void> {
         const scopeId = job.clinicId || job.dentistId;
         const approxTokens = getTranscriptStats(job.payload.transcript || []).approxTokens;
         await recordUsageEvent(scopeId, job.dentistId, 'ai_note', approxTokens);
+        // Phase 9 auditability: the completion event is engine-independent, so
+        // the evidence chain reads submission → generation → persisted for
+        // every engine (Gemini, fallback key, OpenAI-compatible, macro). No
+        // clinical content in the payload — ids and provider enum only.
+        logAudit('notes_generated', job.dentistId, { jobId: job.id, provider: (result as any).provider || 'gemini' });
         // Durable completion: persist the consultation server-side as part of
         // finishing the job. If the dentist's browser died (appointment ended,
         // call dropped) the note is NOT lost — it is in the database and
@@ -1678,17 +1757,48 @@ async function tickNoteJobs(force = false): Promise<void> {
               diagnosis: (output.diagnosis ?? output.canonical?.diagnosis) || '',
               treatmentPerformed: (output.treatmentPerformed ?? output.canonical?.treatmentPerformed) || '',
               recommendations: (output.recommendations ?? output.canonical?.recommendations) || '',
-              recallRequirements: (output.recallRequirements ?? output.canonical?.recallRequirements) || '6 Months (Standard)',
+                      // Phase 10 (B-2): no invented recall. A recall interval the
+              // clinician never voiced is a clinical assertion — absent stays
+              // absent so the clinician sets it deliberately.
+              recallRequirements: (output.recallRequirements ?? output.canonical?.recallRequirements) || '',
               customSections: output.customSections || {},
               adaCodes: output.adaCodes || []
             },
             patientSummary: output.patientSummary || '',
-            noteOrigin: { engine: 'gemini' as const, needsReview: !output.groundingReport?.isFullyGrounded, detail: 'Generated by the hosted AI worker.' },
+            noteOrigin: { engine: (result as any).provider || 'gemini', needsReview: !output.groundingReport?.isFullyGrounded, detail: 'Generated by the hosted AI worker.' },
             groundingReport: output.groundingReport,
+            // Phase 11: the sign-off gate re-evaluates approval from the
+            // record's own audit stamp. Without this the durable record could
+            // never satisfy the gate — every note would fail closed forever.
+            groundingAudit: output.groundingAudit,
+            // Phase 11: canonical consent object (the gate reads this shape).
+            consent: {
+              obtainedAt: job.payload?.consentCapturedAt
+                || (job.payload?.consentObtained ? new Date(job.createdAt).toISOString() : ''),
+              disclosureVersion: PRIVACY_NOTICE_VERSION,
+              recordedBy: job.payload?.consentPractitionerId || job.dentistId,
+            },
             consentObtained: Boolean(job.payload?.consentObtained),
             consentCapturedAt: job.payload?.consentCapturedAt || undefined,
             consentPractitionerId: job.payload?.consentPractitionerId || undefined
           };
+          // Phase 9: the worker writes outside the recordGovernance middleware,
+          // so it stamps the same governance fields a chairside save gets —
+          // privacy-notice version and retention horizon travel with the record
+          // no matter which path produced it.
+          consult.privacyNoticeVersion = PRIVACY_NOTICE_VERSION;
+          consult.retentionYears = DEFAULT_RETENTION_YEARS;
+          consult.retentionUntil = new Date(
+            Date.now() + DEFAULT_RETENTION_YEARS * 365 * 24 * 60 * 60 * 1000
+          ).toISOString();
+          consult.recordVersion = 1;
+          consult.revisions = [{
+            id: crypto.randomUUID(),
+            savedAt: new Date().toISOString(),
+            savedBy: job.dentistId,
+            engine: output.noteOrigin?.engine,
+            systemGenerated: true,
+          }];
           // Identity is resolved server-side for the persisted record too, so a
           // note that completes after the browser closed still lands on the right
           // chart (or is flagged when the name alone is ambiguous).
@@ -1729,6 +1839,9 @@ async function tickNoteJobs(force = false): Promise<void> {
       await persistJobPatch(job.id, job.dentistId, {
         status: 'failed', attempts, result: null, error: failure.message, nextAttemptAt: null
       });
+      // Phase 9: a terminal non-quota failure still closes the timing window —
+      // total latency that only exists for successes would hide slowdowns.
+      pipelineMetrics.recordStage({ stage: 'total', durationMs: Math.max(1, Date.now() - jobStartMs), ok: false });
     }
   } finally {
     workerTicking = false;
@@ -1873,8 +1986,16 @@ app.post('/api/notes/jobs', authenticateToken, async (req: any, res: express.Res
       });
     } else {
       const data = await readJobsDb();
-      data.jobs.push(job);
-      await writeJobsDb(data);
+      // Phase 9 idempotency: a client retry (double-click, offline replay)
+      // with the same consultation id must not queue a second generation —
+      // that would double-spend the clinic's allowance and risk duplicated
+      // clinical content. Postgres mode already ignores a duplicate id
+      // (ON CONFLICT DO NOTHING); JSON mode now matches.
+      const duplicate = data.jobs.some((j: any) => j.id === job.id);
+      if (!duplicate) {
+        data.jobs.push(job);
+        await writeJobsDb(data);
+      }
     }
 
     logAudit('note_job_submitted', req.dentist.id, {
@@ -2593,7 +2714,7 @@ initDb().catch(err => logger.error('Async DB initialization failed:', err));
  * browser while the durable worker also persists the completed note — and it
  * must land exactly once in both persistence modes. First write wins.
  */
-function insertConsultationDeduped(consData: { consultations: any[] }, consult: any): void {
+export function insertConsultationDeduped(consData: { consultations: any[] }, consult: any): void {
   const existingIndex = consData.consultations.findIndex((c: any) => c.id === consult.id);
   if (existingIndex >= 0) return;
   consData.consultations.unshift(consult);
@@ -3548,6 +3669,13 @@ app.post('/api/consultations', authenticateToken, async (req: any, res) => {
     } catch (err) {
       logger.warn('Could not link the consultation to a patient; saving unlinked.', err);
     }
+    // Phase 12: same recomputation invariant as PUT — the grounding audit is
+    // always the server's verdict over the stored content, never a client claim.
+    newConsultation.groundingAudit = verifyNoteGrounding(
+      newConsultation.id,
+      Array.isArray(newConsultation.transcript) ? newConsultation.transcript : [],
+      { ...(newConsultation.findings || {}), patientSummary: newConsultation.patientSummary || '' }
+    );
 
     // Auto-extract and quantify unscheduled treatment opportunities if not explicitly populated
     if (!newConsultation.findings?.proposedTreatments || newConsultation.findings.proposedTreatments.length === 0) {
@@ -3588,6 +3716,49 @@ app.post('/api/consultations', authenticateToken, async (req: any, res) => {
   }
 });
 
+/* ===========================================================================
+ * Sign-off revalidation endpoint (Phase 10, audit finding F-4).
+ *
+ * POST /api/consultations/:id/sign — the authoritative sign-off gate. The
+ * server re-derives every approval condition from the canonical record
+ * (ownership, version, content hash, grounding approval, blocking fact
+ * states, consent) and mints the attestation seal itself. The client cannot
+ * assert its own approval.
+ * =========================================================================== */
+app.post('/api/consultations/:id/sign', authenticateToken, async (req: any, res) => {
+  try {
+    const { id } = req.params;
+    const body = req.body || {};
+    if (typeof body.expectedVersion !== 'number') {
+      return res.status(400).json({
+        error: 'expectedVersion (number) is required for a sign-off request.',
+        code: 'EXPECTED_VERSION_REQUIRED',
+      });
+    }
+    const result = await signOffValidator.validate(id, req.dentist.id, {
+      expectedVersion: body.expectedVersion,
+      requestNonce: typeof body.requestNonce === 'string' ? body.requestNonce : undefined,
+    });
+    if (result.ok === false) {
+      const status = result.reason === 'not_found' ? 404
+        : result.reason === 'stale_version' ? 409
+        : result.reason === 'replay' ? 409
+        : 422;
+      return res.status(status).json({
+        error: result.message,
+        code: result.reason.toUpperCase(),
+        reason: result.reason,
+        currentVersion: 'currentVersion' in result ? result.currentVersion : undefined,
+        serverConsultation: 'serverConsultation' in result ? result.serverConsultation : undefined,
+      });
+    }
+    return res.json({ ok: true, seal: result.seal, recordVersion: result.recordVersion, signedAt: result.signedAt });
+  } catch (err: any) {
+    logger.error('Sign-off revalidation failed:', err);
+    return res.status(500).json({ error: 'Sign-off could not be validated.' });
+  }
+});
+
 app.put('/api/consultations/:id', authenticateToken, async (req: any, res) => {
   try {
     const { id } = req.params;
@@ -3625,6 +3796,15 @@ app.put('/api/consultations/:id', authenticateToken, async (req: any, res) => {
       } catch (err) {
         logger.warn('Could not re-validate the patient link on update.', err);
       }
+      // Phase 11: approval can never outlive the content it approved. The
+      // client cannot supply an audit (governance strip) and the server
+      // recomputes it over the MERGED content, so an edit that adds ungrounded
+      // clinical content flips the record back to review-required.
+      merged.groundingAudit = verifyNoteGrounding(
+        id,
+        Array.isArray(merged.transcript) ? merged.transcript : [],
+        { ...(merged.findings || {}), patientSummary: merged.patientSummary || '' }
+      );
       await dbUpdateConsultation(id, req.dentist.id, merged);
       logAudit('consultation_updated', req.dentist.id, { consultationId: id });
       return res.json(merged);
@@ -3660,6 +3840,12 @@ app.put('/api/consultations/:id', authenticateToken, async (req: any, res) => {
     } catch (err) {
       logger.warn('Could not re-validate the patient link on update.', err);
     }
+    // Phase 11: recompute the audit over the merged content (see db branch).
+    consultationsData.consultations[index].groundingAudit = verifyNoteGrounding(
+      id,
+      Array.isArray(consultationsData.consultations[index].transcript) ? consultationsData.consultations[index].transcript : [],
+      { ...(consultationsData.consultations[index].findings || {}), patientSummary: consultationsData.consultations[index].patientSummary || '' }
+    );
 
     await writeConsultationsDb(consultationsData);
     logAudit('consultation_updated', req.dentist.id, { consultationId: id });
@@ -4278,6 +4464,7 @@ MANDATORY CLINICAL RULES:
 10. SPECIALIST REFERRAL: If the clinician mentions referring the patient to a dental specialist (Endodontist, Periodontist, Oral & Maxillofacial Surgeon, Orthodontist, Prosthodontist, Paediatric), set specialistReferral.required to true and generate a peer-to-peer referral letter in letterText using Australian clinical formatting. If NO referral is discussed, set specialistReferral.required to false.
 11. PATIENT CONSENT & CARE: In patientConsent, provide an AHPRA-compliant layperson summary of treatment, options discussed, risks of no treatment, post-operative home care instructions, and red-flag warning signs.
 12. OPERATORY BACKGROUND NOISE & MUSIC FILTERING (MANDATORY): Clinical operatories frequently have background music (YouTube, radio, Spotify), waiting room TV, receptionist chatter, or non-clinical banter audible on the microphone. You must strictly isolate and transcribe ONLY the genuine clinician-patient dialogue and clinical dictation. Discard and completely ignore all background music lyrics, television broadcast audio, YouTube videos, off-topic staff banter, and non-clinical ambient room noise. Never document song lyrics, TV broadcast content, or casual social chat into any clinical section.
+13. RENDERER CONTRACT — YOU ARE VERBALISING A VALIDATED FACT SET (Phase 7): You may only express facts supported by the transcript and intake data supplied. You must not infer, add, embellish or complete missing clinical information. Specifically: no diagnosis that was not explicitly stated by the clinician (a patient saying "I think I need a root canal" is never a diagnosis); no procedure, medication, dosage, tooth number, surface, material or recall interval that was not spoken; no conversion of a discussed or planned option into performed treatment; no conversion of a patient-reported symptom into a clinician-observed finding; no conversion of historical treatment ("crown placed last year") into treatment performed today. If evidence is insufficient, leave the fact out — an empty section is always safer than an invented one.
 `;
 
 

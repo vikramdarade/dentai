@@ -132,24 +132,30 @@ export function parseClinicalEntities(
   }
 
   // 3. Local Anaesthesia (Agent, Volume, Technique, Adrenaline)
+  // Phase 7 (zero-fabrication): every field is extracted ONLY from explicit
+  // spoken evidence. No default agent, no default adrenaline concentration,
+  // no default volume, no implied profundity. When LA is mentioned without a
+  // named agent, the fact records that LA was given — the specific agent,
+  // concentration and volume stay missing for the clinician to complete.
   let anaesthetic: ExtractedClinicalVariables['anaesthetic'] = undefined;
   const laDetected = /\b(?:anaesthetic|anesthetic|numb|lignocaine|xylocaine|articaine|septanest|mepivacaine|scandonest|prilocaine|citanest|infiltration|block)\b/i.test(lower);
 
   if (laDetected) {
-    let agent = '4% Articaine';
+    // Agent: only from an explicit drug mention.
+    let agent: string | undefined = undefined;
     if (/ligno|xylo/i.test(lower)) agent = '2% Lignocaine';
     else if (/mepivacaine|scandonest/i.test(lower)) agent = '3% Mepivacaine';
     else if (/prilocaine|citanest/i.test(lower)) agent = '3% Prilocaine';
     else if (/articaine|septanest/i.test(lower)) agent = '4% Articaine';
 
-    let adrenaline = 'with 1:100,000 adrenaline';
-    if (/1:80[,.]?000/i.test(lower) || (/ligno/i.test(agent) && !/1:100/i.test(lower))) {
-      adrenaline = 'with 1:80,000 adrenaline';
-    } else if (/plain|without\s+adrenaline/i.test(lower)) {
-      adrenaline = 'plain';
-    }
+    // Adrenaline: only from an explicitly spoken concentration or 'plain'.
+    let adrenaline: string | undefined = undefined;
+    if (/1:80[,.]?000/i.test(lower)) adrenaline = 'with 1:80,000 adrenaline';
+    else if (/1:100[,.]?000/i.test(lower)) adrenaline = 'with 1:100,000 adrenaline';
+    else if (/plain|without\s+adrenaline/i.test(lower)) adrenaline = 'plain';
 
-    let technique = 'infiltration';
+    // Technique: only from an explicit technique phrase.
+    let technique: string | undefined = undefined;
     if (/ianb|ian\s+block|inferior\s+alveolar|mandibular\s+block/i.test(lower)) {
       technique = 'IAN block';
     } else if (/palatal/i.test(lower)) {
@@ -158,35 +164,52 @@ export function parseClinicalEntities(
       technique = 'mental nerve block';
     } else if (/intraligamentary/i.test(lower)) {
       technique = 'intraligamentary injection';
+    } else if (/infiltration/i.test(lower)) {
+      technique = 'infiltration';
     }
 
-    let volumeMl = 2.2;
+    // Volume: only from an explicitly spoken volume ("2.2 mL"). A spoken
+    // cartridge COUNT is preserved as `cartridges` — the parser never converts
+    // it into a derived millilitre figure, which would present a computed
+    // quantity as though the clinician had spoken it (Phase 10, F-5).
+    let volumeMl: number | undefined = undefined;
+    let cartridges: number | undefined = undefined;
     const volMatch = lower.match(/(\d+(?:\.\d+)?)\s*ml\b/i);
     if (volMatch) {
       volumeMl = parseFloat(volMatch[1]);
     } else {
-      const cartMatch = lower.match(/(\d+)\s*cartridge/i);
+      const cartMatch = lower.match(/(\d+|one|two|three|four|five)\s+cartridge/i);
       if (cartMatch) {
-        volumeMl = Math.round(parseInt(cartMatch[1], 10) * 2.2 * 10) / 10;
+        const spoken = { one: 1, two: 2, three: 3, four: 4, five: 5 }[cartMatch[1].toLowerCase()] ?? parseInt(cartMatch[1], 10);
+        if (Number.isFinite(spoken)) {
+          cartridges = spoken;
+        }
       }
     }
 
     const topical = /topical|xylo\s+gel|ointment/i.test(lower) ? 'Topical LA: xylo 5% applied' : undefined;
 
-    anaesthetic = {
-      agent,
-      adrenaline,
-      volumeMl,
-      technique,
-      topical,
-      isProfound: true,
-    };
+    // Record the anaesthetic fact only when something was actually said.
+    if (agent || adrenaline || volumeMl !== undefined || cartridges !== undefined || technique || topical) {
+      anaesthetic = {
+        ...(agent ? { agent } : {}),
+        ...(adrenaline ? { adrenaline } : {}),
+        ...(volumeMl !== undefined ? { volumeMl } : {}),
+        ...(cartridges !== undefined ? { cartridges } : {}),
+        ...(technique ? { technique } : {}),
+        ...(topical ? { topical } : {}),
+      } as ExtractedClinicalVariables['anaesthetic'];
+    }
   }
 
   // 4. Isolation
-  let isolation: ExtractedClinicalVariables['isolation'] = 'Cotton roll and gauze';
+  // Phase 7 (zero-fabrication): isolation is recorded ONLY when explicitly
+  // spoken. Absent mention stays undefined — no default isolation method.
+  let isolation: ExtractedClinicalVariables['isolation'] | undefined = undefined;
   if (/rubber\s*dam|dam\s+isolation|clamp\s+#/i.test(lower)) {
     isolation = 'Rubber dam';
+  } else if (/cotton\s*roll|gauze/i.test(lower)) {
+    isolation = 'Cotton roll and gauze';
   } else if (/gingival\s+dam|barrier/i.test(lower)) {
     isolation = 'Gingival barrier';
   }
@@ -209,14 +232,16 @@ export function parseClinicalEntities(
   if (/theracal/i.test(lower)) materials.liner = 'TheraCal LC';
   if (/fuji\s*(?:ix|9|ii|2)/i.test(lower)) materials.liner = 'Fuji IX glass ionomer';
 
-  // Sutures & Haemostats
-  if (/prolene/i.test(lower)) materials.sutureType = 'Non-absorbable 3-0 Prolene suture placed';
-  else if (/vicryl/i.test(lower)) materials.sutureType = 'Resorbable 4-0 Vicryl suture placed';
-  else if (/silk/i.test(lower)) materials.sutureType = 'Black silk 3-0 suture placed';
+  // Sutures & Haemostats — the spoken brand name only. Gauge, absorbability
+  // and “placed” are NOT asserted: the clinician may have mentioned the brand
+  // without having placed that exact suture (Phase 10 sweep).
+  if (/prolene/i.test(lower)) materials.sutureType = 'Prolene';
+  else if (/vicryl/i.test(lower)) materials.sutureType = 'Vicryl';
+  else if (/silk/i.test(lower)) materials.sutureType = 'Silk';
 
-  if (/gelatemp/i.test(lower)) materials.haemostaticAgent = 'Gelatemp placed';
-  else if (/surgicel/i.test(lower)) materials.haemostaticAgent = 'Surgicel haemostatic pack placed';
-  else if (/alveogyl/i.test(lower)) materials.haemostaticAgent = 'Alveogyl socket dressing placed';
+  if (/gelatemp/i.test(lower)) materials.haemostaticAgent = 'Gelatemp';
+  else if (/surgicel/i.test(lower)) materials.haemostaticAgent = 'Surgicel';
+  else if (/alveogyl/i.test(lower)) materials.haemostaticAgent = 'Alveogyl';
 
   // Endo dressings
   if (/odontopaste/i.test(lower)) materials.dressing = 'Odontopaste dressing placed in canal orifices';
@@ -227,6 +252,9 @@ export function parseClinicalEntities(
 
   // 6. Informed Consent detection
   const consentObtained = /\b(?:consent|verbal\s+consent|agreed|happy\s+to\s+proceed|patient\s+agrees|informed\s+consent|discussed\s+risks)\b/i.test(lower);
+
+  // 6b. Chairside narration flags (evidence-gated macro rendering)
+  const occlusionChecked = /\bocclusion\s+(?:checked|adjusted|examined)|checked\s+(?:the\s+)?occlusion|bite\s+(?:checked|adjusted)\b/i.test(lower);
 
   // 7. POIG / Aftercare instructions detection
   const poigDiscussed = /\b(?:poig|post[\s-]op|aftercare|soft\s+diet|avoid\s+(?:hot|rinsing|chewing)|salt\s*water|sensitivity|pain\s+relief|numbness|bite\s+on\s+gauze)\b/i.test(lower);
@@ -346,6 +374,7 @@ export function parseClinicalEntities(
     materials,
     consentObtained,
     poigDiscussed,
+    occlusionChecked,
     canalsCount,
     quadrants,
     complaint,

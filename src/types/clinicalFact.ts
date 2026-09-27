@@ -80,6 +80,7 @@ export type FactTemporalContext =
   | 'planned'
   | 'future'
   | 'completed_today'
+  | 'past_appointment'
   | 'previous_appointment'
   | 'next_appointment';
 
