@@ -1448,3 +1448,83 @@ describe('DentAI Server - Operator surface', () => {
     expect(res.body.code).toBe('DIRECTORY_DISABLED');
   });
 });
+
+/**
+ * QLE-2026-0022 — API terminal 404.
+ *
+ * Unknown /api/* requests used to fall through to the SPA fallback and were
+ * served the HTML shell with HTTP 200. The invariant is that anything under
+ * /api is answered with JSON, never with the SPA HTML, and every valid SPA
+ * route keeps serving the shell.
+ */
+describe('DentAI Server - API 404 fallback (QLE-2026-0022)', () => {
+  // The SPA fallback in test mode is the production branch: express.static(dist)
+  // + sendFile(dist/index.html). CI runs the unit suite BEFORE `build`, and
+  // dist/ is gitignored, so the shell does not exist yet and / plus /chairside
+  // would legitimately 404 — failing these assertions for the wrong reason.
+  // Seed a minimal shell for this suite only when the real build output is
+  // absent, and remove it afterwards only if we created it.
+  const distDir = path.resolve(__dirname, '..', 'dist');
+  const distIndex = path.join(distDir, 'index.html');
+  let seededDistIndex = false;
+
+  beforeAll(() => {
+    if (!fs.existsSync(distIndex)) {
+      fs.mkdirSync(distDir, { recursive: true });
+      fs.writeFileSync(distIndex, '<!doctype html><html><body><div id="root"></div></body></html>');
+      seededDistIndex = true;
+    }
+  });
+
+  afterAll(() => {
+    if (seededDistIndex && fs.existsSync(distIndex)) {
+      fs.rmSync(distIndex);
+    }
+  });
+
+  it('answers GET to an unknown API route with 404 JSON, never the SPA HTML', async () => {
+    const res = await request(app).get('/api/__definitely_missing__');
+    expect(res.status).toBe(404);
+    expect(res.headers['content-type']).toMatch(/application\/json/);
+    expect(res.body).toEqual({ error: 'API endpoint not found', code: 'API_NOT_FOUND' });
+    expect(res.text).not.toContain('<html');
+    expect(res.text).not.toContain('<div id="root"');
+  });
+
+  it('answers GET to a nested unknown API route with 404 JSON', async () => {
+    const res = await request(app).get('/api/another/missing/path');
+    expect(res.status).toBe(404);
+    expect(res.headers['content-type']).toMatch(/application\/json/);
+    expect(res.body.code).toBe('API_NOT_FOUND');
+    expect(res.text).not.toContain('<html');
+  });
+
+  it('answers POST to an unknown API route with 404 JSON', async () => {
+    const res = await request(app).post('/api/__definitely_missing__');
+    expect(res.status).toBe(404);
+    expect(res.headers['content-type']).toMatch(/application\/json/);
+    expect(res.body.code).toBe('API_NOT_FOUND');
+    expect(res.text).not.toContain('<html');
+  });
+
+  it('leaves the existing public API route functional', async () => {
+    const res = await request(app).get('/api/health');
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('ok');
+    expect(res.body).not.toHaveProperty('code', 'API_NOT_FOUND');
+  });
+
+  it('keeps serving the SPA shell at /', async () => {
+    const res = await request(app).get('/');
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/text\/html/);
+    expect(res.text).toContain('<div id="root"');
+  });
+
+  it('keeps serving the SPA shell at /chairside', async () => {
+    const res = await request(app).get('/chairside');
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/text\/html/);
+    expect(res.text).toContain('<div id="root"');
+  });
+});

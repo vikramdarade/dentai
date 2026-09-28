@@ -5017,6 +5017,20 @@ app.get('/api/demo/video', (req, res) => {
   res.status(404).json({ error: 'Demo video not found.' });
 });
 
+// API terminal 404.
+//
+// Must be registered AFTER every /api route so it only fires once no valid
+// API handler matched, and BEFORE the SPA fallbacks below. Without it, unknown
+// /api/* requests fell through to the SPA fallback and were served the HTML
+// shell with HTTP 200, which broke every API client's error handling.
+//
+// Uses `app.use('/api', ...)` (prefix match) rather than a wildcard route:
+// with Express 4 (path-to-regexp 0.x) this matches /api and any /api/*
+// sub-path for every HTTP method, and cannot shadow parameterised routes.
+app.use('/api', (_req, res) => {
+  res.status(404).json({ error: 'API endpoint not found', code: 'API_NOT_FOUND' });
+});
+
 // Unified Frontend Router (Dev vs Prod vs Test)
 async function setupDevMode() {
   logger.info('Starting DentAI in DEVELOPMENT mode with Vite Middleware...');
