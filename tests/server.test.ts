@@ -1448,3 +1448,59 @@ describe('DentAI Server - Operator surface', () => {
     expect(res.body.code).toBe('DIRECTORY_DISABLED');
   });
 });
+
+/**
+ * QLE-2026-0022 — API terminal 404.
+ *
+ * Unknown /api/* requests used to fall through to the SPA fallback and were
+ * served the HTML shell with HTTP 200. The invariant is that anything under
+ * /api is answered with JSON, never with the SPA HTML, and every valid SPA
+ * route keeps serving the shell.
+ */
+describe('DentAI Server - API 404 fallback (QLE-2026-0022)', () => {
+  it('answers GET to an unknown API route with 404 JSON, never the SPA HTML', async () => {
+    const res = await request(app).get('/api/__definitely_missing__');
+    expect(res.status).toBe(404);
+    expect(res.headers['content-type']).toMatch(/application\/json/);
+    expect(res.body).toEqual({ error: 'API endpoint not found', code: 'API_NOT_FOUND' });
+    expect(res.text).not.toContain('<html');
+    expect(res.text).not.toContain('<div id="root"');
+  });
+
+  it('answers GET to a nested unknown API route with 404 JSON', async () => {
+    const res = await request(app).get('/api/another/missing/path');
+    expect(res.status).toBe(404);
+    expect(res.headers['content-type']).toMatch(/application\/json/);
+    expect(res.body.code).toBe('API_NOT_FOUND');
+    expect(res.text).not.toContain('<html');
+  });
+
+  it('answers POST to an unknown API route with 404 JSON', async () => {
+    const res = await request(app).post('/api/__definitely_missing__');
+    expect(res.status).toBe(404);
+    expect(res.headers['content-type']).toMatch(/application\/json/);
+    expect(res.body.code).toBe('API_NOT_FOUND');
+    expect(res.text).not.toContain('<html');
+  });
+
+  it('leaves the existing public API route functional', async () => {
+    const res = await request(app).get('/api/health');
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('ok');
+    expect(res.body).not.toHaveProperty('code', 'API_NOT_FOUND');
+  });
+
+  it('keeps serving the SPA shell at /', async () => {
+    const res = await request(app).get('/');
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/text\/html/);
+    expect(res.text).toContain('<div id="root"');
+  });
+
+  it('keeps serving the SPA shell at /chairside', async () => {
+    const res = await request(app).get('/chairside');
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/text\/html/);
+    expect(res.text).toContain('<div id="root"');
+  });
+});
