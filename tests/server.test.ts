@@ -1458,6 +1458,30 @@ describe('DentAI Server - Operator surface', () => {
  * route keeps serving the shell.
  */
 describe('DentAI Server - API 404 fallback (QLE-2026-0022)', () => {
+  // The SPA fallback in test mode is the production branch: express.static(dist)
+  // + sendFile(dist/index.html). CI runs the unit suite BEFORE `build`, and
+  // dist/ is gitignored, so the shell does not exist yet and / plus /chairside
+  // would legitimately 404 — failing these assertions for the wrong reason.
+  // Seed a minimal shell for this suite only when the real build output is
+  // absent, and remove it afterwards only if we created it.
+  const distDir = path.resolve(__dirname, '..', 'dist');
+  const distIndex = path.join(distDir, 'index.html');
+  let seededDistIndex = false;
+
+  beforeAll(() => {
+    if (!fs.existsSync(distIndex)) {
+      fs.mkdirSync(distDir, { recursive: true });
+      fs.writeFileSync(distIndex, '<!doctype html><html><body><div id="root"></div></body></html>');
+      seededDistIndex = true;
+    }
+  });
+
+  afterAll(() => {
+    if (seededDistIndex && fs.existsSync(distIndex)) {
+      fs.rmSync(distIndex);
+    }
+  });
+
   it('answers GET to an unknown API route with 404 JSON, never the SPA HTML', async () => {
     const res = await request(app).get('/api/__definitely_missing__');
     expect(res.status).toBe(404);
