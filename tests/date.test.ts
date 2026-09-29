@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { maskDobInput, parseDobToIso, isValidDob, formatClinicDate, formatClinicTime, getClinicTodayIso } from '../src/utils/date';
+import { maskDobInput, parseDobToIso, isValidDob, formatClinicDate, formatClinicTime, getClinicTodayIso, clinicDayKeyOfStoredDate } from '../src/utils/date';
 
 describe('Date Utilities', () => {
   describe('maskDobInput', () => {
@@ -75,6 +75,32 @@ describe('Date Utilities', () => {
     it('should return valid YYYY-MM-DD for clinic today iso', () => {
       const isoNy = getClinicTodayIso('America/New_York');
       expect(isoNy).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    });
+  });
+
+  /**
+   * QLE-2026-0002 — a record's stored day must resolve to one canonical clinic
+   * day key, so an unfamiliar-but-valid format cannot silently drop the record
+   * out of the roster (and, before, move the clinician to another patient).
+   */
+  describe('clinicDayKeyOfStoredDate', () => {
+    it('resolves every stored date shape to the same clinic-day key', () => {
+      const year = new Date().getFullYear();
+      expect(clinicDayKeyOfStoredDate('2026-09-28')).toBe('2026-09-28');
+      expect(clinicDayKeyOfStoredDate(' 2026-09-28 ')).toBe('2026-09-28');
+      expect(clinicDayKeyOfStoredDate('Sep 28')).toBe(`${year}-09-28`);
+      expect(clinicDayKeyOfStoredDate('Sep 28, 2026')).toBe('2026-09-28');
+      expect(clinicDayKeyOfStoredDate('September 28 2026')).toBe('2026-09-28');
+      expect(clinicDayKeyOfStoredDate('28/09/2026')).toBe('2026-09-28');
+      expect(clinicDayKeyOfStoredDate('2026-09-28T10:00:00.000Z', 'UTC')).toBe('2026-09-28');
+    });
+
+    it('returns null rather than guessing at an uninterpretable date', () => {
+      expect(clinicDayKeyOfStoredDate('')).toBeNull();
+      expect(clinicDayKeyOfStoredDate(undefined)).toBeNull();
+      expect(clinicDayKeyOfStoredDate('   ')).toBeNull();
+      expect(clinicDayKeyOfStoredDate('next Tuesday')).toBeNull();
+      expect(clinicDayKeyOfStoredDate('2026-02-30')).toBeNull();
     });
   });
 });

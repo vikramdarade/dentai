@@ -37,6 +37,7 @@ import { createOperatoryDspChain, type OperatoryDspChain } from '../lib/operator
 import { addScheduleItem, parseTimeToMinutes, ScheduleItemStatus } from '../lib/dayScheduleStorage';
 import { Consultation, TranscriptItem, ClinicalFindings } from '../types';
 import { chooseNoteTranscript, type TranscriptSource } from '../lib/transcription';
+import { NOTE_JOB_CLIENT_POLL } from '../lib/noteJobs';
 import {
   blobToBase64,
   isTranscriptionFailure,
@@ -48,7 +49,7 @@ import { AppointmentType, getTemplateById, APPOINTMENT_TYPES } from '../lib/dent
 import { generateOfflineDraft } from '../lib/draftEngine';
 import { generateMacroNote } from '../lib/macroEngine';
 import { normalizeSpokenDentalText } from '../lib/dentalPhoneticLexicon';
-import { formatClinicDate, formatClinicTime, getClinicTodayIso, getClinicTimeZone } from '../utils/date';
+import { clinicDayKeyOfStoredDate, formatClinicDate, formatClinicTime, getClinicTodayIso, getClinicTimeZone } from '../utils/date';
 import { decideSilenceAction, SILENCE_SLEEP_SECONDS } from '../lib/silencePolicy';
 import { toPmsEncounter, renderUniversalProgressNote, renderD4W, renderExact } from '../lib/pms';
 import { ClinicMembership } from '../lib/clinics';
@@ -435,17 +436,23 @@ export default function ChairsideWorkspace({
   const encountersForDate: PatientEncounter[] = useMemo(() => {
     const shortDate = formatClinicDate(currentDate, { month: 'short', day: 'numeric' });
     const fullDate = formatClinicDate(currentDate, { month: 'short', day: 'numeric', year: 'numeric' });
+    const clinicTimeZone = getClinicTimeZone();
     return patientEncounters
       .filter(p => {
         const orig = consultations.find(c => c.id === p.id);
         if (!orig?.date) return false;
+        // QLE-2026-0002: compare one canonical clinic-day key instead of
+        // hand-matching date shapes, so "2026-09-28", a timestamp, "Sep 28" and
+        // "28/09/2026" all resolve to the same day and a record that belongs to
+        // today cannot be dropped by a format mismatch.
+        const dayKey = clinicDayKeyOfStoredDate(orig.date, clinicTimeZone);
+        if (dayKey) return dayKey === currentDateStr;
+        // The stored date could not be interpreted. Fall back to the legacy
+        // shape checks so an unfamiliar-but-recoverable format is not silently
+        // excluded; an uninterpretable record is surfaced by the focus guard
+        // below rather than causing a wrong-patient switch.
         const d = orig.date.trim();
-        if (d === currentDateStr || d === shortDate || d.startsWith(shortDate) || d === fullDate) return true;
-        try {
-          const formattedOrig = formatClinicDate(d, { month: 'short', day: 'numeric' });
-          if (formattedOrig === shortDate) return true;
-        } catch {}
-        return false;
+        return d === currentDateStr || d === shortDate || d.startsWith(shortDate) || d === fullDate;
       })
       .sort((a, b) => {
         // Phase 13A (§20): shared deterministic ordering — normalized time →
@@ -494,8 +501,17 @@ export default function ChairsideWorkspace({
   // external switching impossible; orphaned-active fallback (self-healing)
   // still routes through the same gate.
   useEffect(() => {
+    // QLE-2026-0002: an explicitly opened record that EXISTS but is not dated to
+    // the selected day (e.g. reopened from History Hub) must keep its focus. The
+    // previous behaviour cleared it, which dropped the clinician onto the
+    // "In-Chair Patient" scratchpad while still showing the patient's name in
+    // the banner.
+    const activeRecordExists = Boolean(activePatientId)
+      && activePatientId !== 'chair-active'
+      && consultations.some(c => c.id === activePatientId);
+
     if (encountersForDate.length === 0) {
-      if (activePatientId) setActivePatientId('');
+      if (activePatientId && !activeRecordExists) setActivePatientId('');
       return;
     }
 
@@ -520,6 +536,14 @@ export default function ChairsideWorkspace({
     // date change, second browser). This is not a hijack — the current focus
     // points at nothing — but it still goes through the canonical gate.
     if (!encountersForDate.some(p => p.id === activePatientId)) {
+      // QLE-2026-0002: never self-heal onto a DIFFERENT patient when the
+      // focused record still exists — that is a wrong-patient surface. Keep the
+      // clinician on their explicit selection and say why the roster does not
+      // list it.
+      if (activeRecordExists) {
+        setTurnoverToast('This record is not dated to the selected day — its date could not be matched. Verify the patient before adding clinical content.');
+        return;
+      }
       const fallbackId = liveDiscussionEncounter?.id || encountersForDate[0].id;
       const decision = decidePatientSwitch({
         source: 'external-poll',
@@ -573,13 +597,24 @@ export default function ChairsideWorkspace({
         setActivePatientId(liveDiscussionEncounter.id);
       }
     }
-  }, [encountersForDate, activePatientId, isMicStandby, backgroundFinalizingIds]);
+  }, [encountersForDate, activePatientId, isMicStandby, backgroundFinalizingIds, consultations]);
 
   const activeEncounter = useMemo(() => {
-    if (activePatientId === 'chair-active' || encountersForDate.length === 0) return null;
-    if (!activePatientId) return encountersForDate[0] || null;
-    return encountersForDate.find(p => p.id === activePatientId) || null;
-  }, [encountersForDate, activePatientId]);
+    if (activePatientId === 'chair-active') return null;
+    if (activePatientId) {
+      const inDay = encountersForDate.find(p => p.id === activePatientId);
+      if (inDay) return inDay;
+      // QLE-2026-0002: an explicitly opened record that is not on the selected
+      // day still resolves to ITSELF — never to the in-chair scratchpad and
+      // never to a different patient. The record is mapped in patientEncounters
+      // regardless of the day filter.
+      const elsewhere = patientEncounters.find(p => p.id === activePatientId);
+      if (elsewhere) return elsewhere;
+      return null;
+    }
+    if (encountersForDate.length === 0) return null;
+    return encountersForDate[0] || null;
+  }, [encountersForDate, patientEncounters, activePatientId]);
 
   const activeConsult = useMemo(() => {
     if (!activeEncounter) return null;
@@ -770,6 +805,7 @@ export default function ChairsideWorkspace({
   // ─────────────────────────────────────────────────────────────
   const [editedProgressNotes, setEditedProgressNotes] = useState<Record<string, string>>({});
   const [showRegenerateConfirm, setShowRegenerateConfirm] = useState(false);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [progressNoteSaveStatus, setProgressNoteSaveStatus] = useState<Record<string, 'saved' | 'saving'>>({});
   const [progressiveDrafts, setProgressiveDrafts] = useState<Record<string, string>>({});
   const progressiveDraftTimerRef = useRef<Record<string, any>>({});
@@ -2487,9 +2523,13 @@ export default function ChairsideWorkspace({
 
             if (res.ok) {
               const jobData = await res.json();
-              const deadline = Date.now() + 25_000;
+              // QLE-2026-0018: the poll budget is derived from the worker's own
+              // retry ladder, so the editor waits through the first server retry
+              // (45s backoff) instead of abandoning a job that is about to
+              // complete for the same encounter.
+              const deadline = Date.now() + NOTE_JOB_CLIENT_POLL.deadlineMs;
               while (Date.now() < deadline) {
-                await new Promise(r => setTimeout(r, 600));
+                await new Promise(r => setTimeout(r, NOTE_JOB_CLIENT_POLL.intervalMs));
                 const pollRes = await fetch(`/api/notes/jobs/${jobData.jobId}`, {
                   headers: { 'Authorization': `Bearer ${authToken}` }
                 });
@@ -3337,7 +3377,32 @@ ${clinician}`;
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [activeEncounter, encountersForDate, consultations, dentistName, showDaysheetModal, showPlainTextModal, showBatchTray, showDeliverablesModal, showDayGuide, showRegenerateConfirm, handleKeepListening, handleStartAudio, handleTogglePause, handleNextPatient, handlePrevPatient, handleCopyPMS]);
 
+  // QLE-2026-0001: signing out must never SILENTLY discard unsaved clinical
+  // work. Whether that work must be preserved or may be discarded is a product
+  // decision that is still open, so this implements the explicit-discard branch
+  // only: the clinician is told that content exists and must confirm, instead of
+  // the note disappearing with no signal on a routine action.
+  const hasUnsavedClinicalWork = (): boolean => {
+    const id = currentOperatoryEncounter?.id;
+    if (!id) return false;
+    const manual = (editedProgressNotes[id] || progressiveDrafts[id] || '').trim();
+    const transcriptLines =
+      (localLiveTranscripts[id]?.length || 0) +
+      (Array.isArray((currentOperatoryEncounter as any)?.diarizedTranscript)
+        ? (currentOperatoryEncounter as any).diarizedTranscript.length
+        : 0);
+    // A completed/signed record is durable — signing out cannot lose it.
+    const finalised = activeConsult?.status === 'Completed' || Boolean(effectiveSeals[id]?.signatureHash);
+    return !finalised && (manual.length > 0 || transcriptLines > 0);
+  };
 
+  const requestSignOut = () => {
+    if (hasUnsavedClinicalWork()) {
+      setShowLogoutConfirm(true);
+      return;
+    }
+    onLogout();
+  };
 
   return (
     <div className="flex h-screen w-full bg-[#F8F9FA] text-slate-800 font-sans overflow-hidden antialiased select-none">
@@ -3456,7 +3521,7 @@ ${clinician}`;
               {dentistName ? dentistName.split(' ').map(n => n[0]).join('').slice(0, 2) : 'MV'}
             </div>
             <button
-              onClick={onLogout}
+              onClick={requestSignOut}
               className="w-8 h-8 rounded-xl hover:bg-rose-50 flex items-center justify-center text-slate-400 hover:text-rose-600 transition cursor-pointer ml-1"
               title="Sign Out"
             >
@@ -4022,6 +4087,45 @@ ${clinician}`;
         dspNoiseGateActive={dspNoiseGateActive}
         activeEncounterProcedure={activeEncounter?.procedureText}
       />
+
+      {showLogoutConfirm && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-[100] p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-5 h-5 text-rose-600" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">Unsaved Clinical Work</h3>
+                <p className="text-xs text-slate-500">This consultation has not been completed</p>
+              </div>
+            </div>
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Signing out now will discard the captured lines and any note text for this encounter. Finish the note
+              first if it should be kept.
+            </p>
+            <div className="flex items-center justify-end space-x-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowLogoutConfirm(false)}
+                className="px-3.5 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition cursor-pointer"
+              >
+                Stay Signed In
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowLogoutConfirm(false);
+                  onLogout();
+                }}
+                className="px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl transition shadow-xs cursor-pointer"
+              >
+                Discard & Sign Out
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showRegenerateConfirm && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-[100] p-4">
