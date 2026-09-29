@@ -25,7 +25,14 @@ import {
   EvidenceSpan,
   DentalAnatomyTarget,
   ClinicalFactType,
-  FactValueTypeMap
+  FactValueTypeMap,
+  FACT_SPEAKER_MEMBERS,
+  FACT_EVIDENCE_TYPE_MEMBERS,
+  FACT_STATUS_MEMBERS,
+  FACT_TEMPORAL_MEMBERS,
+  FACT_CERTAINTY_MEMBERS,
+  FACT_EXTRACTION_METHOD_MEMBERS,
+  checkFactEnumMember
 } from '../types/clinicalFact';
 import type { ClinicalFindings, AdaCodeItem } from '../types';
 import { isValidFdiTooth } from './fdiNotationEngine';
@@ -259,19 +266,40 @@ export function createCanonicalClinicalFact(candidate: CandidateClinicalFact): F
     timestampSource: span.timestampSource || (span.startMs !== undefined ? 'asr' : undefined)
   }));
 
-  // 4. Map extractionMethod and certainty
-  const extractionMethod: FactExtractionMethod = candidate.extractionMethod || 'model_extracted';
-  const certainty: FactCertainty = candidate.certainty || 'certain';
+  // 4. QLE-2026-0005 — enum membership at the trust boundary.
+  //
+  // Everything below compares lowercase literals with `===`, so before this
+  // guard a candidate carrying `status: 'PERFORMED'`, `temporal: 'FUTURE'` or
+  // an invented `speaker: 'robot'` / `evidenceType: 'made_up'` matched no rule,
+  // passed the whole matrix unexamined, and was minted as a canonical `valid`
+  // fact — exactly what the matrix exists to forbid. Membership is checked
+  // here, before the matrix; a recognised case/whitespace variant is normalised
+  // to the canonical member so a real clinical assertion is not discarded, and
+  // an unknown value refuses construction (fail closed).
+  const speakerCheck = checkFactEnumMember('speaker', candidate.speaker, FACT_SPEAKER_MEMBERS);
+  const evidenceTypeCheck = checkFactEnumMember('evidenceType', candidate.evidenceType, FACT_EVIDENCE_TYPE_MEMBERS);
+  const statusCheck = checkFactEnumMember('status', candidate.status, FACT_STATUS_MEMBERS);
+  const temporalCheck = checkFactEnumMember('temporal', candidate.temporal, FACT_TEMPORAL_MEMBERS);
+  const certaintyCheck = checkFactEnumMember('certainty', candidate.certainty, FACT_CERTAINTY_MEMBERS);
+  const extractionCheck = checkFactEnumMember('extractionMethod', candidate.extractionMethod, FACT_EXTRACTION_METHOD_MEMBERS);
+  const enumChecks = [speakerCheck, evidenceTypeCheck, statusCheck, temporalCheck, certaintyCheck, extractionCheck];
+  for (const check of enumChecks) {
+    if (!check.ok) errors.push((check as { ok: false; error: string }).error);
+  }
+
+  // 5. Map extractionMethod and certainty
+  const extractionMethod: FactExtractionMethod = (extractionCheck.ok && extractionCheck.value) || 'model_extracted';
+  const certainty: FactCertainty = (certaintyCheck.ok && certaintyCheck.value) || 'certain';
 
   // Assemble canonical candidate
   const fact: ClinicalFact = {
     id: factId,
     type: candidate.type,
-    speaker: candidate.speaker,
-    evidenceType: candidate.evidenceType,
+    speaker: (speakerCheck.ok && speakerCheck.value) || candidate.speaker,
+    evidenceType: (evidenceTypeCheck.ok && evidenceTypeCheck.value) || candidate.evidenceType,
     value: normVal.value,
-    status: candidate.status || 'observed',
-    temporal: candidate.temporal || 'current',
+    status: (statusCheck.ok && statusCheck.value) || 'observed',
+    temporal: (temporalCheck.ok && temporalCheck.value) || 'current',
     certainty,
     extractionMethod,
     anatomy,
@@ -283,7 +311,7 @@ export function createCanonicalClinicalFact(candidate: CandidateClinicalFact): F
     negationScope: candidate.negationScope
   } as ClinicalFact;
 
-  // 5. Enforce deterministic domain invariants
+  // 6. Enforce deterministic domain invariants
   const invariantCheck = validateClinicalFactInvariants(fact);
   if (!invariantCheck.isValid) {
     errors.push(...invariantCheck.errors);

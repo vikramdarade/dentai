@@ -487,7 +487,78 @@ export type ClinicalFact = {
 }[ClinicalFactType];
 
 // ============================================================================
-// 6. STATUS × TEMPORAL COMPATIBILITY MATRIX
+// 6. RUNTIME ENUM MEMBERSHIP (THE TRUST BOUNDARY)
+// ============================================================================
+
+/**
+ * QLE-2026-0005: every guard below (the status × temporal matrix, the epistemic
+ * checks, the renderer) compares against lowercase literals with `===`. Nothing
+ * validated *membership* first, so a candidate carrying `status: 'PERFORMED'`
+ * — or `'made_up'`, or `speaker: 'robot'` — matched no rule, fell through the
+ * whole matrix, and was minted as a canonical `valid` fact. The matrix only
+ * forbids what it recognises; unknown values have to be refused before it.
+ *
+ * Each table is declared as `Record<Union, true>` so the compiler fails the
+ * build if a member is ever added to or removed from the union without the
+ * table being updated. The tables cannot drift from the types.
+ */
+export const FACT_SPEAKER_MEMBERS: Readonly<Record<FactSpeaker, true>> = {
+  patient: true, clinician: true, assistant: true, unknown: true
+};
+
+export const FACT_EVIDENCE_TYPE_MEMBERS: Readonly<Record<FactEvidenceType, true>> = {
+  patient_reported: true, clinician_observed: true, clinician_interpretation: true,
+  instruction: true, discussion: true
+};
+
+export const FACT_STATUS_MEMBERS: Readonly<Record<FactStatus, true>> = {
+  performed: true, observed: true, reported: true, planned: true, discussed: true,
+  declined: true, historical: true, negated: true, unknown: true
+};
+
+export const FACT_TEMPORAL_MEMBERS: Readonly<Record<FactTemporalContext, true>> = {
+  current: true, historical: true, planned: true, future: true, completed_today: true,
+  past_appointment: true, previous_appointment: true, next_appointment: true
+};
+
+export const FACT_CERTAINTY_MEMBERS: Readonly<Record<FactCertainty, true>> = {
+  certain: true, uncertain: true, conflicting: true
+};
+
+export const FACT_EXTRACTION_METHOD_MEMBERS: Readonly<Record<FactExtractionMethod, true>> = {
+  verbatim: true, normalized: true, model_extracted: true, inferred: true
+};
+
+export type FactEnumCheck<T extends string> =
+  | { readonly ok: true; readonly value: T | undefined }
+  | { readonly ok: false; readonly error: string };
+
+/**
+ * Resolves one candidate enum field against its membership table.
+ *
+ * - absent/null → ok with `undefined` (the caller's default applies)
+ * - a recognised member in any casing/whitespace → ok with the canonical member,
+ *   so a clinically meaningful assertion is normalised rather than discarded
+ * - anything else → refused, with the offending field and value named
+ */
+export function checkFactEnumMember<T extends string>(
+  field: string,
+  raw: unknown,
+  members: Readonly<Record<T, true>>
+): FactEnumCheck<T> {
+  if (raw === undefined || raw === null) return { ok: true, value: undefined };
+  if (typeof raw !== 'string') {
+    return { ok: false, error: `Invalid ${field} '${String(raw)}'. Must be one of: ${Object.keys(members).join(', ')}.` };
+  }
+  const needle = raw.trim().toLowerCase();
+  for (const member of Object.keys(members) as T[]) {
+    if (member === needle) return { ok: true, value: member };
+  }
+  return { ok: false, error: `Unknown ${field} '${raw}'. Must be one of: ${Object.keys(members).join(', ')}.` };
+}
+
+// ============================================================================
+// 7. STATUS × TEMPORAL COMPATIBILITY MATRIX
 // ============================================================================
 
 export interface StatusTemporalRule {
