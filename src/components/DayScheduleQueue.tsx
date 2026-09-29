@@ -23,6 +23,7 @@ import {
   CheckCircle2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { NOTE_JOB_CLIENT_POLL } from '../lib/noteJobs';
 // Phase 12D: the client-side grounding recompute was removed — the queue is a
 // consumer of the server's verdict (verifyTranscriptGrounding stays
 // server-side), never a second implementation of it.
@@ -414,11 +415,13 @@ export default function DayScheduleQueue({
       // Detached background worker polls for result
       (async () => {
         try {
-          const deadline = Date.now() + 85_000;
+          // QLE-2026-0018: one shared poll budget for both note surfaces, derived
+          // from the worker's retry ladder rather than a local magic number.
+          const deadline = Date.now() + NOTE_JOB_CLIENT_POLL.deadlineMs;
           let jobResult: any = null;
 
           while (Date.now() < deadline) {
-            await new Promise(r => setTimeout(r, 2000));
+            await new Promise(r => setTimeout(r, NOTE_JOB_CLIENT_POLL.intervalMs));
             const pollRes = await fetch(`/api/notes/jobs/${jobId}`, {
               headers: { 'Authorization': `Bearer ${authToken}` }
             });
