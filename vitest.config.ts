@@ -14,6 +14,12 @@ export default defineConfig({
       // The origin worktree is a full checkout copy with its own fixtures; running
       // its suites alongside the main tree collides on shared JSON fixtures.
       '.worktrees/**',
+      // reports/ holds discovery evidence and scratch fixtures, not repository
+      // source. Its scratch specs are untracked, so CI never sees them, but
+      // locally they were being executed as part of the suite (and failing
+      // typecheck in the pre-commit hook). Excluding the directory keeps local
+      // runs and CI measuring the same set of tests.
+      'reports/**',
     ],
   },
 });
