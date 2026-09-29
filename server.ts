@@ -5031,6 +5031,50 @@ app.use('/api', (_req, res) => {
   res.status(404).json({ error: 'API endpoint not found', code: 'API_NOT_FOUND' });
 });
 
+// API error contract.
+//
+// The terminal 404 above made unknown /api/* paths answer with JSON. Parse and
+// payload-limit failures still fell through to Express's built-in error handler
+// and were answered with an HTML error page — the same contract break, for a
+// different failure mode: an API client cannot parse the error it is handed.
+//
+// Scoped to /api on purpose. The SPA/dev-proxy behaviour for non-API paths is
+// deliberately unchanged, and the global express.json() mount still rejects a
+// bad body for those paths exactly as before.
+//
+// Registered as a 4-arity error handler AFTER every /api route (like the
+// terminal 404 above) so it only sees errors nothing else handled. Express only
+// treats middleware as an error handler when it takes four arguments.
+app.use('/api', (err: any, _req: any, res: any, next: any) => {
+  // An error raised after the response started cannot be re-rendered as JSON.
+  if (!err || res.headersSent) {
+    return next(err);
+  }
+
+  // Raised by express.json() before any route ran.
+  if (err.type === 'entity.parse.failed' || (err instanceof SyntaxError && (err as { status?: number }).status === 400)) {
+    return res.status(400).json({
+      error: 'Request body is not valid JSON.',
+      code: 'INVALID_JSON',
+    });
+  }
+  if (err.type === 'entity.too.large' || err.status === 413) {
+    return res.status(413).json({
+      error: 'Request body exceeds the 1MB limit.',
+      code: 'PAYLOAD_TOO_LARGE',
+    });
+  }
+
+  // Anything else is an unexpected server fault. Log it server-side (so no
+  // diagnostic information is lost) and answer with a generic JSON body rather
+  // than leaking an HTML stack page to an API client.
+  logger.error('Unhandled API error:', err);
+  return res.status(500).json({
+    error: 'Internal server error.',
+    code: 'INTERNAL_ERROR',
+  });
+});
+
 // Unified Frontend Router (Dev vs Prod vs Test)
 async function setupDevMode() {
   logger.info('Starting DentAI in DEVELOPMENT mode with Vite Middleware...');

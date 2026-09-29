@@ -1528,3 +1528,68 @@ describe('DentAI Server - API 404 fallback (QLE-2026-0022)', () => {
     expect(res.text).toContain('<div id="root"');
   });
 });
+
+/**
+ * QLE-2026-0042 — API error contract (malformed JSON / payload limit).
+ *
+ * QLE-2026-0022 made unknown /api/* paths answer with JSON. Parse and
+ * payload-limit failures still fell through to Express's built-in error
+ * handler and were answered with an HTML error page. The invariant is the same
+ * one the 404 fix established: anything under /api is answered with JSON that a
+ * machine client can actually parse, never with an HTML error page.
+ *
+ * These cases share the terminal-404 contract but are a SEPARATE defect: they
+ * were deliberately not folded into the QLE-2026-0022 fix.
+ */
+describe('DentAI Server - API error contract (QLE-2026-0042)', () => {
+  it('answers a malformed JSON body with 400 JSON, never HTML', async () => {
+    const res = await request(app)
+      .post('/api/consultations')
+      .set('Content-Type', 'application/json')
+      .send('{"broken": ');
+    expect(res.status).toBe(400);
+    expect(res.headers['content-type']).toMatch(/application\/json/);
+    expect(res.body).toEqual({ error: 'Request body is not valid JSON.', code: 'INVALID_JSON' });
+    expect(res.text).not.toContain('<html');
+  });
+
+  it('answers a malformed body on an unknown API route with 400 JSON, not 404', async () => {
+    // The body is parsed before routing, so an unparseable body is a request
+    // fault regardless of whether the path exists. Asserting the precedence
+    // keeps the two contracts from silently swapping.
+    const res = await request(app)
+      .post('/api/__definitely_missing__')
+      .set('Content-Type', 'application/json')
+      .send('not json at all');
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('INVALID_JSON');
+    expect(res.text).not.toContain('<html');
+  });
+
+  it('answers an oversized body with 413 JSON, never HTML', async () => {
+    // express.json() is mounted with limit: '1mb' — exceed it deliberately.
+    const res = await request(app)
+      .post('/api/consultations')
+      .set('Content-Type', 'application/json')
+      .send('{"x":"' + 'a'.repeat(1_200_000) + '"}');
+    expect(res.status).toBe(413);
+    expect(res.headers['content-type']).toMatch(/application\/json/);
+    expect(res.body.code).toBe('PAYLOAD_TOO_LARGE');
+    expect(res.text).not.toContain('<html');
+  });
+
+  it('leaves valid JSON handling untouched (unknown route still 404 JSON)', async () => {
+    const res = await request(app)
+      .post('/api/__definitely_missing__')
+      .set('Content-Type', 'application/json')
+      .send({ hello: 'world' });
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ error: 'API endpoint not found', code: 'API_NOT_FOUND' });
+  });
+
+  it('keeps the known API route functional with a valid body', async () => {
+    const res = await request(app).get('/api/health');
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('ok');
+  });
+});
