@@ -60,6 +60,30 @@ function cleanNamePart(value: unknown): string {
     .slice(0, MAX_NAME_LENGTH);
 }
 
+/**
+ * QLE-2026-0016: the route used to read `dob` only, so an integrator sending the
+ * documented `dateOfBirth` alias had it silently dropped — a patient chart then
+ * stored with no date of birth, which weakens the DOB-conflict rule in identity
+ * resolution. A non-empty date must be a real YYYY-MM-DD calendar date; anything
+ * else is refused rather than stored as unvalidated identity data. An absent
+ * date stays absent (never invented).
+ */
+export function parsePatientDob(body: any): { value: string } | { error: string } {
+  const raw = body?.dob ?? body?.dateOfBirth;
+  if (raw === undefined || raw === null) return { value: '' };
+  if (typeof raw !== 'string') return { error: 'Date of birth must be a YYYY-MM-DD string.' };
+  const value = raw.trim();
+  if (!value) return { value: '' };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return { error: 'Date of birth must be a valid YYYY-MM-DD date.' };
+  }
+  const parsed = new Date(`${value}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) {
+    return { error: 'Date of birth must be a valid YYYY-MM-DD date.' };
+  }
+  return { value };
+}
+
 function candidateDto(p: PatientRecord): PatientCandidateDto {
   return { id: p.id, name: patientDisplayName(p), dob: p.dob || '' };
 }
@@ -192,11 +216,16 @@ export function registerPatientRoutes(app: any, deps: PatientRouteDeps): void {
         return res.status(400).json({ error: 'A patient first name or last name is required.' });
       }
 
+      const dob = parsePatientDob(req.body);
+      if ('error' in dob) {
+        return res.status(400).json({ error: dob.error, code: 'INVALID_DOB' });
+      }
+
       const input: ResolveInput = {
         clinicId,
         firstName,
         lastName,
-        dob: typeof req.body?.dob === 'string' ? req.body.dob.trim() : '',
+        dob: dob.value,
         phone: typeof req.body?.phone === 'string' ? req.body.phone : undefined
       };
 
@@ -257,11 +286,16 @@ export function registerPatientRoutes(app: any, deps: PatientRouteDeps): void {
         return res.status(400).json({ error: 'A patient first name or last name is required.' });
       }
 
+      const dob = parsePatientDob(req.body);
+      if ('error' in dob) {
+        return res.status(400).json({ error: dob.error, code: 'INVALID_DOB' });
+      }
+
       const patient = await deps.store.create({
         clinicId,
         firstName,
         lastName,
-        dob: typeof req.body?.dob === 'string' ? req.body.dob.trim() : '',
+        dob: dob.value,
         phone: typeof req.body?.phone === 'string' ? req.body.phone : undefined,
         createdBy: req.dentist.id
       });
