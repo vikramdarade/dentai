@@ -25,6 +25,7 @@ import {
   AuthUser
 } from './utils/storage';
 import { DayScheduleItem, updateScheduleItem, formatNoteForPmsClipboard } from './lib/dayScheduleStorage';
+import { createConsultationListStore, upsertConsultation, mergeConsultationLists } from './lib/consultationList';
 import ChairsideWorkspace from './components/ChairsideWorkspace';
 
 type ViewType = 'workspace' | 'history';
@@ -76,6 +77,26 @@ export default function App() {
   const [consultations, setConsultations] = useState<Consultation[]>(() => {
     return getLocalConsultations() || [];
   });
+  // QLE-2026-0012: one synchronous source of truth for the consultation list.
+  //
+  // Every write used to compute the next list from the `consultations` value
+  // captured by the current render, so two overlapping saves (type in A's note,
+  // click B before A's PUT resolves) both started from the same pre-update
+  // snapshot and the second setConsultations reverted the first save's entry;
+  // that reverted list was then mirrored to localStorage and round-tripped to
+  // the server on the next save. `consultationsStore` is updated *synchronously*
+  // by `applyConsultations`, so its read() is never a render behind — which a
+  // ref synced in an effect would be.
+  const consultationsStore = useRef(createConsultationListStore<Consultation>(consultations));
+  // QLE-2026-0009: ids whose save has been sent but not settled. A poll response
+  // that arrives in that window must not overwrite them.
+  const inFlightSaveIdsRef = useRef<Set<string>>(new Set());
+  const applyConsultations = useCallback(
+    (updater: Consultation[] | ((prev: Consultation[]) => Consultation[])) => {
+      setConsultations(consultationsStore.current.apply(updater));
+    },
+    []
+  );
   const [selectedConsultation, setSelectedConsultation] = useState<Consultation | null>(null);
 
   // Phase 12F: a refused (409 stale) write is a visible conflict, never a
@@ -111,7 +132,7 @@ export default function App() {
       setCurrentUser(user);
       const local = getLocalConsultations(user.id);
       if (local) {
-        setConsultations(local);
+        applyConsultations(local);
       }
 
       // Verify token with backend silently without aggressive session drop
@@ -242,7 +263,7 @@ export default function App() {
       if (!res.ok) return;
       const data = await res.json();
       if (!Array.isArray(data)) return;
-      setConsultations(prev => {
+      applyConsultations(prev => {
         const map = new Map<string, Consultation>();
         prev.forEach(c => map.set(c.id, c));
         data.forEach((c: Consultation) => {
@@ -304,7 +325,7 @@ export default function App() {
   // records so notes never leak between clinics.
   useEffect(() => {
     if (!authToken || !currentUser) {
-      setConsultations([]);
+      applyConsultations([]);
       return;
     }
     fetchConsultations();
@@ -409,20 +430,27 @@ export default function App() {
         const local = getLocalConsultations(usr.id) || [];
         const myLocal = local.filter((c: Consultation) => !c.dentistId || c.dentistId === usr.id);
 
-        // Crucial for cross-device sync: Add local baseline first, then server data overwrites with latest
-        const mergedMap = new Map<string, Consultation>();
-        myLocal.forEach((c: Consultation) => mergedMap.set(c.id, { ...c, dentistId: c.dentistId || usr.id }));
-        myServerData.forEach((c: Consultation) => mergedMap.set(c.id, { ...c, dentistId: c.dentistId || usr.id }));
-
-        const merged = Array.from(mergedMap.values());
-        setConsultations(merged);
+        // Crucial for cross-device sync: local baseline first, then server data
+        // overwrites with the latest — EXCEPT for records whose save has not
+        // settled yet (QLE-2026-0009): a poll response must never revert work
+        // that is still being written, or the reverted record seeds the next PUT
+        // with a stale expectedVersion and loops on 409.
+        const inFlight = inFlightSaveIdsRef.current;
+        const stillSaving = inFlight.size > 0
+          ? consultationsStore.current.read().filter((c) => inFlight.has(c.id))
+          : [];
+        const merged = mergeConsultationLists(
+          myLocal.map((c: Consultation) => ({ ...c, dentistId: c.dentistId || usr.id })),
+          myServerData.map((c: Consultation) => ({ ...c, dentistId: c.dentistId || usr.id })),
+          stillSaving
+        );
+        applyConsultations(merged);
         saveLocalConsultations(merged, usr.id);
       }
     } catch (err) {
       console.warn('Failed to fetch consultations from server, falling back to local cache:', err);
       const cached = getLocalConsultations(usr?.id);
-      if (cached && cached.length > 0) {
-        setConsultations(cached.filter((c: Consultation) => !c.dentistId || c.dentistId === usr?.id));
+      if (cached && cached.length > 0) {          applyConsultations(cached.filter((c: Consultation) => !c.dentistId || c.dentistId === usr?.id));
       }
     }
   };
@@ -437,9 +465,9 @@ export default function App() {
     fetchConsultations(token, dentist);
     const local = getLocalConsultations(dentist.id);
     if (local) {
-      setConsultations(local);
+      applyConsultations(local);
     } else {
-      setConsultations([]);
+      applyConsultations([]);
     }
     setView('workspace');
   };
@@ -461,11 +489,19 @@ export default function App() {
     setClinics([]);
     setActiveClinicId(null);
     setMemberNames({});
-    // NOTE: the in-progress consultation (active intake + sessionStorage
-    // transcript) is deliberately NOT cleared here — logging out mid-consult must
-    // never destroy unsaved clinical work. On the next login the intake is
-    // restored and the recording resumes with its full transcript.
-    setConsultations([]);
+    // QLE-2026-0001: this used to claim that signing out cannot destroy
+    // unsaved clinical work, while the two statements beneath it cleared the
+    // consultation state — a documented guarantee the code did not implement.
+    // The accurate current behaviour is:
+    //   * a COMPLETED (and server-persisted) record survives, because it is in
+    //     the durable store and in the per-dentist local cache;
+    //   * an IN-PROGRESS chairside scratchpad does NOT survive: its note text and
+    //     captured lines live only in the workspace component's memory, and
+    //     unmounting the workspace discards them.
+    // The workspace therefore refuses to sign out silently while unsaved
+    // clinical work exists (it asks the clinician to confirm discarding it).
+    // Preserving the scratchpad itself remains a product decision.
+    applyConsultations([]);
     setSelectedConsultation(null);
     setView('history');
   };
@@ -544,16 +580,11 @@ export default function App() {
       clinicId: updated.clinicId || (activeClinic?.clinicId ? activeClinic.clinicId : undefined)
     };
     // Immediately persist locally (sanitised by saveLocalConsultations)
-    const index = consultations.findIndex((c) => c.id === updatedWithDentist.id);
-    let newList = [...consultations];
+    const upsert = upsertConsultation(consultationsStore.current.read(), updatedWithDentist);
+    const index = upsert.index;
+    const newList = upsert.list;
 
-    if (index >= 0) {
-      newList[index] = updatedWithDentist;
-    } else {
-      newList = [updatedWithDentist, ...newList];
-    }
-
-    setConsultations(newList);
+    applyConsultations(newList);
     if (currentUser?.id) {
       saveLocalConsultations(newList, currentUser.id);
     }
@@ -563,6 +594,7 @@ export default function App() {
 
     if (!authToken) return;
 
+    inFlightSaveIdsRef.current.add(updatedWithDentist.id);
     try {
       const isNew = index === -1;
       const url = isNew ? '/api/consultations' : `/api/consultations/${updatedWithDentist.id}`;
@@ -586,8 +618,10 @@ export default function App() {
       if (res.ok) {
         const saved = await res.json();
         removePendingSync(updatedWithDentist.id);
-        const syncedList = newList.map(c => c.id === updatedWithDentist.id ? saved : c);
-        setConsultations(syncedList);
+        // Merge the server echo into whatever the list is *now*: a newer save for
+        // another encounter may have landed while this PUT was in flight.
+        const syncedList = consultationsStore.current.read().map(c => c.id === updatedWithDentist.id ? saved : c);
+        applyConsultations(syncedList);
         if (currentUser?.id) {
           saveLocalConsultations(syncedList, currentUser.id);
         }
@@ -607,8 +641,8 @@ export default function App() {
           serverRecord
         });
         if (serverRecord) {
-          const reconciled = newList.map(c => c.id === serverRecord.id ? serverRecord : c);
-          setConsultations(reconciled);
+          const reconciled = consultationsStore.current.read().map(c => c.id === serverRecord.id ? serverRecord : c);
+          applyConsultations(reconciled);
           if (currentUser?.id) {
             saveLocalConsultations(reconciled, currentUser.id);
           }
@@ -619,6 +653,10 @@ export default function App() {
     } catch (err) {
       console.warn('Failed to sync consultation update to backend; queued for retry.', err);
       queuePendingSync(updatedWithDentist);
+    } finally {
+      // The save has settled (accepted, conflicted, queued or failed), so the
+      // poll owns this record again.
+      inFlightSaveIdsRef.current.delete(updatedWithDentist.id);
     }
   };
 
