@@ -78,6 +78,7 @@ import {
   dbDeleteDentist,
   dbListConsultations,
   dbGetConsultationById,
+  dbConsultationExistsById,
   dbInsertConsultation,
   dbUpdateConsultation,
   dbAppendAudit,
@@ -3663,11 +3664,71 @@ app.get('/api/consultations', authenticateToken, async (req: any, res) => {
   }
 });
 
+/**
+ * QLE-2026-0014: a consultation must document something. A record carries a
+ * patient identity (who) or clinical content (what), and a body with neither is
+ * an empty shell — previously accepted as a blank, blank-consent record that
+ * only the downstream sign gate refused. The gate is deliberately narrow: the
+ * daysheet-import and chairside quick-start paths always carry a patient name,
+ * and any transcribed or dictated content counts, so nothing legitimate is
+ * rejected.
+ */
+function consultationHasMinimums(payload: any): boolean {
+  const hasIdentity = [payload.firstName, payload.lastName, payload.patientId].some(
+    (v) => (typeof v === 'string' ? v.trim().length > 0 : Boolean(v))
+  );
+  if (hasIdentity) return true;
+
+  if (Array.isArray(payload.transcript) && payload.transcript.length > 0) return true;
+  if (typeof payload.patientSummary === 'string' && payload.patientSummary.trim().length > 0) return true;
+  if (typeof payload.note === 'string' && payload.note.trim().length > 0) return true;
+
+  const findings = payload.findings;
+  if (findings && typeof findings === 'object') {
+    const hasContent = Object.values(findings).some((v) => {
+      if (typeof v === 'string') return v.trim().length > 0;
+      if (Array.isArray(v)) return v.length > 0;
+      if (v && typeof v === 'object') return Object.keys(v).length > 0;
+      return Boolean(v);
+    });
+    if (hasContent) return true;
+  }
+  return false;
+}
+
 app.post('/api/consultations', authenticateToken, async (req: any, res) => {
   try {
     const consultation = req.body;
     if (!consultation || typeof consultation !== 'object') {
       return res.status(400).json({ error: 'Invalid consultation payload.' });
+    }
+
+    // QLE-2026-0014: refuse a body that documents neither a patient nor any
+    // clinical content, rather than minting a blank record.
+    if (!consultationHasMinimums(consultation)) {
+      return res.status(400).json({
+        error: 'A consultation requires a patient identity or clinical content.',
+        code: 'CONSULTATION_REQUIRED_FIELDS',
+      });
+    }
+
+    // QLE-2026-0015: an id collision must never silently replace an existing
+    // clinical record. JSON mode used to overwrite the stored record and answer
+    // 201 (data loss disguised as success) while Postgres ignored the duplicate
+    // — the same request produced different clinical outcomes per storage mode.
+    // Both modes now refuse it explicitly. A record the caller supplied must not
+    // be allowed to land on top of a record that already exists.
+    const suppliedId = typeof consultation.id === 'string' ? consultation.id.trim() : '';
+    if (suppliedId) {
+      const idTaken = dbEnabled
+        ? await dbConsultationExistsById(suppliedId)
+        : (await readConsultationsDb()).consultations.some((c: any) => c.id === suppliedId);
+      if (idTaken) {
+        return res.status(409).json({
+          error: 'A consultation with this id already exists.',
+          code: 'CONSULTATION_ID_CONFLICT',
+        });
+      }
     }
 
     // Sanitize patient details in body
@@ -3738,12 +3799,11 @@ app.post('/api/consultations', authenticateToken, async (req: any, res) => {
       await dbInsertConsultation(newConsultation);
     } else {
       const consultationsData = await readConsultationsDb();
-      const existingIdx = consultationsData.consultations.findIndex((c: any) => c.id === newConsultation.id);
-      if (existingIdx !== -1) {
-        consultationsData.consultations[existingIdx] = newConsultation;
-      } else {
-        consultationsData.consultations.unshift(newConsultation);
-      }
+      // First write wins, the same shape as the Postgres ON CONFLICT DO NOTHING
+      // insert. The collision check above is the user-visible contract; this is
+      // the race-safe backstop so a concurrent duplicate can still never
+      // overwrite an existing record.
+      insertConsultationDeduped(consultationsData, newConsultation);
       await writeConsultationsDb(consultationsData);
     }
     logAudit('consultation_created', req.dentist.id, { consultationId: newConsultation.id });

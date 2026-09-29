@@ -1593,3 +1593,85 @@ describe('DentAI Server - API error contract (QLE-2026-0042)', () => {
     expect(res.body.status).toBe('ok');
   });
 });
+
+/**
+ * QLE-2026-0014 — a consultation must document something (a patient, or actual
+ * clinical content). An empty body used to mint a blank, blank-consent record.
+ *
+ * QLE-2026-0015 — an id collision must never silently replace an existing
+ * clinical record. JSON mode used to overwrite and answer 201 while Postgres
+ * ignored the duplicate, so the same request had different clinical outcomes
+ * per storage mode.
+ */
+describe('DentAI Server - consultation create contract (QLE-2026-0014 / QLE-2026-0015)', () => {
+  let token: string;
+
+  beforeAll(async () => {
+    const reg = await request(app)
+      .post('/api/auth/register')
+      .send({ name: `Dr. Create Contract ${Math.random().toString(36).slice(2, 8)}`, specialty: 'Testing', pin: '6031' });
+    expect(reg.status).toBe(201);
+    token = reg.body.token;
+  });
+
+  it('refuses a body that documents neither a patient nor clinical content', async () => {
+    const res = await request(app)
+      .post('/api/consultations')
+      .set('Authorization', `Bearer ${token}`)
+      .send({});
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('CONSULTATION_REQUIRED_FIELDS');
+  });
+
+  it('refuses a bare id/date shell with no patient and no content', async () => {
+    const res = await request(app)
+      .post('/api/consultations')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ id: `shell-${Date.now()}`, date: '2026-09-28', status: 'In Review' });
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('CONSULTATION_REQUIRED_FIELDS');
+  });
+
+  it('still accepts a minimal but real consultation (patient identity present)', async () => {
+    const res = await request(app)
+      .post('/api/consultations')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ firstName: 'Minimal', lastName: 'Patient', dob: '1990-01-01', appointmentType: 'examination' });
+    expect(res.status).toBe(201);
+  });
+
+  it('accepts a nameless consultation that carries real transcribed content', async () => {
+    const res = await request(app)
+      .post('/api/consultations')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        appointmentType: 'examination',
+        transcript: [{ sender: 'Dentist', text: 'Upper right discomfort, tooth 16 tender to percussion.' }],
+      });
+    expect(res.status).toBe(201);
+  });
+
+  it('refuses to overwrite an existing record when the client reuses its id', async () => {
+    const id = `collision-${Date.now()}`;
+    const first = await request(app)
+      .post('/api/consultations')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ id, firstName: 'Collision', lastName: 'One', dob: '1980-01-01', appointmentType: 'examination', findings: { chiefComplaint: 'First' } });
+    expect(first.status).toBe(201);
+
+    const second = await request(app)
+      .post('/api/consultations')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ id, firstName: 'Collision', lastName: 'Two', dob: '1980-01-01', appointmentType: 'examination', findings: { chiefComplaint: 'Second' } });
+    expect(second.status).toBe(409);
+    expect(second.body.code).toBe('CONSULTATION_ID_CONFLICT');
+
+    // The stored record is untouched: no silent overwrite and no data loss
+    // disguised as a successful write.
+    const list = await request(app).get('/api/consultations').set('Authorization', `Bearer ${token}`);
+    const stored = list.body.find((c: any) => c.id === id);
+    expect(stored).toBeTruthy();
+    expect(stored.findings.chiefComplaint).toBe('First');
+    expect(stored.lastName).toBe('One');
+  });
+});
