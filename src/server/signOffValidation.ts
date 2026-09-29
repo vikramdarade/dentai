@@ -205,7 +205,11 @@ export function createSignOffValidator(deps: SignOffDeps) {
             .catch(() => {});
           return { ok: false, reason: 'replay', message: 'Duplicate sign-off request detected.' };
         }
-        consumedNonces.add(request.requestNonce);
+        // The nonce is NOT consumed here. Every gate below (empty note,
+        // grounding, consent) and every failure can still refuse this request,
+        // and burning the nonce on a refusal made an otherwise-retryable
+        // sign-off answer 409 REPLAY with no seal persisted (QLE-2026-0003). It
+        // is recorded once, immediately before the approval is returned.
       }
 
       // 4. Empty-note guard: a note with no clinical content cannot be signed.
@@ -299,6 +303,14 @@ export function createSignOffValidator(deps: SignOffDeps) {
             message: 'The attestation could not be durably recorded. The record was NOT signed — please try again.',
           };
         }
+      }
+
+      // The seal is durable (or persistence was opted out) — now the nonce is
+      // spent. Consuming it only after success keeps a rejected or failed
+      // request retryable with the same nonce while still refusing a genuine
+      // duplicate submission.
+      if (request.requestNonce) {
+        consumedNonces.add(request.requestNonce);
       }
 
       void Promise.resolve(deps.logAudit('consultation_signed_off', dentistId, {

@@ -311,17 +311,27 @@ describe('Phase 12H: server sign-off / stale-write gates consumed by the UI', ()
     expect(res.body.recordVersion).toBe(approvedVersion);
   });
 
-  it('T8: replaying a consumed sign-off nonce is refused 409 REPLAY', async () => {
-    const nonce = `replay-check-${approvedId}`;
+  it('T8: a refused sign-off does NOT burn the replay nonce (QLE-2026-0003)', async () => {
+    const nonce = `replay-check-${unapprovedId}`;
     const first = await request(app).post(`/api/consultations/${unapprovedId}/sign`)
       .set('Authorization', `Bearer ${token}`)
       .send({ expectedVersion: 1, requestNonce: nonce });
-    // The nonce is consumed even though this request is refused for grounding —
-    // consuming on attempt is the fail-closed behaviour under test.
-    expect([200, 422]).toContain(first.status);
-    const replay = await request(app).post(`/api/consultations/${unapprovedId}/sign`)
+    expect(first.status).toBe(422);
+    expect(first.body.code).toBe('GROUNDING_NOT_APPROVED');
+    // The clinician fixes whatever blocked them and retries with the same nonce.
+    // Burning the nonce on a refusal dead-ended the retry as 409 REPLAY while no
+    // seal existed — the defect. The nonce is spent only once a seal is durable.
+    const retry = await request(app).post(`/api/consultations/${unapprovedId}/sign`)
       .set('Authorization', `Bearer ${token}`)
       .send({ expectedVersion: 1, requestNonce: nonce });
+    expect(retry.status).toBe(422);
+    expect(retry.body.code).toBe('GROUNDING_NOT_APPROVED');
+  });
+
+  it('T8b: re-signing an already-sealed record is refused 409 REPLAY', async () => {
+    const replay = await request(app).post(`/api/consultations/${approvedId}/sign`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ expectedVersion: approvedVersion, requestNonce: `replay-check-${approvedId}` });
     expect(replay.status).toBe(409);
     expect(replay.body.code).toBe('REPLAY');
   });

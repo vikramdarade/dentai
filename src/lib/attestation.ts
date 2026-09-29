@@ -34,7 +34,14 @@ export interface AttestationSeal {
 export function buildCanonicalTextDigest(consultation: Consultation): string {
   const parts: string[] = [];
 
-  parts.push(`PATIENT:${consultation.firstName.trim().toLowerCase()} ${consultation.lastName.trim().toLowerCase()}`);
+  // Names are optional on a stored record (records imported from a daysheet or
+  // captured before identity was entered have none). An unguarded .trim() here
+  // threw a TypeError that surfaced as a 500 on the sign-off route, so the
+  // digest must tolerate absent name fields exactly like the sign gate's
+  // canonicalizer already does.
+  const firstName = (consultation.firstName ?? '').trim().toLowerCase();
+  const lastName = (consultation.lastName ?? '').trim().toLowerCase();
+  parts.push(`PATIENT:${firstName} ${lastName}`);
   parts.push(`DOB:${consultation.dob || ''}`);
   parts.push(`APPOINTMENT:${consultation.appointmentType || ''}`);
   parts.push(`TEMPLATE:${consultation.templateId || 'standard'}`);

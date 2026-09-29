@@ -174,3 +174,54 @@ describe('Server-side sign-off revalidation (F-4)', () => {
     }
   });
 });
+
+/**
+ * QLE-2026-0003 — a record with no patient name fields is a reachable shape
+ * (daysheet imports, records captured before identity was entered). It used to
+ * throw a TypeError in the seal building, surfacing as a 500 and dead-ending
+ * finalisation. A refused sign-off must also not burn its replay nonce.
+ */
+describe('Sign-off robustness (QLE-2026-0003)', () => {
+  it('signs a nameless record instead of throwing a 500', async () => {
+    const store = new Map<string, Consultation>();
+    const { validator } = makeValidator(store);
+    store.set('c-1', consultation({ firstName: undefined, lastName: undefined }));
+
+    const result = await validator.validate('c-1', 'd-1', { expectedVersion: 3 });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.seal.signatureHash).toMatch(/^[0-9a-f]{64}$/);
+      expect(result.seal.contentDigest).toMatch(/^[0-9a-f]{64}$/);
+    }
+  });
+
+  it('does not consume the replay nonce when the sign-off is refused', async () => {
+    const store = new Map<string, Consultation>();
+    const { validator } = makeValidator(store);
+    store.set('c-1', consultation({ groundingAudit: undefined }));
+
+    const refused = await validator.validate('c-1', 'd-1', { expectedVersion: 3, requestNonce: 'nonce-retry' });
+    expect(refused).toMatchObject({ ok: false, reason: 'grounding_not_approved' });
+
+    // The blocking condition is resolved and the SAME request is retried — it
+    // must be able to succeed rather than answering 409 REPLAY.
+    store.set('c-1', consultation());
+    const retried = await validator.validate('c-1', 'd-1', { expectedVersion: 3, requestNonce: 'nonce-retry' });
+    expect(retried.ok).toBe(true);
+  });
+
+  it('still refuses a genuine duplicate nonce after a successful sign-off', async () => {
+    const store = new Map<string, Consultation>();
+    const { validator } = makeValidator(store);
+    store.set('c-1', consultation());
+
+    const first = await validator.validate('c-1', 'd-1', { expectedVersion: 3, requestNonce: 'nonce-once' });
+    expect(first.ok).toBe(true);
+
+    // Same nonce, unsigned copy again (as if the seal write were rolled back) —
+    // the consumed nonce must still refuse it.
+    store.set('c-1', consultation());
+    const replay = await validator.validate('c-1', 'd-1', { expectedVersion: 3, requestNonce: 'nonce-once' });
+    expect(replay).toMatchObject({ ok: false, reason: 'replay' });
+  });
+});
