@@ -41,6 +41,7 @@ import {
   mergeScheduleItems,
   calculateDailyProduction,
   generateSafeUuid,
+  mintScheduleItemId,
   parseTimeToMinutes
 } from '../lib/dayScheduleStorage';
 import { AppointmentType, APPOINTMENT_TYPES, getAppointmentTypeLabel } from '../lib/dentalLibrary';
@@ -230,7 +231,7 @@ export default function DayScheduleQueue({
 
           const data = await res.json();
           const newAppointments: DayScheduleItem[] = (data.appointments || []).map((app: any) => ({
-            id: `sched_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+            id: mintScheduleItemId(),
             time: app.time || '09:00',
             patientName: app.patientName || 'Unknown Patient',
             procedureText: app.procedureText || 'General Consultation',

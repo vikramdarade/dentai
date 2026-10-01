@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeEach, beforeAll, afterAll, vi } from 'vitest';
 import request from 'supertest';
 import fs from 'fs';
 import path from 'path';
@@ -21,6 +21,8 @@ import {
   generateSlotFingerprint,
   findScheduleItemBySlot,
   mergeScheduleItems,
+  mintScheduleItemId,
+  generateSafeUuid,
   calculateDailyProduction,
   parseTimeToMinutes
 } from '../src/lib/dayScheduleStorage';
@@ -816,6 +818,109 @@ describe('Async Note Jobs API with Verbal Consent Audit Logging', () => {
     expect(res.status).toBe(202);
     expect(res.body).toHaveProperty('jobId');
     expect(res.body.status).toBe('queued');
+  });
+});
+
+describe('Day-sheet row identity', () => {
+  const testDate = '2026-09-14';
+
+  beforeEach(() => {
+    clearTodaySchedule(testDate);
+  });
+
+  it('mints distinct ids for a whole import batch inside a single millisecond', () => {
+    // A day-sheet import (and a vision parse) mints many rows at once, so the
+    // id must not need luck to stay distinct — it is built from the clock and
+    // a counter, never from Math.random.
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date('2026-09-14T08:00:00.000Z'));
+      const ids = new Set<string>();
+      for (let i = 0; i < 40; i++) {
+        const row = addScheduleItem(
+          {
+            time: `${String(9 + Math.floor(i / 60)).padStart(2, '0')}:${String(i % 60).padStart(2, '0')}`,
+            patientName: `Batch Patient ${i}`,
+            procedureText: 'Check up',
+            appointmentType: 'examination',
+            templateId: 'standard',
+            source: 'snip'
+          },
+          testDate
+        );
+        expect(row.id).toMatch(/^sched_\d+_[a-z0-9]+$/);
+        ids.add(row.id);
+      }
+      expect(ids.size).toBe(40);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('mints an id for a genuinely new row in a merge, and keeps the id a row already has', () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date('2026-09-14T09:00:00.000Z'));
+      const kept: DayScheduleItem = {
+        id: 'sched_1758000000000_kept',
+        time: '09:30',
+        patientName: 'Kept Patient',
+        procedureText: 'Existing',
+        appointmentType: 'examination',
+        templateId: 'standard',
+        status: 'ready',
+        source: 'snip'
+      };
+      const merged = mergeScheduleItems(
+        [kept],
+        [
+          { ...kept },
+          {
+            ...kept,
+            id: '',
+            time: '10:00',
+            patientName: 'New Patient A'
+          },
+          {
+            ...kept,
+            id: '',
+            time: '10:30',
+            patientName: 'New Patient B'
+          }
+        ],
+        testDate
+      );
+      const byName = new Map(merged.map((row) => [row.patientName, row]));
+      expect(byName.get('Kept Patient')?.id).toBe('sched_1758000000000_kept');
+      const a = byName.get('New Patient A')?.id ?? '';
+      const b = byName.get('New Patient B')?.id ?? '';
+      expect(a).toMatch(/^sched_\d+_[a-z0-9]+$/);
+      expect(b).toMatch(/^sched_\d+_[a-z0-9]+$/);
+      expect(a).not.toBe(b);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('never repeats a minted row id inside one realm', () => {
+    const ids = new Set<string>();
+    for (let i = 0; i < 500; i++) ids.add(mintScheduleItemId());
+    expect(ids.size).toBe(500);
+  });
+
+  it('the consultation-id fallback stays unique without WebCrypto', () => {
+    vi.stubGlobal('crypto', undefined);
+    try {
+      const ids = new Set<string>();
+      for (let i = 0; i < 200; i++) {
+        const id = generateSafeUuid();
+        expect(id).toMatch(/^consult_\d+_[a-z0-9]+$/);
+        ids.add(id);
+      }
+      expect(ids.size).toBe(200);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
 
