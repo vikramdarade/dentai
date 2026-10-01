@@ -73,6 +73,33 @@ function removeStorageItem(key: string): void {
   }
 }
 
+/**
+ * Ids minted for the day sheet name *things* — a row in the sheet, a visit —
+ * so they need uniqueness, never secrecy: none of them is a token, and nothing
+ * authorises by knowing one. They are therefore built from the clock plus a
+ * counter that only ever rises, never from `Math.random`.
+ *
+ * That is also strictly stronger where it matters. A day-sheet import mints a
+ * whole batch of rows inside a single millisecond, and a counter makes an
+ * accidental repeat impossible there instead of merely improbable. The shape
+ * is unchanged, so stored rows, their links and ids already written keep
+ * working: a row arriving from another profile is matched by slot fingerprint
+ * (`generateSlotFingerprint`) rather than by id, and a consultation id that
+ * collides with one already on the server is refused by the create route
+ * rather than merging two charts.
+ */
+let idTick = 0;
+
+function mintIdSuffix(): string {
+  idTick += 1;
+  return idTick.toString(36);
+}
+
+/** Mint the id of a row on the day sheet: `sched_<clock>_<tick>`. */
+export function mintScheduleItemId(): string {
+  return `sched_${Date.now()}_${mintIdSuffix()}`;
+}
+
 export function generateSafeUuid(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     try {
@@ -81,7 +108,7 @@ export function generateSafeUuid(): string {
       // Insecure context fallback
     }
   }
-  return `consult_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+  return `consult_${Date.now()}_${mintIdSuffix()}`;
 }
 
 export function getTodayDateStr(): string {
@@ -168,7 +195,7 @@ export function addScheduleItem(
   const current = loadTodaySchedule(dateStr);
   const newItem: DayScheduleItem = {
     ...item,
-    id: `sched_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+    id: mintScheduleItemId(),
     status: item.status || 'ready'
   };
   const updated = [...current, newItem].sort((a, b) => parseTimeToMinutes(a.time) - parseTimeToMinutes(b.time));
@@ -232,6 +259,26 @@ export function generateSlotFingerprint(date: string, time: string, patientName:
 }
 
 /**
+ * The day-sheet row a slot already is, if this schedule carries one.
+ *
+ * Identity for a scheduled appointment is (date, start time, patient name) —
+ * the same triple a PMS re-paste dedupes on. An import must FIND that row
+ * rather than append a second one for the same appointment, because the row is
+ * what carries the encounter link and the consent captured at the desk.
+ */
+export function findScheduleItemBySlot(
+  items: DayScheduleItem[],
+  dateStr: string,
+  time: string,
+  patientName: string
+): DayScheduleItem | undefined {
+  const fingerprint = generateSlotFingerprint(dateStr, time, patientName);
+  return items.find(
+    (item) => generateSlotFingerprint(dateStr, item.time, item.patientName) === fingerprint
+  );
+}
+
+/**
  * 3-Way Merge Algorithm: merges newly parsed PMS appointment snips into the current roster
  * with 100% deduplication and immutability guarantees.
  */
@@ -278,7 +325,7 @@ export function mergeScheduleItems(
       // RULE 3: Brand new appointment from PMS
       mergedResult.push({
         ...incomingItem,
-        id: incomingItem.id || `sched_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        id: incomingItem.id || mintScheduleItemId(),
         status: incomingItem.status || 'ready',
         source: 'snip'
       });

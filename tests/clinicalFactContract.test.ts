@@ -650,3 +650,63 @@ describe('Phase 3 Contract: ClinicalFact Trust Boundary, Discriminated Types & D
     });
   });
 });
+
+describe('enum membership at the ClinicalFact trust boundary (QLE-2026-0005)', () => {
+  const base = {
+    type: 'procedure' as const,
+    speaker: 'clinician' as const,
+    evidenceType: 'clinician_observed' as const,
+    value: { name: 'Composite restoration' },
+    evidence: [] as any[]
+  };
+
+  it('refuses an uppercase status/temporal pair the matrix would otherwise miss', () => {
+    // Before the guard, status 'PERFORMED' matched no branch of the matrix (it
+    // compares lowercase literals), so a procedure documented as performed at a
+    // future appointment was admitted as a canonical, valid fact.
+    const result = createCanonicalClinicalFact({
+      ...base, status: 'PERFORMED' as any, temporal: 'FUTURE' as any
+    });
+    expect(result.success).toBe(false);
+    if (result.success === false) {
+      expect(result.errors.join(' ')).toContain('Temporal Conflict');
+    }
+  });
+
+  it('refuses invented enum values instead of defaulting them', () => {
+    const badSpeaker = createCanonicalClinicalFact({ ...base, speaker: 'robot' as any });
+    expect(badSpeaker.success).toBe(false);
+    if (badSpeaker.success === false) expect(badSpeaker.errors.join(' ')).toContain('speaker');
+
+    const badEvidence = createCanonicalClinicalFact({ ...base, evidenceType: 'made_up' as any });
+    expect(badEvidence.success).toBe(false);
+    if (badEvidence.success === false) expect(badEvidence.errors.join(' ')).toContain('evidenceType');
+
+    const badStatus = createCanonicalClinicalFact({ ...base, status: 'done' as any });
+    expect(badStatus.success).toBe(false);
+    if (badStatus.success === false) expect(badStatus.errors.join(' ')).toContain('status');
+  });
+
+  it('normalises a recognised case/whitespace variant to the canonical member', () => {
+    const result = createCanonicalClinicalFact({
+      ...base, status: '  Performed ' as any, temporal: 'Completed_Today' as any, certainty: 'CERTAIN' as any
+    });
+    expect(result.success).toBe(true);
+    if (result.success === true) {
+      expect(result.fact.status).toBe('performed');
+      expect(result.fact.temporal).toBe('completed_today');
+      expect(result.fact.certainty).toBe('certain');
+    }
+  });
+
+  it('keeps a valid canonical candidate admissible (adjacent behaviour)', () => {
+    const result = createCanonicalClinicalFact({
+      ...base, status: 'performed', temporal: 'completed_today'
+    });
+    expect(result.success).toBe(true);
+    if (result.success === true) {
+      expect(result.fact.validationState).toBe('valid');
+      expect(result.fact.status).toBe('performed');
+    }
+  });
+});

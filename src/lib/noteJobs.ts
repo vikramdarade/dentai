@@ -52,6 +52,26 @@ export function backoffDelayMs(attempt: number): number {
   return Math.min(delay, JOB_CONFIG.backoffMaxMs);
 }
 
+/**
+ * How long a client may poll a queued note job before giving up on it.
+ *
+ * The budget MUST outlast the worker's first retry (`backoffBaseMs`): when the
+ * client's deadline is shorter than the server's first backoff it abandons the
+ * job before the retry that would have completed it fires, renders the offline
+ * draft instead, and the durable job then completes server-side — two different
+ * notes for one encounter with no signal to the clinician (QLE-2026-0018).
+ *
+ * Kept here, next to the ladder it has to outlive, so the two cannot drift
+ * apart again. The poll interval keeps a 90s+ wait to a handful of requests;
+ * each poll opportunistically ticks the queue, so a busy client is also load.
+ */
+export const NOTE_JOB_CLIENT_POLL = {
+  /** Deadline measured from job submission. Covers retry 1 (45s) with margin. */
+  deadlineMs: JOB_CONFIG.backoffBaseMs * 2 + 5_000,
+  /** Interval between polls while waiting for the job to finish. */
+  intervalMs: 2_000
+} as const;
+
 /** True when the error from the hosted AI is a quota/rate-limit class error. */
 export function isQuotaError(err: { status?: number; message?: string }): boolean {
   const msg = (err.message || '').toLowerCase();

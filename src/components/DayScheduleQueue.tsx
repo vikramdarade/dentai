@@ -20,9 +20,11 @@ import {
   DollarSign,
   TrendingUp,
   MicOff,
-  CheckCircle2
+  CheckCircle2,
+  ExternalLink
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { NOTE_JOB_CLIENT_POLL } from '../lib/noteJobs';
 // Phase 12D: the client-side grounding recompute was removed — the queue is a
 // consumer of the server's verdict (verifyTranscriptGrounding stays
 // server-side), never a second implementation of it.
@@ -39,6 +41,7 @@ import {
   mergeScheduleItems,
   calculateDailyProduction,
   generateSafeUuid,
+  mintScheduleItemId,
   parseTimeToMinutes
 } from '../lib/dayScheduleStorage';
 import { AppointmentType, APPOINTMENT_TYPES, getAppointmentTypeLabel } from '../lib/dentalLibrary';
@@ -84,11 +87,34 @@ export default function DayScheduleQueue({
     setItems(updated);
   };
 
+  /**
+   * Open the encounter for a schedule slot.
+   *
+   * When the host provides `onStartRecording` (History Hub → workspace) the
+   * appointment starts THERE: the encounter is opened/minted with the row
+   * linked (`scheduleItemId` ↔ `consultationId`) and the consent captured on
+   * the row carried onto the record. Without a host callback the legacy
+   * in-place cockpit remains the fallback.
+   */
+  const beginEncounter = (item: DayScheduleItem) => {
+    if (onStartRecording) {
+      onStartRecording(item);
+      return;
+    }
+    startInPlaceRecording(item);
+  };
+
   const handleRecordClick = (item: DayScheduleItem) => {
+    // An appointment that already has an encounter opens THAT record — starting
+    // it again must not begin a second one under the same schedule row.
+    if (item.consultationId && onViewConsultation) {
+      onViewConsultation(item.consultationId);
+      return;
+    }
     if (!item.consentObtained) {
       setConsentGuardItem(item);
     } else {
-      startInPlaceRecording(item);
+      beginEncounter(item);
     }
   };
 
@@ -106,12 +132,12 @@ export default function DayScheduleQueue({
       consentPractitionerId: dentistName
     };
     setConsentGuardItem(null);
-    startInPlaceRecording(target);
+    beginEncounter(target);
   };
 
   const recordWithoutConsentTag = (item: DayScheduleItem) => {
     setConsentGuardItem(null);
-    startInPlaceRecording(item);
+    beginEncounter(item);
   };
 
   // In-Place Single Screen Surgery Cockpit state
@@ -205,7 +231,7 @@ export default function DayScheduleQueue({
 
           const data = await res.json();
           const newAppointments: DayScheduleItem[] = (data.appointments || []).map((app: any) => ({
-            id: `sched_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+            id: mintScheduleItemId(),
             time: app.time || '09:00',
             patientName: app.patientName || 'Unknown Patient',
             procedureText: app.procedureText || 'General Consultation',
@@ -414,11 +440,13 @@ export default function DayScheduleQueue({
       // Detached background worker polls for result
       (async () => {
         try {
-          const deadline = Date.now() + 85_000;
+          // QLE-2026-0018: one shared poll budget for both note surfaces, derived
+          // from the worker's retry ladder rather than a local magic number.
+          const deadline = Date.now() + NOTE_JOB_CLIENT_POLL.deadlineMs;
           let jobResult: any = null;
 
           while (Date.now() < deadline) {
-            await new Promise(r => setTimeout(r, 2000));
+            await new Promise(r => setTimeout(r, NOTE_JOB_CLIENT_POLL.intervalMs));
             const pollRes = await fetch(`/api/notes/jobs/${jobId}`, {
               headers: { 'Authorization': `Bearer ${authToken}` }
             });
@@ -908,6 +936,16 @@ export default function DayScheduleQueue({
                         <Copy className="w-3.5 h-3.5" />
                         Copy Again
                       </button>
+                      {item.consultationId && onViewConsultation && (
+                        <button
+                          onClick={() => onViewConsultation(item.consultationId as string)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-all cursor-pointer"
+                          title="Open this appointment's encounter"
+                        >
+                          <FileText className="w-3.5 h-3.5" />
+                          Open
+                        </button>
+                      )}
                     </div>
                   )}
 
@@ -979,6 +1017,15 @@ export default function DayScheduleQueue({
                       >
                         <FileText className="w-4 h-4" />
                       </button>
+                      {item.consultationId && onViewConsultation && (
+                        <button
+                          onClick={() => onViewConsultation(item.consultationId as string)}
+                          className="p-1.5 text-slate-500 hover:text-slate-800 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+                          title="Open this appointment's encounter"
+                        >
+                          <ExternalLink className="w-4 h-4" />
+                        </button>
+                      )}
                     </div>
                   )}
 

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   PRIORITY_WEIGHT,
   JOB_CONFIG,
+  NOTE_JOB_CLIENT_POLL,
   backoffDelayMs,
   isQuotaError,
   meteringDay,
@@ -81,5 +82,27 @@ describe('per-clinic daily metering', () => {
     const under = usageSnapshotFor('clinic-1', 39, 40);
     expect(at.exceeded).toBe(true);
     expect(under.exceeded).toBe(false);
+  });
+});
+
+describe('client poll budget vs the worker retry ladder (QLE-2026-0018)', () => {
+  it('waits through the first server retry instead of abandoning the job', () => {
+    // The defect: a 25s client deadline against a 45s minimum server backoff. The
+    // client rendered the offline draft, the durable job later completed, and one
+    // encounter ended up with two different notes and no signal.
+    expect(NOTE_JOB_CLIENT_POLL.deadlineMs).toBeGreaterThan(JOB_CONFIG.backoffBaseMs);
+    expect(NOTE_JOB_CLIENT_POLL.deadlineMs).toBeGreaterThan(backoffDelayMs(1));
+  });
+
+  it('stays within the worker attempt budget so a poll always ends', () => {
+    const worstCaseMs = backoffDelayMs(1) + backoffDelayMs(2) + backoffDelayMs(3);
+    expect(NOTE_JOB_CLIENT_POLL.deadlineMs).toBeLessThanOrEqual(worstCaseMs);
+    expect(JOB_CONFIG.maxAttempts).toBeGreaterThanOrEqual(3);
+  });
+
+  it('polls on a bounded interval, so the wait is a handful of requests', () => {
+    expect(NOTE_JOB_CLIENT_POLL.intervalMs).toBeGreaterThanOrEqual(1_000);
+    const polls = NOTE_JOB_CLIENT_POLL.deadlineMs / NOTE_JOB_CLIENT_POLL.intervalMs;
+    expect(polls).toBeLessThanOrEqual(100);
   });
 });

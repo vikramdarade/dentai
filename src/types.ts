@@ -297,6 +297,15 @@ export interface Consultation {
   transcriptProvenance?: TranscriptProvenance;
   /** AI-assist consent captured at intake (required for new records). */
   consent?: ConsultationConsent;
+  /**
+   * The day-sheet row this encounter was started from.
+   *
+   * The row names the encounter back (`consultationId`), so the two views of
+   * one appointment can find each other: a re-import links its slot to the
+   * encounter already filed under it, and a second "start" opens THAT record
+   * instead of minting a second chart under the same schedule row.
+   */
+  scheduleItemId?: string;
   /** Append-only revision trail (server-maintained). */
   revisions?: ConsultationRevision[];
   /**

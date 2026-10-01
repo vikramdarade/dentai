@@ -143,6 +143,44 @@ describe('Server-side sign-off revalidation (F-4)', () => {
     expect(result).toMatchObject({ ok: false, reason: 'empty_note' });
   });
 
+  it('refuses a walk-in shell whose only "content" is seating/intake metadata, even with an approving audit', async () => {
+    // The live defect (playtest, blank walk-in): a walk-in appointment carries
+    // findings.customSections.intakeNote (provenance) and .operatory (which
+    // room). Counting those as note text let a record with no audio and no
+    // findings pass this guard; whenever its grounding verdict said approved —
+    // the verdict is stored, so a record audited under an older rule keeps it —
+    // the blank appointment was sealed and the client showed it as "Verified
+    // from Audio". The metadata is not clinical content, and this gate must
+    // refuse on its own: a cached approving verdict is exactly what it cannot
+    // be allowed to lean on.
+    store.set('c-1', consultation({
+      findings: {
+        customSections: {
+          operatory: 'Room 1',
+          intakeNote: 'Walk-in encounter created at intake for Test Patient',
+        },
+      },
+      transcript: [],
+      groundingAudit: { isApprovedForSigning: true, blockingReasons: [] },
+    }));
+    const result = await sign('c-1', 'd-1');
+    expect(result).toMatchObject({ ok: false, reason: 'empty_note' });
+  });
+
+  it('still signs a note whose findings live only in a clinical custom section', async () => {
+    // The other half of the rule: only the encounter bookkeeping keys are
+    // ignored. A clinician who types into a custom clinical section has note
+    // content, and must not be refused for it.
+    store.set('c-1', consultation({
+      findings: {
+        customSections: { operatory: 'Room 1', periodontalChart: 'Pocketing 4mm on 16 and 26.' },
+      },
+      transcript: [{ sender: 'Dentist', text: 'Pocketing of four millimetres on sixteen and twenty six.' }],
+    }));
+    const result = await sign('c-1', 'd-1');
+    expect(result).toMatchObject({ ok: true });
+  });
+
   it('refuses signing a transcript-bearing note with no recorded consent', async () => {
     store.set('c-1', consultation({ consent: undefined }));
     const result = await sign('c-1', 'd-1');
@@ -172,5 +210,56 @@ describe('Server-side sign-off revalidation (F-4)', () => {
       const check = verifyAttestationSeal(tampered, result.seal);
       expect(check.isValid).toBe(false);
     }
+  });
+});
+
+/**
+ * QLE-2026-0003 — a record with no patient name fields is a reachable shape
+ * (daysheet imports, records captured before identity was entered). It used to
+ * throw a TypeError in the seal building, surfacing as a 500 and dead-ending
+ * finalisation. A refused sign-off must also not burn its replay nonce.
+ */
+describe('Sign-off robustness (QLE-2026-0003)', () => {
+  it('signs a nameless record instead of throwing a 500', async () => {
+    const store = new Map<string, Consultation>();
+    const { validator } = makeValidator(store);
+    store.set('c-1', consultation({ firstName: undefined, lastName: undefined }));
+
+    const result = await validator.validate('c-1', 'd-1', { expectedVersion: 3 });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.seal.signatureHash).toMatch(/^[0-9a-f]{64}$/);
+      expect(result.seal.contentDigest).toMatch(/^[0-9a-f]{64}$/);
+    }
+  });
+
+  it('does not consume the replay nonce when the sign-off is refused', async () => {
+    const store = new Map<string, Consultation>();
+    const { validator } = makeValidator(store);
+    store.set('c-1', consultation({ groundingAudit: undefined }));
+
+    const refused = await validator.validate('c-1', 'd-1', { expectedVersion: 3, requestNonce: 'nonce-retry' });
+    expect(refused).toMatchObject({ ok: false, reason: 'grounding_not_approved' });
+
+    // The blocking condition is resolved and the SAME request is retried — it
+    // must be able to succeed rather than answering 409 REPLAY.
+    store.set('c-1', consultation());
+    const retried = await validator.validate('c-1', 'd-1', { expectedVersion: 3, requestNonce: 'nonce-retry' });
+    expect(retried.ok).toBe(true);
+  });
+
+  it('still refuses a genuine duplicate nonce after a successful sign-off', async () => {
+    const store = new Map<string, Consultation>();
+    const { validator } = makeValidator(store);
+    store.set('c-1', consultation());
+
+    const first = await validator.validate('c-1', 'd-1', { expectedVersion: 3, requestNonce: 'nonce-once' });
+    expect(first.ok).toBe(true);
+
+    // Same nonce, unsigned copy again (as if the seal write were rolled back) —
+    // the consumed nonce must still refuse it.
+    store.set('c-1', consultation());
+    const replay = await validator.validate('c-1', 'd-1', { expectedVersion: 3, requestNonce: 'nonce-once' });
+    expect(replay).toMatchObject({ ok: false, reason: 'replay' });
   });
 });

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeEach, beforeAll, afterAll, vi } from 'vitest';
 import request from 'supertest';
 import fs from 'fs';
 import path from 'path';
@@ -19,10 +19,14 @@ import {
   normalizeStartTime,
   normalizePatientName,
   generateSlotFingerprint,
+  findScheduleItemBySlot,
   mergeScheduleItems,
+  mintScheduleItemId,
+  generateSafeUuid,
   calculateDailyProduction,
   parseTimeToMinutes
 } from '../src/lib/dayScheduleStorage';
+import { consentFromCapture } from '../src/lib/aiConsent';
 import { verifyTranscriptGrounding, extractToothNumbers } from '../src/lib/transcriptGrounding';
 import { isPmsPreviewEnabled } from '../src/utils/previewMode';
 
@@ -685,6 +689,91 @@ describe('Chairside Verbal Recording Consent Capture', () => {
   });
 });
 
+describe('Day-sheet slot ↔ encounter linkage', () => {
+  const testDate = '2026-09-12';
+
+  beforeEach(() => {
+    clearTodaySchedule(testDate);
+  });
+
+  it('finds the row a slot already is, so a re-import links rather than duplicates', () => {
+    const row = addScheduleItem({
+      time: '11:30',
+      patientName: 'Zed Zephyr',
+      dob: '11/10/1976',
+      procedureText: 'Check up and clean',
+      appointmentType: 'examination',
+      templateId: 'standard',
+      consultationId: 'enc-zed-1',
+      consentObtained: true,
+      consentCapturedAt: '2026-09-12T09:30:00.000Z',
+      consentPractitionerId: 'dentist-1'
+    }, testDate);
+
+    const loaded = loadTodaySchedule(testDate);
+    // The exact slot resolves to the row...
+    expect(findScheduleItemBySlot(loaded, testDate, '11:30', 'Zed Zephyr')?.id).toBe(row.id);
+    // ...a differently-shaped but equivalent time does too...
+    expect(findScheduleItemBySlot(loaded, testDate, '11:30 AM', 'Zed  Zephyr')?.id).toBe(row.id);
+    // ...and a different patient at the same time is a different appointment.
+    expect(findScheduleItemBySlot(loaded, testDate, '11:30', 'Someone Else')).toBeUndefined();
+  });
+
+  it('re-importing a slot updates the row it already has instead of appending a second one', () => {
+    const row = addScheduleItem({
+      time: '09:00',
+      patientName: 'Justin Tran',
+      dob: '14/05/2012',
+      procedureText: 'CDBS Paediatric Exam',
+      appointmentType: 'examination',
+      templateId: 'standard'
+    }, testDate);
+
+    // The linked encounter the first import created.
+    const encounterId = '11111111-2222-4333-8444-555555555555';
+    updateScheduleItem(row.id, { consultationId: encounterId }, testDate);
+
+    // A second import of the same slot finds the row, not a new one.
+    const secondImport = findScheduleItemBySlot(loadTodaySchedule(testDate), testDate, '9:00 AM', 'Justin Tran');
+    expect(secondImport?.id).toBe(row.id);
+    expect(secondImport?.consultationId).toBe(encounterId);
+
+    if (secondImport) {
+      updateScheduleItem(secondImport.id, { dob: '15/05/2012', procedureText: 'Updated procedure' }, testDate);
+    }
+    const rows = loadTodaySchedule(testDate);
+    expect(rows.length).toBe(1);
+    expect(rows[0].dob).toBe('15/05/2012');
+    // The link — and any consent captured on the row — survives the re-import.
+    expect(rows[0].consultationId).toBe(encounterId);
+  });
+
+  it('carries a captured consent from the row into canonical form, and never invents one', () => {
+    const row = addScheduleItem({
+      time: '12:00',
+      patientName: 'Consent Carry',
+      procedureText: 'Exam',
+      appointmentType: 'examination',
+      templateId: 'standard',
+      consentObtained: true,
+      consentCapturedAt: '2026-09-12T02:00:00.000Z',
+      consentPractitionerId: 'dentist-9'
+    }, testDate);
+    expect(consentFromCapture(row, 'fallback-dentist')?.obtainedAt).toBe('2026-09-12T02:00:00.000Z');
+    expect(consentFromCapture(row, 'fallback-dentist')?.recordedBy).toBe('dentist-9');
+
+    const bare = addScheduleItem({
+      time: '12:30',
+      patientName: 'No Capture',
+      procedureText: 'Exam',
+      appointmentType: 'examination',
+      templateId: 'standard',
+      consentObtained: true
+    }, testDate);
+    expect(consentFromCapture(bare, 'fallback-dentist')).toBeNull();
+  });
+});
+
 describe('Async Note Jobs API with Verbal Consent Audit Logging', () => {
   let authToken = '';
 
@@ -729,6 +818,109 @@ describe('Async Note Jobs API with Verbal Consent Audit Logging', () => {
     expect(res.status).toBe(202);
     expect(res.body).toHaveProperty('jobId');
     expect(res.body.status).toBe('queued');
+  });
+});
+
+describe('Day-sheet row identity', () => {
+  const testDate = '2026-09-14';
+
+  beforeEach(() => {
+    clearTodaySchedule(testDate);
+  });
+
+  it('mints distinct ids for a whole import batch inside a single millisecond', () => {
+    // A day-sheet import (and a vision parse) mints many rows at once, so the
+    // id must not need luck to stay distinct — it is built from the clock and
+    // a counter, never from Math.random.
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date('2026-09-14T08:00:00.000Z'));
+      const ids = new Set<string>();
+      for (let i = 0; i < 40; i++) {
+        const row = addScheduleItem(
+          {
+            time: `${String(9 + Math.floor(i / 60)).padStart(2, '0')}:${String(i % 60).padStart(2, '0')}`,
+            patientName: `Batch Patient ${i}`,
+            procedureText: 'Check up',
+            appointmentType: 'examination',
+            templateId: 'standard',
+            source: 'snip'
+          },
+          testDate
+        );
+        expect(row.id).toMatch(/^sched_\d+_[a-z0-9]+$/);
+        ids.add(row.id);
+      }
+      expect(ids.size).toBe(40);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('mints an id for a genuinely new row in a merge, and keeps the id a row already has', () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date('2026-09-14T09:00:00.000Z'));
+      const kept: DayScheduleItem = {
+        id: 'sched_1758000000000_kept',
+        time: '09:30',
+        patientName: 'Kept Patient',
+        procedureText: 'Existing',
+        appointmentType: 'examination',
+        templateId: 'standard',
+        status: 'ready',
+        source: 'snip'
+      };
+      const merged = mergeScheduleItems(
+        [kept],
+        [
+          { ...kept },
+          {
+            ...kept,
+            id: '',
+            time: '10:00',
+            patientName: 'New Patient A'
+          },
+          {
+            ...kept,
+            id: '',
+            time: '10:30',
+            patientName: 'New Patient B'
+          }
+        ],
+        testDate
+      );
+      const byName = new Map(merged.map((row) => [row.patientName, row]));
+      expect(byName.get('Kept Patient')?.id).toBe('sched_1758000000000_kept');
+      const a = byName.get('New Patient A')?.id ?? '';
+      const b = byName.get('New Patient B')?.id ?? '';
+      expect(a).toMatch(/^sched_\d+_[a-z0-9]+$/);
+      expect(b).toMatch(/^sched_\d+_[a-z0-9]+$/);
+      expect(a).not.toBe(b);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('never repeats a minted row id inside one realm', () => {
+    const ids = new Set<string>();
+    for (let i = 0; i < 500; i++) ids.add(mintScheduleItemId());
+    expect(ids.size).toBe(500);
+  });
+
+  it('the consultation-id fallback stays unique without WebCrypto', () => {
+    vi.stubGlobal('crypto', undefined);
+    try {
+      const ids = new Set<string>();
+      for (let i = 0; i < 200; i++) {
+        const id = generateSafeUuid();
+        expect(id).toMatch(/^consult_\d+_[a-z0-9]+$/);
+        ids.add(id);
+      }
+      expect(ids.size).toBe(200);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
 

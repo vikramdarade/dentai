@@ -26,6 +26,7 @@ import {
   verifyAttestationSeal,
   type AttestationSeal
 } from '../lib/attestation';
+import { hasClinicalContent } from '../lib/clinicalContent';
 import type { Consultation } from '../types';
 
 export type SignOffRejectionReason =
@@ -205,18 +206,25 @@ export function createSignOffValidator(deps: SignOffDeps) {
             .catch(() => {});
           return { ok: false, reason: 'replay', message: 'Duplicate sign-off request detected.' };
         }
-        consumedNonces.add(request.requestNonce);
+        // The nonce is NOT consumed here. Every gate below (empty note,
+        // grounding, consent) and every failure can still refuse this request,
+        // and burning the nonce on a refusal made an otherwise-retryable
+        // sign-off answer 409 REPLAY with no seal persisted (QLE-2026-0003). It
+        // is recorded once, immediately before the approval is returned.
       }
 
       // 4. Empty-note guard: a note with no clinical content cannot be signed.
       if (!contentDigest(consultation) || contentDigest(consultation) === contentDigest({} as Consultation)) {
         return { ok: false, reason: 'empty_note', message: 'The note has no clinical content to sign.' };
       }
-      const findings: Record<string, unknown> = (consultation.findings || {}) as Record<string, unknown>;
-      const hasClinicalContent = Object.entries(findings).some(([, v]) =>
-        typeof v === 'string' ? v.trim().length > 0 : v != null && !(typeof v === 'object' && Object.keys(v as object).length === 0)
-      );
-      if (!hasClinicalContent) {
+      // ...and "clinical content" deliberately ignores the seating/intake
+      // bookkeeping that rides in `findings.customSections` (which room, which
+      // day-sheet date, a walk-in's provenance stamp) — see
+      // src/lib/clinicalContent.ts. Counting that metadata as note text made
+      // this guard pass on an appointment with no audio and no findings, which
+      // is exactly the record it exists to stop: the only thing left between a
+      // blank record and a seal would be its (cached) grounding verdict.
+      if (!hasClinicalContent(consultation.findings)) {
         return { ok: false, reason: 'empty_note', message: 'The note has no clinical content to sign.' };
       }
 
@@ -299,6 +307,14 @@ export function createSignOffValidator(deps: SignOffDeps) {
             message: 'The attestation could not be durably recorded. The record was NOT signed — please try again.',
           };
         }
+      }
+
+      // The seal is durable (or persistence was opted out) — now the nonce is
+      // spent. Consuming it only after success keeps a rejected or failed
+      // request retryable with the same nonce while still refusing a genuine
+      // duplicate submission.
+      if (request.requestNonce) {
+        consumedNonces.add(request.requestNonce);
       }
 
       void Promise.resolve(deps.logAudit('consultation_signed_off', dentistId, {

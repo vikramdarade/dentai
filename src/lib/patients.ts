@@ -99,6 +99,12 @@ function agreeingDetail(patient: PatientRecord, input: ResolveInput): boolean {
   // A conflicting DOB is a decisive "not the same person", even if the phone
   // happens to match (shared family phone numbers are normal).
   if (inputDob && patient.dob && inputDob !== patient.dob.trim()) return false;
+  // QLE-2026-0026: the intake asserts a date of birth the stored chart cannot
+  // corroborate (it has none). A matching phone number alone is not enough to
+  // settle an identity the record cannot confirm — a shared family phone number
+  // would otherwise merge two people, and the caller-supplied DOB would be
+  // treated as agreement it never was. Fall back to a human decision.
+  if (inputDob && !patient.dob) return false;
   if (inputPhone && patientPhone && inputPhone === patientPhone) return true;
   return false;
 }

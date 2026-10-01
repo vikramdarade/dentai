@@ -144,16 +144,46 @@ export function createRecordGovernance(deps: RecordGovernanceDeps): Middleware {
       const hasTranscript = transcript.length > 0;
       const consentWasSupplied = isValidConsent(body.consent);
 
+      // ---- The record's own consent (updates) ------------------------------
+      // Consent is a property of the RECORD, not of each request: it is captured
+      // once (chairside, at intake, or by the durable worker) and append-only
+      // from then on. An update therefore has to be COVERED by consent; it does
+      // not have to re-assert it. Requiring each request to repeat the consent
+      // made a record whose consent was already on file unsavable the moment it
+      // carried a transcript: the save was refused 400, queued, and retried
+      // forever, and the record could never be signed.
+      //
+      // The stored record is loaded here because the decision below needs it;
+      // the update branch further down reuses this same copy.
+      let existing: any = null;
+      if (isConsultationUpdate) {
+        try {
+          const id = pathname.split('/').filter(Boolean).pop();
+          const all = await deps.listConsultations(dentistId);
+          existing = all.find((c: any) => c.id === id) || null;
+        } catch (loadErr: any) {
+          deps.logger.warn('Could not load existing consultation for revision stamping:', loadErr?.message || loadErr);
+        }
+      }
+
+      // Consent already on file: the canonical object this middleware / the
+      // worker writes, or the legacy flat pair the sign-off gate also accepts —
+      // so a record captured by an older build stays covered without widening
+      // what counts as consent.
+      const consentOnFile = isValidConsent(existing?.consent)
+        ? true
+        : Boolean(existing?.consentObtained && typeof existing?.consentCapturedAt === 'string' && existing.consentCapturedAt);
+
       // ---- Consent ---------------------------------------------------------
-      if (hasTranscript && deps.requireConsent && !consentWasSupplied) {
+      if (hasTranscript && deps.requireConsent && !consentWasSupplied && !consentOnFile) {
         // The patient's consent is the legal basis for processing their
         // consultation content, so an enforcing deployment refuses the record
         // rather than storing content it cannot justify.
         await deps.logAudit('consultation_rejected_no_consent', dentistId, { route: pathname });
         return res.status(400).json({
           error:
-            'This consultation cannot be saved because AI-assist consent was not recorded. ' +
-            'Confirm consent in the intake step and save again — your transcript is still on this device.',
+            'This consultation cannot be saved because AI-assist consent has not been recorded for it. ' +
+            'Record the patient\u2019s consent and save again — your transcript is still on this device.',
           code: 'CONSENT_REQUIRED',
         });
       }
@@ -201,14 +231,7 @@ export function createRecordGovernance(deps: RecordGovernanceDeps): Middleware {
       }
 
       // ---- Update: preserve consent, append a revision ---------------------
-      let existing: any = null;
-      try {
-        const id = pathname.split('/').filter(Boolean).pop();
-        const all = await deps.listConsultations(dentistId);
-        existing = all.find((c: any) => c.id === id) || null;
-      } catch (loadErr: any) {
-        deps.logger.warn('Could not load existing consultation for revision stamping:', loadErr?.message || loadErr);
-      }
+      // `existing` was loaded above (the consent decision needs it).
 
       /*
        * Optimistic concurrency.

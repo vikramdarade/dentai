@@ -17,6 +17,7 @@
  */
 
 import { patientDisplayName, type PatientRecord, type ResolveInput } from '../lib/patients';
+import { normalizeDob } from '../lib/dob';
 import type { PatientStore } from './patientStore';
 
 type Middleware = (req: any, res: any, next: (err?: any) => void) => any;
@@ -58,6 +59,32 @@ function cleanNamePart(value: unknown): string {
     .replace(/[<>]/g, '')
     .trim()
     .slice(0, MAX_NAME_LENGTH);
+}
+
+/**
+ * QLE-2026-0016: the route used to read `dob` only, so an integrator sending the
+ * documented `dateOfBirth` alias had it silently dropped — a patient chart then
+ * stored with no date of birth, which weakens the DOB-conflict rule in identity
+ * resolution. A non-empty date must be a real calendar date; anything else is
+ * refused rather than stored as unvalidated identity data. An absent date stays
+ * absent (never invented).
+ *
+ * The accepted shapes are deliberately narrower than the note-generation path's:
+ * this value decides *which patient* the record belongs to, so a date that could
+ * be read two ways (`04/05/1980`) is refused rather than guessed at, while a date
+ * that can only be read one way (`14/05/1988`, `11 Oct 1976`) is accepted and
+ * canonicalised. Storage is always `YYYY-MM-DD`. See `src/lib/dob.ts` for why the
+ * two paths hold different policies.
+ */
+export function parsePatientDob(body: any): { value: string } | { error: string } {
+  const raw = body?.dob ?? body?.dateOfBirth;
+  if (raw === undefined || raw === null) return { value: '' };
+  const parsed = normalizeDob(raw, { policy: 'strict' });
+  if (!parsed.value) {
+    if (parsed.error) return { error: parsed.error };
+    return { value: '' };
+  }
+  return { value: parsed.value };
 }
 
 function candidateDto(p: PatientRecord): PatientCandidateDto {
@@ -192,11 +219,16 @@ export function registerPatientRoutes(app: any, deps: PatientRouteDeps): void {
         return res.status(400).json({ error: 'A patient first name or last name is required.' });
       }
 
+      const dob = parsePatientDob(req.body);
+      if ('error' in dob) {
+        return res.status(400).json({ error: dob.error, code: 'INVALID_DOB' });
+      }
+
       const input: ResolveInput = {
         clinicId,
         firstName,
         lastName,
-        dob: typeof req.body?.dob === 'string' ? req.body.dob.trim() : '',
+        dob: dob.value,
         phone: typeof req.body?.phone === 'string' ? req.body.phone : undefined
       };
 
@@ -257,11 +289,16 @@ export function registerPatientRoutes(app: any, deps: PatientRouteDeps): void {
         return res.status(400).json({ error: 'A patient first name or last name is required.' });
       }
 
+      const dob = parsePatientDob(req.body);
+      if ('error' in dob) {
+        return res.status(400).json({ error: dob.error, code: 'INVALID_DOB' });
+      }
+
       const patient = await deps.store.create({
         clinicId,
         firstName,
         lastName,
-        dob: typeof req.body?.dob === 'string' ? req.body.dob.trim() : '',
+        dob: dob.value,
         phone: typeof req.body?.phone === 'string' ? req.body.phone : undefined,
         createdBy: req.dentist.id
       });

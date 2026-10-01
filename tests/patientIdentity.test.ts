@@ -12,6 +12,7 @@ import {
   type PatientRecord
 } from '../src/lib/patients';
 import { createPatientStore } from '../src/server/patientStore';
+import { parsePatientDob } from '../src/server/patientRoutes';
 
 /**
  * Patient identity.
@@ -231,5 +232,56 @@ describe('the durable patient registry', () => {
       dob: '1990-03-03'
     });
     expect(fresh.decision.decision).toBe('create');
+  });
+});
+
+/**
+ * QLE-2026-0026 — the intake asserts a date of birth the stored chart cannot
+ * corroborate. A shared phone number must not settle that identity, because the
+ * caller-supplied DOB is an unverified claim rather than agreement.
+ */
+describe('a DOB-asserting intake against a DOB-less chart (QLE-2026-0026)', () => {
+  it('does not auto-match on a shared phone when the asserted DOB cannot be confirmed', () => {
+    const decision = decidePatientResolution(
+      [patient({ id: 'p1', dob: '', phone: '0412345678' })],
+      { firstName: 'John', lastName: 'Smith', dob: '1990-01-01', phone: '0412 345 678', clinicId: 'clinic-1' }
+    );
+    expect(decision.decision).toBe('ambiguous');
+  });
+
+  it('keeps a phone-only match working when the intake asserts no DOB', () => {
+    const decision = decidePatientResolution(
+      [patient({ id: 'p1', dob: '', phone: '0412345678' })],
+      { firstName: 'John', lastName: 'Smith', phone: '0412 345 678', clinicId: 'clinic-1' }
+    );
+    expect(decision.decision).toBe('matched');
+  });
+});
+
+/**
+ * QLE-2026-0016 — the patient create/resolve routes read `dob` only, so an
+ * integrator sending the documented `dateOfBirth` alias had it silently
+ * dropped, and a malformed date was stored unvalidated.
+ */
+describe('patient date of birth parsing (QLE-2026-0016)', () => {
+  it('accepts dob and the dateOfBirth alias', () => {
+    expect(parsePatientDob({ dob: '1980-05-04' })).toEqual({ value: '1980-05-04' });
+    expect(parsePatientDob({ dateOfBirth: '1980-05-04' })).toEqual({ value: '1980-05-04' });
+    expect(parsePatientDob({ dob: ' 1980-05-04 ' })).toEqual({ value: '1980-05-04' });
+    expect(parsePatientDob({ dob: '1980-05-04', dateOfBirth: '1990-01-01' })).toEqual({ value: '1980-05-04' });
+  });
+
+  it('leaves an absent date absent rather than inventing one', () => {
+    expect(parsePatientDob({})).toEqual({ value: '' });
+    expect(parsePatientDob({ dob: '' })).toEqual({ value: '' });
+    expect(parsePatientDob({ dateOfBirth: '   ' })).toEqual({ value: '' });
+  });
+
+  it('refuses a malformed or impossible date instead of storing it', () => {
+    expect('error' in parsePatientDob({ dob: '04/05/1980' })).toBe(true);
+    expect('error' in parsePatientDob({ dob: '1980-13-01' })).toBe(true);
+    expect('error' in parsePatientDob({ dob: '1980-02-30' })).toBe(true);
+    expect('error' in parsePatientDob({ dob: 'yesterday' })).toBe(true);
+    expect('error' in parsePatientDob({ dob: 19800504 })).toBe(true);
   });
 });

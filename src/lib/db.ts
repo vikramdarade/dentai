@@ -308,6 +308,20 @@ export async function dbInsertConsultation(consultation: any): Promise<void> {
   `;
 }
 
+/**
+ * QLE-2026-0015: the id column is the table's primary key, so the write is
+ * deduped on id alone (see the ON CONFLICT above) and not per dentist. A
+ * collision check scoped to one dentist would let a colliding record slip
+ * through as a silent no-op write that still answers 201.
+ */
+export async function dbConsultationExistsById(id: string): Promise<boolean> {
+  if (!sql) return false;
+  const rows = (await sql`
+    SELECT 1 AS present FROM consultations WHERE id = ${id} LIMIT 1
+  `) as any[];
+  return rows.length > 0;
+}
+
 export async function dbUpdateConsultation(
   id: string,
   dentistId: string,

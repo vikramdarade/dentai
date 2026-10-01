@@ -65,6 +65,27 @@ export function isValidDob(dobStr: string): boolean {
 }
 
 /**
+ * The refusal a date of birth typed into a DD/MM/YYYY field earns, or `null`
+ * when the field is usable.
+ *
+ * An empty field is not an error — a date of birth is never invented (Rule 12),
+ * and a walk-in often arrives without one. A non-empty value that is not a real
+ * calendar date IS an error, because this value is written onto the patient's
+ * identity record and later handed to note generation, which refuses an
+ * impossible date outright. Before this guard the walk-in form accepted
+ * `99/99/9999` with no complaint, stored it in the patient registry, and every
+ * note for that patient then failed with a message about a field the UI offers
+ * no way to correct. The field the clinician types into is the only place the
+ * date can actually be fixed, so that is where it is refused.
+ */
+export function dobFieldError(dobStr: string): string | null {
+  const raw = (dobStr || '').trim();
+  if (!raw) return null;
+  if (isValidDob(raw)) return null;
+  return 'Date of birth must be a real date in DD/MM/YYYY form (e.g. 11/10/1976), or left blank.';
+}
+
+/**
  * Detects the clinic/user local timezone.
  * Defaults to the operating system / browser's configured timezone.
  */
@@ -217,6 +238,71 @@ export function getClinicDayKey(when: Date = new Date(), timeZone?: string): str
     month: '2-digit',
     day: '2-digit'
   }).format(when);
+}
+
+const MONTH_NUMBERS: Record<string, number> = {
+  jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6,
+  jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12
+};
+
+function isoCalendarDay(year: number, month: number, day: number): string | null {
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return null;
+  if (year < 1900 || year > 2200 || month < 1 || month > 12 || day < 1 || day > 31) return null;
+  const probe = new Date(Date.UTC(year, month - 1, day));
+  if (probe.getUTCFullYear() !== year || probe.getUTCMonth() !== month - 1 || probe.getUTCDate() !== day) return null;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${year}-${pad(month)}-${pad(day)}`;
+}
+
+/**
+ * Parses a stored consultation `date` into a clinic-day key (YYYY-MM-DD), or
+ * null when the shape cannot be understood.
+ *
+ * A consultation's day has historically been written in several shapes — the
+ * canonical ISO day, an ISO timestamp, "Sep 28", "Sep 28, 2026", or
+ * "28/09/2026" (clinic DD/MM/YYYY). The day roster used to hand-match four of
+ * those shapes and **silently drop** any record matching none of them, which
+ * also dropped the record out of the focus gate's roster and moved the
+ * clinician onto a different patient's surface (QLE-2026-0002). This turns the
+ * comparison into one canonical day key so a record can only be excluded for a
+ * reason a human can see.
+ *
+ * `timeZone` is only consulted for a full timestamp (an instant needs a zone to
+ * say which calendar day it was); a bare calendar date is taken at face value.
+ * Returns null for anything it cannot interpret rather than guessing.
+ */
+export function clinicDayKeyOfStoredDate(value: string | null | undefined, timeZone?: string): string | null {
+  const raw = String(value ?? '').trim();
+  if (!raw) return null;
+
+  // Canonical ISO calendar day.
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    const [year, month, day] = raw.split('-').map(Number);
+    return isoCalendarDay(year, month, day);
+  }
+
+  // "Sep 28" / "Sep 28, 2026" / "September 28 2026".
+  const named = raw.match(/^([A-Za-z]{3,9})\.?\s+(\d{1,2})(?:\s*,?\s*(\d{4}))?$/);
+  if (named) {
+    const month = MONTH_NUMBERS[named[1].slice(0, 3).toLowerCase()];
+    if (month) {
+      return isoCalendarDay(named[3] ? Number(named[3]) : new Date().getFullYear(), month, Number(named[2]));
+    }
+    return null;
+  }
+
+  // Clinic DD/MM/YYYY.
+  const numeric = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (numeric) {
+    return isoCalendarDay(Number(numeric[3]), Number(numeric[2]), Number(numeric[1]));
+  }
+
+  // An ISO timestamp or any other instant Date can read.
+  const parsed = new Date(raw);
+  if (!Number.isNaN(parsed.getTime())) {
+    return getClinicDayKey(parsed, timeZone);
+  }
+  return null;
 }
 
 /** Clinic-local short date label in the note-header format, e.g. "Sep 19". */
