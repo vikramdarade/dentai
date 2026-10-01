@@ -25,7 +25,9 @@ import {
   AuthUser
 } from './utils/storage';
 import { DayScheduleItem, updateScheduleItem, formatNoteForPmsClipboard } from './lib/dayScheduleStorage';
+import { consentFromCapture } from './lib/aiConsent';
 import { createConsultationListStore, upsertConsultation, mergeConsultationLists } from './lib/consultationList';
+import { isUnscheduledChair, mintAppointmentId } from './lib/appointmentId';
 import ChairsideWorkspace from './components/ChairsideWorkspace';
 
 type ViewType = 'workspace' | 'history';
@@ -121,6 +123,14 @@ export default function App() {
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [showBillingModal, setShowBillingModal] = useState(false);
 
+  // A dead session and a queue of unsent records tell the clinician the same
+  // thing: what is on screen is not yet in the clinic's system. Both used to be
+  // silent — a write the server refused (403 'Session expired or invalid.',
+  // network down) was queued on this device and the screen went on looking
+  // saved. These two states are what make that visible.
+  const [sessionExpired, setSessionExpired] = useState(false);
+  const [pendingSyncCount, setPendingSyncCount] = useState(0);
+
   // Inactivity warning states
   const [showInactivityWarning, setShowInactivityWarning] = useState(false);
   const [inactivityCountdown, setInactivityCountdown] = useState(30);
@@ -130,6 +140,7 @@ export default function App() {
     if (token && user) {
       setAuthToken(token);
       setCurrentUser(user);
+      setPendingSyncCount(getPendingSync().length);
       const local = getLocalConsultations(user.id);
       if (local) {
         applyConsultations(local);
@@ -142,6 +153,14 @@ export default function App() {
         .then(res => {
           if (res.status === 401) {
             handleLogout();
+          } else if (res.status === 403) {
+            // The server answers an expired or revoked session with 403
+            // ('Session expired or invalid.'), so reading only 401 left the app
+            // treating a dead session as healthy — and then failing every write
+            // from that session into the local queue, invisibly.
+            setSessionExpired(true);
+          } else if (res.ok) {
+            setSessionExpired(false);
           }
         })
         .catch(err => {
@@ -411,6 +430,10 @@ export default function App() {
         break;
       }
     }
+
+    const remaining = getPendingSync().length;
+    setPendingSyncCount(remaining);
+    if (remaining === 0) setSessionExpired(false);
   };
 
   const fetchConsultations = async (overrideToken?: string, overrideUser?: any) => {
@@ -446,6 +469,11 @@ export default function App() {
         );
         applyConsultations(merged);
         saveLocalConsultations(merged, usr.id);
+        setSessionExpired(false);
+      } else if (res.status === 401 || res.status === 403) {
+        // The load was refused, so what is on screen is the local cache, not the
+        // clinic record. Say so instead of rendering a silently emptied day.
+        setSessionExpired(true);
       }
     } catch (err) {
       console.warn('Failed to fetch consultations from server, falling back to local cache:', err);
@@ -517,55 +545,83 @@ export default function App() {
   };
 
 
+  /**
+   * Start a scheduled appointment from the day sheet.
+   *
+   * The row and the encounter name each other: the row's `consultationId` is
+   * the encounter this appointment already is, and the encounter carries
+   * `scheduleItemId` back. Resolving by that link — never by the row's own id —
+   * means starting the same appointment twice opens the SAME record, and the
+   * consent captured at the desk is carried onto it: never invented, never
+   * dropped. The encounter is persisted before the switch, so the workspace
+   * opens a record that exists in the roster, not an empty scratchpad.
+   */
   const handleStartScheduledConsultation = (item: DayScheduleItem) => {
-    const existing = consultations.find(c => c.id === item.id || (c as any).scheduleItemId === item.id);
+    const existing = consultations.find(
+      c => c.scheduleItemId === item.id || c.id === item.consultationId || c.id === item.id
+    );
     if (existing) {
       setSelectedConsultation(existing);
-    } else {
-      const nameParts = item.patientName.trim().split(/\s+/);
-      const newConsult: Consultation = {
-        id: item.id,
-        dentistId: currentUser?.id || '',
-        clinicId: activeClinic?.clinicId,
-        firstName: nameParts[0] || 'Patient',
-        lastName: nameParts.slice(1).join(' ') || '',
-        dob: item.dob || '',
-        appointmentType: item.appointmentType || 'restorative',
-        date: getTodayStr(),
-        time: item.time || getCurrentTimeStr(),
-        createdAt: new Date().toISOString(),
-        status: 'In Review',
-        transcript: [],
-        templateId: item.templateId || 'standard',
-        patientSummary: '',
-        findings: {
-          chiefComplaint: '',
-          history: '',
-          toothFindings: '',
-          findingsGingival: '',
-          diagnosis: '',
-          treatmentPerformed: '',
-          recommendations: '',
-          recallRequirements: '',
-          customSections: {},
-          adaCodes: []
-        }
-      };
-      setSelectedConsultation(newConsult);
+      setView('workspace');
+      return;
     }
+
+    const nameParts = item.patientName.trim().split(/\s+/);
+    const newConsult: Consultation = {
+      // One identity per appointment: a minted id, not the schedule row's id.
+      // The row is the appointment's address; the encounter is its record.
+      id: mintAppointmentId(),
+      dentistId: currentUser?.id || '',
+      clinicId: activeClinic?.clinicId,
+      firstName: nameParts[0] || 'Patient',
+      lastName: nameParts.slice(1).join(' ') || '',
+      dob: item.dob || '',
+      appointmentType: item.appointmentType || 'restorative',
+      date: getTodayStr(),
+      time: item.time || getCurrentTimeStr(),
+      createdAt: new Date().toISOString(),
+      status: 'In Review',
+      transcript: [],
+      templateId: item.templateId || 'standard',
+      patientSummary: '',
+      scheduleItemId: item.id,
+      consent: consentFromCapture(item, currentUser?.id) ?? undefined,
+      findings: {
+        chiefComplaint: '',
+        history: '',
+        toothFindings: '',
+        findingsGingival: '',
+        diagnosis: '',
+        treatmentPerformed: '',
+        recommendations: '',
+        recallRequirements: '',
+        customSections: {},
+        adaCodes: []
+      }
+    };
+    // Point the row at its encounter before the switch, so a second start (or a
+    // reload while the first save is in flight) resolves to this record instead
+    // of minting another.
+    updateScheduleItem(item.id, { consultationId: newConsult.id });
+    setSelectedConsultation(newConsult);
     setView('workspace');
+    void handleSaveConsultation(newConsult);
   };
 
   const handleSaveConsultation = async (updated: Consultation) => {
-    // Rule 18: Ephemerality of In-Chair Scratchpads ('chair-active')
-    // The fallback encounter 'chair-active' exists strictly in-memory as a transient scratchpad.
-    // It must NEVER be persisted to disk or server with ID 'chair-active'.
-    // If a session has completed findings, mint a new immutable ID.
-    if (updated.id === 'chair-active') {
+    // Rule 18: Ephemerality of In-Chair Scratchpads
+    // The fallback encounter 'chair-active' is a WORKSPACE MARKER ("nobody is
+    // seated yet"), never the identity of a record, and it must never be
+    // persisted as one. A patient put in the chair is seated as a real
+    // appointment with a minted id before recording starts, so reaching here
+    // with the marker means the record was never seated at all: give it exactly
+    // one minted id — not a second, stage-named one — so the audio, the note
+    // job, the record version and the eventual seal all address it the same way.
+    if (isUnscheduledChair(updated.id)) {
       if (updated.status === 'Completed') {
         updated = {
           ...updated,
-          id: `consult-${Date.now()}`
+          id: mintAppointmentId()
         };
       } else {
         // Transient uncompleted scratchpad: update selected consult in-memory only
@@ -649,10 +705,13 @@ export default function App() {
         }
       } else {
         queuePendingSync(updatedWithDentist);
+        setPendingSyncCount(getPendingSync().length);
+        if (res.status === 401 || res.status === 403) setSessionExpired(true);
       }
     } catch (err) {
       console.warn('Failed to sync consultation update to backend; queued for retry.', err);
       queuePendingSync(updatedWithDentist);
+      setPendingSyncCount(getPendingSync().length);
     } finally {
       // The save has settled (accepted, conflicted, queued or failed), so the
       // poll owns this record again.
@@ -731,6 +790,31 @@ export default function App() {
 
   return (
     <div id="dentai-viewport" className="min-h-screen bg-[#F8F7F5] selection:bg-primary-container selection:text-white">
+      {/* Whether what the clinician just wrote reached the clinic's system is
+          the one thing they must never have to guess. A refused session used to
+          be indistinguishable from a successful save: the record was queued on
+          this device and the screen went on looking saved, while the day's
+          schedule quietly rendered from cache. */}
+      {(sessionExpired || pendingSyncCount > 0) && (
+        <div
+          className="fixed top-3 left-1/2 -translate-x-1/2 z-[55] max-w-lg w-[calc(100%-1.5rem)] bg-rose-50 border border-rose-300 text-rose-900 rounded-xl shadow-lg px-4 py-3 text-xs"
+          data-testid="unsaved-records-banner"
+          role="status"
+        >
+          <div className="font-bold mb-0.5">
+            {sessionExpired ? 'Session expired — records are not reaching the clinic system' : 'Records held on this device only'}
+          </div>
+          <div className="text-rose-800">
+            {pendingSyncCount > 0
+              ? `${pendingSyncCount} record${pendingSyncCount === 1 ? '' : 's'} saved on this device but not yet in the clinic system. `
+              : ''}
+            {sessionExpired
+              ? 'Sign out and sign in again to upload them — nothing written from here is in the clinic record until then.'
+              : 'They upload automatically once the clinic system is reachable.'}
+          </div>
+        </div>
+      )}
+
       {/* Phase 12F: a refused (409 stale) write is surfaced as a visible
           conflict — the clinician's on-screen edits are preserved and the
           server's copy is available for reconciliation. Never silent. */}

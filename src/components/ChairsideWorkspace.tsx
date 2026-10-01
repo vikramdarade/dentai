@@ -34,8 +34,15 @@ import {
   RotateCw
 } from 'lucide-react';
 import { createOperatoryDspChain, type OperatoryDspChain } from '../lib/operatoryAudioDsp';
-import { addScheduleItem, parseTimeToMinutes, ScheduleItemStatus } from '../lib/dayScheduleStorage';
-import { Consultation, TranscriptItem, ClinicalFindings } from '../types';
+import { addScheduleItem, findScheduleItemBySlot, loadTodaySchedule, parseTimeToMinutes, updateScheduleItem, ScheduleItemStatus } from '../lib/dayScheduleStorage';
+import {
+  UNSCHEDULED_CHAIR,
+  isUnscheduledChair,
+  mintAppointmentId,
+  mintIfUnseated,
+} from '../lib/appointmentId';
+import { consentForWrite, consentFromCapture, recordedConsent } from '../lib/aiConsent';
+import { Consultation, TranscriptItem, ClinicalFindings, ConsultationConsent } from '../types';
 import { chooseNoteTranscript, type TranscriptSource } from '../lib/transcription';
 import { NOTE_JOB_CLIENT_POLL } from '../lib/noteJobs';
 import {
@@ -49,7 +56,7 @@ import { AppointmentType, getTemplateById, APPOINTMENT_TYPES } from '../lib/dent
 import { generateOfflineDraft } from '../lib/draftEngine';
 import { generateMacroNote } from '../lib/macroEngine';
 import { normalizeSpokenDentalText } from '../lib/dentalPhoneticLexicon';
-import { clinicDayKeyOfStoredDate, formatClinicDate, formatClinicTime, getClinicTodayIso, getClinicTimeZone } from '../utils/date';
+import { clinicDayKeyOfStoredDate, dobFieldError, formatClinicDate, formatClinicTime, getClinicTodayIso, getClinicTimeZone } from '../utils/date';
 import { decideSilenceAction, SILENCE_SLEEP_SECONDS } from '../lib/silencePolicy';
 import { toPmsEncounter, renderUniversalProgressNote, renderD4W, renderExact } from '../lib/pms';
 import { ClinicMembership } from '../lib/clinics';
@@ -506,9 +513,14 @@ export default function ChairsideWorkspace({
     // previous behaviour cleared it, which dropped the clinician onto the
     // "In-Chair Patient" scratchpad while still showing the patient's name in
     // the banner.
+    // A record that has just been SEATED is being persisted asynchronously and
+    // may not be in `consultations` yet. It still counts as existing here, or
+    // the self-heal below would move the clinician off the patient they have
+    // just sat down with.
     const activeRecordExists = Boolean(activePatientId)
-      && activePatientId !== 'chair-active'
-      && consultations.some(c => c.id === activePatientId);
+      && !isUnscheduledChair(activePatientId)
+      && (consultations.some(c => c.id === activePatientId)
+        || seatingIdsRef.current.has(activePatientId));
 
     if (encountersForDate.length === 0) {
       if (activePatientId && !activeRecordExists) setActivePatientId('');
@@ -525,8 +537,9 @@ export default function ChairsideWorkspace({
       p => p.diarizedTranscript && p.diarizedTranscript.length > 1
     );
 
-    // Do not hijack or redirect the ephemeral in-chair active encounter
-    if (activePatientId === 'chair-active') return;
+    // Do not hijack or redirect the ephemeral in-chair active encounter, nor an
+    // appointment that is mid-seating.
+    if (isUnscheduledChair(activePatientId) || seatingIdsRef.current.has(activePatientId)) return;
 
     // A clinical session is live while the microphone is recording/paused-mid-session or a
     // background finalization is in flight. External events must not move focus during one.
@@ -643,6 +656,174 @@ export default function ChairsideWorkspace({
       cdtCodes: []
     };
   }, [activeEncounter, inChairPatientNumber, inChairPatientCustomName, inChairPatientDob, inChairOperatory, inChairApptType, isMicStandby, isPaused, localLiveTranscripts]);
+
+  // ─────────────────────────────────────────────────────────────
+  // 1c. APPOINTMENT IDENTITY — one id per visit, minted at seating
+  // ─────────────────────────────────────────────────────────────
+  // A just-seated appointment is persisted asynchronously, so it is not yet in
+  // `consultations` when the focus invariant runs below. Tracking the ids being
+  // seated is what stops that invariant from moving the clinician off the
+  // patient they have just sat down with.
+  const seatingIdsRef = useRef<Set<string>>(new Set());
+
+  // The in-chair appointment this session is working under, once one has been
+  // seated. It is what makes "switch back to the operatory" a SWITCH rather
+  // than a second appointment — see openInChairAppointment below.
+  const inChairAppointmentIdRef = useRef<string | null>(null);
+
+  // ─────────────────────────────────────────────────────────────
+  // 1d. AI-ASSIST CONSENT — one capture, carried by every write
+  // ─────────────────────────────────────────────────────────────
+  // A consultation that carries a transcript cannot be saved (nor signed) on a
+  // deployment with DENTAI_REQUIRE_CONSENT=true unless consent has actually been
+  // recorded for it. Consent is captured ONCE and is append-only, so the rule
+  // here is: attach consent to a write when — and only when — it exists, either
+  // on the record itself or as a capture this session's clinician made. Nothing
+  // is assumed, back-dated or defaulted; see src/lib/aiConsent.ts.
+  const [capturedConsents, setCapturedConsents] = useState<Record<string, ConsultationConsent>>({});
+  const capturedConsentsRef = useRef<Record<string, ConsultationConsent>>({});
+  const latestConsultationsRef = useRef<Consultation[]>(consultations);
+  latestConsultationsRef.current = consultations;
+
+  const rememberConsent = useCallback((id: string, consent: ConsultationConsent) => {
+    capturedConsentsRef.current = { ...capturedConsentsRef.current, [id]: consent };
+    setCapturedConsents(capturedConsentsRef.current);
+  }, []);
+
+  /**
+   * Carry a day-sheet consent onto the encounter it was captured for.
+   *
+   * The day sheet and the encounter are two views of one appointment: the row
+   * is what the desk captures consent against, the encounter is what records
+   * the visit. Starting the appointment must carry that capture onto the
+   * record — but only the capture that EXISTS: a flag with no instant converts
+   * to nothing (see src/lib/aiConsent.ts), and a consent already on the record
+   * always wins, because consent is append-only.
+   */
+  const adoptScheduleRowConsent = useCallback((encounterId: string): ConsultationConsent | null => {
+    if (!encounterId || encounterId === UNSCHEDULED_CHAIR) return null;
+    const record = latestConsultationsRef.current.find(c => c.id === encounterId);
+    // A consent already on the record (or read back from the server) is the
+    // consent that stands: consent is append-only, so nothing is re-adopted
+    // over it and nothing overwrites it.
+    if (recordedConsent(record)) return null;
+    const rowConsent = consentFromCapture(
+      loadTodaySchedule().find(
+        row => row.consultationId === encounterId || (record?.scheduleItemId != null && row.id === record.scheduleItemId)
+      ),
+      currentUser?.id
+    );
+    if (!rowConsent) return null;
+    if (!capturedConsentsRef.current[encounterId]) rememberConsent(encounterId, rowConsent);
+    return rowConsent;
+  }, [currentUser?.id, rememberConsent]);
+
+  /**
+   * Every consultation write leaving this workspace goes through here.
+   *
+   * Consent is a property of the RECORD (append-only), so a write that re-sends
+   * a consented record is covered by the consent already on it; a write for an
+   * encounter captured in this session is covered by that capture. A write for
+   * an encounter with no consent is left alone — and a transcript-bearing one
+   * will be refused by the server, visibly, rather than silently queued.
+   */
+  const saveConsultation = useCallback(
+    (consult: Consultation): Promise<void> | void => {
+      if (!onSaveConsultation) return;
+      const record = consult.consent
+        ? consult
+        : latestConsultationsRef.current.find(c => c.id === consult.id);
+      const consent = consentForWrite(record, capturedConsentsRef.current[consult.id] ?? null);
+      return onSaveConsultation(consent && !consult.consent ? { ...consult, consent } : consult);
+    },
+    [onSaveConsultation]
+  );
+
+  // EVERY way an encounter becomes active — a day-schedule card, a History Hub
+  // view, a reopened record — passes through `activePatientId`. The day-sheet
+  // capture is adopted here, and persisted onto the record when the record
+  // already exists: consent must be ON the record before a transcript-bearing
+  // write needs it (a session-only capture would not travel with the write).
+  useEffect(() => {
+    if (!activePatientId) return;
+    const adopted = adoptScheduleRowConsent(activePatientId);
+    if (!adopted) return;
+    const existing = latestConsultationsRef.current.find(c => c.id === activePatientId);
+    if (existing && !recordedConsent(existing)) {
+      void saveConsultation({ ...existing, consent: adopted });
+    }
+  }, [activePatientId, adoptScheduleRowConsent, saveConsultation]);
+
+  // What the banner shows for the encounter on screen: the consent on the
+  // record (server-held, append-only) or this session's capture. Absent means
+  // "not recorded" — a state the UI must be able to present honestly.
+  const activeEncounterId = activeEncounter?.id || effectiveEncounter.id;
+  const activeConsent =
+    recordedConsent(latestConsultationsRef.current.find(c => c.id === activeEncounterId))
+    ?? capturedConsents[activeEncounterId]
+    ?? null;
+
+  /**
+   * Seat a patient in the chair: mint ONE appointment id, make it the active
+   * encounter, and persist the appointment immediately.
+   *
+   * Persisting before clinical content exists is the point, not an oversight.
+   * `/api/transcribe/audio` refuses audio for a consultation the server has
+   * never seen, and a record with no server-stamped version can never be
+   * signed. Without this, the in-chair visit had no identity at all: its
+   * recording was never stored, its transcript was never diarized server-side,
+   * Sign Off was unreachable — and the record was renamed at finalisation,
+   * which detached whatever had already been filed under the earlier id.
+   */
+  const seatInChairAppointment = (overrides?: Partial<Consultation>): string => {
+    const id = mintAppointmentId();
+    seatingIdsRef.current.add(id);
+    inChairAppointmentIdRef.current = id;
+
+    // A consent captured for the un-seated chair carries onto the appointment
+    // the patient is now seated as — the capture belongs to the patient in the
+    // chair, not to the placeholder id it was made under.
+    const unseatedConsent = capturedConsentsRef.current[UNSCHEDULED_CHAIR];
+    if (unseatedConsent) rememberConsent(id, unseatedConsent);
+
+    const names = (inChairPatientCustomName || '').trim().split(' ').filter(Boolean);
+
+    const seated: Consultation = {
+      id,
+      dentistId: currentUser?.id || '',
+      clinicId: activeClinicId || undefined,
+      firstName: names[0] || '',
+      lastName: names.slice(1).join(' '),
+      dob: inChairPatientDob || '',
+      appointmentType: inChairApptType,
+      templateId: inChairApptType === 'emergency' ? 'emergency' : 'standard',
+      date: getClinicTodayIso(),
+      time: formatClinicTime(new Date()),
+      status: 'In Review',
+      patientSummary: '',
+      transcript: [],
+      findings: {
+        chiefComplaint: '',
+        history: '',
+        toothFindings: '',
+        findingsGingival: '',
+        diagnosis: '',
+        treatmentPerformed: '',
+        recommendations: '',
+        recallRequirements: '',
+        customSections: { operatory: inChairOperatory },
+        adaCodes: []
+      },
+      ...overrides
+    };
+
+    setActivePatientId(id);
+    // Fire-and-forget: the switch must stay synchronous (the clinician is
+    // already with the next patient), and a shell that fails here is written
+    // by the ordinary save path when the appointment is completed.
+    void saveConsultation(seated);
+    return id;
+  };
 
   // Active transcript (no confidence gating — dentist decides when to regenerate)
   const currentOperatoryEncounter = activeEncounter || effectiveEncounter;
@@ -871,16 +1052,16 @@ export default function ChairsideWorkspace({
       clearTimeout(saveDebounceTimerRef.current);
       saveDebounceTimerRef.current = null;
     }
-    if (pendingSaveConsultationRef.current && onSaveConsultation) {
+    if (pendingSaveConsultationRef.current) {
       const consultToSave = pendingSaveConsultationRef.current;
       pendingSaveConsultationRef.current = null;
       try {
-        await onSaveConsultation(consultToSave);
+        await saveConsultation(consultToSave);
       } catch (e) {
         console.warn('Failed to flush debounced consultation save:', e);
       }
     }
-  }, [onSaveConsultation]);
+  }, [saveConsultation]);
 
   // Unmount safety: flush pending consultation saves
   useEffect(() => {
@@ -888,11 +1069,41 @@ export default function ChairsideWorkspace({
       if (saveDebounceTimerRef.current) {
         clearTimeout(saveDebounceTimerRef.current);
       }
-      if (pendingSaveConsultationRef.current && onSaveConsultation) {
-        onSaveConsultation(pendingSaveConsultationRef.current).catch(() => {});
+      if (pendingSaveConsultationRef.current) {
+        Promise.resolve(saveConsultation(pendingSaveConsultationRef.current)).catch(() => {});
       }
     };
-  }, [onSaveConsultation]);
+  }, [saveConsultation]);
+
+  /**
+   * Record the patient's AI-assist consent, chairside.
+   *
+   * This is the ONLY place the cockpit creates a consent object, and it can only
+   * be reached by the clinician confirming that the disclosure was given: the
+   * capture instant, the disclosure wording version and the practitioner are
+   * stamped at that moment (see src/lib/aiConsent.ts), and the capture is
+   * persisted immediately — so the consent is ON the record before a
+   * transcript-bearing save needs it, never asserted as part of one.
+   */
+  const recordAiConsent = useCallback(async () => {
+    const encounterId = activeEncounterRef.current?.id || '';
+    if (!encounterId) return;
+    const consent = consentFromCapture(
+      {
+        consentObtained: true,
+        consentCapturedAt: new Date().toISOString(),
+        consentPractitionerId: currentUser?.id || '',
+      },
+      currentUser?.id
+    );
+    if (!consent) return;
+    rememberConsent(encounterId, consent);
+    const existing = latestConsultationsRef.current.find(c => c.id === encounterId);
+    if (existing) {
+      await saveConsultation({ ...existing, consent });
+    }
+    setTurnoverToast(`AI-assist consent recorded (disclosure ${consent.disclosureVersion}).`);
+  }, [currentUser?.id, rememberConsent, saveConsultation]);
 
   // Wall-clock epoch timestamp anchor (immune to Chromium tab throttling when in Dentrix/Eaglesoft)
   const sessionStartTimeRef = useRef<number>(Date.now());
@@ -1030,6 +1241,10 @@ export default function ChairsideWorkspace({
     hasUserManuallySelectedRef.current = true;
     if (patientId === activePatientId) return;
 
+    // Starting a scheduled appointment from the day sheet carries the consent
+    // the desk captured for it onto the encounter being opened.
+    adoptScheduleRowConsent(patientId);
+
     void flushPendingConsultationSave();
     if (dspRef.current) {
       dspRef.current.destroy();
@@ -1051,7 +1266,33 @@ export default function ChairsideWorkspace({
     setInterimTranscript('');
     sessionStartTimeRef.current = Date.now();
     lastVoicedTimeRef.current = Date.now();
-  }, [activePatientId, playMedicalChime, flushPendingConsultationSave]);
+  }, [activePatientId, playMedicalChime, flushPendingConsultationSave, adoptScheduleRowConsent]);
+
+  /**
+   * The in-chair card's single entry point.
+   *
+   * The card is rendered on every day view, and it must never mint a second
+   * appointment for a visit that is already open. Before this, clicking it while
+   * the in-chair patient was active was a no-op (the scratchpad marker was
+   * already the active id); minting here moved the clinician onto a fresh empty
+   * record carrying the SAME patient's name — the duplicate chart the day
+   * schedule then showed twice — and moved the audio namespace onto the record
+   * that would not be the one signed. If the in-chair appointment is open, the
+   * card SWITCHES back to it; only a session with no seated appointment starts
+   * a new one.
+   */
+  const openInChairAppointment = () => {
+    const seated = inChairAppointmentIdRef.current;
+    if (seated && seated === activePatientId) return;
+    if (
+      seated &&
+      (consultations.some(c => c.id === seated) || seatingIdsRef.current.has(seated))
+    ) {
+      handleSelectPatient(seated);
+      return;
+    }
+    seatInChairAppointment();
+  };
 
   // Hands-Free Quick Start for unassigned / walk-in encounter
   const handleQuickStartRecording = useCallback(async () => {
@@ -1084,9 +1325,7 @@ export default function ChairsideWorkspace({
       }
     };
 
-    if (onSaveConsultation) {
-      await onSaveConsultation(newConsultation);
-    }
+    await saveConsultation(newConsultation);
 
     addScheduleItem({
       time: cleanTime,
@@ -1100,7 +1339,7 @@ export default function ChairsideWorkspace({
     setTimeout(() => {
       handleStartAudio();
     }, 150);
-  }, [currentUser, activeClinicId, onSaveConsultation, handleSelectPatient, handleStartAudio]);
+  }, [currentUser, activeClinicId, saveConsultation, handleSelectPatient, handleStartAudio]);
 
 
   // Derived active SOAP (read-only from consultation record — no local override layer)
@@ -1128,14 +1367,14 @@ export default function ChairsideWorkspace({
 
     // 2. Persist to consultation in database
     const existingConsultation = consultationsRef.current.find(c => c.id === targetId);
-    if (existingConsultation && onSaveConsultation) {
+    if (existingConsultation) {
       const updatedConsultation: Consultation = {
         ...existingConsultation,
         clinicalProgressNote: value
       };
 
       try {
-        await onSaveConsultation(updatedConsultation);
+        await saveConsultation(updatedConsultation);
         setProgressNoteSaveStatus(prev => ({ ...prev, [targetId]: 'saved' }));
       } catch (e) {
         console.warn('Failed to auto-save clinical progress note:', e);
@@ -1143,7 +1382,7 @@ export default function ChairsideWorkspace({
     } else {
       setProgressNoteSaveStatus(prev => ({ ...prev, [targetId]: 'saved' }));
     }
-  }, [activeEncounter, onSaveConsultation]);
+  }, [activeEncounter, saveConsultation]);
 
   // Web Audio Nodes & direct DOM ref array for 60fps zero-render visualizer
   const analyserRef = useRef<AnalyserNode | null>(null);
@@ -2024,52 +2263,87 @@ export default function ChairsideWorkspace({
       const names = item.patientName.split(' ');
       const firstName = names[0] || 'Patient';
       const lastName = names.slice(1).join(' ') || `${i + 1}`;
-      const consultId = `sched-${Date.now()}-${i}`;
+      const patientName = `${firstName} ${lastName}`.trim();
+
+      // One appointment, one encounter. If this slot already IS a row on the
+      // day sheet, start the record filed under it — never mint a second chart
+      // under the same schedule row.
+      const existingRow = findScheduleItemBySlot(loadTodaySchedule(currentDateStr), currentDateStr, item.time, patientName);
+      const linkedEncounter = existingRow?.consultationId
+        ? latestConsultationsRef.current.find(c => c.id === existingRow.consultationId)
+        : undefined;
+      // One identity per appointment: a minted id, not a stage name. The id is
+      // the record, the audio namespace, the note-job key and (once signed) the
+      // attestation target — so it must be the same value at every step.
+      const consultId = linkedEncounter?.id || mintAppointmentId();
 
       if (!firstConsultId) {
         firstConsultId = consultId;
       }
 
-      const newConsultation: Consultation = {
-        id: consultId,
-        dentistId: currentUser?.id || '',
-        clinicId: activeClinicId || undefined,
-        firstName,
-        lastName,
-        dob: item.dob || '',
-        appointmentType: item.appointmentType || 'examination',
-        templateId: item.templateId || 'standard',
-        date: currentDateStr,
-        time: item.time,
-        status: 'In Review',
-        patientSummary: '',
-        transcript: [],
-        findings: {
-          chiefComplaint: item.procedureText,
-          history: '',
-          toothFindings: '',
-          findingsGingival: '',
-          diagnosis: '',
-          treatmentPerformed: '',
-          recommendations: '',
-          recallRequirements: '',
-          customSections: { operatory: item.room || `Room ${(i % 3) + 1}` },
-          adaCodes: []
-        }
-      };
-
-      if (onSaveConsultation) {
-        await onSaveConsultation(newConsultation);
+      // The row is the appointment's address; write it — or its link — BEFORE
+      // the encounter, so the encounter can name the row it belongs to.
+      let rowId = existingRow?.id;
+      if (existingRow) {
+        updateScheduleItem(existingRow.id, {
+          consultationId: consultId,
+          dob: item.dob || existingRow.dob,
+          procedureText: item.procedureText || existingRow.procedureText
+        }, currentDateStr);
+      } else {
+        const createdRow = addScheduleItem({
+          time: item.time,
+          patientName,
+          dob: item.dob || '',
+          procedureText: item.procedureText,
+          appointmentType: item.appointmentType || 'examination',
+          templateId: item.templateId || 'standard',
+          consultationId: consultId
+        }, currentDateStr);
+        rowId = createdRow.id;
       }
 
-      addScheduleItem({
-        time: item.time,
-        patientName: `${firstName} ${lastName}`,
-        dob: item.dob || '',
-        procedureText: item.procedureText,
-        appointmentType: item.appointmentType || 'examination',
-        templateId: item.templateId || 'standard'
-      });
+      // A record that predates this rule is healed in place: the encounter
+      // exists, it simply has not named its row yet.
+      if (linkedEncounter && !linkedEncounter.scheduleItemId && rowId) {
+        await saveConsultation({ ...linkedEncounter, scheduleItemId: rowId });
+      }
+
+      if (!linkedEncounter) {
+        const newConsultation: Consultation = {
+          id: consultId,
+          dentistId: currentUser?.id || '',
+          clinicId: activeClinicId || undefined,
+          firstName,
+          lastName,
+          dob: item.dob || '',
+          appointmentType: item.appointmentType || 'examination',
+          templateId: item.templateId || 'standard',
+          date: currentDateStr,
+          time: item.time,
+          status: 'In Review',
+          patientSummary: '',
+          transcript: [],
+          // The row and the encounter name each other; consent captured on the
+          // day sheet is carried, never invented (src/lib/aiConsent.ts).
+          scheduleItemId: rowId,
+          consent: consentFromCapture(existingRow, currentUser?.id) ?? undefined,
+          findings: {
+            chiefComplaint: item.procedureText,
+            history: '',
+            toothFindings: '',
+            findingsGingival: '',
+            diagnosis: '',
+            treatmentPerformed: '',
+            recommendations: '',
+            recallRequirements: '',
+            customSections: { operatory: item.room || `Room ${(i % 3) + 1}` },
+            adaCodes: []
+          }
+        };
+
+        await saveConsultation(newConsultation);
+      }
     }
 
     if (firstConsultId && !activePatientId) {
@@ -2099,52 +2373,87 @@ export default function ChairsideWorkspace({
       const names = parsed.patientName.split(' ');
       const firstName = names[0] || 'Patient';
       const lastName = names.slice(1).join(' ') || `${i + 1}`;
-      const consultId = `sched-${Date.now()}-${i}`;
+      const patientName = `${firstName} ${lastName}`.trim();
+
+      // One appointment, one encounter. If this slot already IS a row on the
+      // day sheet, start the record filed under it — never mint a second chart
+      // under the same schedule row.
+      const existingRow = findScheduleItemBySlot(loadTodaySchedule(currentDateStr), currentDateStr, parsed.time, patientName);
+      const linkedEncounter = existingRow?.consultationId
+        ? latestConsultationsRef.current.find(c => c.id === existingRow.consultationId)
+        : undefined;
+      // One identity per appointment: a minted id, not a stage name. The id is
+      // the record, the audio namespace, the note-job key and (once signed) the
+      // attestation target — so it must be the same value at every step.
+      const consultId = linkedEncounter?.id || mintAppointmentId();
 
       if (!firstConsultId) {
         firstConsultId = consultId;
       }
 
-      const newConsultation: Consultation = {
-        id: consultId,
-        dentistId: currentUser?.id || '',
-        clinicId: activeClinicId || undefined,
-        firstName,
-        lastName,
-        dob: parsed.dob || '',
-        appointmentType: 'restorative',
-        templateId: 'standard',
-        date: currentDateStr,
-        time: parsed.time,
-        status: 'In Review',
-        patientSummary: '',
-        transcript: [],
-        findings: {
-          chiefComplaint: parsed.procedure,
-          history: '',
-          toothFindings: '',
-          findingsGingival: '',
-          diagnosis: '',
-          treatmentPerformed: '',
-          recommendations: '',
-          recallRequirements: '',
-          customSections: { operatory: `Room ${(i % 3) + 1}` },
-          adaCodes: []
-        }
-      };
-
-      if (onSaveConsultation) {
-        await onSaveConsultation(newConsultation);
+      // The row is the appointment's address; write it — or its link — BEFORE
+      // the encounter, so the encounter can name the row it belongs to.
+      let rowId = existingRow?.id;
+      if (existingRow) {
+        updateScheduleItem(existingRow.id, {
+          consultationId: consultId,
+          dob: parsed.dob || existingRow.dob,
+          procedureText: parsed.procedure || existingRow.procedureText
+        }, currentDateStr);
+      } else {
+        const createdRow = addScheduleItem({
+          time: parsed.time,
+          patientName,
+          dob: parsed.dob || '',
+          procedureText: parsed.procedure,
+          appointmentType: 'restorative',
+          templateId: 'standard',
+          consultationId: consultId
+        }, currentDateStr);
+        rowId = createdRow.id;
       }
 
-      addScheduleItem({
-        time: parsed.time,
-        patientName: `${firstName} ${lastName}`,
-        dob: parsed.dob || '',
-        procedureText: parsed.procedure,
-        appointmentType: 'restorative',
-        templateId: 'standard'
-      });
+      // A record that predates this rule is healed in place: the encounter
+      // exists, it simply has not named its row yet.
+      if (linkedEncounter && !linkedEncounter.scheduleItemId && rowId) {
+        await saveConsultation({ ...linkedEncounter, scheduleItemId: rowId });
+      }
+
+      if (!linkedEncounter) {
+        const newConsultation: Consultation = {
+          id: consultId,
+          dentistId: currentUser?.id || '',
+          clinicId: activeClinicId || undefined,
+          firstName,
+          lastName,
+          dob: parsed.dob || '',
+          appointmentType: 'restorative',
+          templateId: 'standard',
+          date: currentDateStr,
+          time: parsed.time,
+          status: 'In Review',
+          patientSummary: '',
+          transcript: [],
+          // The row and the encounter name each other; consent captured on the
+          // day sheet is carried, never invented (src/lib/aiConsent.ts).
+          scheduleItemId: rowId,
+          consent: consentFromCapture(existingRow, currentUser?.id) ?? undefined,
+          findings: {
+            chiefComplaint: parsed.procedure,
+            history: '',
+            toothFindings: '',
+            findingsGingival: '',
+            diagnosis: '',
+            treatmentPerformed: '',
+            recommendations: '',
+            recallRequirements: '',
+            customSections: { operatory: `Room ${(i % 3) + 1}` },
+            adaCodes: []
+          }
+        };
+
+        await saveConsultation(newConsultation);
+      }
     }
 
     if (firstConsultId && !activePatientId) {
@@ -2165,16 +2474,46 @@ export default function ChairsideWorkspace({
   const [walkInName, setWalkInName] = useState('');
   const [walkInDob, setWalkInDob] = useState('');
   const [walkInRoom, setWalkInRoom] = useState('Room 1');
-  const [walkInTime, setWalkInTime] = useState(() => `Now (${formatClinicTime(new Date())})`);
+  // A sentinel, not a clock string: the time is resolved from the clock when the
+  // walk-in is actually added (see `resolveWalkInTime`).
+  const [walkInTime, setWalkInTime] = useState('now');
   const [walkInReason, setWalkInReason] = useState('');
+  // Set only when the clinician submits a date of birth that is not a real
+  // calendar date; cleared as soon as they edit the field.
+  const [walkInError, setWalkInError] = useState<string | null>(null);
   // Phase 13A (§18): the clinician picks the encounter type. Empty means "no
   // selection" — the safe generic intake applies, never a guessed emergency.
   const [walkInType, setWalkInType] = useState<AppointmentType | ''>('');
 
+  /**
+   * Resolves the walk-in time dropdown to a clock time at submit.
+   *
+   * The three options used to carry literal clock strings rendered at paint
+   * time, so a card left open on a chairside screen filed the time it was first
+   * drawn: a walk-in added at 8:52 AM was recorded at 6:57 AM, in the wrong
+   * slot and in the wrong clinical day order. The option list also re-rendered
+   * the label while the stored value stayed stale, so the visible choice and
+   * the saved one disagreed.
+   */
+  const resolveWalkInTime = (selection: string): string => {
+    if (selection === 'now') return formatClinicTime(new Date());
+    if (selection === '+15') return formatClinicTime(new Date(Date.now() + 15 * 60000));
+    if (selection === '+30') return formatClinicTime(new Date(Date.now() + 30 * 60000));
+    return selection;
+  };
+
   const handleAddWalkInToStream = async () => {
     if (!walkInName.trim()) return;
 
-    let cleanTime = walkInTime.includes('(') ? walkInTime.split('(')[1].replace(')', '').trim() : walkInTime;
+    // A date of birth is patient identity data: an impossible one is refused
+    // here, where the clinician can see and fix it (see utils/date.dobFieldError).
+    const dobProblem = dobFieldError(walkInDob);
+    if (dobProblem) {
+      setWalkInError(dobProblem);
+      return;
+    }
+
+    let cleanTime = resolveWalkInTime(walkInTime).trim();
     if (cleanTime.endsWith(' A')) cleanTime = cleanTime.replace(/ A$/, ' AM');
     if (cleanTime.endsWith(' P')) cleanTime = cleanTime.replace(/ P$/, ' PM');
 
@@ -2189,6 +2528,19 @@ export default function ChairsideWorkspace({
       operatory: walkInRoom,
       chiefComplaint: walkInReason,
       newId: generateWalkInId,
+    });
+
+    // The day-sheet row and the encounter name each other, so a walk-in started
+    // again from the schedule resolves to this same record.
+    const typeLabel = APPOINTMENT_TYPES.find(t => t.value === intake.appointmentType)?.short || 'Consultation';
+    const walkInRow = addScheduleItem({
+      time: intake.time,
+      patientName: `${intake.firstName} ${intake.lastName}`.trim(),
+      dob: intake.dob,
+      procedureText: `${typeLabel} • ${intake.chiefComplaint || 'Evaluation'}`,
+      appointmentType: intake.appointmentType,
+      templateId: intake.templateId,
+      consultationId: intake.id
     });
 
     const newConsultation: Consultation = {
@@ -2206,6 +2558,7 @@ export default function ChairsideWorkspace({
       patientSummary: '',
       // §17: speech belongs in the transcript only when actually captured.
       transcript: [],
+      scheduleItemId: walkInRow.id,
       findings: {
         // Only what the patient actually stated. An absent complaint stays
         // visibly absent instead of becoming "Emergency walk-in consultation".
@@ -2222,25 +2575,14 @@ export default function ChairsideWorkspace({
       }
     };
 
-    if (onSaveConsultation) {
-      await onSaveConsultation(newConsultation);
-    }
-
-    const typeLabel = APPOINTMENT_TYPES.find(t => t.value === intake.appointmentType)?.short || 'Consultation';
-    addScheduleItem({
-      time: intake.time,
-      patientName: `${intake.firstName} ${intake.lastName}`.trim(),
-      dob: intake.dob,
-      procedureText: `${typeLabel} • ${intake.chiefComplaint || 'Evaluation'}`,
-      appointmentType: intake.appointmentType,
-      templateId: intake.templateId
-    });
+    await saveConsultation(newConsultation);
 
     handleSelectPatient(intake.id);
     setWalkInName('');
     setWalkInDob('');
     setWalkInReason('');
     setWalkInType('');
+    setWalkInError(null);
     setShowWalkInCard(false);
   };
 
@@ -2249,13 +2591,13 @@ export default function ChairsideWorkspace({
     const newTemplateId = typeInfo?.defaultTemplateId || 'standard';
 
     const targetConsult = consultations.find(c => c.id === targetId);
-    if (targetConsult && onSaveConsultation) {
+    if (targetConsult) {
       const updatedConsult: Consultation = {
         ...targetConsult,
         appointmentType: newType,
         templateId: newTemplateId
       };
-      onSaveConsultation(updatedConsult);
+      void saveConsultation(updatedConsult);
     }
   };
 
@@ -2293,9 +2635,7 @@ export default function ChairsideWorkspace({
           }
         }
       };
-      if (onSaveConsultation) {
-        await onSaveConsultation(updatedConsult);
-      }
+      await saveConsultation(updatedConsult);
     }
 
     // Refresh any progressive draft so the patient header immediately reflects the updated name and DOB
@@ -2311,7 +2651,7 @@ export default function ChairsideWorkspace({
     }
 
     setTurnoverToast(`Patient updated: ${trimmedName}`);
-  }, [activeEncounter, effectiveEncounter, consultations, onSaveConsultation, progressiveDrafts]);
+  }, [activeEncounter, effectiveEncounter, consultations, saveConsultation, progressiveDrafts]);
 
   // ─────────────────────────────────────────────────────────────
   // 6. ASYNCHRONOUS NOTE FINALIZATION & NON-BLOCKING HANDOFF
@@ -2603,8 +2943,13 @@ export default function ChairsideWorkspace({
         adaCodes: payload?.adaCodes?.length ? payload.adaCodes : targetConsult.findings?.adaCodes || []
       };
 
-      const isChairActive = targetConsult.id === 'chair-active';
-      const persistId = (isFullFinalize && isChairActive) ? `consult-${Date.now()}` : targetConsult.id;
+      // One identity per appointment. The id minted when the patient was SEATED
+      // is the id this record is completed under — re-minting here is exactly
+      // what detached the recorded audio (stored under the seated id), left the
+      // note job unable to converge, and made the record unsignable. A record
+      // with no identity at all (the un-seated marker) is minted once; every
+      // record that already has an id keeps it, exactly as before.
+      const persistId = mintIfUnseated(targetConsult.id);
       const isHostedNote = Boolean(payload && payload.groundingReport);
       let renderedNote = noteSnapshot;
       if (!renderedNote || !renderedNote.trim()) {
@@ -2649,8 +2994,8 @@ export default function ChairsideWorkspace({
         grounding: payload?.groundingReport
       };
 
-      if (onSaveConsultation && (isFullFinalize || !isChairActive)) {
-        await onSaveConsultation(finalizedConsultation);
+      if (isFullFinalize || !isUnscheduledChair(targetConsult.id)) {
+        await saveConsultation(finalizedConsultation);
         if (isFullFinalize) {
           const patientFullName = [finalizedConsultation.firstName, finalizedConsultation.lastName].filter(Boolean).join(' ') || 'In-Chair Patient';
           addScheduleItem({
@@ -2863,9 +3208,7 @@ export default function ChairsideWorkspace({
       }
     };
 
-    if (onSaveConsultation) {
-      await onSaveConsultation(updatedConsultation);
-    }
+    await saveConsultation(updatedConsultation);
 
     setEditedProgressNotes(prev => {
       const next = { ...prev };
@@ -2965,9 +3308,16 @@ export default function ChairsideWorkspace({
       // buffers are RETAINED (the encounter was already enqueued for
       // finalization above and can be recovered from the day view) and the
       // toast tells the clinician what happened — never a silent discard.
+      // Seat the next patient as a real appointment BEFORE recording can start:
+      // the id minted here is the one every subsystem will use. The in-chair
+      // identity fields still hold the PREVIOUS patient at this point (they are
+      // cleared a few lines below), so the next appointment is born anonymous:
+      // inheriting them would put one patient's name and date of birth on the
+      // next patient's chart, and bind that chart to the wrong patient record.
+      const seatedId = seatInChairAppointment({ firstName: '', lastName: '', dob: '' });
       const decision = decidePatientSwitch({
         source: 'keyboard-next',
-        targetPatientId: 'chair-active',
+        targetPatientId: seatedId,
         activePatientId,
         sessionActive: false,
       });
@@ -2977,7 +3327,7 @@ export default function ChairsideWorkspace({
       setInChairPatientNumber(nextNum);
       setInChairPatientCustomName('');
       setInChairPatientDob('');
-      setActivePatientId('chair-active');
+      setActivePatientId(seatedId);
       sessionStartTimeRef.current = Date.now();
       setRecordingSeconds(0);
 
@@ -3690,9 +4040,10 @@ ${clinician}`;
                     <input
                       type="text"
                       value={walkInDob}
-                      onChange={e => setWalkInDob(e.target.value)}
+                      onChange={e => { setWalkInDob(e.target.value); if (walkInError) setWalkInError(null); }}
                       placeholder="DOB (DD/MM/YYYY)"
-                      className="w-full px-2.5 py-1 text-[11px] font-medium border border-slate-200 rounded-lg focus:outline-none focus:border-sky-600 bg-slate-50/50"
+                      aria-invalid={walkInError ? true : undefined}
+                      className={`w-full px-2.5 py-1 text-[11px] font-medium border rounded-lg focus:outline-none focus:border-sky-600 bg-slate-50/50 ${walkInError ? 'border-rose-300' : 'border-slate-200'}`}
                     />
 
                     <select
@@ -3706,15 +4057,22 @@ ${clinician}`;
                     </select>
                   </div>
 
+                  {walkInError && (
+                    <p className="text-[11px] font-semibold text-rose-700 flex items-start gap-1.5" data-testid="walkin-dob-error">
+                      <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-px" />
+                      <span>{walkInError}</span>
+                    </p>
+                  )}
+
                   <div className="grid grid-cols-1 gap-1.5">
                     <select
                       value={walkInTime}
                       onChange={e => setWalkInTime(e.target.value)}
                       className="w-full px-2 py-1 text-[11px] font-medium border border-slate-200 rounded-lg bg-slate-50/50 text-slate-700"
                     >
-                      <option value={`Now (${formatClinicTime(new Date())})`}>Now ({formatClinicTime(new Date())})</option>
-                      <option value={formatClinicTime(new Date(Date.now() + 15 * 60000))}>{formatClinicTime(new Date(Date.now() + 15 * 60000))}</option>
-                      <option value={formatClinicTime(new Date(Date.now() + 30 * 60000))}>{formatClinicTime(new Date(Date.now() + 30 * 60000))}</option>
+                      <option value="now">Now ({formatClinicTime(new Date())})</option>
+                      <option value="+15">{formatClinicTime(new Date(Date.now() + 15 * 60000))}</option>
+                      <option value="+30">{formatClinicTime(new Date(Date.now() + 30 * 60000))}</option>
                     </select>
                   </div>
 
@@ -3740,11 +4098,17 @@ ${clinician}`;
               <div className="space-y-2">
                 {/* Active In-Chair Operatory Session Card (Always visible on today's schedule) */}
                 {currentDateStr === getClinicTodayIso() && (() => {
-                  const isChairActive = activePatientId === 'chair-active' || (!activePatientId && encountersForDate.length === 0);
+                  // A SEATED in-chair appointment is still the operatory session.
+                  // Without it the card loses its active/recording state the
+                  // moment the patient is seated, and the clinician cannot tell
+                  // which card the microphone is attached to.
+                  const isChairActive = activePatientId === 'chair-active'
+                    || (!activePatientId && encountersForDate.length === 0)
+                    || (Boolean(inChairAppointmentIdRef.current) && activePatientId === inChairAppointmentIdRef.current);
                   return (
                     <div
                       key="chair-active"
-                      onClick={() => handleSelectPatient('chair-active')}
+                      onClick={openInChairAppointment}
                       className={`p-3 rounded-xl border transition cursor-pointer text-left ${isChairActive
                         ? 'bg-sky-50/70 border-sky-300/80 border-l-4 border-l-sky-600 shadow-xs ring-1 ring-sky-300/40'
                         : 'bg-white hover:bg-slate-50/80 border-slate-200/80 shadow-2xs'
@@ -3928,6 +4292,8 @@ ${clinician}`;
                 onOpenWalkIn={() => setShowWalkInCard(true)}
                 onUpdateAppointmentType={(type) => handleUpdateAppointmentType(effectiveEncounter.id, type)}
                 onQuickInductPatient={handleQuickInductPatient}
+                consent={activeConsent}
+                onRecordConsent={recordAiConsent}
               />
 
               {/* Main Two-Panel Adaptive Split: Left (Live Speech & Mic HUD) / Right (Note Canvas & PMS Sync) */}

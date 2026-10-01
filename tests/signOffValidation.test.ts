@@ -143,6 +143,44 @@ describe('Server-side sign-off revalidation (F-4)', () => {
     expect(result).toMatchObject({ ok: false, reason: 'empty_note' });
   });
 
+  it('refuses a walk-in shell whose only "content" is seating/intake metadata, even with an approving audit', async () => {
+    // The live defect (playtest, blank walk-in): a walk-in appointment carries
+    // findings.customSections.intakeNote (provenance) and .operatory (which
+    // room). Counting those as note text let a record with no audio and no
+    // findings pass this guard; whenever its grounding verdict said approved —
+    // the verdict is stored, so a record audited under an older rule keeps it —
+    // the blank appointment was sealed and the client showed it as "Verified
+    // from Audio". The metadata is not clinical content, and this gate must
+    // refuse on its own: a cached approving verdict is exactly what it cannot
+    // be allowed to lean on.
+    store.set('c-1', consultation({
+      findings: {
+        customSections: {
+          operatory: 'Room 1',
+          intakeNote: 'Walk-in encounter created at intake for Test Patient',
+        },
+      },
+      transcript: [],
+      groundingAudit: { isApprovedForSigning: true, blockingReasons: [] },
+    }));
+    const result = await sign('c-1', 'd-1');
+    expect(result).toMatchObject({ ok: false, reason: 'empty_note' });
+  });
+
+  it('still signs a note whose findings live only in a clinical custom section', async () => {
+    // The other half of the rule: only the encounter bookkeeping keys are
+    // ignored. A clinician who types into a custom clinical section has note
+    // content, and must not be refused for it.
+    store.set('c-1', consultation({
+      findings: {
+        customSections: { operatory: 'Room 1', periodontalChart: 'Pocketing 4mm on 16 and 26.' },
+      },
+      transcript: [{ sender: 'Dentist', text: 'Pocketing of four millimetres on sixteen and twenty six.' }],
+    }));
+    const result = await sign('c-1', 'd-1');
+    expect(result).toMatchObject({ ok: true });
+  });
+
   it('refuses signing a transcript-bearing note with no recorded consent', async () => {
     store.set('c-1', consultation({ consent: undefined }));
     const result = await sign('c-1', 'd-1');

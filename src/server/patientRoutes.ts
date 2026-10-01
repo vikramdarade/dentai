@@ -17,6 +17,7 @@
  */
 
 import { patientDisplayName, type PatientRecord, type ResolveInput } from '../lib/patients';
+import { normalizeDob } from '../lib/dob';
 import type { PatientStore } from './patientStore';
 
 type Middleware = (req: any, res: any, next: (err?: any) => void) => any;
@@ -64,24 +65,26 @@ function cleanNamePart(value: unknown): string {
  * QLE-2026-0016: the route used to read `dob` only, so an integrator sending the
  * documented `dateOfBirth` alias had it silently dropped — a patient chart then
  * stored with no date of birth, which weakens the DOB-conflict rule in identity
- * resolution. A non-empty date must be a real YYYY-MM-DD calendar date; anything
- * else is refused rather than stored as unvalidated identity data. An absent
- * date stays absent (never invented).
+ * resolution. A non-empty date must be a real calendar date; anything else is
+ * refused rather than stored as unvalidated identity data. An absent date stays
+ * absent (never invented).
+ *
+ * The accepted shapes are deliberately narrower than the note-generation path's:
+ * this value decides *which patient* the record belongs to, so a date that could
+ * be read two ways (`04/05/1980`) is refused rather than guessed at, while a date
+ * that can only be read one way (`14/05/1988`, `11 Oct 1976`) is accepted and
+ * canonicalised. Storage is always `YYYY-MM-DD`. See `src/lib/dob.ts` for why the
+ * two paths hold different policies.
  */
 export function parsePatientDob(body: any): { value: string } | { error: string } {
   const raw = body?.dob ?? body?.dateOfBirth;
   if (raw === undefined || raw === null) return { value: '' };
-  if (typeof raw !== 'string') return { error: 'Date of birth must be a YYYY-MM-DD string.' };
-  const value = raw.trim();
-  if (!value) return { value: '' };
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    return { error: 'Date of birth must be a valid YYYY-MM-DD date.' };
+  const parsed = normalizeDob(raw, { policy: 'strict' });
+  if (!parsed.value) {
+    if (parsed.error) return { error: parsed.error };
+    return { value: '' };
   }
-  const parsed = new Date(`${value}T00:00:00Z`);
-  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) {
-    return { error: 'Date of birth must be a valid YYYY-MM-DD date.' };
-  }
-  return { value };
+  return { value: parsed.value };
 }
 
 function candidateDto(p: PatientRecord): PatientCandidateDto {

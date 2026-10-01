@@ -26,6 +26,7 @@ import {
   verifyAttestationSeal,
   type AttestationSeal
 } from '../lib/attestation';
+import { hasClinicalContent } from '../lib/clinicalContent';
 import type { Consultation } from '../types';
 
 export type SignOffRejectionReason =
@@ -216,11 +217,14 @@ export function createSignOffValidator(deps: SignOffDeps) {
       if (!contentDigest(consultation) || contentDigest(consultation) === contentDigest({} as Consultation)) {
         return { ok: false, reason: 'empty_note', message: 'The note has no clinical content to sign.' };
       }
-      const findings: Record<string, unknown> = (consultation.findings || {}) as Record<string, unknown>;
-      const hasClinicalContent = Object.entries(findings).some(([, v]) =>
-        typeof v === 'string' ? v.trim().length > 0 : v != null && !(typeof v === 'object' && Object.keys(v as object).length === 0)
-      );
-      if (!hasClinicalContent) {
+      // ...and "clinical content" deliberately ignores the seating/intake
+      // bookkeeping that rides in `findings.customSections` (which room, which
+      // day-sheet date, a walk-in's provenance stamp) — see
+      // src/lib/clinicalContent.ts. Counting that metadata as note text made
+      // this guard pass on an appointment with no audio and no findings, which
+      // is exactly the record it exists to stop: the only thing left between a
+      // blank record and a seal would be its (cached) grounding verdict.
+      if (!hasClinicalContent(consultation.findings)) {
         return { ok: false, reason: 'empty_note', message: 'The note has no clinical content to sign.' };
       }
 

@@ -242,7 +242,24 @@ describe('DentAI Server - Mocked Unit Tests', () => {
     expect(res.body.error).toContain('First name and last name must be non-empty');
   });
 
-  it('should reject invalid dob format with 400', async () => {
+  it('should reject an unreadable dob with 400', async () => {
+    const res = await request(app)
+      .post('/api/generate-notes')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({
+        intakeData: { firstName: 'Sarah', lastName: 'Jenkins', dob: 'yesterday', appointmentType: 'emergency' },
+        transcript: [{ sender: 'Dentist', text: 'Check tooth 16' }]
+      });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('Date of birth must be a real calendar date');
+  });
+
+  it('should not refuse a day-sheet dob for its format (QLE-2026-0043)', async () => {
+    // `12-04-1988` is how an Australian day sheet writes a date of birth. The
+    // synchronous note path used to answer it with a 400, so every such note
+    // silently fell through to the durable job queue. Generation itself needs a
+    // model, which this suite does not provide — the assertion is that the
+    // format is no longer the reason a request is refused.
     const res = await request(app)
       .post('/api/generate-notes')
       .set('Authorization', `Bearer ${authToken}`)
@@ -250,8 +267,7 @@ describe('DentAI Server - Mocked Unit Tests', () => {
         intakeData: { firstName: 'Sarah', lastName: 'Jenkins', dob: '12-04-1988', appointmentType: 'emergency' },
         transcript: [{ sender: 'Dentist', text: 'Check tooth 16' }]
       });
-    expect(res.status).toBe(400);
-    expect(res.body.error).toContain('Date of birth must be in YYYY-MM-DD format');
+    expect(res.body?.error || '').not.toContain('Date of birth');
   });
 
   it('should reject invalid appointmentType with 400', async () => {
@@ -1673,5 +1689,232 @@ describe('DentAI Server - consultation create contract (QLE-2026-0014 / QLE-2026
     expect(stored).toBeTruthy();
     expect(stored.findings.chiefComplaint).toBe('First');
     expect(stored.lastName).toBe('One');
+  });
+
+  // ── One identity per appointment (seated shell) ────────────────────────
+  //
+  // A patient put in the chair is persisted as an appointment the moment they
+  // are seated, before any clinical content exists. That ordering is load-
+  // bearing: `/api/transcribe/audio` refuses audio for a consultation the
+  // server has never seen, so without the shell the in-chair recording is never
+  // stored, the transcript is never diarized server-side, and the record never
+  // acquires a server-stamped version, which makes Sign Off unreachable.
+  it('accepts a seated appointment shell with no patient and no content yet', async () => {
+    const appointmentId = crypto.randomUUID();
+    const res = await request(app)
+      .post('/api/consultations')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        id: appointmentId,
+        date: '2026-09-30',
+        time: '2:05 PM',
+        status: 'In Review',
+        transcript: [],
+      });
+    expect(res.status).toBe(201);
+    expect(res.body.id).toBe(appointmentId);
+
+    // …and the appointment is addressable immediately, which is what lets the
+    // recording be stored against it.
+    const list = await request(app).get('/api/consultations').set('Authorization', `Bearer ${token}`);
+    expect(list.body.some((c: any) => c.id === appointmentId)).toBe(true);
+  });
+
+  it('never approves an empty seated shell for signing (the room is not a claim)', async () => {
+    // The shell carries findings.customSections.operatory so the record knows
+    // which room it is in. The grounding audit reads string sections as note
+    // text, so "Room 1" was extracted as a clinical claim — enough for a blank
+    // appointment to score no blocking reasons, present as "Verified from
+    // Audio" and be signed. Seating metadata is not evidence.
+    const appointmentId = crypto.randomUUID();
+    const created = await request(app)
+      .post('/api/consultations')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        id: appointmentId,
+        date: '2026-09-30',
+        time: '2:05 PM',
+        status: 'In Review',
+        transcript: [],
+        findings: {
+          chiefComplaint: '',
+          history: '',
+          toothFindings: '',
+          findingsGingival: '',
+          diagnosis: '',
+          treatmentPerformed: '',
+          recommendations: '',
+          recallRequirements: '',
+          customSections: { operatory: 'Room 1' },
+          adaCodes: [],
+        },
+      });
+    expect(created.status).toBe(201);
+    expect(created.body.groundingAudit?.isApprovedForSigning).toBe(false);
+
+    const sign = await request(app)
+      .post(`/api/consultations/${appointmentId}/sign`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ expectedVersion: created.body.recordVersion ?? 1 });
+    expect(sign.status).toBe(422);
+    // EMPTY_NOTE, not GROUNDING_NOT_APPROVED: the sealed gate refuses a
+    // metadata-only record on its own content check, without leaning on the
+    // (stored) grounding verdict. Both refusals are safe; this one is the gate
+    // being independently correct, which is what keeps a stale approving
+    // verdict from ever being the last thing between a blank record and a seal.
+    expect(sign.body.code).toBe('EMPTY_NOTE');
+  });
+
+  it('never approves a content-free walk-in shell for signing (the intake note is provenance, not a claim)', async () => {
+    // A walk-in appointment carries findings.customSections.intakeNote
+    // ("Walk-in encounter created at intake for <name>") — provenance, and
+    // documented as such in encounterSession.ts. The grounding audit read that
+    // string as a clinical claim, so a blank walk-in had exactly one claim:
+    // enough to defeat the "no verifiable clinical claims" block, leaving a
+    // record with no audio and no findings approved for signing and presented
+    // as "Verified from Audio".
+    const appointmentId = `walkin-${crypto.randomUUID()}`;
+    const created = await request(app)
+      .post('/api/consultations')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        id: appointmentId,
+        firstName: 'Walkin',
+        lastName: 'Shell',
+        dob: '',
+        appointmentType: 'examination',
+        templateId: 'standard',
+        date: '2026-09-30',
+        time: '2:05 PM',
+        status: 'In Review',
+        transcript: [],
+        findings: {
+          chiefComplaint: '',
+          history: '',
+          toothFindings: '',
+          findingsGingival: '',
+          diagnosis: '',
+          treatmentPerformed: '',
+          recommendations: '',
+          recallRequirements: '',
+          customSections: { operatory: 'Room 1', intakeNote: 'Walk-in encounter created at intake for Walkin Shell' },
+          adaCodes: [],
+        },
+      });
+    expect(created.status).toBe(201);
+    expect(created.body.groundingAudit?.isApprovedForSigning).toBe(false);
+
+    const sign = await request(app)
+      .post(`/api/consultations/${appointmentId}/sign`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ expectedVersion: created.body.recordVersion ?? 1 });
+    expect(sign.status).toBe(422);
+    // Refused as EMPTY_NOTE, for the same reason as the seated shell above: the
+    // walk-in's only "content" was its provenance stamp and its room.
+    expect(sign.body.code).toBe('EMPTY_NOTE');
+  });
+
+  it('treats a repeated seating write as a retry, not a duplicate record', async () => {
+    // One appointment id, sent twice (a dropped response, a cold start, a
+    // double click). Both attempts must converge on ONE record: this is the
+    // property that non-UUID, stage-named ids could not have.
+    const appointmentId = crypto.randomUUID();
+    const shell = { id: appointmentId, date: '2026-09-30', status: 'In Review', transcript: [] };
+
+    const first = await request(app)
+      .post('/api/consultations')
+      .set('Authorization', `Bearer ${token}`)
+      .send(shell);
+    expect(first.status).toBe(201);
+
+    const retry = await request(app)
+      .post('/api/consultations')
+      .set('Authorization', `Bearer ${token}`)
+      .send(shell);
+    expect(retry.status).toBe(200);
+    expect(retry.body.id).toBe(appointmentId);
+
+    const all = await request(app).get('/api/consultations').set('Authorization', `Bearer ${token}`);
+    expect(all.body.filter((c: any) => c.id === appointmentId).length).toBe(1);
+  });
+
+  it('converges a retry of the payload the chairside client actually sends', async () => {
+    // The real seating shell (src/components/ChairsideWorkspace.tsx
+    // seatInChairAppointment) carries the operatory in findings.customSections
+    // and the patient's name when the clinician typed it before sitting them
+    // down. Neither is clinical content; counting either as content made this
+    // branch unreachable for the product's own payload, so a dropped response
+    // left the write queued and answered 409 on every flush.
+    const appointmentId = crypto.randomUUID();
+    const shell = {
+      id: appointmentId,
+      firstName: 'Seated',
+      lastName: 'Patient',
+      dob: '11/10/1976',
+      appointmentType: 'examination',
+      templateId: 'standard',
+      date: '2026-09-30',
+      time: '2:05 PM',
+      status: 'In Review',
+      patientSummary: '',
+      transcript: [],
+      findings: {
+        chiefComplaint: '',
+        history: '',
+        toothFindings: '',
+        findingsGingival: '',
+        diagnosis: '',
+        treatmentPerformed: '',
+        recommendations: '',
+        recallRequirements: '',
+        customSections: { operatory: 'Room 1' },
+        adaCodes: [],
+      },
+    };
+
+    const first = await request(app)
+      .post('/api/consultations')
+      .set('Authorization', `Bearer ${token}`)
+      .send(shell);
+    expect(first.status).toBe(201);
+
+    const retry = await request(app)
+      .post('/api/consultations')
+      .set('Authorization', `Bearer ${token}`)
+      .send(shell);
+    expect(retry.status).toBe(200);
+    expect(retry.body.id).toBe(appointmentId);
+
+    const all = await request(app).get('/api/consultations').set('Authorization', `Bearer ${token}`);
+    expect(all.body.filter((c: any) => c.id === appointmentId).length).toBe(1);
+  });
+
+  it('still refuses a create that carries clinical content for an id already on file', async () => {
+    // The idempotent path is only for the content-free seating write. A create
+    // that would land clinical content on an existing record is a conflict — it
+    // has to be a PUT, through the governance and versioning path.
+    const appointmentId = crypto.randomUUID();
+    const seated = await request(app)
+      .post('/api/consultations')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ id: appointmentId, date: '2026-09-30', status: 'In Review', transcript: [] });
+    expect(seated.status).toBe(201);
+
+    const withContent = await request(app)
+      .post('/api/consultations')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        id: appointmentId,
+        date: '2026-09-30',
+        firstName: 'Seated',
+        lastName: 'Patient',
+        transcript: [{ sender: 'Dentist', text: 'How is the tooth today?' }],
+      });
+    expect(withContent.status).toBe(409);
+    expect(withContent.body.code).toBe('CONSULTATION_ID_CONFLICT');
+
+    const list = await request(app).get('/api/consultations').set('Authorization', `Bearer ${token}`);
+    const stored = list.body.find((c: any) => c.id === appointmentId);
+    expect(stored.firstName).toBeFalsy();
   });
 });

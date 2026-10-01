@@ -50,6 +50,7 @@ const {
   buildCanonicalTextDigest
 } = await import('../src/lib/attestation');
 const { JOB_CONFIG, backoffDelayMs, isQuotaError } = await import('../src/lib/noteJobs');
+const { AI_DISCLOSURE_VERSION } = await import('../src/lib/compliance');
 const { verifyPmsWebhookSignature, signPmsWebhookPayload } = await import('../src/server/pmsWebhookAuth');
 
 let app: any;
@@ -328,6 +329,65 @@ describe('Interrupted sessions, disconnects and restarts', () => {
     expect(verification.tampered).toEqual([]);
     expect(verification.brokenLinks).toEqual([]);
     expect(verification.headHash).toBeTruthy();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 4b. Consent carried from the day schedule into the persisted consultation
+//
+// The day-schedule queue captures verbal consent as a flat pair
+// (consentObtained + consentCapturedAt + consentPractitionerId) and submits it
+// with the note job. That capture has to land on the consultation as the SAME
+// canonical object the chairside cockpit produces, or opening the record in the
+// chair asks the clinician to record the consent a second time.
+// ---------------------------------------------------------------------------
+
+describe('Day-schedule consent carries into the persisted consultation', () => {
+  it('turns the flat capture pair into the canonical object the cockpit writes', async () => {
+    const consultationId = crypto.randomUUID();
+    const capturedAt = '2026-09-30T03:20:00.000Z';
+    const res = await request(app).post('/api/notes/jobs')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({
+        consultationId,
+        intakeData: VALID_INTAKE,
+        transcript: VALID_TRANSCRIPT,
+        consentObtained: true,
+        consentCapturedAt: capturedAt,
+        consentPractitionerId: 'Dr. Day Schedule'
+      });
+    expect([200, 202]).toContain(res.status);
+
+    const store = await readConsultationsStore();
+    const persisted = store.consultations.find((c: any) => c.id === consultationId);
+    expect(persisted).toBeTruthy();
+    // Same shape and same disclosure version as the chairside banner's capture.
+    expect(persisted.consent).toEqual({
+      obtainedAt: capturedAt,
+      disclosureVersion: AI_DISCLOSURE_VERSION,
+      recordedBy: 'Dr. Day Schedule'
+    });
+  });
+
+  it('never invents a consent instant from the flag alone', async () => {
+    const consultationId = crypto.randomUUID();
+    const res = await request(app).post('/api/notes/jobs')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({
+        consultationId,
+        intakeData: VALID_INTAKE,
+        transcript: VALID_TRANSCRIPT,
+        consentObtained: true
+        // no consentCapturedAt: a ticked box is not a capture, so no instant is
+        // asserted and the record shows consent as not obtained.
+      });
+    expect([200, 202]).toContain(res.status);
+
+    const store = await readConsultationsStore();
+    const persisted = store.consultations.find((c: any) => c.id === consultationId);
+    expect(persisted).toBeTruthy();
+    expect(persisted.consent.obtainedAt).toBe('');
+    expect(persisted.consent.disclosureVersion).toBe(AI_DISCLOSURE_VERSION);
   });
 });
 

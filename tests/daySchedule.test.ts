@@ -19,10 +19,12 @@ import {
   normalizeStartTime,
   normalizePatientName,
   generateSlotFingerprint,
+  findScheduleItemBySlot,
   mergeScheduleItems,
   calculateDailyProduction,
   parseTimeToMinutes
 } from '../src/lib/dayScheduleStorage';
+import { consentFromCapture } from '../src/lib/aiConsent';
 import { verifyTranscriptGrounding, extractToothNumbers } from '../src/lib/transcriptGrounding';
 import { isPmsPreviewEnabled } from '../src/utils/previewMode';
 
@@ -682,6 +684,91 @@ describe('Chairside Verbal Recording Consent Capture', () => {
     const processing = roster.find(i => i.id === item.id);
     expect(processing?.consentObtained).toBe(true);
     expect(processing?.transcript?.length).toBe(1);
+  });
+});
+
+describe('Day-sheet slot ↔ encounter linkage', () => {
+  const testDate = '2026-09-12';
+
+  beforeEach(() => {
+    clearTodaySchedule(testDate);
+  });
+
+  it('finds the row a slot already is, so a re-import links rather than duplicates', () => {
+    const row = addScheduleItem({
+      time: '11:30',
+      patientName: 'Zed Zephyr',
+      dob: '11/10/1976',
+      procedureText: 'Check up and clean',
+      appointmentType: 'examination',
+      templateId: 'standard',
+      consultationId: 'enc-zed-1',
+      consentObtained: true,
+      consentCapturedAt: '2026-09-12T09:30:00.000Z',
+      consentPractitionerId: 'dentist-1'
+    }, testDate);
+
+    const loaded = loadTodaySchedule(testDate);
+    // The exact slot resolves to the row...
+    expect(findScheduleItemBySlot(loaded, testDate, '11:30', 'Zed Zephyr')?.id).toBe(row.id);
+    // ...a differently-shaped but equivalent time does too...
+    expect(findScheduleItemBySlot(loaded, testDate, '11:30 AM', 'Zed  Zephyr')?.id).toBe(row.id);
+    // ...and a different patient at the same time is a different appointment.
+    expect(findScheduleItemBySlot(loaded, testDate, '11:30', 'Someone Else')).toBeUndefined();
+  });
+
+  it('re-importing a slot updates the row it already has instead of appending a second one', () => {
+    const row = addScheduleItem({
+      time: '09:00',
+      patientName: 'Justin Tran',
+      dob: '14/05/2012',
+      procedureText: 'CDBS Paediatric Exam',
+      appointmentType: 'examination',
+      templateId: 'standard'
+    }, testDate);
+
+    // The linked encounter the first import created.
+    const encounterId = '11111111-2222-4333-8444-555555555555';
+    updateScheduleItem(row.id, { consultationId: encounterId }, testDate);
+
+    // A second import of the same slot finds the row, not a new one.
+    const secondImport = findScheduleItemBySlot(loadTodaySchedule(testDate), testDate, '9:00 AM', 'Justin Tran');
+    expect(secondImport?.id).toBe(row.id);
+    expect(secondImport?.consultationId).toBe(encounterId);
+
+    if (secondImport) {
+      updateScheduleItem(secondImport.id, { dob: '15/05/2012', procedureText: 'Updated procedure' }, testDate);
+    }
+    const rows = loadTodaySchedule(testDate);
+    expect(rows.length).toBe(1);
+    expect(rows[0].dob).toBe('15/05/2012');
+    // The link — and any consent captured on the row — survives the re-import.
+    expect(rows[0].consultationId).toBe(encounterId);
+  });
+
+  it('carries a captured consent from the row into canonical form, and never invents one', () => {
+    const row = addScheduleItem({
+      time: '12:00',
+      patientName: 'Consent Carry',
+      procedureText: 'Exam',
+      appointmentType: 'examination',
+      templateId: 'standard',
+      consentObtained: true,
+      consentCapturedAt: '2026-09-12T02:00:00.000Z',
+      consentPractitionerId: 'dentist-9'
+    }, testDate);
+    expect(consentFromCapture(row, 'fallback-dentist')?.obtainedAt).toBe('2026-09-12T02:00:00.000Z');
+    expect(consentFromCapture(row, 'fallback-dentist')?.recordedBy).toBe('dentist-9');
+
+    const bare = addScheduleItem({
+      time: '12:30',
+      patientName: 'No Capture',
+      procedureText: 'Exam',
+      appointmentType: 'examination',
+      templateId: 'standard',
+      consentObtained: true
+    }, testDate);
+    expect(consentFromCapture(bare, 'fallback-dentist')).toBeNull();
   });
 });
 

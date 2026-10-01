@@ -20,7 +20,8 @@ import {
   DollarSign,
   TrendingUp,
   MicOff,
-  CheckCircle2
+  CheckCircle2,
+  ExternalLink
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { NOTE_JOB_CLIENT_POLL } from '../lib/noteJobs';
@@ -85,11 +86,34 @@ export default function DayScheduleQueue({
     setItems(updated);
   };
 
+  /**
+   * Open the encounter for a schedule slot.
+   *
+   * When the host provides `onStartRecording` (History Hub → workspace) the
+   * appointment starts THERE: the encounter is opened/minted with the row
+   * linked (`scheduleItemId` ↔ `consultationId`) and the consent captured on
+   * the row carried onto the record. Without a host callback the legacy
+   * in-place cockpit remains the fallback.
+   */
+  const beginEncounter = (item: DayScheduleItem) => {
+    if (onStartRecording) {
+      onStartRecording(item);
+      return;
+    }
+    startInPlaceRecording(item);
+  };
+
   const handleRecordClick = (item: DayScheduleItem) => {
+    // An appointment that already has an encounter opens THAT record — starting
+    // it again must not begin a second one under the same schedule row.
+    if (item.consultationId && onViewConsultation) {
+      onViewConsultation(item.consultationId);
+      return;
+    }
     if (!item.consentObtained) {
       setConsentGuardItem(item);
     } else {
-      startInPlaceRecording(item);
+      beginEncounter(item);
     }
   };
 
@@ -107,12 +131,12 @@ export default function DayScheduleQueue({
       consentPractitionerId: dentistName
     };
     setConsentGuardItem(null);
-    startInPlaceRecording(target);
+    beginEncounter(target);
   };
 
   const recordWithoutConsentTag = (item: DayScheduleItem) => {
     setConsentGuardItem(null);
-    startInPlaceRecording(item);
+    beginEncounter(item);
   };
 
   // In-Place Single Screen Surgery Cockpit state
@@ -911,6 +935,16 @@ export default function DayScheduleQueue({
                         <Copy className="w-3.5 h-3.5" />
                         Copy Again
                       </button>
+                      {item.consultationId && onViewConsultation && (
+                        <button
+                          onClick={() => onViewConsultation(item.consultationId as string)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-all cursor-pointer"
+                          title="Open this appointment's encounter"
+                        >
+                          <FileText className="w-3.5 h-3.5" />
+                          Open
+                        </button>
+                      )}
                     </div>
                   )}
 
@@ -982,6 +1016,15 @@ export default function DayScheduleQueue({
                       >
                         <FileText className="w-4 h-4" />
                       </button>
+                      {item.consultationId && onViewConsultation && (
+                        <button
+                          onClick={() => onViewConsultation(item.consultationId as string)}
+                          className="p-1.5 text-slate-500 hover:text-slate-800 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+                          title="Open this appointment's encounter"
+                        >
+                          <ExternalLink className="w-4 h-4" />
+                        </button>
+                      )}
                     </div>
                   )}
 

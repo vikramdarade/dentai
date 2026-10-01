@@ -143,6 +143,8 @@ import {
 } from './src/lib/compliance';
 import { GENESIS_HASH, auditEntryHash } from './src/lib/auditChain';
 import { retentionPolicyFromEnv, type RetentionPolicy } from './src/lib/retentionPolicy';
+import { consentFromCapture } from './src/lib/aiConsent';
+import { clinicalNoteSections } from './src/lib/clinicalContent';
 
 // Load environment variables
 dotenv.config({ path: '.env.local' });
@@ -336,6 +338,7 @@ import {
 import { createAlerter, thresholdsFromEnv } from './src/server/alerting';
 import { runRetentionSweep, type RetentionSweepResult } from './src/server/retention';
 import { createTranscriptValidation, clinicalHorizonFilter } from './src/server/payloadValidation';
+import { normalizeDob } from './src/lib/dob';
 
 // Credential change and "sign out every device". Registered here so they are
 // the authoritative handlers for those paths (Express routes to the first
@@ -1811,11 +1814,24 @@ async function tickNoteJobs(force = false): Promise<void> {
             // never satisfy the gate — every note would fail closed forever.
             groundingAudit: output.groundingAudit,
             // Phase 11: canonical consent object (the gate reads this shape).
-            consent: {
-              obtainedAt: job.payload?.consentCapturedAt
-                || (job.payload?.consentObtained ? new Date(job.createdAt).toISOString() : ''),
-              disclosureVersion: PRIVACY_NOTICE_VERSION,
-              recordedBy: job.payload?.consentPractitionerId || job.dentistId,
+            //
+            // The day-schedule queue captures consent as a flat pair
+            // (consentObtained + consentCapturedAt + consentPractitionerId) and
+            // submits it with the note job. Carrying it through as the SAME
+            // canonical object the chairside cockpit produces — via the shared
+            // consentFromCapture primitive — means the two surfaces agree on the
+            // disclosure version, and opening the record in the cockpit does not
+            // ask the clinician to record the consent a second time.
+            //
+            // No instant is invented. A flag with no capture time yields the
+            // "not captured" shape (empty obtainedAt), exactly as the record
+            // governance gate does; stamping the job's creation time as the
+            // moment of verbal consent would assert something the clinician
+            // never recorded.
+            consent: consentFromCapture(job.payload, job.dentistId) ?? {
+              obtainedAt: '',
+              disclosureVersion: AI_DISCLOSURE_VERSION,
+              recordedBy: job.dentistId,
             },
             consentObtained: Boolean(job.payload?.consentObtained),
             consentCapturedAt: job.payload?.consentCapturedAt || undefined,
@@ -1980,6 +1996,13 @@ app.post('/api/notes/jobs', authenticateToken, async (req: any, res: express.Res
     }
     if (!isValidAppointmentType(intakeData.appointmentType)) {
       return res.status(400).json({ error: 'Appointment type must be one of: examination, scale_clean, emergency, restorative, endodontic, surgical, prosthodontic, paediatric.' });
+    }
+    // Normalised only when it is readable, and left alone when it is not: this
+    // route is the resilient fallback for the synchronous path, so it must never
+    // refuse a request the other path would have accepted.
+    if (intakeData.dob !== undefined && intakeData.dob !== null && String(intakeData.dob).trim().length > 0) {
+      const jobDob = normalizeDob(intakeData.dob, { policy: 'clinic' });
+      if (jobDob.value) intakeData.dob = jobDob.value;
     }
 
     // Per-clinic fair-share metering: the clinic is the accountable economic
@@ -3673,7 +3696,27 @@ app.get('/api/consultations', authenticateToken, async (req: any, res) => {
  * and any transcribed or dictated content counts, so nothing legitimate is
  * rejected.
  */
-function consultationHasMinimums(payload: any): boolean {
+/**
+ * A canonical UUID id — the shape the client's appointment-identity mint
+ * produces (`src/lib/appointmentId.ts`). Kept as a local literal so the server
+ * bundle has no client import, but the two must agree.
+ */
+function isSeatedAppointmentId(value: unknown): boolean {
+  return (
+    typeof value === 'string' &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value.trim())
+  );
+}
+
+/**
+ * Does this payload document a patient or any clinical content?
+ *
+ * Separated from `consultationHasMinimums` because it answers a second question
+ * too: whether a `POST` carrying an id already on file is a retry of a seating
+ * write (nothing written yet — idempotent) or an attempt to create on top of an
+ * existing clinical record (refused, QLE-2026-0015).
+ */
+function consultationHasClinicalContent(payload: any): boolean {
   const hasIdentity = [payload.firstName, payload.lastName, payload.patientId].some(
     (v) => (typeof v === 'string' ? v.trim().length > 0 : Boolean(v))
   );
@@ -3696,6 +3739,90 @@ function consultationHasMinimums(payload: any): boolean {
   return false;
 }
 
+/**
+ * Does this record hold clinical content — evidence of a visit having happened?
+ *
+ * Deliberately narrower than `consultationHasClinicalContent`, which also counts
+ * patient identity. Two things are excluded, and both are what made the
+ * idempotent-retry branch unreachable for the client's real payloads:
+ *
+ *   - the patient's NAME: a seated appointment legitimately carries the name
+ *     (the clinician typed it before the patient sat down) while it still holds
+ *     nothing else, and the retry re-sends exactly that body;
+ *   - `findings.customSections.operatory`: every seating shell carries the room
+ *     it is in, so counting any non-empty section as content classified the
+ *     shell itself as a clinical record. A retry was answered 409 and the
+ *     queued seating write could never converge.
+ */
+function consultationHasRecordedContent(payload: any): boolean {
+  if (Array.isArray(payload.transcript) && payload.transcript.length > 0) return true;
+  if (typeof payload.patientSummary === 'string' && payload.patientSummary.trim().length > 0) return true;
+  if (typeof payload.note === 'string' && payload.note.trim().length > 0) return true;
+  if (typeof payload.clinicalProgressNote === 'string' && payload.clinicalProgressNote.trim().length > 0) return true;
+
+  const findings = payload.findings;
+  if (!findings || typeof findings !== 'object') return false;
+
+  const valueHasContent = (v: unknown): boolean => {
+    if (typeof v === 'string') return v.trim().length > 0;
+    if (Array.isArray(v)) return v.length > 0;
+    if (v && typeof v === 'object') return Object.keys(v as object).length > 0;
+    return Boolean(v);
+  };
+
+  return Object.entries(findings).some(([key, value]) => {
+    if (key === 'customSections') {
+      // The operatory (and the day-sheet metadata that rides with it) describe
+      // where the visit was seated, not what was found in it; see
+      // src/lib/clinicalContent.ts for why that distinction is load-bearing.
+      return Object.values(clinicalNoteSections(value)).some(valueHasContent);
+    }
+    return valueHasContent(value);
+  });
+}
+
+/**
+ * The content the grounding audit is entitled to read.
+ *
+ * `findings.customSections` mixes clinical note sections with SEATING/INTAKE
+ * bookkeeping (the room the visit happened in, the day-sheet's prior-note date,
+ * a walk-in's provenance stamp). The audit reads any non-empty string section
+ * as note text, so "Room 1" was extracted as a clinical claim. On a note with
+ * real content that is merely noise; on an EMPTY seated appointment it was the
+ * only claim, so the audit found something to score instead of NOTHING TO
+ * VERIFY and approved the blank record for signing — which the client then
+ * presented as "Verified from Audio": a blank appointment attesting to audio
+ * that does not exist. The rule for what counts as clinical lives in
+ * src/lib/clinicalContent.ts; this function is only how the audit applies it.
+ */
+function groundingNoteOf(findings: any, patientSummary: unknown): any {
+  const source = findings && typeof findings === 'object' ? findings : {};
+  const patientSummaryText = typeof patientSummary === 'string' ? patientSummary : '';
+  const sections = source.customSections;
+  if (!sections || typeof sections !== 'object') {
+    return { ...source, patientSummary: patientSummaryText };
+  }
+  return { ...source, customSections: clinicalNoteSections(sections), patientSummary: patientSummaryText };
+}
+
+function consultationHasMinimums(payload: any): boolean {
+  // A SEATED APPOINTMENT is not an empty record. When the clinician puts a
+  // patient in the chair the client mints the appointment id and persists the
+  // appointment immediately — before any audio, transcript or patient name
+  // exists — because audio can only be stored against a consultation the
+  // server already knows about (`/api/transcribe/audio` returns 404 otherwise)
+  // and a record with no server-stamped version can never be signed. Refusing
+  // that shell is what forced the in-chair visit to stay nameless until
+  // finalisation, and the rename at finalisation is what orphaned its audio.
+  //
+  // The narrowing is deliberately strict: only a canonical UUID id counts as a
+  // seated appointment, because that value can only have come from the client's
+  // appointment-identity mint. A body with no id, or with a non-UUID id, still
+  // has to document a patient or clinical content (QLE-2026-0014).
+  if (isSeatedAppointmentId(payload.id)) return true;
+  return consultationHasClinicalContent(payload);
+}
+
 app.post('/api/consultations', authenticateToken, async (req: any, res) => {
   try {
     const consultation = req.body;
@@ -3716,14 +3843,42 @@ app.post('/api/consultations', authenticateToken, async (req: any, res) => {
     // clinical record. JSON mode used to overwrite the stored record and answer
     // 201 (data loss disguised as success) while Postgres ignored the duplicate
     // — the same request produced different clinical outcomes per storage mode.
-    // Both modes now refuse it explicitly. A record the caller supplied must not
-    // be allowed to land on top of a record that already exists.
+    //
+    // It must equally not mistake a RETRY for a collision. The client mints one
+    // appointment id and re-sends the same shell if the first attempt is lost to
+    // a dropped connection or a cold start, so `POST` with an id this clinician
+    // already owns is idempotent: the stored record is returned untouched and
+    // nothing is written. Only an id owned by somebody else is a real conflict —
+    // that is the case where answering 201 would put one clinician's clinical
+    // content on top of another's chart.
     const suppliedId = typeof consultation.id === 'string' ? consultation.id.trim() : '';
     if (suppliedId) {
-      const idTaken = dbEnabled
-        ? await dbConsultationExistsById(suppliedId)
-        : (await readConsultationsDb()).consultations.some((c: any) => c.id === suppliedId);
-      if (idTaken) {
+      // The caller's OWN record with this id: a retry of the seating write when
+      // neither side holds clinical content yet (idempotent, nothing written),
+      // and a conflict when either does — a create must never land on top of a
+      // record that already exists (or quietly hand back a record the caller did
+      // not send); that has to be a PUT.
+      const owned = dbEnabled
+        ? await dbGetConsultationById(suppliedId, req.dentist.id)
+        : (await readConsultationsDb()).consultations.find(
+            (c: any) => c.id === suppliedId && (!c.dentistId || c.dentistId === req.dentist.id)
+          );
+      if (
+        owned &&
+        !consultationHasRecordedContent(consultation) &&
+        !consultationHasRecordedContent(owned)
+      ) {
+        logAudit('consultation_create_idempotent', req.dentist.id, { consultationId: suppliedId });
+        return res.status(200).json(owned);
+      }
+
+      // Any record on file under this id — the caller's or another clinician's.
+      const taken = owned
+        ? true
+        : dbEnabled
+          ? await dbConsultationExistsById(suppliedId)
+          : (await readConsultationsDb()).consultations.some((c: any) => c.id === suppliedId);
+      if (taken) {
         return res.status(409).json({
           error: 'A consultation with this id already exists.',
           code: 'CONSULTATION_ID_CONFLICT',
@@ -3773,7 +3928,7 @@ app.post('/api/consultations', authenticateToken, async (req: any, res) => {
     newConsultation.groundingAudit = verifyNoteGrounding(
       newConsultation.id,
       Array.isArray(newConsultation.transcript) ? newConsultation.transcript : [],
-      { ...(newConsultation.findings || {}), patientSummary: newConsultation.patientSummary || '' }
+      groundingNoteOf(newConsultation.findings, newConsultation.patientSummary)
     );
 
     // Auto-extract and quantify unscheduled treatment opportunities if not explicitly populated
@@ -3925,7 +4080,7 @@ app.put('/api/consultations/:id', authenticateToken, async (req: any, res) => {
       merged.groundingAudit = verifyNoteGrounding(
         id,
         Array.isArray(merged.transcript) ? merged.transcript : [],
-        { ...(merged.findings || {}), patientSummary: merged.patientSummary || '' }
+        groundingNoteOf(merged.findings, merged.patientSummary)
       );
       await dbUpdateConsultation(id, req.dentist.id, merged);
       logAudit('consultation_updated', req.dentist.id, { consultationId: id });
@@ -3978,7 +4133,7 @@ app.put('/api/consultations/:id', authenticateToken, async (req: any, res) => {
     consultationsData.consultations[index].groundingAudit = verifyNoteGrounding(
       id,
       Array.isArray(consultationsData.consultations[index].transcript) ? consultationsData.consultations[index].transcript : [],
-      { ...(consultationsData.consultations[index].findings || {}), patientSummary: consultationsData.consultations[index].patientSummary || '' }
+      groundingNoteOf(consultationsData.consultations[index].findings, consultationsData.consultations[index].patientSummary)
     );
 
     await writeConsultationsDb(consultationsData);
@@ -4761,15 +4916,17 @@ app.post('/api/generate-notes', authenticateToken, async (req: express.Request, 
 
     // Date of Birth validation (YYYY-MM-DD format if provided, e.g., 1900-01-01 to present)
     // Permitted to be empty/omitted for walk-in encounters to avoid synthesizing identity data (Rule 12)
-    if (dob && typeof dob === 'string' && dob.trim().length > 0) {
-      const dobRegex = /^\d{4}-\d{2}-\d{2}$/;
-      if (!dobRegex.test(dob)) {
-        return res.status(400).json({ error: 'Date of birth must be in YYYY-MM-DD format.' });
+    // A date of birth that came off a pasted day sheet is written the Australian
+    // way (`11/10/1976`). Requiring ISO here rejected the product's own intake
+    // value, so every note for such a patient left the synchronous path for the
+    // job queue without saying so. See src/lib/dob.ts.
+    if (dob !== undefined && dob !== null && String(dob).trim().length > 0) {
+      const parsedDob = normalizeDob(dob, { policy: 'clinic' });
+      if (!parsedDob.value) {
+        return res.status(400).json({ error: parsedDob.error });
       }
-      const parsedDate = Date.parse(dob);
-      if (isNaN(parsedDate) || parsedDate > Date.now() || parsedDate < Date.parse('1900-01-01')) {
-        return res.status(400).json({ error: 'Date of birth must be a valid date between 1900 and the present.' });
-      }
+      // Canonical from here on: one shape in the prompt, the note and the record.
+      intakeData.dob = parsedDob.value;
     }
 
     if (!isValidAppointmentType(appointmentType)) {

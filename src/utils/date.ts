@@ -65,6 +65,27 @@ export function isValidDob(dobStr: string): boolean {
 }
 
 /**
+ * The refusal a date of birth typed into a DD/MM/YYYY field earns, or `null`
+ * when the field is usable.
+ *
+ * An empty field is not an error — a date of birth is never invented (Rule 12),
+ * and a walk-in often arrives without one. A non-empty value that is not a real
+ * calendar date IS an error, because this value is written onto the patient's
+ * identity record and later handed to note generation, which refuses an
+ * impossible date outright. Before this guard the walk-in form accepted
+ * `99/99/9999` with no complaint, stored it in the patient registry, and every
+ * note for that patient then failed with a message about a field the UI offers
+ * no way to correct. The field the clinician types into is the only place the
+ * date can actually be fixed, so that is where it is refused.
+ */
+export function dobFieldError(dobStr: string): string | null {
+  const raw = (dobStr || '').trim();
+  if (!raw) return null;
+  if (isValidDob(raw)) return null;
+  return 'Date of birth must be a real date in DD/MM/YYYY form (e.g. 11/10/1976), or left blank.';
+}
+
+/**
  * Detects the clinic/user local timezone.
  * Defaults to the operating system / browser's configured timezone.
  */

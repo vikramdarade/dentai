@@ -232,6 +232,26 @@ export function generateSlotFingerprint(date: string, time: string, patientName:
 }
 
 /**
+ * The day-sheet row a slot already is, if this schedule carries one.
+ *
+ * Identity for a scheduled appointment is (date, start time, patient name) —
+ * the same triple a PMS re-paste dedupes on. An import must FIND that row
+ * rather than append a second one for the same appointment, because the row is
+ * what carries the encounter link and the consent captured at the desk.
+ */
+export function findScheduleItemBySlot(
+  items: DayScheduleItem[],
+  dateStr: string,
+  time: string,
+  patientName: string
+): DayScheduleItem | undefined {
+  const fingerprint = generateSlotFingerprint(dateStr, time, patientName);
+  return items.find(
+    (item) => generateSlotFingerprint(dateStr, item.time, item.patientName) === fingerprint
+  );
+}
+
+/**
  * 3-Way Merge Algorithm: merges newly parsed PMS appointment snips into the current roster
  * with 100% deduplication and immutability guarantees.
  */
