@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import {
   UNSCHEDULED_CHAIR,
   mintAppointmentId,
@@ -126,5 +126,58 @@ describe('appointment identity', () => {
     expect(mintIfUnseated('', mint)).toBe('12345678-1234-4123-a123-123456789012');
     expect(mintIfUnseated(undefined, mint)).toBe('12345678-1234-4123-a123-123456789012');
     expect(mintIfUnseated(null, mint)).toBe('12345678-1234-4123-a123-123456789012');
+  });
+});
+
+/**
+ * The fallback runs where a runtime offers no WebCrypto at all. It must still
+ * mint canonical, unique ids, and it must do that without `Math.random`: an id
+ * is an identity, not a secret, so deterministic uniqueness is both stronger
+ * across a realm and honest about what is (not) being randomised.
+ */
+describe('appointment identity without WebCrypto', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('still mints canonical, unique UUIDs when no cryptographic source exists', () => {
+    vi.stubGlobal('crypto', undefined);
+    const ids = new Set<string>();
+    for (let i = 0; i < 1000; i++) {
+      const id = mintAppointmentId();
+      expect(isAppointmentId(id)).toBe(true);
+      expect(id[14]).toBe('4'); // same v4 shape the crypto path produces
+      ids.add(id);
+    }
+    expect(ids.size).toBe(1000);
+  });
+
+  it('does not use Math.random in the fallback', () => {
+    vi.stubGlobal('crypto', undefined);
+    const original = Math.random;
+    let calls = 0;
+    Math.random = (() => {
+      calls += 1;
+      return original();
+    }) as typeof Math.random;
+    try {
+      expect(isAppointmentId(mintAppointmentId())).toBe(true);
+    } finally {
+      Math.random = original;
+    }
+    expect(calls).toBe(0);
+  });
+
+  it('is unique even when the clock does not advance (the counter carries it)', () => {
+    vi.stubGlobal('crypto', undefined);
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date('2026-10-01T00:00:00.000Z'));
+      const ids = new Set<string>();
+      for (let i = 0; i < 200; i++) ids.add(mintAppointmentId());
+      expect(ids.size).toBe(200);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

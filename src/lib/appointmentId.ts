@@ -47,14 +47,42 @@ const APPOINTMENT_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
+ * Tick for the no-WebCrypto fallback, and the 32 hex chars it expands to.
+ *
+ * An appointment id needs uniqueness, never secrecy: it names a record; it is
+ * not a capability, and the server authorises by session rather than by
+ * knowing an id. So this path is deterministic on purpose — the clock plus a
+ * counter that only ever rises in this realm — which makes a repeat *within*
+ * the realm impossible rather than merely improbable, and never claims entropy
+ * it cannot have. (Non-cryptographic randomness in a record's identity is
+ * exactly what a security scan flags, rightly, because the same shape in code
+ * that mints tokens *would* be a defect.) Two realms minting in the same
+ * millisecond could in principle agree; the server refuses an id-colliding
+ * create rather than merging two charts, so that case fails loudly and the
+ * mint is retried.
+ */
+let fallbackTick = 0;
+
+function fallbackHex32(): string {
+  fallbackTick += 1;
+  const seed = `${Date.now().toString(16)}${fallbackTick.toString(16).padStart(4, '0')}`;
+  const hex: string[] = [];
+  for (let i = 0; i < 32; i++) {
+    hex.push(seed[(i * 7 + 3) % seed.length] || '0');
+  }
+  return hex.join('');
+}
+
+/**
  * Mint an appointment id.
  *
  * A UUID, so the server's job-dedupe (`isUuid`) and its consultation lookup
  * both recognise it without a special case. `crypto.randomUUID` is unavailable
  * in insecure contexts, so the fallback keeps the UUID *shape* (a v4-shaped
- * value built from `getRandomValues`, or as a last resort a timestamp and
- * counter) — identity that is merely unique is still enough, but a value that
- * fails the shape check is not, because it would be treated as legacy.
+ * value built from `getRandomValues`, or — where a runtime offers no
+ * cryptographic source at all — from the clock and a monotonic counter) —
+ * identity that is merely unique is still enough, but a value that fails the
+ * shape check is not, because it would be treated as legacy.
  */
 export function mintAppointmentId(): string {
   const cryptoObj = typeof crypto !== 'undefined' ? (crypto as Crypto) : undefined;
@@ -80,17 +108,11 @@ export function mintAppointmentId(): string {
     }
   }
 
-  if (hex.length !== 32) {
-    // Deterministic-but-unique: good enough to be a key, never mistaken for a
-    // shared constant.
-    const seed = `${Date.now().toString(16)}${Math.random().toString(16).slice(2)}`;
-    hex.length = 0;
-    for (let i = 0; i < 32; i++) {
-      hex.push(seed[(i * 7 + 3) % seed.length] || '0');
-    }
+  let joined = hex.join('');
+  if (joined.length !== 32) {
+    joined = fallbackHex32();
   }
 
-  const joined = hex.join('');
   return [
     joined.slice(0, 8),
     joined.slice(8, 12),
