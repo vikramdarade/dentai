@@ -25,6 +25,12 @@ export interface OperatoryPatientBannerProps {
   onOpenWalkIn?: () => void;
   onUpdateAppointmentType?: (appointmentType: AppointmentType) => void;
   onQuickInductPatient?: (data: { patientName: string; dob?: string; operatory?: string; appointmentType?: AppointmentType }) => void;
+  /** Current operatory encounter lifecycle state */
+  encounterState?: 'empty' | 'active' | 'finished';
+  /** Escape hatch when audio/chart is open for the wrong patient */
+  onSwitchAppointment?: () => void;
+  /** Whether Next Patient is unlocked */
+  canAdvanceNextPatient?: boolean;
   /**
    * The AI-assist consent recorded for the encounter on screen, or null when
    * none has been recorded. Null is a real state the banner must show honestly:
@@ -49,6 +55,9 @@ export const OperatoryPatientBanner: React.FC<OperatoryPatientBannerProps> = ({
   onOpenWalkIn,
   onUpdateAppointmentType,
   onQuickInductPatient,
+  encounterState = 'active',
+  onSwitchAppointment,
+  canAdvanceNextPatient = true,
   consent,
   onRecordConsent,
 }) => {
@@ -212,6 +221,44 @@ export const OperatoryPatientBanner: React.FC<OperatoryPatientBannerProps> = ({
                   <span className="font-mono font-semibold text-slate-700 font-tabular">{encounter.time}</span>
                 </>
               )}
+              {encounterState === 'active' && (
+                <>
+                  <span>•</span>
+                  <span className="inline-flex items-center space-x-1 text-[11px] font-semibold px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 border border-amber-200">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+                    <span>Encounter Active</span>
+                  </span>
+                </>
+              )}
+              {encounterState === 'finished' && (
+                <>
+                  <span>•</span>
+                  <span className="inline-flex items-center space-x-1 text-[11px] font-semibold px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-800 border border-emerald-200">
+                    <Check className="w-3 h-3 text-emerald-600" />
+                    <span>Encounter Completed</span>
+                  </span>
+                </>
+              )}
+              {encounterState === 'empty' && (
+                <>
+                  <span>•</span>
+                  <span className="inline-flex items-center space-x-1 text-[11px] font-semibold px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 border border-slate-200">
+                    <span>Chair Empty</span>
+                  </span>
+                </>
+              )}
+              {onSwitchAppointment && encounterState === 'active' && (
+                <span className="text-[11px] text-slate-400 pl-1">
+                  Wrong patient?{' '}
+                  <button
+                    type="button"
+                    onClick={onSwitchAppointment}
+                    className="text-sky-600 hover:text-sky-800 font-semibold underline cursor-pointer"
+                  >
+                    Switch Appointment
+                  </button>
+                </span>
+              )}
             </div>
           </div>
 
@@ -297,9 +344,9 @@ export const OperatoryPatientBanner: React.FC<OperatoryPatientBannerProps> = ({
         <div className="flex items-center space-x-1 pl-1.5 border-l border-slate-200/80">
           <button
             onClick={onSelectPrev}
-            disabled={currentIndex <= 0}
+            disabled={currentIndex <= 0 || !canAdvanceNextPatient}
             className="p-1.5 rounded-lg border border-slate-200/90 bg-white text-slate-600 hover:text-slate-900 hover:bg-slate-50 disabled:opacity-35 disabled:pointer-events-none transition cursor-pointer shadow-2xs"
-            title="Previous Patient (⌘←)"
+            title={canAdvanceNextPatient ? "Previous Patient (⌘←)" : "Finish current encounter to unlock patient navigation"}
           >
             <ChevronLeft className="w-4 h-4" />
           </button>
@@ -310,9 +357,9 @@ export const OperatoryPatientBanner: React.FC<OperatoryPatientBannerProps> = ({
 
           <button
             onClick={onSelectNext}
-            disabled={currentIndex >= totalEncounters - 1}
+            disabled={currentIndex >= totalEncounters - 1 || !canAdvanceNextPatient}
             className="p-1.5 rounded-lg border border-slate-200/90 bg-white text-slate-600 hover:text-slate-900 hover:bg-slate-50 disabled:opacity-35 disabled:pointer-events-none transition cursor-pointer shadow-2xs"
-            title="Next Patient (⌘→)"
+            title={canAdvanceNextPatient ? "Next Patient (⌘→)" : "Finish current encounter to unlock next patient"}
           >
             <ChevronRight className="w-4 h-4" />
           </button>

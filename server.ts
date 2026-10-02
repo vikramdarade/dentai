@@ -320,7 +320,6 @@ import { createPatientStore } from './src/server/patientStore';
 import { createPatientLinker, registerPatientRoutes } from './src/server/patientRoutes';
 import { registerTranscriptionRoutes } from './src/server/transcriptionRoutes';
 import { registerPracticeAgreementRoutes } from './src/server/practiceAgreement';
-import { registerBeaconRoutes } from './src/server/beaconRoutes';
 import { registerClinicExportRoutes } from './src/server/clinicExport';
 import {
   activateManually,
@@ -5200,14 +5199,6 @@ app.post('/api/schedule/parse-image', authenticateToken, async (req: any, res) =
     res.status(500).json({ error: 'Failed to parse appointment schedule image.' });
   }
 });
-
-registerBeaconRoutes(app, {
-  chairSessionStore,
-  logger,
-  sessionSecret: SESSION_SECRET,
-  signaturesMatch,
-});
-
 
 // NOTE: /api/health, /api/ops/telemetry and /api/ops/drain are registered by
 // registerOpsRoutes (src/server/opsRoutes.ts) and are intentionally NOT

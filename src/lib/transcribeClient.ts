@@ -149,3 +149,47 @@ export async function blobToBase64(blob: Blob): Promise<string> {
   }
   return btoa(binary);
 }
+
+/**
+ * Transfers recorded audio slices from one consultation to another on patient correction.
+ */
+export async function transferAudioSegments(input: {
+  authToken?: string | null;
+  fromConsultationId: string;
+  toConsultationId: string;
+}): Promise<boolean> {
+  try {
+    const res = await fetch('/api/transcribe/transfer-audio', {
+      method: 'POST',
+      headers: authHeaders(input.authToken),
+      body: JSON.stringify({
+        fromConsultationId: input.fromConsultationId,
+        toConsultationId: input.toConsultationId,
+      })
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Discards recorded audio slices for a consultation when explicitly discarded by clinician.
+ */
+export async function discardAudioSegments(input: {
+  authToken?: string | null;
+  consultationId: string;
+}): Promise<boolean> {
+  try {
+    const res = await fetch('/api/transcribe/discard-audio', {
+      method: 'POST',
+      headers: authHeaders(input.authToken),
+      body: JSON.stringify({
+        consultationId: input.consultationId,
+      })
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}

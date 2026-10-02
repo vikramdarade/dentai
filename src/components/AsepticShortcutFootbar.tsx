@@ -12,6 +12,7 @@ export interface AsepticShortcutFootbarProps {
   onNextPatient: () => void;
   onPrevPatient: () => void;
   onCopyPMS: () => void;
+  canAdvanceNextPatient?: boolean;
 }
 
 export const AsepticShortcutFootbar: React.FC<AsepticShortcutFootbarProps> = ({
@@ -25,6 +26,7 @@ export const AsepticShortcutFootbar: React.FC<AsepticShortcutFootbarProps> = ({
   onNextPatient,
   onPrevPatient,
   onCopyPMS,
+  canAdvanceNextPatient = true,
 }) => {
   // Determine primary audio state indicator
   let stateLabel = 'STANDBY';
@@ -96,8 +98,9 @@ export const AsepticShortcutFootbar: React.FC<AsepticShortcutFootbarProps> = ({
         <div className="hidden md:flex items-center space-x-1">
           <button
             onClick={onPrevPatient}
-            className="flex items-center space-x-1 px-2 py-1 rounded-lg hover:bg-slate-100 text-slate-600 hover:text-slate-900 text-xs cursor-pointer"
-            title="Previous patient (⌘+Left)"
+            disabled={!canAdvanceNextPatient}
+            className="flex items-center space-x-1 px-2 py-1 rounded-lg hover:bg-slate-100 disabled:hover:bg-transparent text-slate-600 hover:text-slate-900 disabled:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed text-xs cursor-pointer transition"
+            title={canAdvanceNextPatient ? "Previous patient (⌘+Left)" : "Finish current encounter to unlock patient navigation"}
           >
             <ArrowLeft className="w-3.5 h-3.5" />
             <kbd className="px-1 py-0.5 text-[9px] font-mono bg-white border border-slate-200/90 rounded text-slate-500 shadow-2xs">
@@ -107,8 +110,9 @@ export const AsepticShortcutFootbar: React.FC<AsepticShortcutFootbarProps> = ({
 
           <button
             onClick={onNextPatient}
-            className="flex items-center space-x-1 px-2 py-1 rounded-lg hover:bg-slate-100 text-slate-600 hover:text-slate-900 text-xs cursor-pointer"
-            title="Next patient (⌘+Right)"
+            disabled={!canAdvanceNextPatient}
+            className="flex items-center space-x-1 px-2 py-1 rounded-lg hover:bg-slate-100 disabled:hover:bg-transparent text-slate-600 hover:text-slate-900 disabled:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed text-xs cursor-pointer transition"
+            title={canAdvanceNextPatient ? "Next patient (⌘+Right)" : "Finish current encounter to unlock next patient"}
           >
             <kbd className="px-1 py-0.5 text-[9px] font-mono bg-white border border-slate-200/90 rounded text-slate-500 shadow-2xs">
               ⌘→

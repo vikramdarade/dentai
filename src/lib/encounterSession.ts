@@ -119,6 +119,31 @@ export function projectLifecycleState(input: {
   return input.hasAppointment ? 'SCHEDULED' : 'IN_CHAIR';
 }
 
+/**
+ * Strict Encounter Lifecycle: pure advancement guard predicate.
+ * Determines whether the operatory workspace is permitted to navigate
+ * away from the current patient (via Next, Prev, or Schedule).
+ */
+export function canAdvanceEncounter(opts: {
+  encounterState: 'empty' | 'active' | 'finished';
+  isEncounterSealedOrDone: boolean;
+  recordingSeconds: number;
+  isMicStandby: boolean;
+  hasEditedNotes: boolean;
+  hasTranscript: boolean;
+}): boolean {
+  return Boolean(
+    opts.encounterState === 'finished' ||
+    opts.isEncounterSealedOrDone ||
+    (
+      opts.recordingSeconds === 0 &&
+      opts.isMicStandby &&
+      !opts.hasEditedNotes &&
+      !opts.hasTranscript
+    )
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 2. Canonical patient-switch transition (§5, §6, §7, §8, §21)
 // ─────────────────────────────────────────────────────────────────────────────

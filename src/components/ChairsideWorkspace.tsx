@@ -49,7 +49,9 @@ import {
   blobToBase64,
   isTranscriptionFailure,
   requestTranscription,
-  uploadAudioSegment
+  uploadAudioSegment,
+  transferAudioSegments,
+  discardAudioSegments
 } from '../lib/transcribeClient';
 import { AuthUser } from '../utils/storage';
 import { AppointmentType, getTemplateById, APPOINTMENT_TYPES } from '../lib/dentalLibrary';
@@ -65,6 +67,7 @@ import { DaysheetModal } from './DaysheetModal';
 import { DeliverablesModal } from './DeliverablesModal';
 import { BatchTrayModal } from './BatchTrayModal';
 import { DayGuideModal } from './DayGuideModal';
+import { GuardedTransitionModal } from './GuardedTransitionModal';
 import { OperatoryPatientBanner } from './OperatoryPatientBanner';
 import { LiveConversationPanel } from './LiveConversationPanel';
 import { ClinicalNoteEditorPanel } from './ClinicalNoteEditorPanel';
@@ -77,6 +80,7 @@ import {
   resolveSubstantiveContent,
   buildWalkInIntake,
   generateWalkInId,
+  canAdvanceEncounter,
 } from '../lib/encounterSession';
 import type { AttestationSeal } from '../lib/attestation';
 
@@ -197,6 +201,13 @@ export default function ChairsideWorkspace({
   const hasUserManuallySelectedRef = useRef(false);
   const lastKnownWalkinIdRef = useRef<string | null>(null);
 
+  // Strict Encounter Lifecycle State Machine & Operatory Guard
+  const [encounterState, setEncounterState] = useState<'empty' | 'active' | 'finished'>('active');
+  const [isFinishingEncounter, setIsFinishingEncounter] = useState(false);
+  const [pendingSwitchPatientId, setPendingSwitchPatientId] = useState<string | null>(null);
+  const [showGuardedTransitionModal, setShowGuardedTransitionModal] = useState(false);
+  const [showAppointmentPicker, setShowAppointmentPicker] = useState(false);
+
   // In-chair dynamic session state (supports inline editing immediately & later, with auto-increment)
   const [inChairPatientNumber, setInChairPatientNumber] = useState<number>(1);
   const [inChairPatientCustomName, setInChairPatientCustomName] = useState<string>('');
@@ -269,10 +280,9 @@ export default function ChairsideWorkspace({
   const recordedMimeTypeRef = useRef<string | null>(null);
   const chunkUploadRef = useRef<{
     chairKey: string;
-    counter: number;
-    queue: Promise<unknown>;
     recorder: MediaRecorder | null;
-  }>({ chairKey: '', counter: 0, queue: Promise.resolve(), recorder: null });
+    flush: () => Promise<unknown>;
+  }>({ chairKey: '', recorder: null, flush: () => Promise.resolve() });
 
   // Convert real database consultations into live encounters (Zero mock fallbacks)
   const patientEncounters: PatientEncounter[] = useMemo(() => {
@@ -498,6 +508,15 @@ export default function ChairsideWorkspace({
     }
     return { latestConsultDate: null, latestDateLabel: '' };
   }, [consultations]);
+
+  // Reset encounter state whenever active patient changes (guarantees clean reset across all 8+ switch sites)
+  useEffect(() => {
+    if (!activePatientId && encountersForDate.length === 0) {
+      setEncounterState('empty');
+    } else {
+      setEncounterState('active');
+    }
+  }, [activePatientId, encountersForDate.length]);
 
   // Real-time multi-browser operatory synchronization — Phase 13A focus
   // invariant (§5/§8): an external roster event (another browser's walk-in or
@@ -903,6 +922,7 @@ export default function ChairsideWorkspace({
           return next;
         });
         setServerRecordVersions(prev => ({ ...prev, [targetId]: approval.recordVersion }));
+        setEncounterState('finished');
       } else {
         // Display the server's refusal verbatim. A stale-version refusal means
         // the record moved; the clinician must re-review — the client never
@@ -1237,10 +1257,7 @@ export default function ChairsideWorkspace({
     playMedicalChime('stop');
   }, [playMedicalChime, flushPendingConsultationSave]);
 
-  const handleSelectPatient = useCallback((patientId: string) => {
-    hasUserManuallySelectedRef.current = true;
-    if (patientId === activePatientId) return;
-
+  const performPatientSwitch = useCallback((patientId: string) => {
     // Starting a scheduled appointment from the day sheet carries the consent
     // the desk captured for it onto the encounter being opened.
     adoptScheduleRowConsent(patientId);
@@ -1257,6 +1274,7 @@ export default function ChairsideWorkspace({
       playMedicalChime('stop');
     }
     setActivePatientId(patientId);
+    setEncounterState('active');
     setIsMicStandby(true);
     setIsPaused(false);
     setIsSilenceWarning(false);
@@ -1266,7 +1284,24 @@ export default function ChairsideWorkspace({
     setInterimTranscript('');
     sessionStartTimeRef.current = Date.now();
     lastVoicedTimeRef.current = Date.now();
-  }, [activePatientId, playMedicalChime, flushPendingConsultationSave, adoptScheduleRowConsent]);
+  }, [adoptScheduleRowConsent, flushPendingConsultationSave, playMedicalChime]);
+
+  const handleSelectPatient = useCallback((patientId: string) => {
+    hasUserManuallySelectedRef.current = true;
+    if (patientId === activePatientId) return;
+
+    // Check if the current encounter has an active recording or captured audio
+    const currentId = activePatientId;
+    const hasLiveAudioRecorded = !isMicStandbyRef.current || recordingSeconds > 0 || ((localLiveTranscriptsRef.current[currentId]?.length ?? 0) > 0);
+
+    if (hasLiveAudioRecorded && encounterState !== 'finished') {
+      setPendingSwitchPatientId(patientId);
+      setShowGuardedTransitionModal(true);
+      return;
+    }
+
+    performPatientSwitch(patientId);
+  }, [activePatientId, recordingSeconds, encounterState, performPatientSwitch]);
 
   /**
    * The in-chair card's single entry point.
@@ -1584,20 +1619,28 @@ export default function ChairsideWorkspace({
       }
 
       recordedMimeTypeRef.current = recorder.mimeType || 'audio/webm';
-      chunkUploadRef.current = { chairKey: consultationId, counter: 0, queue: Promise.resolve(), recorder };
+      let localCounter = 0;
+      let localQueue: Promise<unknown> = Promise.resolve();
+      const currentTargetConsultId = consultationId;
+
+      chunkUploadRef.current = {
+        chairKey: currentTargetConsultId,
+        recorder,
+        flush: () => localQueue
+      };
 
       recorder.ondataavailable = (event: BlobEvent) => {
         if (!event.data || event.data.size === 0) return;
-        const index = chunkUploadRef.current.counter;
-        chunkUploadRef.current.counter += 1;
+        const index = localCounter;
+        localCounter += 1;
         const blob = event.data;
-        // Chained onto the previous upload so slices land in order.
-        chunkUploadRef.current.queue = chunkUploadRef.current.queue
+        // Chained onto the previous upload so slices land in order without cross-recorder interference
+        localQueue = localQueue
           .then(async () => {
             const base64 = await blobToBase64(blob);
             await uploadAudioSegment({
               authToken,
-              consultationId,
+              consultationId: currentTargetConsultId,
               chunkIndex: index,
               base64,
               sizeBytes: blob.size
@@ -3223,6 +3266,191 @@ export default function ChairsideWorkspace({
     });
   };
 
+  // Strict Encounter Lifecycle State Checks & Finalization Handler
+  const isEncounterSealedOrDone = Boolean(
+    effectiveEncounter.status === 'done' ||
+    effectiveSeals[effectiveEncounter.id]?.signatureHash
+  );
+
+  const canAdvanceNextPatient = canAdvanceEncounter({
+    encounterState,
+    isEncounterSealedOrDone,
+    recordingSeconds,
+    isMicStandby,
+    hasEditedNotes: Boolean(editedProgressNotes[effectiveEncounter.id]?.trim()),
+    hasTranscript: Boolean(localLiveTranscripts[effectiveEncounter.id]?.length),
+  });
+
+  const handleFinishEncounter = async () => {
+    const targetEncounter = activeEncounter || effectiveEncounter;
+    if (!targetEncounter) return;
+    setIsFinishingEncounter(true);
+    try {
+      if (!isMicStandbyRef.current) {
+        handleStopAudioToStandby();
+      }
+      const snapTranscript = (localLiveTranscriptsRef.current[targetEncounter.id] || localLiveTranscripts[targetEncounter.id] || []).map(t => ({
+        sender: (t.sender === 'Patient' || (t as any).role === 'patient' ? 'Patient' : t.sender === 'Dialogue' || (t as any).role === 'dialogue' ? 'Dialogue' : 'Dentist') as TranscriptItem['sender'],
+        text: t.text
+      }));
+      const snapNote = editedProgressNotes[targetEncounter.id] || progressiveDrafts[targetEncounter.id] || '';
+      const finalized = await executeBackgroundNoteFinalization(targetEncounter.id, false, true, snapTranscript, snapNote);
+      
+      // If finalization failed, do not mark as finished or unlock Next Patient
+      if (!finalized) {
+        return;
+      }
+
+      setEncounterState('finished');
+      setTurnoverToast(`Encounter completed for ${targetEncounter.patientName}. Next Patient unlocked.`);
+    } catch (err) {
+      console.error('Failed to finish encounter:', err);
+      setTurnoverToast('Failed to complete encounter. Please check connection.');
+    } finally {
+      setIsFinishingEncounter(false);
+    }
+  };
+
+  // Guarded Transition Modal actions
+  const handleGuardedSaveAndSwitch = useCallback(() => {
+    if (!pendingSwitchPatientId) return;
+    const currentId = activePatientId;
+    const currentTarget = encountersForDate.find(p => p.id === currentId) || effectiveEncounter;
+    const targetPatient = encountersForDate.find(p => p.id === pendingSwitchPatientId);
+
+    const snapTranscript = (localLiveTranscriptsRef.current[currentId] || []).map(t => ({
+      sender: (t.sender === 'Patient' || (t as any).role === 'patient' ? 'Patient' : t.sender === 'Dialogue' || (t as any).role === 'dialogue' ? 'Dialogue' : 'Dentist') as TranscriptItem['sender'],
+      text: t.text
+    }));
+    const snapNote = editedProgressNotes[currentId] || progressiveDrafts[currentId] || '';
+
+    void executeBackgroundNoteFinalization(currentId, false, true, snapTranscript, snapNote);
+    performPatientSwitch(pendingSwitchPatientId);
+    setShowGuardedTransitionModal(false);
+    setPendingSwitchPatientId(null);
+    setTurnoverToast(`Saved note for ${currentTarget.patientName}. Switched to ${targetPatient?.patientName || 'selected patient'}.`);
+  }, [pendingSwitchPatientId, activePatientId, encountersForDate, effectiveEncounter, editedProgressNotes, progressiveDrafts, executeBackgroundNoteFinalization, performPatientSwitch]);
+
+  const handleGuardedMoveAudioAndContinue = useCallback(async () => {
+    if (!pendingSwitchPatientId) return;
+    const currentId = activePatientId;
+    const targetId = pendingSwitchPatientId;
+    const targetPatient = encountersForDate.find(p => p.id === targetId);
+
+    // 1. Flush any pending recorder slices
+    await chunkUploadRef.current?.flush?.();
+
+    // 2. Transfer server audio chunks from currentId to targetId
+    void transferAudioSegments({
+      authToken,
+      fromConsultationId: currentId,
+      toConsultationId: targetId
+    });
+
+    // 3. Transfer transcript buffer to target patient
+    const liveItems = localLiveTranscriptsRef.current[currentId] || [];
+    setLocalLiveTranscripts(prev => ({
+      ...prev,
+      [targetId]: [...liveItems],
+      [currentId]: []
+    }));
+    localLiveTranscriptsRef.current[targetId] = [...liveItems];
+    localLiveTranscriptsRef.current[currentId] = [];
+
+    // 4. Transfer progressive draft if present
+    const currentDraft = progressiveDrafts[currentId];
+    if (currentDraft) {
+      setProgressiveDrafts(prev => {
+        const next = { ...prev, [targetId]: currentDraft };
+        delete next[currentId];
+        return next;
+      });
+    }
+
+    // 5. Roll back Patient A's consultation record in database/cache
+    const existingConsultA = consultations.find(c => c.id === currentId);
+    if (existingConsultA) {
+      const rolledBackA: Consultation = {
+        ...existingConsultA,
+        transcript: [],
+        findings: {
+          chiefComplaint: '',
+          history: '',
+          toothFindings: '',
+          findingsGingival: '',
+          diagnosis: '',
+          treatmentPerformed: '',
+          recommendations: '',
+          recallRequirements: '',
+          adaCodes: []
+        },
+        clinicalProgressNote: '',
+        patientSummary: ''
+      };
+      void saveConsultation(rolledBackA);
+    }
+
+    // 6. Switch patient identity while keeping microphone LIVE!
+    adoptScheduleRowConsent(targetId);
+    setActivePatientId(targetId);
+    hasUserManuallySelectedRef.current = true;
+    setEncounterState('active');
+    setShowGuardedTransitionModal(false);
+    setPendingSwitchPatientId(null);
+    setTurnoverToast(`Moved active recording to ${targetPatient?.patientName || 'selected patient'}. Recording continues.`);
+  }, [pendingSwitchPatientId, activePatientId, encountersForDate, progressiveDrafts, adoptScheduleRowConsent, authToken, consultations, saveConsultation]);
+
+  const handleGuardedDiscardAndSwitch = useCallback(async () => {
+    if (!pendingSwitchPatientId) return;
+    const currentId = activePatientId;
+    const targetPatient = encountersForDate.find(p => p.id === pendingSwitchPatientId);
+
+    // 1. Purge server-side audio chunks for currentId
+    void discardAudioSegments({ authToken, consultationId: currentId });
+
+    // 2. Wipe local transcript & drafts for currentId
+    setLocalLiveTranscripts(prev => ({ ...prev, [currentId]: [] }));
+    localLiveTranscriptsRef.current[currentId] = [];
+    setProgressiveDrafts(prev => {
+      const next = { ...prev };
+      delete next[currentId];
+      return next;
+    });
+    setEditedProgressNotes(prev => {
+      const next = { ...prev };
+      delete next[currentId];
+      return next;
+    });
+
+    // 3. Roll back Patient A's consultation in store
+    const existingConsultA = consultations.find(c => c.id === currentId);
+    if (existingConsultA) {
+      const rolledBackA: Consultation = {
+        ...existingConsultA,
+        transcript: [],
+        findings: {
+          chiefComplaint: '',
+          history: '',
+          toothFindings: '',
+          findingsGingival: '',
+          diagnosis: '',
+          treatmentPerformed: '',
+          recommendations: '',
+          recallRequirements: '',
+          adaCodes: []
+        },
+        clinicalProgressNote: '',
+        patientSummary: ''
+      };
+      void saveConsultation(rolledBackA);
+    }
+
+    performPatientSwitch(pendingSwitchPatientId);
+    setShowGuardedTransitionModal(false);
+    setPendingSwitchPatientId(null);
+    setTurnoverToast(`Discarded audio. Switched to ${targetPatient?.patientName || 'selected patient'}.`);
+  }, [pendingSwitchPatientId, activePatientId, encountersForDate, performPatientSwitch, authToken, consultations, saveConsultation]);
+
   // Asynchronous Non-Blocking Patient Handoff ("Next Patient")
   // Phase 13A: the "nothing captured" decision consults the SERVER transcript
   // (§12) — not just local browser buffers — so a record whose dialogue lives
@@ -3230,6 +3458,12 @@ export default function ChairsideWorkspace({
   const handleNextPatient = () => {
     const currentTarget = activeEncounter || effectiveEncounter;
     const currentId = currentTarget.id;
+
+    // Strict Encounter Lifecycle: block transition if encounter is not finished and has content
+    if (!canAdvanceNextPatient) {
+      setTurnoverToast(`Finish current encounter for ${currentTarget.patientName} to unlock next patient.`);
+      return;
+    }
 
     // 1. Silent non-blocking finalization of current patient with immutable snapshot (Rule 14 & Rule 18)
     // Guarantee 0 data loss: synchronously snapshot transcript and note before any state transition
@@ -3290,6 +3524,7 @@ export default function ChairsideWorkspace({
       if (!decision.ok) return;
       hasUserManuallySelectedRef.current = decision.effects.markManuallySelected;
       setActivePatientId(decision.targetPatientId);
+      setEncounterState('active');
       sessionStartTimeRef.current = Date.now();
       setRecordingSeconds(0);
       // Phase 13A (§14): never claim the note was saved — finalization is
@@ -3328,6 +3563,7 @@ export default function ChairsideWorkspace({
       setInChairPatientCustomName('');
       setInChairPatientDob('');
       setActivePatientId(seatedId);
+      setEncounterState('active');
       sessionStartTimeRef.current = Date.now();
       setRecordingSeconds(0);
 
@@ -3356,6 +3592,12 @@ export default function ChairsideWorkspace({
   };
 
   const handlePrevPatient = () => {
+    const currentTarget = activeEncounter || effectiveEncounter;
+    if (!canAdvanceNextPatient) {
+      setTurnoverToast(`Finish current encounter for ${currentTarget.patientName} to unlock patient navigation.`);
+      return;
+    }
+
     const currentIndex = encountersForDate.findIndex(p => p.id === activePatientId);
     const prevPatient = currentIndex > 0
       ? encountersForDate[currentIndex - 1]
@@ -3377,6 +3619,7 @@ export default function ChairsideWorkspace({
       playMedicalChime('stop');
     }
     setActivePatientId(prevPatient.id);
+    setEncounterState('active');
     sessionStartTimeRef.current = Date.now();
     setRecordingSeconds(0);
     setIsMicStandby(true);
@@ -3665,7 +3908,7 @@ ${clinician}`;
         Boolean(targetEl?.isContentEditable);
 
       // Spacebar: Start Audio / Pause Audio / Keep Listening
-      if (e.key === ' ' && !isInput && !showRegenerateConfirm && !showDaysheetModal && !showBatchTray && !showDayGuide && !showDeliverablesModal) {
+      if (e.key === ' ' && !isInput && !showRegenerateConfirm && !showDaysheetModal && !showBatchTray && !showDayGuide && !showDeliverablesModal && !showGuardedTransitionModal) {
         e.preventDefault();
         if (isSilenceWarningRef.current) {
           handleKeepListening();
@@ -3678,7 +3921,7 @@ ${clinician}`;
       }
 
       // ⌘→: Advance to Next Patient (hands-free transition without touching mouse)
-      if (!isInput && !showRegenerateConfirm && !showDaysheetModal && !showPlainTextModal && !showBatchTray && !showDayGuide && !showDeliverablesModal) {
+      if (!isInput && !showRegenerateConfirm && !showDaysheetModal && !showPlainTextModal && !showBatchTray && !showDayGuide && !showDeliverablesModal && !showGuardedTransitionModal) {
         if (isModifier && (e.key === 'ArrowRight' || e.key === 'Right')) {
           e.preventDefault();
           handleNextPatient();
@@ -3725,7 +3968,7 @@ ${clinician}`;
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeEncounter, encountersForDate, consultations, dentistName, showDaysheetModal, showPlainTextModal, showBatchTray, showDeliverablesModal, showDayGuide, showRegenerateConfirm, handleKeepListening, handleStartAudio, handleTogglePause, handleNextPatient, handlePrevPatient, handleCopyPMS]);
+  }, [activeEncounter, encountersForDate, consultations, dentistName, showDaysheetModal, showPlainTextModal, showBatchTray, showDeliverablesModal, showDayGuide, showRegenerateConfirm, showGuardedTransitionModal, handleKeepListening, handleStartAudio, handleTogglePause, handleNextPatient, handlePrevPatient, handleCopyPMS]);
 
   // QLE-2026-0001: signing out must never SILENTLY discard unsaved clinical
   // work. Whether that work must be preserved or may be discarded is a product
@@ -4292,6 +4535,9 @@ ${clinician}`;
                 onOpenWalkIn={() => setShowWalkInCard(true)}
                 onUpdateAppointmentType={(type) => handleUpdateAppointmentType(effectiveEncounter.id, type)}
                 onQuickInductPatient={handleQuickInductPatient}
+                encounterState={encounterState}
+                canAdvanceNextPatient={canAdvanceNextPatient}
+                onSwitchAppointment={() => setShowAppointmentPicker(true)}
                 consent={activeConsent}
                 onRecordConsent={recordAiConsent}
               />
@@ -4328,6 +4574,11 @@ ${clinician}`;
                   copiedFormat={copiedPmsTarget}
                   onOpenDeliverables={() => setShowDeliverablesModal(true)}
                   onNextPatient={handleNextPatient}
+                  encounterState={encounterState}
+                  canAdvanceNextPatient={canAdvanceNextPatient}
+                  nextPatientLockReason="Finish current encounter to unlock next patient"
+                  onFinishEncounter={handleFinishEncounter}
+                  isFinishingEncounter={isFinishingEncounter}
                   hasActualGeneratedNote={Boolean(
                     currentProgressNote.trim().length > 0 &&
                     (Boolean(progressiveDrafts[effectiveEncounter.id]) ||
@@ -4372,6 +4623,7 @@ ${clinician}`;
               onNextPatient={handleNextPatient}
               onPrevPatient={handlePrevPatient}
               onCopyPMS={() => handleCopyPMS(undefined, 'd4w')}
+              canAdvanceNextPatient={canAdvanceNextPatient}
             />
           </div>
         </div>
@@ -4531,6 +4783,105 @@ ${clinician}`;
           </div>
         </div>
       )}
+
+      {/* Quick Appointment Switcher Modal ("Wrong patient? Switch Appointment") */}
+      {showAppointmentPicker && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[85vh]">
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/70">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">Switch Active Appointment</h3>
+                <p className="text-xs text-slate-500">Select the patient currently in the operatory chair ({dateLabel})</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAppointmentPicker(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-4 overflow-y-auto space-y-2 flex-1">
+              {encountersForDate.length === 0 ? (
+                <div className="text-center py-6 text-slate-500 text-xs">
+                  No appointments scheduled for this date.
+                </div>
+              ) : (
+                encountersForDate.map(p => {
+                  const isCurrent = p.id === activePatientId;
+                  return (
+                    <button
+                      key={p.id}
+                      type="button"
+                      disabled={isCurrent}
+                      onClick={() => {
+                        setShowAppointmentPicker(false);
+                        handleSelectPatient(p.id);
+                      }}
+                      className={`w-full text-left p-3 rounded-xl border transition flex items-center justify-between cursor-pointer ${
+                        isCurrent
+                          ? 'border-sky-300 bg-sky-50/60 opacity-60 cursor-default'
+                          : 'border-slate-200 hover:border-sky-500 hover:bg-sky-50/30'
+                      }`}
+                    >
+                      <div>
+                        <div className="flex items-center space-x-2">
+                          <span className="text-xs font-bold text-slate-900">{p.patientName}</span>
+                          {p.dob && <span className="text-[11px] text-slate-500 font-mono">DOB: {p.dob}</span>}
+                          {isCurrent && (
+                            <span className="text-[10px] font-bold text-sky-700 bg-sky-100 px-1.5 py-0.5 rounded">
+                              Current
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[11px] text-slate-500 mt-0.5">
+                          <span>{p.time}</span> • <span>{p.procedureText}</span>
+                        </div>
+                      </div>
+                      <ChevronRight className="w-4 h-4 text-slate-400" />
+                    </button>
+                  );
+                })
+              )}
+            </div>
+
+            <div className="px-6 py-3 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowAppointmentPicker(false);
+                  setShowWalkInCard(true);
+                }}
+                className="text-xs font-semibold text-sky-600 hover:text-sky-800 transition cursor-pointer"
+              >
+                + Add Walk-In Patient
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowAppointmentPicker(false)}
+                className="px-3.5 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 text-xs font-semibold transition cursor-pointer"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Guarded Patient Transition Modal for active audio mistargeting protection */}
+      <GuardedTransitionModal
+        isOpen={showGuardedTransitionModal}
+        currentPatientName={(activeEncounter || effectiveEncounter).patientName}
+        targetPatientName={encountersForDate.find(p => p.id === pendingSwitchPatientId)?.patientName || 'Selected Patient'}
+        onSaveAndSwitch={handleGuardedSaveAndSwitch}
+        onMoveAudioAndContinue={handleGuardedMoveAudioAndContinue}
+        onDiscardAndSwitch={handleGuardedDiscardAndSwitch}
+        onCancel={() => {
+          setShowGuardedTransitionModal(false);
+          setPendingSwitchPatientId(null);
+        }}
+      />
     </div>
   );
 }

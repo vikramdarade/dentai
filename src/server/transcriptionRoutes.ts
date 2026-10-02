@@ -176,6 +176,70 @@ export function registerTranscriptionRoutes(app: any, deps: TranscriptionRouteDe
     }
   });
 
+  app.post('/api/transcribe/transfer-audio', deps.authenticate, async (req: any, res: any) => {
+    try {
+      const dentistId = req.dentist?.id;
+      if (!dentistId) return res.status(401).json({ ok: false, error: 'Authentication required.' });
+
+      const { fromConsultationId, toConsultationId } = req.body || {};
+      if (!fromConsultationId || !toConsultationId) {
+        return res.status(400).json({ ok: false, error: 'Both fromConsultationId and toConsultationId are required.' });
+      }
+
+      // Verify ownership of both consultations
+      const [fromConsult, toConsult] = await Promise.all([
+        deps.loadConsultation(fromConsultationId, dentistId),
+        deps.loadConsultation(toConsultationId, dentistId),
+      ]);
+
+      if (!fromConsult || !toConsult) {
+        return res.status(404).json({ ok: false, error: 'One or both consultations were not found.' });
+      }
+
+      const transferredCount = await deps.chairStore.transferAudio(
+        consultationAudioKey(fromConsultationId),
+        consultationAudioKey(toConsultationId)
+      );
+
+      deps.logger.info?.('Audio chunks transferred between consultations', {
+        fromConsultationId,
+        toConsultationId,
+        dentistId,
+        transferredCount,
+      });
+
+      res.json({ ok: true, transferred: true, count: transferredCount });
+    } catch (error: any) {
+      deps.logger.error('Audio chunk transfer failed', { message: error?.message });
+      res.status(500).json({ ok: false, error: 'Could not transfer recorded audio.' });
+    }
+  });
+
+  app.post('/api/transcribe/discard-audio', deps.authenticate, async (req: any, res: any) => {
+    try {
+      const dentistId = req.dentist?.id;
+      if (!dentistId) return res.status(401).json({ ok: false, error: 'Authentication required.' });
+
+      const { consultationId } = req.body || {};
+      if (!consultationId) {
+        return res.status(400).json({ ok: false, error: 'consultationId is required.' });
+      }
+
+      const consult = await deps.loadConsultation(consultationId, dentistId);
+      if (!consult) {
+        return res.status(404).json({ ok: false, error: 'Consultation not found.' });
+      }
+
+      await deps.chairStore.deleteAudio(consultationAudioKey(consultationId));
+
+      deps.logger.info?.('Audio chunks discarded for consultation', { consultationId, dentistId });
+      res.json({ ok: true, discarded: true });
+    } catch (error: any) {
+      deps.logger.error('Audio chunk discard failed', { message: error?.message });
+      res.status(500).json({ ok: false, error: 'Could not discard recorded audio.' });
+    }
+  });
+
   app.post('/api/transcribe', deps.authenticate, async (req: any, res: any) => {
     try {
       const dentistId = req.dentist?.id;

@@ -47,6 +47,16 @@ export interface ClinicalNoteEditorPanelProps {
   serverSeal?: AttestationSeal | null;
   /** Machine-readable refusal from the last sign-off attempt (409/422 class). */
   signOffError?: { code: string; message: string; currentVersion?: number } | null;
+  /** Current operatory encounter lifecycle state */
+  encounterState?: 'empty' | 'active' | 'finished';
+  /** Whether Next Patient is unlocked and permitted to advance */
+  canAdvanceNextPatient?: boolean;
+  /** Explanatory message when Next Patient is locked */
+  nextPatientLockReason?: string;
+  /** Action to finish the current encounter, stopping recording and unlocking Next Patient */
+  onFinishEncounter?: () => void;
+  /** Loading state during finish encounter finalization */
+  isFinishingEncounter?: boolean;
 }
 
 export const ClinicalNoteEditorPanel: React.FC<ClinicalNoteEditorPanelProps> = ({
@@ -66,7 +76,12 @@ export const ClinicalNoteEditorPanel: React.FC<ClinicalNoteEditorPanelProps> = (
   onSignOff,
   isSignedByServer,
   signOffError,
-  serverSeal
+  serverSeal,
+  encounterState = 'active',
+  canAdvanceNextPatient = true,
+  nextPatientLockReason,
+  onFinishEncounter,
+  isFinishingEncounter = false,
 }) => {
   const [selectedFormat, setSelectedFormat] = useState<'d4w' | 'exact' | 'universal'>(() => {
     try {
@@ -189,16 +204,56 @@ export const ClinicalNoteEditorPanel: React.FC<ClinicalNoteEditorPanelProps> = (
             )}
           </button>
 
-          {/* Next Patient — explicit separate button, never fires by accident */}
-          {onNextPatient && (
+          {/* Finish Encounter action — stops mic, saves note, and unlocks Next Patient */}
+          {onFinishEncounter && encounterState === 'active' && (
             <button
-              onClick={onNextPatient}
-              className="flex items-center space-x-1 px-3 py-1.5 rounded-xl border border-slate-200/90 bg-white hover:bg-sky-50 hover:border-sky-300 text-slate-700 text-xs font-semibold shadow-2xs cursor-pointer"
-              title="Advance to next patient (⌘→)"
+              onClick={onFinishEncounter}
+              disabled={isFinishingEncounter}
+              className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-xs cursor-pointer disabled:opacity-50 transition"
+              title="Finish active encounter and unlock next patient"
             >
-              <span>Next Patient</span>
-              <ArrowRight className="w-3.5 h-3.5 text-sky-600" />
+              {isFinishingEncounter ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-indigo-200" />
+                  <span>Finishing...</span>
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="w-3.5 h-3.5 text-indigo-200" />
+                  <span>Finish Encounter</span>
+                </>
+              )}
             </button>
+          )}
+
+          {encounterState === 'finished' && (
+            <div className="flex items-center space-x-1 px-2.5 py-1.5 rounded-xl bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs font-semibold">
+              <Check className="w-3.5 h-3.5 text-emerald-600" />
+              <span>Saved</span>
+            </div>
+          )}
+
+          {/* Next Patient — state-guarded against accidental transition during active visit */}
+          {onNextPatient && (
+            canAdvanceNextPatient ? (
+              <button
+                onClick={onNextPatient}
+                className="flex items-center space-x-1.5 px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm cursor-pointer animate-pulse transition"
+                title="Advance to next patient (⌘→)"
+              >
+                <span>Next Patient</span>
+                <ArrowRight className="w-3.5 h-3.5 text-white" />
+              </button>
+            ) : (
+              <button
+                disabled
+                className="flex items-center space-x-1 px-3 py-1.5 rounded-xl border border-slate-200 bg-slate-100 text-slate-400 text-xs font-semibold opacity-50 cursor-not-allowed"
+                title={nextPatientLockReason || "Finish current encounter to unlock next patient"}
+              >
+                <span>Next Patient</span>
+                <ArrowRight className="w-3.5 h-3.5 text-slate-300" />
+              </button>
+            )
           )}
         </div>
       </div>

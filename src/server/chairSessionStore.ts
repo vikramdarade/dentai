@@ -144,6 +144,8 @@ export interface ChairSessionStore {
    * Kept separate from `delete` so a beacon session is not unpaired by it.
    */
   deleteAudio(chairId: string): Promise<void>;
+  /** Re-attributes audio chunks from one consultation/chair to another (e.g. on patient correction). Returns how many were moved. */
+  transferAudio(fromChairId: string, toChairId: string): Promise<number>;
   /** Removes sessions past their expiry. Returns how many went. */
   purgeExpired(now?: number): Promise<number>;
 }
@@ -403,6 +405,29 @@ export function createChairSessionStore(
         delete data.chunks[chairId];
         await writeJson(data);
       }
+    },
+
+    async transferAudio(fromChairId, toChairId) {
+      if (dbEnabled) {
+        const rows = (await db()`
+          UPDATE chair_audio_chunks
+          SET chair_id = ${toChairId}
+          WHERE chair_id = ${fromChairId}
+          RETURNING chair_id
+        `) as any[];
+        return rows.length;
+      }
+      const data = await readJson();
+      const fromChunks = data.chunks[fromChairId] ?? [];
+      const count = fromChunks.length;
+      if (count > 0) {
+        const toChunks = data.chunks[toChairId] ?? [];
+        const moved = fromChunks.map((c) => ({ ...c, chairId: toChairId }));
+        data.chunks[toChairId] = [...toChunks, ...moved].sort((a, b) => a.chunkIndex - b.chunkIndex);
+        delete data.chunks[fromChairId];
+        await writeJson(data);
+      }
+      return count;
     },
 
     async purgeExpired(now = Date.now()) {

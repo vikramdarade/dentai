@@ -12,7 +12,6 @@ import LegalPage from './components/LegalPage';
 import BillingModal from './components/BillingModal';
 import { AI_DISCLOSURE_VERSION } from './lib/compliance';
 import PatientRoadmapPrototype from './components/PatientRoadmapPrototype';
-import PhoneBeaconMode from './components/PhoneBeaconMode';
 import {
   saveAuth,
   getAuth,
@@ -51,17 +50,21 @@ export default function App() {
     | 'terms'
     | 'recover'
     | 'roadmap-prototype'
-    | 'beacon'
     | 'billing'
     | null;
   const parseRoute = (hash: string): PublicRoute => {
+    if (hash.startsWith('#/beacon') || hash.startsWith('#beacon')) {
+      if (typeof window !== 'undefined' && window.location.hash) {
+        window.location.hash = '';
+      }
+      return null;
+    }
     if (hash.startsWith('#/demo')) return 'demo';
     if (hash.startsWith('#/landing') || hash.startsWith('#landing')) return 'landing';
     if (hash.startsWith('#/privacy')) return 'privacy';
     if (hash.startsWith('#/terms')) return 'terms';
     if (hash.startsWith('#/recover') || hash.startsWith('#/credential')) return 'recover';
     if (hash.startsWith('#/roadmap-prototype') || hash.startsWith('#roadmap-prototype')) return 'roadmap-prototype';
-    if (hash.startsWith('#/beacon') || hash.startsWith('#beacon')) return 'beacon';
     if (hash.startsWith('#/billing') || hash.startsWith('#billing')) return 'billing';
     return null;
   };
@@ -778,10 +781,6 @@ export default function App() {
         clinicName={activeClinic?.clinicName || 'Bright Smile Dental'}
       />
     );
-  }
-
-  if (publicRoute === 'beacon') {
-    return <PhoneBeaconMode onExit={exitPublicRoute} />;
   }
 
   if (!authToken || !currentUser) {

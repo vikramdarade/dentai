@@ -28,6 +28,7 @@ import {
   compareEncounters,
   parseEncounterTimeMinutes,
   sortEncounters,
+  canAdvanceEncounter,
 } from '../src/lib/encounterSession';
 
 describe('Phase 13A — encounter lifecycle state machine (§11, §24)', () => {
@@ -315,3 +316,71 @@ describe('Phase 13A — encounter ordering (§20)', () => {
     expect(items).toEqual(snapshot);
   });
 });
+
+describe('Strict Encounter Lifecycle: Operatory Advance & Guard Policy', () => {
+  it('allows advancement when encounter is explicitly finished', () => {
+    expect(canAdvanceEncounter({
+      encounterState: 'finished',
+      isEncounterSealedOrDone: false,
+      recordingSeconds: 45,
+      isMicStandby: true,
+      hasEditedNotes: true,
+      hasTranscript: true,
+    })).toBe(true);
+  });
+
+  it('allows advancement when record is sealed on server or done', () => {
+    expect(canAdvanceEncounter({
+      encounterState: 'active',
+      isEncounterSealedOrDone: true,
+      recordingSeconds: 120,
+      isMicStandby: true,
+      hasEditedNotes: true,
+      hasTranscript: true,
+    })).toBe(true);
+  });
+
+  it('strictly locks advancement when encounter is active and audio or notes exist', () => {
+    // Actively recording
+    expect(canAdvanceEncounter({
+      encounterState: 'active',
+      isEncounterSealedOrDone: false,
+      recordingSeconds: 15,
+      isMicStandby: false,
+      hasEditedNotes: false,
+      hasTranscript: true,
+    })).toBe(false);
+
+    // Audio recorded, stopped to standby, but encounter not finished
+    expect(canAdvanceEncounter({
+      encounterState: 'active',
+      isEncounterSealedOrDone: false,
+      recordingSeconds: 60,
+      isMicStandby: true,
+      hasEditedNotes: false,
+      hasTranscript: true,
+    })).toBe(false);
+
+    // Manual edits made in editor
+    expect(canAdvanceEncounter({
+      encounterState: 'active',
+      isEncounterSealedOrDone: false,
+      recordingSeconds: 0,
+      isMicStandby: true,
+      hasEditedNotes: true,
+      hasTranscript: false,
+    })).toBe(false);
+  });
+
+  it('allows advancement when visit was opened but untouched (0s, clean slate)', () => {
+    expect(canAdvanceEncounter({
+      encounterState: 'active',
+      isEncounterSealedOrDone: false,
+      recordingSeconds: 0,
+      isMicStandby: true,
+      hasEditedNotes: false,
+      hasTranscript: false,
+    })).toBe(true);
+  });
+});
+

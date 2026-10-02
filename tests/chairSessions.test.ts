@@ -276,6 +276,22 @@ describe('durable chair sessions', () => {
     expect((await store.get('chair-abc123'))?.status).toBe('waiting');
   });
 
+  it('transfers audio chunks atomically from one chair to another', async () => {
+    const store = createChairSessionStore({ kv: kv as any, logger });
+    await store.appendAudioChunk({ chairId: 'consult:patient-a', chunkIndex: 0, dataBase64: audio(30), sizeBytes: 30, timestamp: 100 });
+    await store.appendAudioChunk({ chairId: 'consult:patient-a', chunkIndex: 1, dataBase64: audio(40), sizeBytes: 40, timestamp: 200 });
+
+    const transferred = await store.transferAudio('consult:patient-a', 'consult:patient-b');
+    expect(transferred).toBe(2);
+
+    expect(await store.countAudioChunks('consult:patient-a')).toBe(0);
+    expect(await store.countAudioChunks('consult:patient-b')).toBe(2);
+
+    const bChunks = await store.listAudioChunks('consult:patient-b');
+    expect(bChunks[0].chairId).toBe('consult:patient-b');
+    expect(bChunks[1].chairId).toBe('consult:patient-b');
+  });
+
   it('removes an expired session and its audio together, and leaves live ones alone', async () => {
     const store = createChairSessionStore({ kv: kv as any, logger });
     await store.create(session({ chairId: 'chair-old', expiresAt: Date.now() - 1000 }));
