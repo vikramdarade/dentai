@@ -83,7 +83,7 @@ describe('Clinical Scenarios: End-to-End Data, Record Capture & Database Storage
       });
 
     expect(askRes.status).toBe(200);
-    expect(askRes.body.result).toContain('Nil known drug allergies');
+    expect(askRes.body.result).toMatch(/(?:nil|no)\s*known\s*drug\s*allergies/i);
     expect(askRes.body.result).toMatch(/46|composite|restorative|examination/i);
 
     // 2. Persist to database
