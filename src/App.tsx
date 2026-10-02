@@ -20,6 +20,7 @@ import {
 } from './utils/storage';
 import { createConsultationListStore, upsertConsultation, mergeConsultationLists } from './lib/consultationList';
 import ClinicalWorkspace from './components/ClinicalWorkspace';
+import HistoryHub from './components/HistoryHub';
 
 type ViewType = 'workspace' | 'history';
 
@@ -721,9 +722,75 @@ export default function App() {
           activeClinic={activeClinic}
           clinics={clinics}
           onSelectClinic={(id) => setActiveClinicId(id)}
+          onJoinClinic={handleJoinClinic}
+          onClinicChanged={() => refreshClinics()}
           onLogout={handleLogout}
           onSaveConsultation={handleSaveConsultation}
           pendingSyncCount={pendingSyncCount}
+          initialSessionId={selectedConsultation?.id}
+          onNavigateToHub={(tab) => {
+            setHubInitialTab(tab || 'schedule');
+            setView('history');
+          }}
+        />
+      )}
+      {view === 'history' && (
+        <HistoryHub
+          consultations={visibleConsultations}
+          onSelectConsultation={(consultation) => {
+            setSelectedConsultation(consultation);
+            setView('workspace');
+          }}
+          onStartNewConsultation={() => {
+            setSelectedConsultation(null);
+            setView('workspace');
+          }}
+          onStartScheduledConsultation={(item) => {
+            const parts = (item.patientName || '').trim().split(' ');
+            const first = parts[0] || 'Patient';
+            const last = parts.slice(1).join(' ') || '';
+            const newConsult: Consultation = {
+              id: `sess-${Date.now()}`,
+              firstName: first,
+              lastName: last,
+              dob: item.dob || '',
+              appointmentType: item.appointmentType || 'examination',
+              date: getTodayStr(),
+              time: item.time || getCurrentTimeStr(),
+              status: 'In Review',
+              dentistId: currentUser.id,
+              dentistName: currentUser.name,
+              clinicId: activeClinicId || undefined,
+              patientSummary: item.procedureText || 'Scheduled consultation',
+              findings: {
+                chiefComplaint: item.procedureText || 'Scheduled consultation',
+                history: '',
+                toothFindings: '',
+                findingsGingival: '',
+                diagnosis: '',
+                treatmentPerformed: '',
+                recommendations: '',
+                recallRequirements: '',
+              },
+              transcript: [],
+              clinicalProgressNote: '',
+            };
+            void handleSaveConsultation(newConsult);
+            setSelectedConsultation(newConsult);
+            setView('workspace');
+          }}
+          dentistName={currentUser.name}
+          onLogout={handleLogout}
+          clinics={clinics}
+          activeClinic={activeClinic}
+          onSelectClinic={(clinicId) => setActiveClinicId(clinicId)}
+          onJoinClinic={handleJoinClinic}
+          onClinicChanged={() => refreshClinics()}
+          authToken={authToken}
+          currentDentistId={currentUser.id}
+          memberNames={memberNames}
+          onOpenWorkspace={() => setView('workspace')}
+          initialTab={hubInitialTab}
         />
       )}
 

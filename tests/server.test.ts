@@ -1372,7 +1372,7 @@ describe.runIf(hasRealKey)('DentAI Server - Live LLM Integration & Accent Resili
     expect(bodyText).toMatch(/filling|restoration|composite/);
     // Check periodontal findings
     expect(res.body.findingsGingival).toContain('3-2-3');
-  }, 30000);
+  }, 60000);
 
   it('Integration Test Case B: should resolve Broad Australian Accent & check en-AU spelling', async () => {
     const res = await makeNotesRequest({
@@ -1406,7 +1406,7 @@ describe.runIf(hasRealKey)('DentAI Server - Live LLM Integration & Accent Resili
     // Standard checks for en-AU spelling patterns
     const containsEnAuSpelling = /colour|minimise|programme|haem|anaesth/i.test(patientLetter);
     expect(containsEnAuSpelling).toBe(true);
-  }, 30000);
+  }, 60000);
 
   it('Integration Test Case C: should resolve mumbled speech and pulpitis diagnosis on tooth 16', async () => {
     const res = await makeNotesRequest({
@@ -1434,7 +1434,7 @@ describe.runIf(hasRealKey)('DentAI Server - Live LLM Integration & Accent Resili
     expect(res.body.diagnosis.toLowerCase()).toContain('pulpitis');
     const combinedTreatmentAndRecs = (res.body.treatmentPerformed + ' ' + res.body.recommendations).toLowerCase();
     expect(combinedTreatmentAndRecs).toContain('root canal');
-  }, 30000);
+  }, 60000);
 });
 
 /**

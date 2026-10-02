@@ -22,17 +22,17 @@ export default function ContextTab({
   onChangeContext,
   onSyncChangesToNote,
   isSyncing = false,
-  attachments = [
-    { id: 'att-1', name: 'New_Patient_Intake_Form.pdf', type: 'pdf', size: '240 KB' },
-    { id: 'att-2', name: 'Bitewing_Radiographs_BW24.jpg', type: 'image', size: '1.2 MB' },
-    { id: 'att-3', name: 'GP_Medical_Clearance_Asthma.pdf', type: 'pdf', size: '110 KB' },
-  ],
+  attachments = [],
   onAddAttachment,
   onRemoveAttachment,
 }: ContextTabProps) {
   const [localAttachments, setLocalAttachments] = useState<AttachmentItem[]>(attachments);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [hasContextChanged, setHasContextChanged] = useState(false);
+
+  React.useEffect(() => {
+    setLocalAttachments(attachments || []);
+  }, [attachments]);
 
   const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     onChangeContext(e.target.value);
@@ -145,44 +145,51 @@ export default function ContextTab({
             />
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-            {localAttachments.map(att => (
-              <div
-                key={att.id}
-                className="flex items-center justify-between p-3 rounded-xl border border-slate-200 bg-white hover:border-slate-300 transition-all shadow-xs"
-              >
-                <div className="flex items-center gap-2.5 overflow-hidden">
-                  <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0">
-                    {att.type === 'pdf' ? (
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                      </svg>
-                    ) : (
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                      </svg>
-                    )}
-                  </div>
-                  <div className="flex flex-col overflow-hidden">
-                    <span className="text-xs font-semibold text-slate-800 truncate" title={att.name}>
-                      {att.name}
-                    </span>
-                    {att.size && <span className="text-[10px] text-slate-400">{att.size}</span>}
-                  </div>
-                </div>
-
-                <button
-                  onClick={() => handleRemove(att.id)}
-                  className="p-1 rounded-md text-slate-400 hover:text-red-500 hover:bg-slate-100 transition-colors"
-                  aria-label={`Remove ${att.name}`}
+          {localAttachments.length === 0 ? (
+            <div className="border border-dashed border-slate-200 rounded-xl p-4 text-center bg-slate-50/50">
+              <p className="text-xs text-slate-500 font-medium">No intake forms, medical clearances, or radiographs attached.</p>
+              <p className="text-[11px] text-slate-400 mt-0.5">Use "Attach file" above to add intake PDFs or bitewing / OPG images.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+              {localAttachments.map(att => (
+                <div
+                  key={att.id}
+                  className="flex items-center justify-between p-3 rounded-xl border border-slate-200 bg-white hover:border-slate-300 transition-all shadow-xs"
                 >
-                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-            ))}
-          </div>
+                  <div className="flex items-center gap-2.5 overflow-hidden">
+                    <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0">
+                      {att.type === 'pdf' ? (
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                      ) : (
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                      )}
+                    </div>
+                    <div className="flex flex-col overflow-hidden">
+                      <span className="text-xs font-semibold text-slate-800 truncate" title={att.name}>
+                        {att.name}
+                      </span>
+                      {att.size && <span className="text-[10px] text-slate-400">{att.size}</span>}
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => handleRemove(att.id)}
+                    className="p-1 rounded-md text-slate-400 hover:text-red-500 hover:bg-slate-100 transition-colors cursor-pointer"
+                    aria-label={`Remove ${att.name}`}
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Guidance Notice */}
