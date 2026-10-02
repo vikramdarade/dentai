@@ -26,8 +26,8 @@ In dental practices, the physical and operational divide between the **sterile o
 - **Post-Op Neglect:** Surgical extractions or implant placements lack documented post-operative follow-up calls, increasing dry socket complications and medicolegal exposure.
 - **Prescription Ambiguity:** Scripts mentioned verbally are not clearly flagged for reception printing or pharmacist dispensing check.
 
-### 1.2 The Heidi Parity & Dental Superiority
-Heidi Health introduced **Heidi Tasks** to detect generic medical follow-ups (tests, referrals, reviews). DentAI's Handover Task Engine leapfrogs generic medical tasking by tailoring specifically to the **dental operatory reality**:
+### 1.2 Generic Medical Scribe Limitations & Dental Superiority
+Legacy medical scribes detect generic medical follow-ups (tests, referrals, reviews). DentAI's Handover Task Engine leapfrogs generic medical tasking by tailoring specifically to the **dental operatory reality**:
 1. **Lab Order Tracking:** Specific tracking of lab turnaround days, restoration type, tooth numbers (FDI), and shade.
 2. **Post-Op Welfare Calls:** Auto-scheduled 24–48h follow-up phone calls based on surgical invasiveness (extractions, implants, surgical perio).
 3. **Hygiene & Periodontal Recalls:** Tied to ADA prevention intervals (3-month perio vs 6-month preventive) with automated recall engine sync.

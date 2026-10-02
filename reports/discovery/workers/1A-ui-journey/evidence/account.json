@@ -1,0 +1,14 @@
+{
+  "registeredVia": "UI registration journey (Login > Register Profile)",
+  "name": "Dr Disc OneA",
+  "pin": "4711",
+  "inviteCodeUsed": "65UMKZ",
+  "id": "a9d31ee9-69be-4bd5-a060-2b86e38ea23a",
+  "clinic": {
+    "clinicId": "4e62783f-5dad-438e-8bfa-c6c75da0e600",
+    "clinicName": "Dr Disc OneA — Solo Practice",
+    "role": "owner"
+  },
+  "mfaEnabled": false,
+  "note": "Created through the real registration UI at 2026-09-28 ~08:52 local; token minted with epoch 0. Reusable for future worker sessions against the same hermetic store."
+}

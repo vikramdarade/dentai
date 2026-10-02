@@ -1,0 +1,18 @@
+{
+  "finding": "Rapid-click Add (4 clicks within ~100ms) inserts 4 duplicate transcript lines; the note draft de-duplicates the text but the transcript feed and 'lines recorded' counter show 4 entries, and only 1 POST is required to create them",
+  "reproductions": 2,
+  "steps": [
+    "Login → workspace 'In-Chair Patient'",
+    "Type 'Rapid click tooth 14' into quick-observation input",
+    "Click Add 4 times programmatically within ~100ms (equivalent to an anxious double-click × 2)",
+    "Wait 800ms; read transcript feed + note canvas"
+  ],
+  "expected": "Either the button is disabled for the in-flight add (as it appears between renders — 'Add' shows disabled when input is empty) or the add is idempotent; transcript should contain 1 line.",
+  "actual": "Transcript feed shows 4 identical 'Dialogue' rows at the same timestamp (10:06:50 AM), counter shows '4 lines recorded', note canvas contains the text once (de-duplicated by the draft engine's exact-text merge).",
+  "risk": "Low-moderate: inflated line counts, duplicate evidence rows in the transcript that a grounding check treats as repeated independent utterances. The note draft absorbed it; the persisted transcript does not.",
+  "evidence": {
+    "screenshot": "04-rapid-click-duplicates.png (feed shows 4 identical rows; note shows single occurrence)",
+    "rep1": "{\"lines\":\"4 lines recorded\",\"occurrences_in_body\":4}",
+    "rep2": "{\"noteOccurrences\":1,\"feedRows\":4}"
+  }
+}

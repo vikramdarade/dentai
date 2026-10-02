@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "updatedAt": "2026-09-28T08:11:00Z",
+  "updatedBy": "FREEBUFF",
+  "headSha": "2cf786aac840eee69d520ebaae0a35d91c23ffe3",
+  "branch": "main",
+  "product": {
+    "name": "Dentai",
+    "packageVersion": "0.1.0-rc.1",
+    "positioning": "Context-aware clinical & patient care copilot for Australian dental practices. Documentation software: does not diagnose or prescribe; the treating practitioner reviews and owns every record.",
+    "canonicalSources": [
+      "README.md",
+      "PROJECT_CONTEXT.md",
+      ".agents/AGENTS.md",
+      "docs/FINAL_CLINICAL_SAFETY_AUDIT.md",
+      "docs/CLINICAL_FACT_SPECIFICATION.md"
+    ],
+    "architecture": "Single Express app (server.ts) + React 19/Vite client; Gemini via @google/genai as hosted verbaliser over a canonical ClinicalFact pipeline; Postgres (Neon) when DATABASE_URL set, JSON-file fallback failing closed unless DENTAI_ALLOW_FILE_STORAGE=true; Vercel serverless via api/index.ts.",
+    "packageManager": "Bun (bun.lock). Do not add npm/yarn/pnpm lockfiles.",
+    "lifecycleStage": "Release candidate 0.1.0-rc.1; docs/FINAL_CLINICAL_SAFETY_AUDIT.md verdict ARCHITECTURALLY COMPLETE with documented Postgres test-environment gap."
+  },
+  "clinicalScope": {
+    "productClass": "Clinical documentation software (not a diagnostic device)",
+    "jurisdiction": "Australia (AHPRA / ADA alignment)",
+    "safetyInvariantsDoc": "docs/testing/SAFETY_INVARIANTS.md",
+    "protectedSurfaces": [
+      "patient identity",
+      "consultation identity",
+      "ClinicalFact semantics",
+      "evidence/provenance",
+      "grounding",
+      "sign-off",
+      "signed record immutability",
+      "authorization",
+      "audit/seal",
+      "concurrency controls"
+    ]
+  }
+}

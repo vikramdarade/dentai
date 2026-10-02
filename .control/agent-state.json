@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 1,
+  "updatedAt": "2026-09-28T08:11:00Z",
+  "bootstrap": {
+    "agent": "FREEBUFF",
+    "role": "Engineering control plane bootstrap",
+    "date": "2026-09-28T08:11:00Z",
+    "headSha": "2cf786aac840eee69d520ebaae0a35d91c23ffe3",
+    "branch": "main",
+    "workingTreeStatusAtStart": "CLEAN (0 modified/untracked files before control-plane creation)",
+    "report": "reports/discovery/bootstrap-report.md"
+  },
+  "agents": {
+    "contractDirectory": "docs/agents/",
+    "roles": [
+      "FREEBUFF",
+      "HERMES",
+      "ARCHITECT",
+      "IMPLEMENTER",
+      "DETERMINISTIC_TESTER",
+      "CLINICAL_VERIFIER",
+      "SECURITY_REVIEWER",
+      "E2E_TESTER",
+      "RELEASE_ENGINEER"
+    ],
+    "mandatoryReportFields": [
+      "STATUS",
+      "OBJECTIVE",
+      "INPUTS",
+      "WORK_PERFORMED",
+      "FILES_CHANGED",
+      "TESTS_RUN",
+      "TEST_RESULTS",
+      "EVIDENCE",
+      "RISKS",
+      "OPEN_QUESTIONS",
+      "RECOMMENDED_NEXT_ACTION"
+    ]
+  },
+  "protectedSurfaces": {
+    "definition": "docs/testing/SAFETY_INVARIANTS.md",
+    "policy": "No agent may weaken these autonomously. Any change touching them requires CLINICAL_VERIFIER review and HUMAN_REVIEW before merge.",
+    "surfaces": [
+      "patient identity",
+      "consultation identity",
+      "ClinicalFact semantics",
+      "evidence/provenance",
+      "grounding",
+      "sign-off",
+      "signed record immutability",
+      "authorization",
+      "audit/seal",
+      "concurrency controls"
+    ]
+  },
+  "activityLog": [
+    {
+      "timestamp": "2026-09-28T08:11:00Z",
+      "actor": "FREEBUFF",
+      "action": "BOOTSTRAP",
+      "detail": "Control plane created: docs/agents, docs/testing, docs/continuous, .control, reports/*. Application source untouched."
+    }
+  ]
+}

@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "updatedAt": "2026-09-28T08:11:00Z",
+  "updatedBy": "FREEBUFF",
+  "headSha": "2cf786aac840eee69d520ebaae0a35d91c23ffe3",
+  "runner": {
+    "command": "bun run test",
+    "flags": "--fileParallelism=false --test-timeout=30000 (mandatory: suites share local JSON fixtures)",
+    "typecheck": "bun run lint (tsc -b --noEmit)",
+    "postgresSuite": "bun run test:postgres (skips without DENTAI_TEST_DATABASE_URL)",
+    "integrationSuite": "bun run test:integration (tests/server.test.ts)",
+    "clinicalEvalGate": "bun run eval:notes --offline --min-score 0.9",
+    "lastKnownFullRun": "docs/FINAL_CLINICAL_SAFETY_AUDIT.md: 1067 passed / 19 skipped (postgres) / 0 failed, 64 files (2026-09-27)"
+  },
+  "suites": {
+    "framework": "vitest",
+    "detectedTestFiles": 76,
+    "notableSuites": [
+      "tests/macroSparseTranscript.test.ts (202-case fabrication matrix)",
+      "tests/signOffValidation.test.ts (12 unsafe-attempt tests)",
+      "tests/negationScope.test.ts",
+      "tests/groundingVerification.test.ts",
+      "tests/clinicalFactContract.test.ts",
+      "tests/patientIdentity.test.ts",
+      "tests/securityControls.test.ts",
+      "tests/encounterSessionSafety.test.ts",
+      "tests/postgres.test.ts (skips without DATABASE_URL)"
+    ]
+  },
+  "knownGaps": [
+    "Postgres-backed suite requires DENTAI_TEST_DATABASE_URL; 19 tests skipped locally (documented environment gap in docs/FINAL_CLINICAL_SAFETY_AUDIT.md).",
+    "No Playwright E2E specs detected in tests/ despite playwright being a devDependency — screen-level E2E coverage is a control-plane work item.",
+    "Gold-set F1 53.1% (deliberately conservative extractor; omission-biased — the safe direction)."
+  ],
+  "isolationRules": [
+    "Tests must set DENTAI_DATA_DIR to a temp directory.",
+    "Always run with --fileParallelism=false.",
+    "Keep beforeAll backup / afterAll restore hooks for shared JSON fixtures.",
+    "Call invalidateDbCache() after modifying JSON on disk in tests."
+  ]
+}

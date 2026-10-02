@@ -1,0 +1,28 @@
+{
+  "finding": "History Hub reopens a server-persisted consultation in the workspace, but the workspace silently falls back to the ephemeral 'In-Chair Patient' scratchpad — the selected patient's identity is never shown",
+  "reproductions": 2,
+  "steps": [
+    "Login as Dr Disc OneA",
+    "POST /api/notes/jobs via Finish-Consult equivalent creates consultation 'A B' (id 155073ca…, date 'Sep 28', time '09:47 AM', status 'In Review', patientId a2bb4ced)",
+    "Tools > Past Patient Records",
+    "History Hub shows Patient Records (1) with row 'AB A B Comprehensive Examination 09:47 AM In Review'",
+    "Click the row",
+    "Observe the workspace"
+  ],
+  "expected": "Patient banner shows patient 'A B' (name/DOB strip per OperatoryPatientBanner), encounter 1/1 is that consultation, and its content is displayed.",
+  "actual": "Banner shows 'In-Chair Patient', 'DOB: Not recorded', time = current clock (09:51 AM, later 10:06 AM) — the chair-active fallback encounter, not the selected consultation. Note canvas empty ('0 lines recorded'). No error, no toast, no indication that the requested record is not on screen.",
+  "root-cause hypothesis (evidence only, not a fix)": [
+    "handleSelectConsultation sets selectedConsultation → ChairsideWorkspace initialPatientId (App.tsx:727)",
+    "ChairsideWorkspace sets activePatientId from initialPatientId in an effect (line 204-211) and marks it manually selected",
+    "encountersForDate filters encounters by date match: c.date === currentDateStr ('2026-09-28' format) — but the server record's date is the format 'Sep 28' (formatClinicDate output), and the fallback formatClinicDate(d) parse path appears to fail or not match, so the consultation never enters encountersForDate",
+    "activePatientId no longer matches any encounter → self-healing branch (line 522) resets to encountersForDate[0] — but encountersForDate is EMPTY for today, so activePatientId becomes '' and effectiveEncounter falls back to the 'In-Chair Patient' scratchpad (line 579+)",
+    "Net effect: the patient whose record was clicked is silently replaced by a placeholder identity"
+  ],
+  "risk": "Wrong-patient class: the clinician believes they reopened patient 'A B' (History Hub row disappears from view) but the screen shows an empty scratchpad for a generic 'In-Chair Patient'. Anything typed next is attributed to the scratchpad, not to 'A B'. Related doc: docs/reviews/consultation_recording_review_2026_09_26.md E3 (ghost fallback).",
+  "serverRecord": "see consult-A-B-server-state.json",
+  "dateFormatEvidence": {
+    "currentDateStr_in_workspace": "2026-09-28 (formatted via getClinicTodayIso path)",
+    "server_record_date": "Sep 28",
+    "filter": "encountersForDate: d === currentDateStr || d === shortDate || d.startsWith(shortDate) || d === fullDate; shortDate='Sep 28' matched only if parse produced it — observed result: record absent from roster"
+  }
+}

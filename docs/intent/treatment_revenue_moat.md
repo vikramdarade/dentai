@@ -8,7 +8,7 @@
 
 ## 1. Executive Summary & Strategic Rationale
 
-Ambient AI scribes that simply transcribe and format clinical notes are rapidly commoditizing. Large generic vendors (Heidi Health, Freed, Sunoh, Nabla) offer low-cost wrappers that capture general doctor-patient dialogue. 
+Ambient AI scribes that simply transcribe and format clinical notes are rapidly commoditizing. Large generic vendors (Freed, Sunoh, Nabla) offer low-cost wrappers that capture general doctor-patient dialogue. 
 
 However, general medical scribes have two fatal weaknesses in dentistry:
 1. **Zero Domain Billing Intelligence:** They do not understand the Australian Dental Association (ADA) 3-digit item coding system, FDI tooth notation (11–48), tooth surfaces (MODBL), periodontal pocket sextants (BPE), or dental fee structures.

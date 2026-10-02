@@ -114,12 +114,17 @@ async function callOpenAiEndpoint(params: {
   systemInstruction: string;
   promptContext: string;
   timeoutMs: number;
+  jsonMode?: boolean;
 }): Promise<{ ok: true; content: string } | { ok: false; status?: number; error: string }> {
-  const { endpoint, apiKey, model, systemInstruction, promptContext, timeoutMs } = params;
+  const { endpoint, apiKey, model, systemInstruction, promptContext, timeoutMs, jsonMode = true } = params;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
+    const systemPrompt = jsonMode
+      ? `${systemInstruction}\n\nCRITICAL SCHEMA REQUIREMENTS:\n1. Output valid raw JSON only. Do not wrap in markdown code blocks.\n2. Every note section (chiefComplaint, history, toothFindings, findingsGingival, diagnosis, treatmentPerformed, recommendations, recallRequirements, patientSummary) MUST be a string value, NOT a nested object or array.\n3. In toothFindings, write telegraphic tooth-by-tooth lines, e.g. "#16 (MO): Deep dentinal caries | TTP (-), Cold (+ normal) | Rec: 2-surface composite (ADA 532)".\n4. Use Australian Dental Association (ADA) 3-digit item numbers (e.g. 011, 012, 022, 531, 532, 521, 414), NOT US CDT codes.`
+      : systemInstruction;
+
     const response = await fetch(endpoint, {
       method: 'POST',
       headers: {
@@ -133,16 +138,16 @@ async function callOpenAiEndpoint(params: {
         messages: [
           {
             role: 'system',
-            content: `${systemInstruction}\n\nCRITICAL SCHEMA REQUIREMENTS:\n1. Output valid raw JSON only. Do not wrap in markdown code blocks.\n2. Every note section (chiefComplaint, history, toothFindings, findingsGingival, diagnosis, treatmentPerformed, recommendations, recallRequirements, patientSummary) MUST be a string value, NOT a nested object or array.\n3. In toothFindings, write telegraphic tooth-by-tooth lines, e.g. "#16 (MO): Deep dentinal caries | TTP (-), Cold (+ normal) | Rec: 2-surface composite (ADA 532)".\n4. Use Australian Dental Association (ADA) 3-digit item numbers (e.g. 011, 012, 022, 531, 532, 521, 414), NOT US CDT codes.`,
+            content: systemPrompt,
           },
           {
             role: 'user',
             content: promptContext,
           },
         ],
-        response_format: { type: 'json_object' },
-        temperature: 0.1,
-        max_tokens: 2500,
+        response_format: jsonMode ? { type: 'json_object' } : undefined,
+        temperature: 0.2,
+        max_tokens: 3000,
       }),
     });
 
@@ -244,3 +249,51 @@ export async function generateNoteWithOpenAiCompatible(params: {
     model: config.model,
   };
 }
+
+/**
+ * Executes a conversational copilot prompt to update or transform clinical notes or generate downstream docs.
+ */
+export async function executeOpenAiCopilotPrompt(params: {
+  systemInstruction: string;
+  promptContext: string;
+  config: OpenAiCompatibleConfig;
+  timeoutMs?: number;
+}): Promise<{ ok: true; content: string; provider: string; model: string } | { ok: false; error: string }> {
+  const { systemInstruction, promptContext, config, timeoutMs = 25000 } = params;
+  const modelsToTry = config.candidateModels?.length ? config.candidateModels : [config.model];
+  let lastError = '';
+
+  for (const candidateModel of modelsToTry) {
+    const res = await callOpenAiEndpoint({
+      endpoint: config.endpoint,
+      apiKey: config.apiKey,
+      model: candidateModel,
+      systemInstruction,
+      promptContext,
+      timeoutMs,
+      jsonMode: false,
+    });
+
+    if (res.ok) {
+      return {
+        ok: true,
+        content: res.content,
+        provider: config.provider,
+        model: candidateModel,
+      };
+    }
+
+    const errObj = res as { ok: false; status?: number; error: string };
+    lastError = errObj.error;
+    const shouldTryNext = errObj.status === 404 || errObj.status === 429 || errObj.error.includes('model_not_found');
+    if (!shouldTryNext) {
+      break;
+    }
+  }
+
+  return {
+    ok: false,
+    error: lastError || 'All candidate models failed for copilot prompt.',
+  };
+}
+

@@ -1,0 +1,26 @@
+{
+  "finding": "Unsaved clinical observation + generated note are destroyed by Sign Out; logout does not preserve the in-progress encounter",
+  "reproductions": 2,
+  "steps": [
+    "Login as Dr Disc OneA (registration journey)",
+    "Workspace shows 'In-Chair Patient' with note canvas empty",
+    "Type 'Tooth 16 caries noted' (rep 1) / 'Tooth 26 decay moderate' (rep 2) into 'Type quick clinical observation' and click Add",
+    "Verify note canvas populated by draft engine (e.g. 'HARD TISSUE & TOOTH FINDINGS: Tooth 16 caries noted.')",
+    "Click Sign Out (header)",
+    "Login again with same name + PIN",
+    "Observe workspace"
+  ],
+  "expected": "Per code comment in src/App.tsx handleLogout: 'the in-progress consultation (active intake + sessionStorage transcript) is deliberately NOT cleared here — logging out mid-consult must never destroy unsaved clinical work. On the next login the intake is restored and the recording resumes with its full transcript.'",
+  "actual": "After re-login: Live Conversation '0 lines recorded', Clinical Note Canvas empty, localStorage 'dentai_consultations_cache_<userId>' count 0, GET /api/consultations count 0. The observation and note are unrecoverable in the UI.",
+  "serverStateCheck": "GET /api/consultations returned only records belonging to the other discovery account (Dr Disc OneB) or none; the In-Chair scratchpad was never POSTed server-side (it is the ephemeral 'chair-active' encounter, only persisted on completion).",
+  "evidence": {
+    "rep1_localStorage_after_relogin": "{\"cacheCount\":0,\"note\":[]}",
+    "rep1_server": "server consultations.json contained only 1B's 2 records at time of check",
+    "rep2_localStorage_after_relogin": "{\"cacheCount\":0,\"lines\":\"0 lines recorded\",\"note\":[\"\"]}"
+  },
+  "risk": "Clinical: a clinician who signs out mid-consult (shift change, shared workstation) permanently loses chairside observations that were visible on screen. Contradicts the documented intent and PROJECT_CONTEXT.md guardrail on preserving unsaved work.",
+  "codeRefs": [
+    "src/App.tsx handleLogout — setConsultations([]), setView('history') with the NOT-cleared comment",
+    "src/App.tsx handleSaveConsultation — 'chair-active' encounter persists ONLY when status === 'Completed'"
+  ]
+}

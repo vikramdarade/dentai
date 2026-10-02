@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "updatedAt": "2026-09-28T08:11:00Z",
+  "updatedBy": "FREEBUFF",
+  "releases": [],
+  "policy": "docs/continuous/RELEASE_POLICY.md",
+  "note": "No release has been recorded by the control plane. Bootstrapped state: package 0.1.0-rc.1 on main @ 2cf786aac840eee69d520ebaae0a35d91c23ffe3. Only the RELEASE_ENGINEER role may set RELEASED entries.",
+  "releaseGate": {
+    "requiredCiJobs": ["quality-gate", "postgres", "clinical-eval"],
+    "ciWorkflow": ".github/workflows/ci.yml",
+    "documentedEnvironmentGaps": [
+      "Postgres-backed tests require a database-enabled environment before release (docs/FINAL_CLINICAL_SAFETY_AUDIT.md)."
+    ]
+  }
+}

@@ -1,0 +1,141 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DentAI Quality Ledger Entry",
+  "description": "Evidence-driven defect/observation record for the DentAI engineering control plane. Written only by agents operating under docs/agents/ contracts.",
+  "type": "object",
+  "required": [
+    "id",
+    "category",
+    "engineeringSeverity",
+    "clinicalRisk",
+    "status",
+    "firstDetected",
+    "lastObserved"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^QLE-[0-9]{4}-[0-9]{4}$",
+      "description": "Ledger identifier. Format: QLE-YYYY-NNNN, assigned monotonically by the bootstrap/triage agent."
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "DEFECT",
+        "SAFETY_INVARIANT_DRIFT",
+        "TEST_GAP",
+        "FLAKY_TEST",
+        "DOC_DRIFT",
+        "PERFORMANCE",
+        "SECURITY",
+        "ACCESSIBILITY",
+        "DX",
+        "OBSERVATION"
+      ]
+    },
+    "engineeringSeverity": {
+      "type": "string",
+      "enum": ["P0", "P1", "P2", "P3"],
+      "description": "P0 = blocks release or breaks a core flow; P1 = major defect; P2 = moderate; P3 = minor/cosmetic."
+    },
+    "clinicalRisk": {
+      "type": "string",
+      "enum": [
+        "CRITICAL",
+        "HIGH",
+        "MODERATE",
+        "LOW",
+        "NONE",
+        "UNKNOWN"
+      ],
+      "description": "Assessed against docs/testing/SAFETY_INVARIANTS.md. When UNKNOWN, entry is automatically HUMAN_REVIEW until a CLINICAL_VERIFIER assesses it."
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "OBSERVED",
+        "REPRODUCING",
+        "CONFIRMED",
+        "DUPLICATE",
+        "TRIAGED",
+        "PLANNED",
+        "IN_PROGRESS",
+        "PR_READY",
+        "HUMAN_REVIEW",
+        "REJECTED",
+        "APPROVED",
+        "RELEASED",
+        "VERIFIED",
+        "WONT_FIX",
+        "BLOCKED"
+      ],
+      "description": "Lifecycle state. See docs/continuous/TRIAGE_POLICY.md for allowed transitions."
+    },
+    "firstDetected": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "lastObserved": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "surface": {
+      "type": "string",
+      "description": "Where detected: 'client' | 'server' | 'shared-lib' | 'api' | 'infra' | 'docs'. See docs/testing/STATE_INVENTORY.md for the surface model."
+    },
+    "screen": {
+      "type": ["string", "null"],
+      "description": "If UI: the screen id from docs/testing/SCREEN_INVENTORY.md (e.g. 'chairside-workspace')."
+    },
+    "API": {
+      "type": ["string", "null"],
+      "description": "If server: the endpoint id from docs/testing/API_INVENTORY.md (e.g. 'POST /api/consultations/:id/sign')."
+    },
+    "journey": {
+      "type": ["string", "null"],
+      "description": "If cross-cutting: the journey id from docs/testing/GOLDEN_JOURNEYS.md."
+    },
+    "reproduction": {
+      "type": ["string", "null"],
+      "description": "Deterministic reproduction steps or the command/fixture that reproduces."
+    },
+    "expected": {
+      "type": ["string", "null"]
+    },
+    "actual": {
+      "type": ["string", "null"]
+    },
+    "evidence": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Paths under reports/ (test runs, logs, transcripts, screenshots). Never inline clinical or PHI content."
+    },
+    "rootCause": {
+      "type": ["string", "null"]
+    },
+    "rootCauseConfidence": {
+      "type": ["number", "null"],
+      "minimum": 0,
+      "maximum": 1
+    },
+    "regressionTest": {
+      "type": ["string", "null"],
+      "description": "Test file / test name added or required to prevent recurrence."
+    },
+    "recommendedAction": {
+      "type": ["string", "null"]
+    },
+    "releaseRisk": {
+      "type": ["string", "null"],
+      "description": "Free-text assessment: what happens if shipped unreleased/unfixed."
+    },
+    "owner": {
+      "type": ["string", "null"],
+      "description": "Agent role (docs/agents/) or human handle responsible for the next action."
+    },
+    "linkedIssue": { "type": ["string", "null"] },
+    "linkedPR": { "type": ["string", "null"] },
+    "linkedRelease": { "type": ["string", "null"] }
+  },
+  "additionalProperties": false
+}

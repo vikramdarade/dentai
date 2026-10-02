@@ -1,0 +1,1 @@
+{"error":"Operational secret required.","code":"OPS_SECRET_REQUIRED","hint":"Sign in at GET /api/ops/console, or send x-dentai-ops-secret."}

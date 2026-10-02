@@ -1,0 +1,1 @@
+{"error":"Transcript contains too many entries (maximum 5000). Split the consultation or trim the transcript.","code":"TRANSCRIPT_TOO_LONG"}

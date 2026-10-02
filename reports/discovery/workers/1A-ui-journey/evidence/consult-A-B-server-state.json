@@ -1,0 +1,23 @@
+{
+ "id": "155073ca-f659-487d-8eea-47cd93307e3f",
+ "firstName": "A",
+ "lastName": "B",
+ "date": "Sep 28",
+ "time": "09:47 AM",
+ "status": "In Review",
+ "transcriptCount": 1,
+ "findingsKeys": [
+  "chiefComplaint",
+  "history",
+  "toothFindings",
+  "findingsGingival",
+  "diagnosis",
+  "treatmentPerformed",
+  "recommendations",
+  "recallRequirements",
+  "customSections",
+  "adaCodes"
+ ],
+ "patientId": "a2bb4ced-ae06-4e5c-8ff6-27be69fa7fbf",
+ "identityNeedsReview": null
+}

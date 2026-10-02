@@ -1,0 +1,1 @@
+{"status":"ok","version":"0.1.0-rc.1","storage":"file-fallback","database":"not-configured","schemaVersion":"2026-09-19-record-integrity-1","migrations":"v0","configuration":{"readiness":"limited","blocking":0,"advisories":8},"uptimeSeconds":83,"alerting":false,"timestamp":"2026-09-27T22:31:44.378Z"}

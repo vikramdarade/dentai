@@ -1,0 +1,33 @@
+server.ts:614:    logger.info(`${req.method} ${req.originalUrl} - ${res.statusCode} (${duration}ms)`, {
+server.ts:616:      url: req.originalUrl,
+server.ts:667:    const path = (req.originalUrl || '').split('?')[0];
+server.ts:4813:      url: req.originalUrl,
+server.ts:5034:    const url = req.originalUrl;
+src/server/aiMetering.ts:121:          url: req.originalUrl,
+src/server/aiMetering.ts:158:          url: req.originalUrl,
+src/server/billing.ts:699:      deps.logger.error('Billing status failed:', err?.message || err, { url: req.originalUrl });
+src/server/billing.ts:787:      deps.logger.error('Billing checkout failed:', err?.message || err, { url: req.originalUrl });
+src/server/billing.ts:843:      deps.logger.error('Billing portal failed:', err?.message || err, { url: req.originalUrl });
+src/server/clinicExport.ts:152:      deps.logger.error('Clinic export failed:', err?.message || err, { url: req.originalUrl });
+src/server/clinicExport.ts:182:        url: req.originalUrl,
+src/server/mfa.ts:173:            url: req.originalUrl,
+src/server/mfa.ts:203:      deps.logger.error('Failed to read MFA status:', err?.message || err, { url: req.originalUrl });
+src/server/mfa.ts:232:      deps.logger.error('MFA enrolment failed:', err?.message || err, { url: req.originalUrl });
+src/server/mfa.ts:264:      deps.logger.error('MFA confirmation failed:', err?.message || err, { url: req.originalUrl });
+src/server/mfa.ts:292:        url: req.originalUrl,
+src/server/mfa.ts:321:      deps.logger.error('MFA disable failed:', err?.message || err, { url: req.originalUrl });
+src/server/mfa.ts:344:      deps.logger.error('MFA verification failed:', err?.message || err, { url: req.originalUrl });
+src/server/opsActions.ts:218:      deps.logger.warn('Rejected operator console sign-in', { url: req.originalUrl });
+src/server/opsActions.ts:425:      deps.logger.warn('Operator console loaded without a valid session', { url: req.originalUrl });
+src/server/opsRoutes.ts:187:    deps.logger.warn('Rejected operator request with an invalid secret', { url: req.originalUrl });
+src/server/opsRoutes.ts:280:      deps.logger.warn('Rejected scheduled drain with an invalid secret', { url: req.originalUrl });
+src/server/practiceAgreement.ts:153:        url: req.originalUrl,
+src/server/practiceAgreement.ts:209:        url: req.originalUrl,
+src/server/recordGovernance.ts:62:    const originalUrl: string = req.originalUrl || '';
+src/server/recordGovernance.ts:68:     * These decisions used to run against `originalUrl`, which includes the
+src/server/recordGovernance.ts:78:    const pathname: string = originalUrl.split('?')[0].split('#')[0];
+src/server/sessionSecurity.ts:146:      deps.logger.error('PIN change failed:', err?.message || err, { url: req.originalUrl });
+src/server/sessionSecurity.ts:164:      deps.logger.error('Session revocation failed:', err?.message || err, { url: req.originalUrl });
+src/server/sessionSecurity.ts:217:      deps.logger.error('Recovery redemption failed:', err?.message || err, { url: req.originalUrl });
+src/server/signupGuard.ts:52:      url: req.originalUrl,
+src/server/transcriptionRoutes.ts:305:          url: req.originalUrl,

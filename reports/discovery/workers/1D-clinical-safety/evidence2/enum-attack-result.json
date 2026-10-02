@@ -1,0 +1,25 @@
+{
+  "probe": "runtime enum-membership attack on trust boundary",
+  "date": "2026-09-28",
+  "attack1": {
+    "input": "createCanonicalClinicalFact({type:'procedure', speaker:'clinician', evidenceType:'clinician_observed', value:{name:'X'}, status:'PERFORMED', temporal:'future', evidence:[]})",
+    "expected": "rejected (performed+future is in the status×temporal conflict matrix)",
+    "actual": {"rejected": false, "status": "PERFORMED", "temporal": "future"},
+    "why": "checkStatusTemporalCompatibility compares against exact lowercase enum literals; the wrong-case string 'PERFORMED' fails every === guard and is accepted verbatim into the canonical fact with validationState 'valid'"
+  },
+  "attack2": {
+    "input": "createCanonicalClinicalFact({type:'symptom', speaker:'robot', evidenceType:'made_up', value:'pain', status:'observed', temporal:'current', evidence:[]})",
+    "expected": "rejected (speaker/evidenceType outside FactSpeaker/FactEvidenceType enums)",
+    "actual": {"rejected": false, "speaker": "robot", "evidenceType": "made_up"},
+    "why": "validateClinicalFactInvariants checks only two speaker/evidenceType combinations ('patient'+'clinician_observed'); any unknown speaker string passes both guards unchecked"
+  },
+  "attack3": {
+    "input": "createCanonicalClinicalFact({... teeth:[36], surfaces:['O'] ...}) (teeth/surfaces at candidate top level, not under anatomy)",
+    "expected": "rejected or at minimum not silently dropped",
+    "actual": {"rejected": false, "anatomy": undefined},
+    "why": "CandidateClinicalFact.anatomy is the only read location; stray top-level teeth/surfaces are silently discarded (no error) — extraction code passing the wrong shape loses anatomy silently"
+  },
+  "significance": "The trust boundary trusts that TS types are runtime truth. Candidates arrive from LLM extraction (untrusted JSON per CLINICAL_FACT_SPECIFICATION.md). No enum-membership whitelist exists at createCanonicalClinicalFact entry.",
+  "impact": "A malformed model output carrying wrong-cased status ('PERFORMED'+'future') is admitted as a canonical fact marked validationState:'valid', verificationState:'unverified' — the planned!=performed matrix is bypassable by casing. Downstream renderer checks (adaptFactsToLegacyFindings compares fact.status === 'performed'/'planned' with ===) would then treat it as neither — the fact silently drops out of performed rendering while carrying 'valid'.",
+  "severityAssessment": "HIGH candidate, not assessed CRITICAL by this worker: canonical facts default verificationState 'unverified', the sign gate blocks on flagged/rejected facts and fail-closed grounding, and the deterministic extractor (statusOf) emits lowercase literals. Exploit requires a malformed upstream extraction; no live path was found where a client can inject candidates directly (Phase 7 seam: ClinicalFact pipeline not yet wired to the production note path)."
+}

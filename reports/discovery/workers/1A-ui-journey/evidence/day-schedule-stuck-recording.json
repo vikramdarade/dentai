@@ -1,0 +1,31 @@
+{
+  "capturedAt": "2026-09-28 (after tab-switch to Patient Records and back to Today's Schedule, then >60s wait)",
+  "storageKey": "dentai_day_schedule_2026-09-28",
+  "roster": [
+    {
+      "id": "sched_1790549961128_tl6wg",
+      "patientName": "Synth Walkin Alpha",
+      "procedureText": "Broken tooth upper right",
+      "appointmentType": "examination",
+      "status": "recording",
+      "source": "manual",
+      "consentObtained": true,
+      "clinicalNote": null,
+      "jobId": null
+    }
+  ],
+  "uiObservations": {
+    "beforeTabSwitch": "TopSurgeryBar visible: 'LIVE IN SURGERY', timer 00:35 counting, 'Finish Consult' button present, roster card badge 'Live in Surgery'",
+    "afterTabSwitchPatientRecords": "TopSurgeryBar gone (no 'LIVE IN SURGERY' text, no 'Finish Consult' button anywhere in DOM)",
+    "afterTabSwitchBackToSchedule": "Roster card shows 'Live in Surgery' badge + 'Reset' button (line 995 branch: item.status==='recording' && !recordingItem), but NO TopSurgeryBar and NO Finish Consult control",
+    "afterReload": "Card no longer shows 'Live in Surgery' badge at all; recordingItem is component state only and is never rebuilt from persisted status",
+    "finishConsultClickResult": "NOT POSSIBLE - the only control that can conclude the recording ('Finish Consult') is gone; the 'Reset' button silently flips status to 'ready' discarding the recording without transcript capture",
+    "micState": "MediaRecorder stream tracks were never observed to be stopped by navigation; audio may still have been captured with no UI able to stop it"
+  },
+  "codeRefs": {
+    "TopSurgeryBar render": "src/components/DayScheduleQueue.tsx:603-607 ({recordingItem && <TopSurgeryBar activeItem={recordingItem} onFinish={finishInPlaceRecording} ...>})",
+    "Reset branch": "src/components/DayScheduleQueue.tsx:995-1009",
+    "recordingItem state": "src/components/DayScheduleQueue.tsx:118 (useState only, no recovery from persisted status)",
+    "persisted status 'recording'": "src/lib/dayScheduleStorage.ts (localStorage-backed, survives navigation)"
+  }
+}

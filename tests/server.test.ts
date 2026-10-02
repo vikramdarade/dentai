@@ -371,6 +371,72 @@ describe('DentAI Server - Mocked Unit Tests', () => {
     expect(consultRes.body.firstName).toBe('div id="test"John/div');
   });
 
+  describe('POST /api/copilot/ask (DentAI Conversational Copilot)', () => {
+    it('rejects unauthenticated requests with 401', async () => {
+      const res = await request(app)
+        .post('/api/copilot/ask')
+        .send({ prompt: 'make my note shorter' });
+      expect(res.status).toBe(401);
+    });
+
+    it('rejects requests missing prompt parameter with 400', async () => {
+      const res = await request(app)
+        .post('/api/copilot/ask')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({});
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe('INVALID_INPUT');
+    });
+
+    it('handles note shortening command with structured output', async () => {
+      const res = await request(app)
+        .post('/api/copilot/ask')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({
+          prompt: 'make my note shorter and concise',
+          currentNote: 'Discussion with patient regarding oral hygiene. Administration of local anaesthetic for restoration.',
+          patientName: 'Brooklyn Simmons 25F',
+        });
+      expect(res.status).toBe(200);
+      expect(res.body.ok).toBe(true);
+      expect(res.body.actionType).toBe('note_updated');
+      expect(res.body.result).toContain('Discussed:');
+      expect(res.body.result).toContain('LA:');
+    });
+
+    it('generates specialist referral letter on command', async () => {
+      const res = await request(app)
+        .post('/api/copilot/ask')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({
+          prompt: 'draft a specialist referral letter for endodontics',
+          currentNote: 'Tooth 46 symptomatic pulpitis',
+          patientName: 'Brooklyn Simmons 25F',
+        });
+      expect(res.status).toBe(200);
+      expect(res.body.ok).toBe(true);
+      expect(res.body.actionType).toBe('referral_letter');
+      expect(res.body.result).toContain('SPECIALIST REFERRAL LETTER');
+      expect(res.body.result).toContain('Brooklyn Simmons 25F');
+    });
+
+    it('generates post-treatment patient home care guide on command', async () => {
+      const res = await request(app)
+        .post('/api/copilot/ask')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({
+          prompt: 'create a patient explainer and home care instructions',
+          currentNote: 'Composite restoration tooth 46 under block anaesthesia',
+          patientName: 'Brooklyn Simmons 25F',
+        });
+      expect(res.status).toBe(200);
+      expect(res.body.ok).toBe(true);
+      expect(res.body.actionType).toBe('patient_explainer');
+      expect(res.body.result).toContain('POST-TREATMENT HOME CARE GUIDE');
+      expect(res.body.result).toContain('Local Numbness');
+    });
+  });
+
   it('should login successfully with correct PIN and get a token', async () => {
     const profilesRes = await request(app).get('/api/auth/profiles');
     const sarah = profilesRes.body.find((p: any) => p.name === 'Dr. Sarah Jenkins');

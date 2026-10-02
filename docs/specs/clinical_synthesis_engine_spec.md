@@ -12,7 +12,7 @@
 
 ## 1. Industry Context & Background
 
-In production clinical ambient scribes (e.g., Nuance DAX, Abridge, Suki, Heidi Health, Nabla), the fundamental technical challenge is **the vast semantic gap between spontaneous conversational speech and formal legal health documentation**.
+In production clinical ambient scribes (e.g., Nuance DAX, Abridge, Suki, Nabla), the fundamental technical challenge is **the vast semantic gap between spontaneous conversational speech and formal legal health documentation**.
 
 In an operatory setting:
 - Background radios, ceiling TVs (YouTube, ads), high-volume suction, and dental assistants introduce acoustic noise.
