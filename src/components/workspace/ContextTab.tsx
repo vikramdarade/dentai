@@ -7,6 +7,17 @@ export interface AttachmentItem {
   size?: string;
 }
 
+/**
+ * Stable empty default.
+ *
+ * A default parameter of `[]` mints a NEW array on every render, so the
+ * `useEffect(..., [attachments])` below re-ran on every render, called
+ * setLocalAttachments, and re-rendered — an infinite update loop
+ * ("Maximum update depth exceeded") whenever this tab mounted without an
+ * attachments prop. One shared constant keeps the dependency stable.
+ */
+const EMPTY_ATTACHMENTS: AttachmentItem[] = [];
+
 interface ContextTabProps {
   contextText: string;
   onChangeContext: (text: string) => void;
@@ -22,7 +33,7 @@ export default function ContextTab({
   onChangeContext,
   onSyncChangesToNote,
   isSyncing = false,
-  attachments = [],
+  attachments = EMPTY_ATTACHMENTS,
   onAddAttachment,
   onRemoveAttachment,
 }: ContextTabProps) {
@@ -31,7 +42,7 @@ export default function ContextTab({
   const [hasContextChanged, setHasContextChanged] = useState(false);
 
   React.useEffect(() => {
-    setLocalAttachments(attachments || []);
+    setLocalAttachments(attachments);
   }, [attachments]);
 
   const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {

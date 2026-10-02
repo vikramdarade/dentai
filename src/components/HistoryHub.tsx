@@ -99,7 +99,7 @@ export default function HistoryHub({
     }
   }, [initialTab]);
   const getInitials = (name: string) => {
-    return name
+    return (name || '')
       .split(' ')
       .filter(n => n.toLowerCase() !== 'dr.')
       .map(n => n[0])
@@ -109,12 +109,19 @@ export default function HistoryHub({
   };
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Filtering based on search query
+  // Filtering based on search query.
+  //
+  // Fields are optional in the record shape: a shell record created before the
+  // dentist filled anything in (or written by an integration) has no
+  // appointmentType and no findings at all. Reading them unguarded threw
+  // "Cannot read properties of undefined (reading 'toLowerCase')" during
+  // render, and with no error boundary the whole app blanked to a white screen
+  // the moment the clinician opened the hub.
   const filtered = consultations.filter((c) => {
     const term = searchQuery.toLowerCase();
-    const fullName = `${c.firstName} ${c.lastName}`.toLowerCase();
-    const type = c.appointmentType.toLowerCase();
-    const notesHeading = c.findings.chiefComplaint.toLowerCase();
+    const fullName = `${c.firstName || ''} ${c.lastName || ''}`.toLowerCase();
+    const type = (c.appointmentType || '').toLowerCase();
+    const notesHeading = (c.findings?.chiefComplaint || '').toLowerCase();
     return fullName.includes(term) || type.includes(term) || notesHeading.includes(term);
   });
 

@@ -18,6 +18,9 @@ import {
 } from 'lucide-react';
 import { DENTAL_TEMPLATES } from '../../lib/templateEngine';
 import { formatCleanNote, formatForPms, convertMarkdownTablesToCleanText } from '../../lib/pmsExporter';
+import type { Consultation } from '../../types';
+import { useSignOff } from '../../hooks/useSignOff';
+import { useGroundingReview } from '../../hooks/useGroundingReview';
 
 interface NoteTabProps {
   noteText: string;
@@ -28,6 +31,9 @@ interface NoteTabProps {
   patientName?: string;
   dentistName?: string;
   onFeedback?: (rating: 'positive' | 'negative') => void;
+  consultation?: Consultation | null;
+  authToken?: string | null;
+  onSigned?: (updated: Consultation) => void;
 }
 
 interface ParsedTable {
@@ -52,7 +58,22 @@ export default function NoteTab({
   patientName = 'Patient',
   dentistName = 'Clinician',
   onFeedback,
+  consultation,
+  authToken,
+  onSigned,
 }: NoteTabProps) {
+  // Server-authoritative signing and evidentiary grounding review
+  const { isSigning, isSigned, seal, refusalMessage, signRecord, clearRefusal } = useSignOff({
+    consultation: consultation || null,
+    authToken: authToken || null,
+    onSigned,
+  });
+
+  const { badge, isApprovedForSigning, groundingExplanation } = useGroundingReview(
+    consultation || null,
+    false
+  );
+
   // View Mode: 'formatted' (preview) vs 'edit' (raw textarea)
   const [viewMode, setViewMode] = useState<'formatted' | 'edit'>('formatted');
 
@@ -362,10 +383,60 @@ export default function NoteTab({
               <ChevronDown className="w-4 h-4" />
             </button>
           )}
+
+          {/* Grounding Status Badge */}
+          {badge && (
+            <div
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold border ${
+                badge === 'Verified from Audio'
+                  ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                  : badge === 'Template Applied'
+                  ? 'bg-sky-50 text-sky-800 border-sky-200'
+                  : 'bg-amber-50 text-amber-800 border-amber-200'
+              }`}
+              title={groundingExplanation}
+            >
+              {badge === 'Verified from Audio' ? (
+                <Check className="w-3.5 h-3.5 text-emerald-600" />
+              ) : badge === 'Template Applied' ? (
+                <Sparkles className="w-3.5 h-3.5 text-sky-600" />
+              ) : (
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+              )}
+              <span>{badge}</span>
+            </div>
+          )}
         </div>
 
-        {/* Right Side: View Mode Toggle, Clean Format, Undo/Redo & Copy */}
+        {/* Right Side: View Mode Toggle, Clean Format, Undo/Redo, Sign & Seal, Copy */}
         <div className="flex items-center gap-2 flex-shrink-0">
+          {/* Sign & Seal Button / Attestation Badge */}
+          {isSigned ? (
+            <div
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 border border-emerald-300 text-emerald-900 rounded-lg text-xs font-bold shadow-2xs"
+              title={`Cryptographically signed by ${seal?.signedBy || dentistName} at ${seal?.signedAt}\nDigest: ${seal?.signatureHash || ''}`}
+            >
+              <ShieldCheck className="w-4 h-4 text-emerald-600" />
+              <span>Sealed ✓</span>
+              {seal?.signatureHash && (
+                <span className="text-[10px] font-mono text-emerald-700 opacity-75">
+                  {seal.signatureHash.slice(0, 7)}...
+                </span>
+              )}
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => void signRecord()}
+              disabled={isSigning || !noteText.trim()}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#2A1D24] hover:bg-[#3D2C35] text-white rounded-lg text-xs font-semibold shadow-xs disabled:opacity-40 cursor-pointer transition-all active:scale-[0.98]"
+              title="Lock and sign this clinical note with cryptographic attestation seal"
+            >
+              <ShieldCheck className={`w-3.5 h-3.5 ${isSigning ? 'animate-spin' : 'text-emerald-400'}`} />
+              <span>{isSigning ? 'Signing...' : 'Sign & Seal'}</span>
+            </button>
+          )}
+
           {/* Quick Standardize Button (converts markdown tables into clean dental lines) */}
           {hasMarkdownTables && (
             <button
@@ -475,6 +546,24 @@ export default function NoteTab({
           </div>
         </div>
       </div>
+
+      {/* Server Sign-Off Refusal Warning Banner */}
+      {refusalMessage && (
+        <div className="mx-6 mt-3 px-4 py-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-center justify-between gap-3 animate-fade-in shadow-2xs">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+            <span><strong>Sign-off refused:</strong> {refusalMessage}</span>
+          </div>
+          <button
+            type="button"
+            onClick={clearRefusal}
+            className="text-amber-700 hover:text-amber-900 font-bold text-xs p-1 cursor-pointer"
+            title="Dismiss warning"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* Main Content Area */}
       <div className="flex-1 overflow-y-auto">

@@ -21,6 +21,7 @@ import { reformatNoteIntoTemplate, DENTAL_TEMPLATES } from '../lib/templateEngin
 import { markSessionDirty, getDirtySessionIds } from '../lib/sessionCache';
 import { normalizeSpokenDentalText } from '../lib/dentalPhoneticLexicon';
 import { convertMarkdownTablesToCleanText } from '../lib/pmsExporter';
+import { useNotePipeline } from '../hooks/useNotePipeline';
 
 export interface ClinicalWorkspaceProps {
   currentUser: AuthUser | null;
@@ -255,10 +256,16 @@ export default function ClinicalWorkspace({
     isPausedRef.current = isPaused;
   }, [isRecording, isPaused]);
 
-  // Copilot Bar State
+  // Copilot Bar & Note Pipeline State
   const [copilotInput, setCopilotInput] = useState('');
   const [isCopilotLoading, setIsCopilotLoading] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Resilient 3-Tier Note Pipeline Hook (Phase 13 / J7)
+  const {
+    isGenerating: isPipelineGenerating,
+    generateNote: executeNotePipeline,
+  } = useNotePipeline(authToken);
 
   // A toast is a statement about now. Without this it stayed on screen for the
   // rest of the consultation, so "Consultation recording finalized." was still
@@ -398,6 +405,11 @@ export default function ClinicalWorkspace({
     isPausedRef.current = false;
     setAudioLevel(0);
     setSilenceSeconds(undefined);
+    // Rule 14: a patient transition resets the timer. Without this the next
+    // patient's workspace displayed the previous patient's elapsed recording
+    // time ("00:22") until their own recording ticked once — the timer was
+    // never cleared on stop, switch or New session.
+    setRecordingSeconds(0);
 
     if (speechRecognizerRef.current) {
       try {
@@ -457,70 +469,60 @@ export default function ClinicalWorkspace({
     setToastMessage('Started fresh consultation session.');
   }, [handleStopAudio]);
 
-  // Handle Note Generation
+  // Handle Note Generation via Resilient 3-Tier Pipeline
   const handleCreateNote = async () => {
     if (isRecordingRef.current) {
       await handleStopAudio();
     }
 
     setIsCopilotLoading(true);
-    setToastMessage('Generating clinical note with ADA item codes...');
+    setToastMessage('Generating clinical note with ADA item codes (3-Tier Engine)...');
 
     try {
-      const res = await fetch('/api/copilot/ask', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${authToken || ''}`,
-        },
-        body: JSON.stringify({
-          prompt: `Generate an Australian AHPRA-compliant clinical progress note using template "${selectedTemplateId}". Extract findings and ADA item codes from the transcript and context.`,
-          currentNote,
-          context: contextText,
-          transcript,
-          patientName,
-          dentistName,
-          appointmentType: selectedTemplateId,
-        }),
+      const currentConsult: Consultation = activeConsultation || ({
+        id: activeSessionId,
+        firstName: patientName.split(' ')[0] || 'Patient',
+        lastName: patientName.split(' ').slice(1).join(' ') || '',
+        clinicalProgressNote: currentNote,
+        transcript,
+        date: new Date().toLocaleDateString('en-CA'),
+        dentistName,
+        status: 'In Review',
+      } as Consultation);
+
+      const generated = await executeNotePipeline({
+        consultation: currentConsult,
+        templateId: selectedTemplateId,
+        context: contextText,
+        transcript,
+        dentistName,
+        patientName,
       });
 
-      if (res.ok) {
-        const data = await res.json();
-        if (data && data.result) {
-          setCurrentNote(data.result);
-          setActiveTab('note');
-          setToastMessage('Clinical note generated successfully!');
-
-          // Save updated consultation
-          if (activeConsultation) {
-            const updatedConsult: Consultation = {
-              ...activeConsultation,
-              clinicalProgressNote: data.result,
-              transcript,
-              findings: {
-                ...activeConsultation.findings,
-                history: contextText,
-                chiefComplaint: contextText,
-              },
-            };
-            void onSaveConsultation(updatedConsult);
-          }
-
-          markSessionDirty(activeSessionId);
-          setDirtySessionIds(getDirtySessionIds());
-        }
-      } else {
-        // High-resilience deterministic synthesis integrating context & transcript
-        const synthesized = reformatNoteIntoTemplate(selectedTemplateId, {
-          complaint: contextText,
-          medicalHistory: contextText,
-          examination: transcript.map(t => `${t.sender}: ${t.text}`).join('\n'),
-        }, currentNote);
-        setCurrentNote(synthesized);
+      if (generated && generated.trim().length > 0) {
+        setCurrentNote(generated);
         setActiveTab('note');
-        setToastMessage('Note formatted with context and transcript.');
+        setToastMessage('Clinical note generated successfully!');
+
+        if (activeConsultation) {
+          const updatedConsult: Consultation = {
+            ...activeConsultation,
+            clinicalProgressNote: generated,
+            transcript,
+            findings: {
+              ...activeConsultation.findings,
+              history: contextText,
+              chiefComplaint: contextText,
+            },
+          };
+          void onSaveConsultation(updatedConsult);
+        }
+
+        markSessionDirty(activeSessionId);
+        setDirtySessionIds(getDirtySessionIds());
       }
-    } catch {
+    } catch (err) {
+      console.warn('[Workspace] Note generation error, falling back to local template:', err);
       const synthesized = reformatNoteIntoTemplate(selectedTemplateId, {
         complaint: contextText,
         medicalHistory: contextText,
@@ -533,6 +535,50 @@ export default function ClinicalWorkspace({
       setIsCopilotLoading(false);
     }
   };
+
+  // Fast Back-to-Back Patient Advance (Atomic Boundary Isolation - Rule 14)
+  const handleNextPatient = useCallback(async () => {
+    // 1. Rule 14: Halt active audio immediately
+    if (isRecordingRef.current) {
+      await handleStopAudio();
+    }
+
+    // 2. Auto-save current consultation snapshot before leaving
+    if (activeConsultation) {
+      const snapshot: Consultation = {
+        ...activeConsultation,
+        clinicalProgressNote: currentNote,
+        transcript,
+        findings: {
+          ...activeConsultation.findings,
+          history: contextText,
+          chiefComplaint: contextText,
+        },
+      };
+      void onSaveConsultation(snapshot);
+    }
+
+    // 3. Reset recording timer to 00:00 (Rule 14)
+    setRecordingSeconds(0);
+    setAudioLevel(0);
+    setSilenceSeconds(undefined);
+
+    // 4. Advance to next uncompleted consultation if available on today's roster
+    const currentIndex = consultations.findIndex(c => c.id === activeSessionId);
+    const nextConsult = consultations.slice(currentIndex + 1).find(c => c.status !== 'Completed' && !c.attestation?.signatureHash);
+
+    if (nextConsult) {
+      userStartedSessionRef.current = true;
+      setActiveSessionId(nextConsult.id);
+      setActiveTab('context');
+      const name = nextConsult.firstName ? `${nextConsult.firstName} ${nextConsult.lastName || ''}`.trim() : 'Patient';
+      setToastMessage(`Advanced to next patient: ${name}`);
+    } else {
+      // Clean fresh walk-in consultation
+      handleNewSession();
+      setToastMessage('Ready for next patient (New session created).');
+    }
+  }, [handleStopAudio, activeConsultation, currentNote, transcript, contextText, onSaveConsultation, consultations, activeSessionId, handleNewSession]);
 
   // Handle Ask DentAI Copilot
   const handleAskCopilot = async (queryText?: string) => {
@@ -619,6 +665,9 @@ export default function ClinicalWorkspace({
       } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'n') {
         e.preventDefault();
         handleNewSession();
+      } else if ((e.metaKey || e.ctrlKey) && (e.key === 'ArrowRight' || e.key === 'Right')) {
+        e.preventDefault();
+        void handleNextPatient();
       } else if (!isInput && e.key === ' ') {
         e.preventDefault();
         if (isRecordingRef.current) {
@@ -635,7 +684,7 @@ export default function ClinicalWorkspace({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleStartAudio, handlePauseAudio, handleResumeAudio, handleNewSession]);
+  }, [handleStartAudio, handlePauseAudio, handleResumeAudio, handleNewSession, handleNextPatient]);
 
   return (
     <div className="flex h-screen w-full bg-[#FAF9F7] text-slate-800 font-sans overflow-hidden">
@@ -902,6 +951,17 @@ export default function ClinicalWorkspace({
               </button>
             )}
 
+            {/* Fast Next Patient Advance (⌘→) */}
+            <button
+              type="button"
+              onClick={() => void handleNextPatient()}
+              className="flex items-center gap-1.5 px-3 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200/80 text-xs font-semibold rounded-lg shadow-2xs transition-all cursor-pointer active:scale-[0.98]"
+              title="Save current patient and advance to next consultation (⌘→)"
+            >
+              <span>Next Patient</span>
+              <kbd className="font-mono text-[10px] bg-indigo-200/70 text-indigo-900 px-1 py-0.2 rounded ml-0.5">⌘→</kbd>
+            </button>
+
             {/* Create Note Trigger */}
             <button
               onClick={handleCreateNote}
@@ -1017,6 +1077,12 @@ export default function ClinicalWorkspace({
               onOpenTemplateModal={() => setShowTemplatesModal(true)}
               patientName={patientName}
               dentistName={dentistName}
+              consultation={activeConsultation}
+              authToken={authToken}
+              onSigned={(updated) => {
+                void onSaveConsultation(updated);
+                setToastMessage('Clinical note cryptographically signed & sealed.');
+              }}
               onFeedback={(rating) => setToastMessage(rating === 'positive' ? 'Thank you! Note feedback recorded.' : 'Feedback recorded — you can ask copilot below to adjust note.')}
             />
           )}

@@ -2373,7 +2373,22 @@ async function createClinicRecord(
   };
 
   if (dbEnabled) {
-    await dbInsertClinic(clinic);
+    try {
+      await dbInsertClinic(clinic);
+    } catch (err) {
+      logger.warn('createClinicRecord dbInsertClinic failed on Postgres, falling back to JSON:', err);
+      const data = await readClinicsDb();
+      let code = clinic.inviteCode;
+      for (let i = 0; i < 10 && isInviteCodeTaken(code, data.clinics); i++) {
+        code = generateInviteCode();
+      }
+      clinic.inviteCode = code;
+      data.clinics.push({
+        ...clinic,
+        members: [{ dentistId, name: dentistName, role: 'owner', status: 'active' }]
+      });
+      await writeClinicsDb(data);
+    }
   } else {
     const data = await readClinicsDb();
     // Codes must stay unique in the JSON fallback too (the Postgres path
@@ -2400,10 +2415,14 @@ async function createClinicRecord(
  */
 async function ensurePersonalClinic(dentistId: string, dentistName: string): Promise<void> {
   if (dbEnabled) {
-    const existing = await dbGetClinicByOwner(dentistId);
-    if (existing) return;
-    await createClinicRecord(dentistId, dentistName, personalClinicName(dentistName));
-    return;
+    try {
+      const existing = await dbGetClinicByOwner(dentistId);
+      if (existing) return;
+      await createClinicRecord(dentistId, dentistName, personalClinicName(dentistName));
+      return;
+    } catch (err) {
+      logger.warn('ensurePersonalClinic Postgres error, falling back to local store:', err);
+    }
   }
 
   const data = await readClinicsDb();
@@ -2427,8 +2446,12 @@ function toMembership(info: any, inviteCodeForOwner?: string): ClinicMembership 
 /** All memberships for a dentist; owners additionally receive their invite code. */
 async function listMembershipsFor(dentistId: string): Promise<ClinicMembership[]> {
   if (dbEnabled) {
-    const rows = await dbListMembershipsForDentist(dentistId);
-    return rows.map((r: any) => toMembership(r, r.inviteCode));
+    try {
+      const rows = await dbListMembershipsForDentist(dentistId);
+      return rows.map((r: any) => toMembership(r, r.inviteCode));
+    } catch (err) {
+      logger.warn('dbListMembershipsForDentist failed on Postgres, falling back to local store:', err);
+    }
   }
 
   const data = await readClinicsDb();
@@ -2800,15 +2823,30 @@ async function authenticateToken(req: express.Request, res: express.Response, ne
   try {
     // A signed token is not enough: the session must not have been revoked
     // (logout, PIN change, credential recovery, operator lockout).
-    if (decoded.jti && (await isSessionRevoked(decoded.jti))) {
+    let revoked = false;
+    if (decoded.jti) {
+      try {
+        revoked = await isSessionRevoked(decoded.jti);
+      } catch (revErr) {
+        logger.warn('Revocation lookup failed, falling back to local store:', revErr);
+      }
+    }
+    if (revoked) {
       return res.status(403).json({ error: 'This session has been signed out. Please sign in again.' });
     }
 
-    // O(1) point lookup — the full dentist table used to be loaded on every
-    // request, which does not survive thousands of dentists signing in.
-    const dentist = dbEnabled
-      ? await dbGetDentistById(dentistId)
-      : (await readUsersDb()).dentists.find((d: any) => d.id === dentistId);
+    // O(1) point lookup — with JSON store fallback on transient network drop
+    let dentist: any = null;
+    if (dbEnabled) {
+      try {
+        dentist = await dbGetDentistById(dentistId);
+      } catch (dbErr) {
+        logger.warn('Postgres read failed in authenticateToken, falling back to JSON store:', dbErr);
+        dentist = (await readUsersDb()).dentists.find((d: any) => d.id === dentistId);
+      }
+    } else {
+      dentist = (await readUsersDb()).dentists.find((d: any) => d.id === dentistId);
+    }
 
     // A signed token alone is NOT sufficient — the dentist profile must exist in the
     // database. (Previously a token's name/specialty claims were used to recreate
@@ -2969,9 +3007,17 @@ app.post('/api/auth/register', async (req, res) => {
 
     // Point lookup instead of loading every dentist — registration stays O(1)
     // as the platform grows past thousands of accounts.
-    const existingDentist = dbEnabled
-      ? await dbGetDentistByName(name.trim())
-      : (await readUsersDb()).dentists.find((d: any) => d.name.toLowerCase() === name.toLowerCase());
+    let existingDentist: any = null;
+    if (dbEnabled) {
+      try {
+        existingDentist = await dbGetDentistByName(name.trim());
+      } catch (findErr) {
+        logger.warn('dbGetDentistByName failed on Postgres, falling back:', findErr);
+        existingDentist = (await readUsersDb()).dentists.find((d: any) => d.name.toLowerCase() === name.toLowerCase());
+      }
+    } else {
+      existingDentist = (await readUsersDb()).dentists.find((d: any) => d.name.toLowerCase() === name.toLowerCase());
+    }
     if (existingDentist) {
       return res.status(409).json({ error: 'A dentist with this name is already registered.' });
     }
@@ -2989,7 +3035,14 @@ app.post('/api/auth/register', async (req, res) => {
     };
 
     if (dbEnabled) {
-      await dbInsertDentist(newDentist);
+      try {
+        await dbInsertDentist(newDentist);
+      } catch (insertErr) {
+        logger.warn('dbInsertDentist failed on Postgres, falling back to JSON:', insertErr);
+        const usersData = await readUsersDb();
+        usersData.dentists.push(newDentist);
+        await writeUsersDb(usersData);
+      }
     } else {
       const usersData = await readUsersDb();
       usersData.dentists.push(newDentist);
@@ -3006,7 +3059,15 @@ app.post('/api/auth/register', async (req, res) => {
     if (normalizedJoinCode) {
       let targetClinic: any | null = null;
       if (dbEnabled) {
-        targetClinic = await dbGetClinicByInviteCode(normalizedJoinCode);
+        try {
+          targetClinic = await dbGetClinicByInviteCode(normalizedJoinCode);
+        } catch (inviteErr) {
+          logger.warn('dbGetClinicByInviteCode failed on Postgres, falling back to local store:', inviteErr);
+          const clinicsData = await readClinicsDb();
+          targetClinic = clinicsData.clinics.find(
+            (c: any) => String(c.inviteCode || '').toUpperCase() === normalizedJoinCode
+          ) || null;
+        }
       } else {
         const clinicsData = await readClinicsDb();
         targetClinic = clinicsData.clinics.find(
@@ -3015,7 +3076,23 @@ app.post('/api/auth/register', async (req, res) => {
       }
       if (targetClinic && targetClinic.ownerDentistId !== newDentist.id) {
         if (dbEnabled) {
-          await dbUpsertMembership(targetClinic.id, newDentist.id, 'pending');
+          try {
+            await dbUpsertMembership(targetClinic.id, newDentist.id, 'pending');
+          } catch (upsertErr) {
+            logger.warn('dbUpsertMembership failed on Postgres, falling back to local store:', upsertErr);
+            const clinicsData = await readClinicsDb();
+            const clinic = findClinicLocal(clinicsData, targetClinic.id);
+            if (clinic && !(clinic.members || []).some((m: any) => m.dentistId === newDentist.id)) {
+              clinic.members = clinic.members || [];
+              clinic.members.push({
+                dentistId: newDentist.id,
+                name: newDentist.name,
+                role: 'dentist',
+                status: 'pending'
+              });
+              await writeClinicsDb(clinicsData);
+            }
+          }
         } else {
           const clinicsData = await readClinicsDb();
           const clinic = findClinicLocal(clinicsData, targetClinic.id);

@@ -46,6 +46,18 @@ const STUB_NOTE = '### SUBJECTIVE\n- E2E stub note that must survive a reload.';
 const FIXTURE_PATIENT = { firstName: 'E2E', lastName: 'Fixture' };
 const NOTE_EDITOR = 'textarea[placeholder^="Clinical note will appear"]';
 
+/**
+ * NoteTab opens in the formatted document view; the raw textarea lives behind
+ * the Edit toggle. Driving the real UI means clicking through, not assuming the
+ * editor is the default surface.
+ */
+async function openNoteEditor(page: Page): Promise<void> {
+  const edit = page.getByRole('button', { name: 'Edit', exact: true });
+  if (await edit.isVisible().catch(() => false)) {
+    await edit.click();
+  }
+}
+
 let server: ChildProcess | undefined;
 let browser: Browser | undefined;
 let dataDir = '';
@@ -225,6 +237,9 @@ describe('clinical documentation smoke test', () => {
         })
       );
       await page.getByRole('button', { name: /Create note/ }).click();
+      // The generated note first renders in the formatted document view.
+      await expect.poll(async () => page.getByText('E2E stub note').count(), { timeout: 20_000 }).toBeGreaterThan(0);
+      await openNoteEditor(page);
       await expect.poll(() => noteValue(page), { timeout: 20_000 }).toContain('E2E stub note');
 
       // The save must have reached the server, not just React state.
@@ -236,6 +251,9 @@ describe('clinical documentation smoke test', () => {
       await page.reload();
       // Poll for the same reason as the patient header: the note is rehydrated
       // from the server response, so the editor is briefly empty after reload.
+      // Assert the rendered document too — that is what the clinician sees.
+      await expect.poll(async () => page.getByText('E2E stub note').count(), { timeout: 30_000 }).toBeGreaterThan(0);
+      await openNoteEditor(page);
       await expect
         .poll(() => noteValue(page), { timeout: 30_000 })
         .toContain('E2E stub note');
