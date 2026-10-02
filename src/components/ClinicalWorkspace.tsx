@@ -52,19 +52,21 @@ export default function ClinicalWorkspace({
 }: ClinicalWorkspaceProps) {
   // Active Consultation Session State
   //
-  // The placeholder id minted here is the ONLY id the auto-align effect below
-  // is allowed to replace. It used to replace any id starting with `sess-`,
-  // which is also what "New session" mints — so clicking New session on a
-  // device that already held records silently reopened the most recent patient
-  // (their name, transcript and note back on screen) while the clinician
-  // believed they were starting a fresh consultation. Nothing said otherwise.
-  const placeholderSessionIdRef = useRef<string | null>(null);
+  // `userStartedSessionRef` records that the clinician explicitly asked for a
+  // new consultation, and the align-on-load effect below must never take that
+  // session over. It used to replace any id starting with `sess-` — which is
+  // also what "New session" mints — so clicking New session on a device that
+  // already held records silently reopened the most recent patient (their name,
+  // transcript and note back on screen) with no indication the request had been
+  // ignored.
+  //
+  // Deliberately a plain ref set by the click handler and NOT by the state
+  // initializer: StrictMode invokes an initializer twice, so a ref written there
+  // can disagree with the value React keeps and the alignment silently stops
+  // working (caught by e2e/smoke.e2e.ts).
+  const userStartedSessionRef = useRef(false);
   const [activeSessionId, setActiveSessionId] = useState<string>(() => {
-    const stored = consultations[0]?.id;
-    if (stored) return stored;
-    const minted = `sess-${Date.now()}`;
-    placeholderSessionIdRef.current = minted;
-    return minted;
+    return consultations[0]?.id || `sess-${Date.now()}`;
   });
 
   const [activeTab, setActiveTab] = useState<TabType>('note');
@@ -74,14 +76,13 @@ export default function ClinicalWorkspace({
   const [showSplitModal, setShowSplitModal] = useState(false);
   const [dirtySessionIds, setDirtySessionIds] = useState<string[]>(() => getDirtySessionIds());
 
-  // Auto-align the mount-time placeholder once stored consultations arrive.
-  // A session the clinician explicitly started (`New session`) is never taken
-  // over: their intent outranks the newest-record-is-probably-current guess.
+  // Adopt the most recent stored consultation once records arrive (mount has no
+  // records yet on a fresh device). A session the clinician explicitly started
+  // is never taken over: their intent outranks the newest-record guess.
   useEffect(() => {
-    const placeholder = placeholderSessionIdRef.current;
-    if (!placeholder || consultations.length === 0) return;
-    if (activeSessionId !== placeholder) return;
-    placeholderSessionIdRef.current = null;
+    if (userStartedSessionRef.current) return;
+    if (consultations.length === 0) return;
+    if (consultations.some(c => c.id === activeSessionId)) return;
     setActiveSessionId(consultations[0].id);
   }, [consultations, activeSessionId]);
 
@@ -333,6 +334,9 @@ export default function ClinicalWorkspace({
 
   // New Session Button (Instant Start)
   const handleNewSession = useCallback(() => {
+    // Mark the intent before minting the id so the align-on-load effect cannot
+    // swap this fresh session for the newest stored record.
+    userStartedSessionRef.current = true;
     if (isRecordingRef.current) {
       void handleStopAudio();
     }

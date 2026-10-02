@@ -86,6 +86,10 @@ beforeAll(async () => {
       // Vitest sets NODE_ENV=test, and in that mode the server neither listens
       // nor serves the app — the smoke test needs the real dev surface.
       NODE_ENV: 'development',
+      // No HMR websocket: it is not needed in a test run, and its client would
+      // otherwise write a connection error into the page-error assertion below
+      // whenever the dev-server HMR port is already taken by another process.
+      DISABLE_HMR: 'true',
       PORT: String(PORT),
       // Pin the JSON file store so the run can never write to a real database.
       DATABASE_URL: '',
@@ -185,9 +189,12 @@ describe('clinical documentation smoke test', () => {
       expect(seeded.status(), 'the seeded session must be accepted').toBe(201);
 
       await page.reload();
-      await page.getByPlaceholder('Patient Name').waitFor({ state: 'visible', timeout: 30_000 });
-      expect(await sessionCount(page)).toBe(1);
-      expect(await page.getByPlaceholder('Patient Name').inputValue()).toBe('E2E Fixture');
+      // Poll: the workspace mounts before the consultation fetch resolves, so an
+      // immediate read races the load and sees the blank placeholder session.
+      await expect.poll(() => sessionCount(page), { timeout: 30_000 }).toBe(1);
+      await expect
+        .poll(() => page.getByPlaceholder('Patient Name').inputValue(), { timeout: 30_000 })
+        .toBe('E2E Fixture');
 
       // ---- 3. Generate a note (LLM boundary stubbed) ------------------------
       await page.route('**/api/copilot/ask', (route) =>
@@ -207,8 +214,11 @@ describe('clinical documentation smoke test', () => {
 
       // ---- 4. Reload: the generated note must still be there ----------------
       await page.reload();
-      await page.locator(NOTE_EDITOR).waitFor({ state: 'visible', timeout: 30_000 });
-      expect(await noteValue(page), 'a generated note must survive a reload').toContain('E2E stub note');
+      // Poll for the same reason as the patient header: the note is rehydrated
+      // from the server response, so the editor is briefly empty after reload.
+      await expect
+        .poll(() => noteValue(page), { timeout: 30_000 })
+        .toContain('E2E stub note');
 
       // ---- 5. Separate the merged session ----------------------------------
       await page.getByRole('button', { name: /^Transcript/ }).click();
