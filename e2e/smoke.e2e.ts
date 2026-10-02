@@ -4,11 +4,12 @@
  *
  * What it drives, through the real UI in a real browser:
  *   register a clinician → (stored session fixture) → generate a note →
- *   separate a merged session → reload
+ *   separate a merged session → reload → New session
  *
  * What it asserts:
  *   * each save reaches the server (an accepted POST/PUT on /api/consultations)
  *   * the note and BOTH split records are still there after a reload
+ *   * New session is not taken over by the most recent record
  *   * no uncaught exception ever reaches the page
  *
  * The three assertions fail loudly on the defect class this exists for:
@@ -50,6 +51,17 @@ let browser: Browser | undefined;
 let dataDir = '';
 let serverLog = '';
 
+/**
+ * The dev server must run under Node: `--import tsx` is a Node loader and Bun
+ * does not accept it, yet CI is free to launch vitest with either runtime.
+ * Override with DENTAI_E2E_NODE if a machine needs a specific binary.
+ */
+function nodeBinary(): string {
+  const override = process.env.DENTAI_E2E_NODE;
+  if (override) return override;
+  return /[\\/]bun(\.exe)?$/i.test(process.execPath) ? 'node' : process.execPath;
+}
+
 /** The dev server takes a few seconds to boot Vite; poll rather than sleep. */
 async function waitForServer(url: string, timeoutMs = 90_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
@@ -79,7 +91,7 @@ async function noteValue(page: Page): Promise<string> {
 
 beforeAll(async () => {
   dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dentai-e2e-'));
-  server = spawn(process.execPath, ['--import', 'tsx', 'server.ts'], {
+  server = spawn(nodeBinary(), ['--import', 'tsx', 'server.ts'], {
     cwd: REPO_ROOT,
     env: {
       ...process.env,
@@ -122,7 +134,7 @@ afterAll(async () => {
 });
 
 describe('clinical documentation smoke test', () => {
-  it('registers a clinician, saves a note, splits a session, and both survive a reload', async () => {
+  it('registers, saves a note, splits a session, survives a reload, and starts a clean new session', async () => {
     const context = await browser!.newContext();
     const page = await context.newPage();
 
@@ -245,7 +257,41 @@ describe('clinical documentation smoke test', () => {
         'the split must have been written to the server'
       ).toBeGreaterThanOrEqual(2);
 
+      // ---- 7. New session must stay a new session --------------------------
+      // With records on the device, the align-on-load effect used to replace any
+      // `sess-*` id — including the one "New session" mints — so the click
+      // silently reopened the most recent patient. Wrong-patient risk, so pin
+      // it: the header must still be the fresh placeholder after state settles.
+      await page.getByRole('button', { name: 'New session' }).click();
+      await page.waitForTimeout(1500);
+      expect(
+        await page.getByPlaceholder('Patient Name').inputValue(),
+        'New session must not be taken over by the most recent record'
+      ).toBe('New Patient');
+      await expect.poll(() => sessionCount(page), { timeout: 10_000 }).toBe(2);
+
       expect(pageErrors, 'no uncaught exception may reach the page').toEqual([]);
+    } catch (error) {
+      // A blanked-out app is far easier to read as a picture than as a timeout.
+      // Best-effort only: diagnostics must never mask the real failure.
+      try {
+        const artifacts = path.join(REPO_ROOT, 'test-results');
+        fs.mkdirSync(artifacts, { recursive: true });
+        await page.screenshot({ path: path.join(artifacts, 'e2e-failure.png'), fullPage: true });
+      } catch {
+        // ignore
+      }
+
+      // The symptom of a blank screen is a vanished element and a 30s timeout;
+      // the cause is only in the page-error list, so attach it. A CI failure
+      // must read as "consultations.filter is not a function", not
+      // "inputValue timed out".
+      if (pageErrors.length > 0) {
+        throw new Error(
+          `${(error as Error).message}\n\nUncaught page errors:\n${pageErrors.join('\n')}`
+        );
+      }
+      throw error;
     } finally {
       await context.close();
     }

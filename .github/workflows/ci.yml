@@ -51,6 +51,55 @@ jobs:
           path: audit-report.txt
           if-no-files-found: ignore
 
+  # Nothing above renders the application. A save handler that writes nowhere, or
+  # a render throw that blanks the screen mid-consultation, passes typecheck, unit
+  # tests, build and every server-side suite — that is exactly how the
+  # blank-screen-on-save regression reached this branch. This job drives the real
+  # UI in Chromium (`bun run test:e2e`): register a clinician, generate a note,
+  # separate a merged session, reload, and assert the records are still there.
+  #
+  # It boots its own dev server on port 4399 against a temp DENTAI_DATA_DIR and
+  # never touches a real database, so the only shared resource is the port.
+  e2e:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.2.x'
+
+      - name: Install Dependencies
+        run: bun install --frozen-lockfile
+
+      # Chromium is a ~150MB download. Cached against the lockfile so only a
+      # Playwright upgrade pays for it; the version in bun.lock is the cache key.
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('bun.lock') }}
+
+      # --with-deps installs the system libraries Chromium needs on a bare runner.
+      - name: Install Chromium
+        run: bunx playwright install --with-deps chromium
+
+      - name: Run browser smoke test
+        run: bun run test:e2e
+
+      # test-results/ is gitignored and only written on failure: the screenshot
+      # the smoke test takes when the app is not on screen.
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-failure
+          path: test-results/
+          if-no-files-found: ignore
+
   # The unit suite forces the JSON fallback store, so nothing in it proves the
   # queries, atomic SKIP LOCKED claims, migrations or tenancy checks work —
   # which is the mode production actually runs. This job runs the same app

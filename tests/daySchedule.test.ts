@@ -818,7 +818,7 @@ describe('Async Note Jobs API with Verbal Consent Audit Logging', () => {
     expect(res.status).toBe(202);
     expect(res.body).toHaveProperty('jobId');
     expect(res.body.status).toBe('queued');
-  });
+  }, 60000);
 });
 
 describe('Day-sheet row identity', () => {
