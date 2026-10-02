@@ -126,9 +126,17 @@ describe('clinical documentation smoke test', () => {
     const context = await browser!.newContext();
     const page = await context.newPage();
 
-    // Anything uncaught here means the app blanked out mid-flow.
+    // Anything uncaught here means the app blanked out mid-flow — this is the
+    // assertion that catches a render throw from the list store.
+    //
+    // One exclusion: the Vite dev client's HMR socket is transport noise in a
+    // test run (the HMR port is shared with anything else running on the
+    // machine). A real application exception still lands in this array.
+    const devServerTransportNoise = /WebSocket closed without opened|failed to connect to websocket/i;
     const pageErrors: string[] = [];
-    page.on('pageerror', (error) => pageErrors.push(error.message));
+    page.on('pageerror', (error) => {
+      if (!devServerTransportNoise.test(error.message)) pageErrors.push(error.message);
+    });
     const acceptedWrites: number[] = [];
     page.on('response', (res) => {
       if (res.request().method() !== 'GET' && /\/api\/consultations/.test(res.url())) {
