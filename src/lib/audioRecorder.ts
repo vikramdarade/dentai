@@ -67,6 +67,8 @@ export interface AudioRecorderOptions {
   onAutoPause?: (silenceSeconds: number) => void;
   /** Fired when the engine hits an unrecoverable error. */
   onError?: (error: Error) => void;
+  /** Sliced audio chunk emitted periodically for real-time server upload. */
+  onChunk?: (chunk: Blob, index: number) => void;
 }
 
 /** Double-pip warning tone, matching SILENCE_WARN_CHIME_HZ. Exported for reuse. */
@@ -201,8 +203,13 @@ export class AudioRecorder {
 
     const mimeType = pickMimeType();
     const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+    let chunkCounter = 0;
     recorder.ondataavailable = (event: BlobEvent) => {
-      if (event.data && event.data.size > 0) this.chunks.push(event.data);
+      if (event.data && event.data.size > 0) {
+        this.chunks.push(event.data);
+        const idx = chunkCounter++;
+        this.options.onChunk?.(event.data, idx);
+      }
     };
     recorder.onerror = (event: Event) => {
       const error = (event as Event & { error?: DOMException }).error;

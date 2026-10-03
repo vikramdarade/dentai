@@ -3750,7 +3750,15 @@ app.get('/api/consultations', authenticateToken, async (req: any, res) => {
   try {
     let myConsultations: any[];
     if (dbEnabled) {
-      myConsultations = await dbListConsultations(req.dentist.id);
+      try {
+        myConsultations = await dbListConsultations(req.dentist.id);
+      } catch (dbErr) {
+        logger.warn('dbListConsultations failed on Postgres, falling back to local store:', dbErr);
+        const consultationsData = await readConsultationsDb();
+        myConsultations = consultationsData.consultations.filter(
+          (c: any) => c.dentistId === req.dentist.id
+        );
+      }
     } else {
       const consultationsData = await readConsultationsDb();
       myConsultations = consultationsData.consultations.filter(
@@ -4028,7 +4036,14 @@ app.post('/api/consultations', authenticateToken, async (req: any, res) => {
     }
 
     if (dbEnabled) {
-      await dbInsertConsultation(newConsultation);
+      try {
+        await dbInsertConsultation(newConsultation);
+      } catch (insertErr) {
+        logger.warn('dbInsertConsultation failed on Postgres, falling back to local store:', insertErr);
+        const consultationsData = await readConsultationsDb();
+        insertConsultationDeduped(consultationsData, newConsultation);
+        await writeConsultationsDb(consultationsData);
+      }
     } else {
       const consultationsData = await readConsultationsDb();
       // First write wins, the same shape as the Postgres ON CONFLICT DO NOTHING
@@ -4159,7 +4174,19 @@ app.put('/api/consultations/:id', authenticateToken, async (req: any, res) => {
         Array.isArray(merged.transcript) ? merged.transcript : [],
         groundingNoteOf(merged.findings, merged.patientSummary)
       );
-      await dbUpdateConsultation(id, req.dentist.id, merged);
+      try {
+        await dbUpdateConsultation(id, req.dentist.id, merged);
+      } catch (updateErr) {
+        logger.warn('dbUpdateConsultation failed on Postgres, falling back to local store:', updateErr);
+        const consultationsData = await readConsultationsDb();
+        const index = consultationsData.consultations.findIndex(
+          (c: any) => c.id === id && c.dentistId === req.dentist.id
+        );
+        if (index !== -1) {
+          consultationsData.consultations[index] = merged;
+          await writeConsultationsDb(consultationsData);
+        }
+      }
       logAudit('consultation_updated', req.dentist.id, { consultationId: id });
       return res.json(merged);
     }

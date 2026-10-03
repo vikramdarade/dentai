@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { Consultation, TranscriptItem } from '../types';
+import { Consultation, TranscriptItem, ClinicalFindings } from '../types';
 import { ClinicMembership } from '../lib/clinics';
 import { AuthUser } from '../utils/storage';
 
@@ -22,6 +22,8 @@ import { markSessionDirty, getDirtySessionIds } from '../lib/sessionCache';
 import { normalizeSpokenDentalText } from '../lib/dentalPhoneticLexicon';
 import { convertMarkdownTablesToCleanText } from '../lib/pmsExporter';
 import { useNotePipeline } from '../hooks/useNotePipeline';
+import { getClinicTodayIso } from '../utils/date';
+import { blobToBase64, uploadAudioSegment, requestTranscription, isTranscriptionFailure } from '../lib/transcribeClient';
 
 export interface ClinicalWorkspaceProps {
   currentUser: AuthUser | null;
@@ -112,6 +114,19 @@ export default function ClinicalWorkspace({
   const [patientName, setPatientName] = useState('Patient');
   const [contextText, setContextText] = useState('');
   const [transcript, setTranscript] = useState<TranscriptItem[]>([]);
+  // Rule 14: Cross-Patient Boundary Isolation — live in-memory transcripts scoped per consultation ID
+  const [localLiveTranscripts, setLocalLiveTranscripts] = useState<Record<string, TranscriptItem[]>>({});
+  const localLiveTranscriptsRef = useRef(localLiveTranscripts);
+  useEffect(() => {
+    localLiveTranscriptsRef.current = localLiveTranscripts;
+  }, [localLiveTranscripts]);
+
+  const [interimTranscript, setInterimTranscript] = useState('');
+  const lastInterimRef = useRef('');
+  const [isTranscribingAudio, setIsTranscribingAudio] = useState(false);
+  const recordedChunkCountRef = useRef(0);
+  const lastLoadedSessionIdRef = useRef<string | null>(null);
+
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('ahpra-standard');
   const [currentNote, setCurrentNote] = useState<string>('');
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'dirty'>('saved');
@@ -137,6 +152,75 @@ export default function ClinicalWorkspace({
     }
   }, [currentNote]);
 
+  // Canonical builder for the currently active consultation encounter (persisted or in-progress)
+  const buildLiveConsultation = useCallback((overrides: Partial<Consultation> = {}): Consultation => {
+    const rawFirst = patientName.trim().split(' ')[0] || '';
+    const rawLast = patientName.trim().split(' ').slice(1).join(' ') || '';
+    const defaultFindings: ClinicalFindings = {
+      chiefComplaint: contextText,
+      history: contextText,
+      toothFindings: '',
+      findingsGingival: '',
+      diagnosis: '',
+      treatmentPerformed: '',
+      recommendations: '',
+      recallRequirements: '',
+    };
+
+    const sessionTranscript = overrides.transcript ?? localLiveTranscriptsRef.current[activeSessionId] ?? transcript;
+
+    const base: Consultation = activeConsultation || {
+      id: activeSessionId,
+      dentistId: currentUser?.id,
+      dentistName: currentUser?.name || dentistName,
+      clinicId: activeClinicId || undefined,
+      firstName: rawFirst || 'Patient',
+      lastName: rawLast,
+      dob: '',
+      date: getClinicTodayIso(),
+      time: '09:00 AM',
+      status: 'In Review',
+      findings: defaultFindings,
+      patientSummary: contextText || 'Consultation in progress',
+      appointmentType: 'Comprehensive Examination',
+      transcript: sessionTranscript,
+      clinicalProgressNote: currentNote,
+    };
+
+    return {
+      ...base,
+      firstName: overrides.firstName ?? (base.firstName || rawFirst || 'Patient'),
+      lastName: overrides.lastName ?? (base.lastName || rawLast),
+      clinicalProgressNote: overrides.clinicalProgressNote ?? currentNote,
+      transcript: sessionTranscript,
+      findings: {
+        ...(base.findings || defaultFindings),
+        history: contextText,
+        chiefComplaint: contextText,
+        ...(overrides.findings || {}),
+      },
+      ...overrides,
+    };
+  }, [activeConsultation, activeSessionId, currentUser?.id, currentUser?.name, dentistName, activeClinicId, patientName, contextText, currentNote, transcript]);
+
+  // Comprehensive sessions list for drawer: includes all saved consultations + the live in-progress session
+  const allDrawerSessions = useMemo(() => {
+    const list = [...consultations];
+    const liveRecord = buildLiveConsultation();
+    const activeIdx = list.findIndex(c => c.id === activeSessionId);
+
+    if (activeIdx >= 0) {
+      list[activeIdx] = {
+        ...list[activeIdx],
+        ...liveRecord,
+      };
+    } else {
+      // Current in-progress consultation placed at the top so it's instantly discoverable
+      list.unshift(liveRecord);
+    }
+    return list;
+  }, [consultations, activeSessionId, buildLiveConsultation]);
+
   // Auto-save on note edits
   const handleNoteChange = useCallback((newNote: string) => {
     setCurrentNote(newNote);
@@ -144,57 +228,86 @@ export default function ClinicalWorkspace({
     setDirtySessionIds(getDirtySessionIds());
     setSaveStatus('dirty');
 
-    if (activeConsultation) {
-      if (saveDebounceTimerRef.current) clearTimeout(saveDebounceTimerRef.current);
-      setSaveStatus('saving');
-      saveDebounceTimerRef.current = setTimeout(async () => {
-        try {
-          await onSaveConsultation({
-            ...activeConsultation,
-            clinicalProgressNote: newNote,
-            transcript,
-            findings: {
-              ...activeConsultation.findings,
-              history: contextText,
-              chiefComplaint: contextText,
-            },
-          });
-          setSaveStatus('saved');
-        } catch {
-          setSaveStatus('dirty');
-        }
-      }, 1000);
-    }
-  }, [activeSessionId, activeConsultation, transcript, contextText, onSaveConsultation]);
+    if (saveDebounceTimerRef.current) clearTimeout(saveDebounceTimerRef.current);
+    setSaveStatus('saving');
+    saveDebounceTimerRef.current = setTimeout(async () => {
+      try {
+        const record = buildLiveConsultation({ clinicalProgressNote: newNote });
+        await onSaveConsultation(record);
+        setSaveStatus('saved');
+      } catch {
+        setSaveStatus('dirty');
+      }
+    }, 1000);
+  }, [activeSessionId, buildLiveConsultation, onSaveConsultation]);
 
   // Auto-save on patient name edit
   const handlePatientNameChange = useCallback((newName: string) => {
     setPatientName(newName);
-    if (activeConsultation) {
-      const parts = newName.trim().split(' ');
-      const first = parts[0] || '';
-      const last = parts.slice(1).join(' ') || '';
-      if (saveDebounceTimerRef.current) clearTimeout(saveDebounceTimerRef.current);
-      setSaveStatus('saving');
-      saveDebounceTimerRef.current = setTimeout(async () => {
-        try {
-          await onSaveConsultation({
-            ...activeConsultation,
-            patientName: newName,
-            firstName: first,
-            lastName: last,
-          });
-          setSaveStatus('saved');
-        } catch {
-          setSaveStatus('dirty');
-        }
-      }, 800);
-    }
-  }, [activeConsultation, onSaveConsultation]);
+    markSessionDirty(activeSessionId);
+    setDirtySessionIds(getDirtySessionIds());
+    setSaveStatus('dirty');
 
-  // Rehydrate state when active consultation changes
+    const parts = newName.trim().split(' ');
+    const first = parts[0] || '';
+    const last = parts.slice(1).join(' ') || '';
+    if (saveDebounceTimerRef.current) clearTimeout(saveDebounceTimerRef.current);
+    setSaveStatus('saving');
+    saveDebounceTimerRef.current = setTimeout(async () => {
+      try {
+        const record = buildLiveConsultation({
+          firstName: first || 'Patient',
+          lastName: last,
+        });
+        (record as any).patientName = newName;
+        await onSaveConsultation(record);
+        setSaveStatus('saved');
+      } catch {
+        setSaveStatus('dirty');
+      }
+    }, 800);
+  }, [activeSessionId, buildLiveConsultation, onSaveConsultation]);
+
+  // Auto-save on context edits
+  const handleContextChange = useCallback((newContext: string) => {
+    setContextText(newContext);
+    markSessionDirty(activeSessionId);
+    setDirtySessionIds(getDirtySessionIds());
+    setSaveStatus('dirty');
+
+    if (saveDebounceTimerRef.current) clearTimeout(saveDebounceTimerRef.current);
+    setSaveStatus('saving');
+    saveDebounceTimerRef.current = setTimeout(async () => {
+      try {
+        const currentFindings = activeConsultation?.findings || {
+          chiefComplaint: newContext,
+          history: newContext,
+          toothFindings: '',
+          findingsGingival: '',
+          diagnosis: '',
+          treatmentPerformed: '',
+          recommendations: '',
+          recallRequirements: '',
+        };
+        const record = buildLiveConsultation({
+          findings: {
+            ...currentFindings,
+            chiefComplaint: newContext,
+            history: newContext,
+          },
+        });
+        await onSaveConsultation(record);
+        setSaveStatus('saved');
+      } catch {
+        setSaveStatus('dirty');
+      }
+    }, 1000);
+  }, [activeSessionId, activeConsultation?.findings, buildLiveConsultation, onSaveConsultation]);
+
+  // Rehydrate state when active consultation changes (strictly on session switch)
   useEffect(() => {
-    if (activeConsultation) {
+    if (activeConsultation && lastLoadedSessionIdRef.current !== activeSessionId) {
+      lastLoadedSessionIdRef.current = activeSessionId;
       const rawFirst = (activeConsultation.firstName || '').trim();
       const rawLast = (activeConsultation.lastName || '').trim();
       const fallbackName = (activeConsultation as any).patientName || (activeConsultation as any).name;
@@ -209,8 +322,15 @@ export default function ClinicalWorkspace({
         (activeConsultation.findings ? `Medical history: ${activeConsultation.findings.history || 'Reviewed'}` : '');
       setContextText(initialContext);
 
-      // Rehydrate transcript
-      setTranscript(Array.isArray(activeConsultation.transcript) ? activeConsultation.transcript : []);
+      // Rehydrate transcript: prefer live in-memory transcript for this session if present
+      const inMemory = localLiveTranscriptsRef.current[activeSessionId];
+      if (inMemory && inMemory.length > 0) {
+        setTranscript(inMemory);
+      } else {
+        const initial = Array.isArray(activeConsultation.transcript) ? activeConsultation.transcript : [];
+        setTranscript(initial);
+        setLocalLiveTranscripts(prev => ({ ...prev, [activeSessionId]: initial }));
+      }
 
       // Rehydrate clinical note
       if (activeConsultation.clinicalProgressNote) {
@@ -234,7 +354,7 @@ export default function ClinicalWorkspace({
         setCurrentNote(defaultNote);
       }
     }
-  }, [activeConsultation]);
+  }, [activeConsultation, activeSessionId]);
 
   // Audio Capture Engine State
   const [isRecording, setIsRecording] = useState(false);
@@ -267,22 +387,89 @@ export default function ClinicalWorkspace({
     generateNote: executeNotePipeline,
   } = useNotePipeline(authToken);
 
-  // A toast is a statement about now. Without this it stayed on screen for the
-  // rest of the consultation, so "Consultation recording finalized." was still
-  // sitting there while the next patient was being recorded. Same 3.5s the
-  // note and document tabs use.
+  // Toast duration helper
   useEffect(() => {
     if (!toastMessage) return;
     const timer = setTimeout(() => setToastMessage(null), 3500);
     return () => clearTimeout(timer);
   }, [toastMessage]);
 
-  // Audio start handler with continuous speech recognition
+  // Helper to append spoken or typed utterance with 0ms optimistic UI update & persistence
+  const handleAppendTranscriptText = useCallback(
+    (text: string, sender: TranscriptItem['sender'] = 'Dialogue') => {
+      if (!text.trim()) return;
+      const normalized = normalizeSpokenDentalText(text.trim());
+      if (!normalized) return;
+
+      const isNoise =
+        /^(sh+|ah+|um+|zz+|ss+|hh+|ff+|th+)(\s+(sh+|ah+|um+|zz+|ss+|hh+|ff+|th+))*$/i.test(normalized) ||
+        /^[^a-zA-Z0-9]+$/.test(normalized);
+      if (isNoise) return;
+
+      const updatedItem: TranscriptItem = { sender, text: normalized };
+
+      setLocalLiveTranscripts(prev => {
+        const list = prev[activeSessionId] || transcript || [];
+        return { ...prev, [activeSessionId]: [...list, updatedItem] };
+      });
+
+      setTranscript(prev => {
+        const updated = [...prev, updatedItem];
+        markSessionDirty(activeSessionId);
+        setDirtySessionIds(getDirtySessionIds());
+        setSaveStatus('saving');
+        const record = buildLiveConsultation({ transcript: updated });
+        void onSaveConsultation(record);
+        setSaveStatus('saved');
+        return updated;
+      });
+    },
+    [activeSessionId, transcript, buildLiveConsultation, onSaveConsultation]
+  );
+
+  // Server-side audio diarisation & transcription via Whisper (Rule 16)
+  const handleTranscribeRecordedAudio = useCallback(async () => {
+    if (!authToken) {
+      setToastMessage('Sign in required for server-side audio diarisation.');
+      return;
+    }
+    setIsTranscribingAudio(true);
+    setToastMessage('Transcribing & diarising captured audio...');
+    try {
+      const res = await requestTranscription({
+        authToken,
+        consultationId: activeSessionId,
+      });
+      if (res.ok && res.transcript && res.transcript.length > 0) {
+        setLocalLiveTranscripts(prev => ({
+          ...prev,
+          [activeSessionId]: res.transcript!,
+        }));
+        setTranscript(res.transcript);
+        markSessionDirty(activeSessionId);
+        setDirtySessionIds(getDirtySessionIds());
+        const record = buildLiveConsultation({ transcript: res.transcript });
+        void onSaveConsultation(record);
+        setToastMessage(`✓ Diarised transcript generated (${res.transcript.length} utterances).`);
+      } else if (isTranscriptionFailure(res)) {
+        setToastMessage(res.error || 'Server transcription did not find dialogue in this recording.');
+      } else {
+        setToastMessage('No spoken dialogue found in recording.');
+      }
+    } catch {
+      setToastMessage('Transcription request failed.');
+    } finally {
+      setIsTranscribingAudio(false);
+    }
+  }, [authToken, activeSessionId, buildLiveConsultation, onSaveConsultation]);
+
+  // Audio start handler with continuous speech recognition and audio segment streaming
   const handleStartAudio = useCallback(async (deviceId: string | null, mode: CaptureMode) => {
     try {
       setCaptureMode(mode);
+      recordedChunkCountRef.current = 0;
 
-      // Start hardware audio recorder for waveform & silence detection
+      // Start hardware audio recorder for waveform, silence detection & chunk streaming
       const recorder = new AudioRecorder({
         deviceId,
         onLevel: (lvl) => setAudioLevel(lvl),
@@ -299,6 +486,22 @@ export default function ClinicalWorkspace({
           setToastMessage('Auto-paused recording after 3 minutes of silence.');
         },
         onError: (err) => console.warn('[AudioEngine] Recorder warning:', err),
+        onChunk: async (blob, index) => {
+          recordedChunkCountRef.current = index + 1;
+          if (!authToken) return;
+          try {
+            const base64 = await blobToBase64(blob);
+            await uploadAudioSegment({
+              authToken,
+              consultationId: activeSessionId,
+              chunkIndex: index,
+              base64,
+              sizeBytes: blob.size,
+            });
+          } catch (err) {
+            console.warn('[AudioEngine] Chunk upload notice:', err);
+          }
+        },
       });
 
       audioRecorderRef.current = recorder;
@@ -310,7 +513,7 @@ export default function ClinicalWorkspace({
       isPausedRef.current = false;
       setSilenceSeconds(undefined);
 
-      // Start Web Speech API with auto-restarting loop
+      // Start Web Speech API with auto-restarting loop & interim handling
       const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
       if (SpeechRec) {
         if (speechRecognizerRef.current) {
@@ -323,23 +526,35 @@ export default function ClinicalWorkspace({
         recognizer.lang = 'en-AU';
 
         recognizer.onresult = (event: any) => {
+          let interim = '';
           for (let i = event.resultIndex; i < event.results.length; i++) {
             const res = event.results[i];
             if (res.isFinal) {
+              lastInterimRef.current = '';
+              setInterimTranscript('');
               const rawText = res[0].transcript.trim();
-              const text = normalizeSpokenDentalText(rawText);
-              if (text && text.length > 0) {
-                // Squelch pure mechanical noise
-                const isNoise = /^(sh+|ah+|um+|zz+|ss+|hh+|ff+|th+)(\s+(sh+|ah+|um+|zz+|ss+|hh+|ff+|th+))*$/i.test(text);
-                if (!isNoise) {
-                  setTranscript(prev => [...prev, { sender: 'Dialogue', text }]);
-                }
+              if (rawText) {
+                handleAppendTranscriptText(rawText, 'Dialogue');
               }
+            } else {
+              interim += res[0].transcript;
             }
+          }
+          if (interim.trim()) {
+            const norm = normalizeSpokenDentalText(interim.trim());
+            lastInterimRef.current = norm;
+            setInterimTranscript(norm);
           }
         };
 
         recognizer.onend = () => {
+          // Flush pending interim speech if user stopped or paused
+          if (lastInterimRef.current.trim() && (!isRecordingRef.current || isPausedRef.current)) {
+            handleAppendTranscriptText(lastInterimRef.current.trim(), 'Dialogue');
+            lastInterimRef.current = '';
+            setInterimTranscript('');
+          }
+
           // Auto-restart loop while recording is active (browser speech API timeout resilience)
           if (isRecordingRef.current && !isPausedRef.current) {
             setTimeout(() => {
@@ -358,10 +573,6 @@ export default function ClinicalWorkspace({
           if (e.error !== 'no-speech') {
             console.warn('[Speech] Recognition notice:', e.error);
           }
-          // The recorder keeps running and the bar still says "Listening…", so
-          // a speech service that is unreachable (or refused) used to look
-          // exactly like a consultation being captured — the clinician only
-          // found out when the transcript stayed empty. Say it out loud.
           if (e.error === 'network' || e.error === 'service-not-allowed' || e.error === 'not-allowed') {
             setToastMessage('Audio is recording, but live transcription is unavailable — speech-to-text is not running.');
           }
@@ -371,15 +582,13 @@ export default function ClinicalWorkspace({
         speechRecognizerRef.current = recognizer;
         setToastMessage('Listening & taking notes chairside...');
       } else {
-        // Safari and Firefox have no Web Speech API: dictation would silently
-        // capture audio and transcribe nothing.
         setToastMessage('This browser cannot transcribe speech — audio is recording only. Use Chrome for live transcription.');
       }
     } catch (err) {
       console.warn('[AudioEngine] Start failed:', err);
       setToastMessage('Please allow microphone access in your browser.');
     }
-  }, []);
+  }, [authToken, activeSessionId, handleAppendTranscriptText]);
 
   const handlePauseAudio = useCallback(() => {
     audioRecorderRef.current?.pause();
@@ -405,11 +614,14 @@ export default function ClinicalWorkspace({
     isPausedRef.current = false;
     setAudioLevel(0);
     setSilenceSeconds(undefined);
-    // Rule 14: a patient transition resets the timer. Without this the next
-    // patient's workspace displayed the previous patient's elapsed recording
-    // time ("00:22") until their own recording ticked once — the timer was
-    // never cleared on stop, switch or New session.
     setRecordingSeconds(0);
+
+    // Flush any pending interim speech
+    if (lastInterimRef.current.trim()) {
+      handleAppendTranscriptText(lastInterimRef.current.trim(), 'Dialogue');
+      lastInterimRef.current = '';
+      setInterimTranscript('');
+    }
 
     if (speechRecognizerRef.current) {
       try {
@@ -426,7 +638,7 @@ export default function ClinicalWorkspace({
     }
 
     setToastMessage('Consultation recording finalized.');
-  }, []);
+  }, [handleAppendTranscriptText]);
 
   // Patient switch handler (strictly enforcing Cross-Patient Boundary Isolation Rule 14)
   const handleSelectSession = useCallback((sessionId: string) => {
@@ -439,17 +651,17 @@ export default function ClinicalWorkspace({
 
   // New Session Button (Instant Start)
   const handleNewSession = useCallback(() => {
-    // Mark the intent before minting the id so the align-on-load effect cannot
-    // swap this fresh session for the newest stored record.
     userStartedSessionRef.current = true;
     if (isRecordingRef.current) {
       void handleStopAudio();
     }
     const newId = `sess-${Date.now()}`;
+    lastLoadedSessionIdRef.current = newId;
     setActiveSessionId(newId);
     setPatientName('New Patient');
     setContextText('');
     setTranscript([]);
+    setLocalLiveTranscripts(prev => ({ ...prev, [newId]: [] }));
     setCurrentNote(`### SUBJECTIVE / PRESENTING COMPLAINT
 - Patient attends for dental consultation.
 - Medical History: Reviewed. Nil known drug allergies.
@@ -504,19 +716,12 @@ export default function ClinicalWorkspace({
         setActiveTab('note');
         setToastMessage('Clinical note generated successfully!');
 
-        if (activeConsultation) {
-          const updatedConsult: Consultation = {
-            ...activeConsultation,
-            clinicalProgressNote: generated,
-            transcript,
-            findings: {
-              ...activeConsultation.findings,
-              history: contextText,
-              chiefComplaint: contextText,
-            },
-          };
-          void onSaveConsultation(updatedConsult);
-        }
+        const updatedConsult = buildLiveConsultation({
+          clinicalProgressNote: generated,
+          transcript,
+          status: 'Completed',
+        });
+        void onSaveConsultation(updatedConsult);
 
         markSessionDirty(activeSessionId);
         setDirtySessionIds(getDirtySessionIds());
@@ -544,19 +749,11 @@ export default function ClinicalWorkspace({
     }
 
     // 2. Auto-save current consultation snapshot before leaving
-    if (activeConsultation) {
-      const snapshot: Consultation = {
-        ...activeConsultation,
-        clinicalProgressNote: currentNote,
-        transcript,
-        findings: {
-          ...activeConsultation.findings,
-          history: contextText,
-          chiefComplaint: contextText,
-        },
-      };
-      void onSaveConsultation(snapshot);
-    }
+    const snapshot = buildLiveConsultation({
+      clinicalProgressNote: currentNote,
+      transcript,
+    });
+    void onSaveConsultation(snapshot);
 
     // 3. Reset recording timer to 00:00 (Rule 14)
     setRecordingSeconds(0);
@@ -613,14 +810,11 @@ export default function ClinicalWorkspace({
           setActiveTab('note');
           setToastMessage('Clinical note updated by DentAI.');
 
-          if (activeConsultation) {
-            const updated: Consultation = {
-              ...activeConsultation,
-              clinicalProgressNote: data.result,
-              transcript,
-            };
-            void onSaveConsultation(updated);
-          }
+          const updated = buildLiveConsultation({
+            clinicalProgressNote: data.result,
+            transcript,
+          });
+          void onSaveConsultation(updated);
 
           markSessionDirty(activeSessionId);
           setDirtySessionIds(getDirtySessionIds());
@@ -757,7 +951,7 @@ export default function ClinicalWorkspace({
                 <span>Sessions</span>
               </div>
               <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-slate-200 text-slate-700">
-                {consultations.length}
+                {allDrawerSessions.length}
               </span>
             </button>
 
@@ -859,9 +1053,10 @@ export default function ClinicalWorkspace({
       <SidebarDrawer
         isOpen={showSessionsDrawer}
         onClose={() => setShowSessionsDrawer(false)}
-        consultations={consultations}
+        consultations={allDrawerSessions}
         activeSessionId={activeSessionId}
         onSelectSession={handleSelectSession}
+        onNewSession={handleNewSession}
         dirtySessionIds={dirtySessionIds}
       />
 
@@ -1053,7 +1248,7 @@ export default function ClinicalWorkspace({
           {activeTab === 'context' && (
             <ContextTab
               contextText={contextText}
-              onChangeContext={setContextText}
+              onChangeContext={handleContextChange}
               onSyncChangesToNote={() => handleAskCopilot(`Sync these updated context details into the clinical note: "${contextText}"`)}
               isSyncing={isCopilotLoading}
             />
@@ -1062,9 +1257,22 @@ export default function ClinicalWorkspace({
           {activeTab === 'transcript' && (
             <TranscriptTab
               transcript={transcript}
-              onUpdateTranscript={setTranscript}
+              isLive={isRecording && !isPaused}
+              interimText={interimTranscript}
+              onAddUtterance={(text, sender) => handleAppendTranscriptText(text, sender)}
+              onUpdateTranscript={(updated) => {
+                setLocalLiveTranscripts(prev => ({ ...prev, [activeSessionId]: updated }));
+                setTranscript(updated);
+                markSessionDirty(activeSessionId);
+                setDirtySessionIds(getDirtySessionIds());
+                const record = buildLiveConsultation({ transcript: updated });
+                void onSaveConsultation(record);
+              }}
               onSeparateMergedSession={() => setShowSplitModal(true)}
-              isLive={isRecording}
+              onStartListening={() => void handleStartAudio(null, captureMode)}
+              hasRecordedAudio={recordingSeconds > 0 || recordedChunkCountRef.current > 0}
+              isTranscribingAudio={isTranscribingAudio}
+              onTranscribeRecordedAudio={handleTranscribeRecordedAudio}
             />
           )}
 
@@ -1077,7 +1285,7 @@ export default function ClinicalWorkspace({
               onOpenTemplateModal={() => setShowTemplatesModal(true)}
               patientName={patientName}
               dentistName={dentistName}
-              consultation={activeConsultation}
+              consultation={buildLiveConsultation()}
               authToken={authToken}
               onSigned={(updated) => {
                 void onSaveConsultation(updated);
