@@ -2,6 +2,10 @@ import { useState, useCallback, useRef } from 'react';
 import type { Consultation, TranscriptItem } from '../types';
 import { NOTE_JOB_CLIENT_POLL } from '../lib/noteJobs';
 import { reformatNoteIntoTemplate, DENTAL_TEMPLATES } from '../lib/templateEngine';
+import { extractBaselineFacts } from '../lib/clinicalEvaluation/deterministicExtractor';
+import { createCanonicalClinicalFact, isFactConstructionFailure } from '../lib/clinicalFactMigration';
+import { renderClinicalNote, type RenderedClinicalNote } from '../lib/factRenderer';
+import { matchProcedureToAdaCode } from '../lib/adaScheduleEngine';
 
 export type NotePipelineTier = 'direct' | 'queued' | 'offline' | 'idle';
 
@@ -64,6 +68,14 @@ export function useNotePipeline(authToken: string | null): UseNotePipelineReturn
 
     let synthesizedNote = '';
 
+    const cleanCurrentNote =
+      consultation.clinicalProgressNote &&
+      (consultation.clinicalProgressNote.includes('Pending examination findings') ||
+       consultation.clinicalProgressNote.includes('Extraoral: WNL. Intraoral soft tissues healthy') ||
+       (consultation.clinicalProgressNote.includes('014: Consultation') && !consultation.clinicalProgressNote.includes('Tooth ')))
+        ? ''
+        : (consultation.clinicalProgressNote || '');
+
     // =========================================================================
     // Tier 1: Direct Synchronous Generation
     // =========================================================================
@@ -72,8 +84,8 @@ export function useNotePipeline(authToken: string | null): UseNotePipelineReturn
         method: 'POST',
         headers,
         body: JSON.stringify({
-          prompt: `Generate an Australian AHPRA-compliant clinical progress note using template "${templateId}". Extract findings, tooth numbers, and ADA item codes from the transcript and context.`,
-          currentNote: consultation.clinicalProgressNote || '',
+          prompt: `Generate an Australian AHPRA-compliant clinical progress note using template "${templateId}". STRICT CLINICAL GROUNDING: Extract ONLY findings, tooth numbers, symptoms, diagnoses, procedures, and ADA item codes that were explicitly evidenced in the transcript or context. Do NOT invent, assume, or extrapolate routine examinations (e.g. soft tissues, radiographs) or treatments that did not take place.`,
+          currentNote: cleanCurrentNote,
           context,
           transcript,
           patientName,
@@ -167,23 +179,78 @@ export function useNotePipeline(authToken: string | null): UseNotePipelineReturn
     if (isCancelledRef.current) return '';
 
     // =========================================================================
-    // Tier 3: Deterministic Offline Draft Engine (Zero-Network Fallback)
+    // Tier 3: Deterministic ClinicalFact Extraction & Offline Draft Engine
     // =========================================================================
     setActiveTier('offline');
-    setStatusMessage('Network unavailable; generating deterministic offline clinical draft (Tier 3)...');
+    setStatusMessage('Generating deterministic clinical note from ClinicalFacts (Tier 3)...');
+
+    // 1. Extract ClinicalFacts from transcript
+    let renderedFacts: RenderedClinicalNote | null = null;
+    let adaCodes = '';
+    try {
+      if (transcript.length > 0) {
+        const extractorUtterances = transcript.map((t, idx) => ({
+          utteranceId: `u-${idx + 1}`,
+          speaker: t.sender || 'Dialogue',
+          text: t.text,
+        }));
+        const rawCandidates = extractBaselineFacts(extractorUtterances);
+        const facts = rawCandidates
+          .map((c) => createCanonicalClinicalFact(c))
+          .filter((r) => !isFactConstructionFailure(r))
+          .map((r) => (r as { fact: any }).fact);
+        renderedFacts = renderClinicalNote(facts);
+
+        // Map performed procedures to ADA codes
+        const codeList: string[] = [];
+        for (const t of transcript) {
+          const match = matchProcedureToAdaCode(t.text);
+          if (match && !codeList.some((c) => c.startsWith(match.itemCode))) {
+            codeList.push(`${match.itemCode}: ${match.itemName}`);
+          }
+        }
+        if (codeList.length > 0) {
+          adaCodes = codeList.map((c) => `- ${c}`).join('\n');
+        }
+      }
+    } catch (factErr) {
+      console.warn('[NotePipeline] ClinicalFact extraction error:', factErr);
+    }
+
+    const examFindings = renderedFacts
+      ? [renderedFacts.sections.toothFindings, renderedFacts.sections.findingsGingival].filter(Boolean).join('\n')
+      : transcript.map((t) => `${t.sender}: ${t.text}`).join('\n');
+
+    const treatmentPerformed = renderedFacts ? renderedFacts.sections.treatmentPerformed : '';
+
+    const plans = renderedFacts
+      ? [renderedFacts.sections.treatmentPlanned, renderedFacts.sections.consent, renderedFacts.sections.treatmentDeclined]
+          .filter(Boolean)
+          .join('\n')
+      : '';
+
+    const advice = renderedFacts
+      ? [renderedFacts.sections.recommendations, renderedFacts.sections.recallRequirements, renderedFacts.sections.referral]
+          .filter(Boolean)
+          .join('\n')
+      : '';
 
     const offlineSynthesis = reformatNoteIntoTemplate(
       templateId,
       {
-        complaint: context,
-        medicalHistory: context,
-        examination: transcript.map((t) => `${t.sender}: ${t.text}`).join('\n'),
+        complaint: renderedFacts?.sections.chiefComplaint || context,
+        medicalHistory: renderedFacts?.sections.history || (context ? `Context: ${context}` : ''),
+        examination: examFindings,
+        diagnosis: renderedFacts?.sections.diagnosis || '',
+        treatmentPerformed,
+        treatmentPlan: [plans, advice].filter(Boolean).join('\n'),
+        itemCodes: adaCodes,
       },
-      consultation.clinicalProgressNote || ''
+      cleanCurrentNote
     );
 
     synthesizedNote = offlineSynthesis;
-    setStatusMessage('Clinical note drafted via Offline Deterministic Engine (Tier 3).');
+    setStatusMessage('Clinical note drafted via Deterministic ClinicalFact Engine (Tier 3).');
     return synthesizedNote;
   }, [authToken]);
 

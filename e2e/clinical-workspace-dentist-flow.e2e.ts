@@ -122,6 +122,33 @@ describe('Clinical Workspace - Daily Dentist Persona & Operations', () => {
       if (!devServerTransportNoise.test(error.message)) pageErrors.push(error.message);
     });
 
+    // Mock copilot note generation so E2E tests run deterministically and fast without external LLM latency
+    await page.route('**/api/copilot/ask', async (route) => {
+      let bodyStr = '';
+      try {
+        bodyStr = route.request().postData() || '';
+      } catch {}
+
+      const teethMatches = bodyStr.match(/\b(?:tooth|teeth)?\s*(\d{2})\b/gi) || [];
+      const teethList = Array.from(new Set(teethMatches)).join(', ') || '16';
+
+      const stubNote = `### SUBJECTIVE / PRESENTING COMPLAINT
+- Patient attending for scheduled appointment.
+- Relevant findings discussed: ${teethList}
+
+### OBJECTIVE / CLINICAL FINDINGS
+- ${bodyStr.includes('48') ? 'Tooth 48 surgical extraction completed.' : bodyStr.includes('24') ? 'Tooth 24 pulp extirpation completed.' : bodyStr.includes('MO') ? 'Tooth 16 MO composite restoration completed.' : 'Comprehensive examination. Tooth 16 examined.'}
+
+### TREATMENT PLAN & ITEM CODES
+- Completed as discussed.`;
+
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true, result: stubNote }),
+      });
+    });
+
     try {
       // =========================================================================
       // 1. DENTIST MORNING LOGIN & FRESH WORKSPACE SETUP
@@ -340,7 +367,9 @@ describe('Clinical Workspace - Daily Dentist Persona & Operations', () => {
       await page.getByText('Sarah Jenkins').first().click();
 
       // Verify Sarah Jenkins session loaded cleanly with all her data preserved
-      expect(await page.getByPlaceholder('Patient Name').inputValue()).toBe('Sarah Jenkins');
+      await expect
+        .poll(() => page.getByPlaceholder('Patient Name').inputValue(), { timeout: 15_000 })
+        .toBe('Sarah Jenkins');
       await page.getByRole('button', { name: /transcript/i }).click();
       await expectVisible(page.getByText('Tooth 16 has an existing composite'));
 

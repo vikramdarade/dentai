@@ -221,8 +221,8 @@ export function extractBaselineFacts(
     const lower = normalise(text);
     if (!lower) continue;
 
-    const isClinician = u.speaker === 'Dentist' || u.speaker === 'clinician';
-    const isPatient = u.speaker === 'Patient' || u.speaker === 'patient';
+    const isClinician = u.speaker === 'Dentist' || u.speaker === 'clinician' || u.speaker === 'Dialogue' || !u.speaker;
+    const isPatient = u.speaker === 'Patient' || u.speaker === 'patient' || u.speaker === 'Dialogue' || !u.speaker;
     const span = spanOf(u);
     const teeth = [...new Set([...spokenTeeth(text), ...namedTeeth(text)])];
     const effectiveTeeth = teeth.length > 0 ? teeth : (isClinician ? lastClinicianTeeth : []);

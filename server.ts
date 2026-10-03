@@ -3792,7 +3792,8 @@ app.get('/api/consultations', authenticateToken, async (req: any, res) => {
 function isSeatedAppointmentId(value: unknown): boolean {
   return (
     typeof value === 'string' &&
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value.trim())
+    (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value.trim()) ||
+     /^(?:sess|consult)-\d+$/i.test(value.trim()))
   );
 }
 
@@ -5203,7 +5204,11 @@ CRITICAL AHPRA & DENTAL PRACTICE MANAGEMENT STANDARDS:
    - 414: Emergency pulp extirpation | 415: Chemo-mechanical preparation of root canal | 417: Root canal obturation
    - 521-525: Adhesive restoration - anterior | 531-535: Adhesive restoration - posterior
    - 613 / 615: Crowns | 651: Recementing crown
-   - Note: ADA 022 is a periapical radiograph; ADA 121 is topical fluoride; ADA 414 is emergency root canal extirpation.`;
+   - Note: ADA 022 is a periapical radiograph; ADA 121 is topical fluoride; ADA 414 is emergency root canal extirpation.
+4. STRICT CLINICAL GROUNDING & ZERO FABRICATION:
+   - ONLY include findings, symptoms, examinations, diagnoses, procedures, anaesthetics, materials, and ADA item codes that are EXPLICITLY discussed or evidenced in the Recent Consultation Audio Transcript or Patient Medical & Clinical Context.
+   - NEVER assume, extrapolate, or invent examinations (such as soft tissue checks, intra-oral checks, probing, or radiographs), diagnoses, or treatments that did not take place in the consultation.
+   - If a section was not discussed or examined during the consultation, state "Not discussed / not examined" or omit the bullet point. DO NOT generate boilerplate examinations or default treatments.`;
 
     let transcriptSummary = '';
     if (Array.isArray(transcript) && transcript.length > 0) {

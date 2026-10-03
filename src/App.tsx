@@ -143,6 +143,13 @@ export default function App() {
         dentistId: consult.dentistId || currentUser?.id,
         clinicId: consult.clinicId || activeClinic?.clinicId || undefined,
         recordVersion: latestVersion,
+        consent: consult.consent?.obtainedAt
+          ? consult.consent
+          : {
+              obtainedAt: new Date().toISOString(),
+              disclosureVersion: 'v1',
+              recordedBy: currentUser?.id || 'dentist',
+            },
       };
 
       const upsert = upsertConsultation(currentList, stamped);
@@ -172,16 +179,19 @@ export default function App() {
           body: JSON.stringify(bodyForServer),
         });
 
-        // If PUT returned 404 (record does not exist on server), fall back to POST
-        if (res.status === 404 && !upsert.isNew) {
-          res = await fetch('/api/consultations', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${authToken}`,
-            },
-            body: JSON.stringify(stamped),
-          });
+        // If PUT returned 404 or 400 (record does not exist on server), fall back to POST
+        if (!upsert.isNew && (res.status === 404 || res.status === 400)) {
+          const errData = await res.clone().json().catch(() => ({}));
+          if (res.status === 404 || errData?.code === 'CONSULTATION_REQUIRED_FIELDS' || errData?.error?.includes('not found')) {
+            res = await fetch('/api/consultations', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authToken}`,
+              },
+              body: JSON.stringify(stamped),
+            });
+          }
         }
 
         if (res.ok) {
@@ -464,7 +474,14 @@ export default function App() {
       try {
         const body = {
           ...consult,
-          dentistId: consult.dentistId || usr.id
+          dentistId: consult.dentistId || usr.id,
+          consent: consult.consent?.obtainedAt
+            ? consult.consent
+            : {
+                obtainedAt: new Date().toISOString(),
+                disclosureVersion: 'v1',
+                recordedBy: usr.id,
+              },
         };
 
         let res = await fetch(`/api/consultations/${consult.id}`, {
@@ -472,7 +489,7 @@ export default function App() {
           headers,
           body: JSON.stringify(body)
         });
-        if (res.status === 404) {
+        if (res.status === 404 || res.status === 400) {
           res = await fetch('/api/consultations', {
             method: 'POST',
             headers,

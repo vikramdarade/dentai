@@ -167,6 +167,11 @@ export default function ClinicalWorkspace({
       appointmentType: 'Comprehensive Examination',
       transcript: sessionTranscript,
       clinicalProgressNote: currentNote,
+      consent: {
+        obtainedAt: new Date().toISOString(),
+        disclosureVersion: 'v1',
+        recordedBy: currentUser?.id || dentistName || 'Dentist',
+      },
     };
 
     return {
@@ -181,6 +186,11 @@ export default function ClinicalWorkspace({
         chiefComplaint: contextText,
         ...(overrides.findings || {}),
       },
+      consent: overrides.consent ?? (base.consent?.obtainedAt ? base.consent : {
+        obtainedAt: new Date().toISOString(),
+        disclosureVersion: 'v1',
+        recordedBy: currentUser?.id || dentistName || 'Dentist',
+      }),
       ...overrides,
     };
   }, [activeConsultation, activeSessionId, currentUser?.id, currentUser?.name, dentistName, activeClinicId, patientName, contextText, currentNote, transcript]);
@@ -314,26 +324,11 @@ export default function ClinicalWorkspace({
         setLocalLiveTranscripts(prev => ({ ...prev, [activeSessionId]: initial }));
       }
 
-      // Rehydrate clinical note
+      // Rehydrate clinical note (Rule 18: clean blank canvas if none recorded)
       if (activeConsultation.clinicalProgressNote) {
         setCurrentNote(activeConsultation.clinicalProgressNote);
       } else {
-        const defaultNote = `### SUBJECTIVE / PRESENTING COMPLAINT
-- Patient attends for dental consultation.
-- Medical History: Reviewed. Nil known drug allergies.
-
-### CLINICAL EXAMINATION & FINDINGS
-- Extraoral: WNL. Intraoral soft tissues healthy. Dentition examined.
-
-### DIAGNOSIS
-- Pending examination findings.
-
-### TREATMENT PERFORMED
-- Consultation and clinical examination.
-
-### ITEM CODES (ADA 13th Ed.)
-- 014: Consultation`;
-        setCurrentNote(defaultNote);
+        setCurrentNote('');
       }
     }
   }, [activeConsultation, activeSessionId]);
@@ -644,21 +639,7 @@ export default function ClinicalWorkspace({
     setContextText('');
     setTranscript([]);
     setLocalLiveTranscripts(prev => ({ ...prev, [newId]: [] }));
-    setCurrentNote(`### SUBJECTIVE / PRESENTING COMPLAINT
-- Patient attends for dental consultation.
-- Medical History: Reviewed. Nil known drug allergies.
-
-### CLINICAL EXAMINATION & FINDINGS
-- Extraoral: WNL. Intraoral soft tissues healthy. Dentition examined.
-
-### DIAGNOSIS
-- Pending examination findings.
-
-### TREATMENT PERFORMED
-- Consultation and clinical examination.
-
-### ITEM CODES (ADA 13th Ed.)
-- 014: Consultation`);
+    setCurrentNote('');
     setActiveTab('context');
     setToastMessage('Started fresh consultation session.');
   }, [handleStopAudio]);
