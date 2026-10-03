@@ -7,7 +7,7 @@ export interface UseSignOffOptions {
   consultation: Consultation | null;
   authToken: string | null;
   onSigned?: (updatedConsultation: Consultation) => void;
-  onBeforeSign?: () => Promise<void>;
+  onBeforeSign?: () => Promise<Consultation | void>;
 }
 
 export interface UseSignOffReturn {
@@ -76,59 +76,85 @@ export function useSignOff({
     setLastRefusal(null);
 
     try {
+      let activeConsult = consultation;
       if (onBeforeSign) {
-        await onBeforeSign();
+        try {
+          const saved = await onBeforeSign();
+          if (saved && typeof saved === 'object' && saved.id === consultation.id) {
+            activeConsult = saved;
+          }
+        } catch (err) {
+          console.warn('[useSignOff] onBeforeSign failed:', err);
+        }
       }
 
-      const expectedVersion = typeof consultation.recordVersion === 'number'
-        ? consultation.recordVersion
-        : typeof (consultation as any).version === 'number'
-        ? (consultation as any).version
-        : consultation.revisions?.length || 1;
+      const expectedVersion = typeof activeConsult.recordVersion === 'number'
+        ? activeConsult.recordVersion
+        : typeof (activeConsult as any).version === 'number'
+        ? (activeConsult as any).version
+        : activeConsult.revisions?.length || 1;
 
       const nonce = typeof crypto !== 'undefined' && crypto.randomUUID
         ? crypto.randomUUID()
         : `sign-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
 
-      const result = await requestSignOff({
+      let result = await requestSignOff({
         authToken,
-        consultationId: consultation.id,
+        consultationId: activeConsult.id,
         expectedVersion,
         requestNonce: nonce,
       });
 
-      if (result.ok) {
+      let finalResult: SignOffClientResult = result;
+
+      // Self-healing optimistic concurrency reconciliation:
+      // If the refusal was specifically STALE_VERSION and the server provided currentVersion
+      // (typically caused by pre-sign auto-save advancing the server record version):
+      if (!result.ok) {
+        const failure = result as Extract<SignOffClientResult, { ok: false }>;
+        if (failure.code === 'STALE_VERSION' && typeof failure.currentVersion === 'number') {
+          const retryNonce = typeof crypto !== 'undefined' && crypto.randomUUID
+            ? crypto.randomUUID()
+            : `sign-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+
+          finalResult = await requestSignOff({
+            authToken,
+            consultationId: activeConsult.id,
+            expectedVersion: failure.currentVersion,
+            requestNonce: retryNonce,
+          });
+        }
+      }
+
+      if (finalResult.ok) {
+        const approval = finalResult as Extract<SignOffClientResult, { ok: true }>;
         const updated: Consultation = {
-          ...consultation,
-          attestation: result.seal,
+          ...activeConsult,
+          attestation: approval.seal,
+          recordVersion: approval.recordVersion,
           status: 'Completed',
           revisions: [
-            ...(consultation.revisions || []),
+            ...(activeConsult.revisions || []),
             {
               id: `rev-sign-${Date.now()}`,
-              savedAt: result.signedAt,
-              savedBy: result.seal.signedBy || 'Dentist',
+              savedAt: approval.signedAt,
+              savedBy: approval.seal.signedBy || 'Dentist',
               systemGenerated: false,
             },
           ],
         };
-        (updated as any).version = result.recordVersion;
+        (updated as any).version = approval.recordVersion;
 
         onSigned?.(updated);
-        return result;
+        return finalResult;
       } else {
-        const failure = result as {
-          ok: false;
-          code: string;
-          message: string;
-          currentVersion?: number;
-        };
+        const refusal = finalResult as Extract<SignOffClientResult, { ok: false }>;
         setLastRefusal({
-          code: failure.code,
-          message: failure.message,
-          currentVersion: failure.currentVersion,
+          code: refusal.code,
+          message: refusal.message,
+          currentVersion: refusal.currentVersion,
         });
-        return result;
+        return finalResult;
       }
     } catch (err: any) {
       const refusal = {

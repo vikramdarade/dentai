@@ -34,7 +34,7 @@ interface NoteTabProps {
   consultation?: Consultation | null;
   authToken?: string | null;
   onSigned?: (updated: Consultation) => void;
-  onSaveConsultation?: (consultation: Consultation) => Promise<void> | void;
+  onSaveConsultation?: (consultation: Consultation) => Promise<any> | any;
 }
 
 interface ParsedTable {
@@ -65,14 +65,19 @@ export default function NoteTab({
   onSaveConsultation,
 }: NoteTabProps) {
   // Ensure the latest note edits are saved to the server before requesting cryptographic sign-off
-  const handleBeforeSign = useCallback(async () => {
+  const handleBeforeSign = useCallback(async (): Promise<Consultation | undefined> => {
     if (onSaveConsultation && consultation) {
-      const record: Consultation = {
-        ...consultation,
-        clinicalProgressNote: noteText,
-      };
-      await onSaveConsultation(record);
+      if (consultation.clinicalProgressNote !== noteText) {
+        const record: Consultation = {
+          ...consultation,
+          clinicalProgressNote: noteText,
+        };
+        const saved = await onSaveConsultation(record);
+        return saved || record;
+      }
+      return consultation;
     }
+    return undefined;
   }, [onSaveConsultation, consultation, noteText]);
 
   // Server-authoritative signing and evidentiary grounding review

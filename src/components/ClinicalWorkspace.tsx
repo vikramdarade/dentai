@@ -36,7 +36,7 @@ export interface ClinicalWorkspaceProps {
   onJoinClinic?: (code: string) => Promise<{ ok: boolean; message: string }>;
   onClinicChanged?: () => void;
   onLogout: () => void;
-  onSaveConsultation: (consult: Consultation) => Promise<void> | void;
+  onSaveConsultation: (consult: Consultation) => Promise<any> | any;
   pendingSyncCount?: number;
   initialSessionId?: string;
 }
@@ -176,6 +176,7 @@ export default function ClinicalWorkspace({
 
     return {
       ...base,
+      recordVersion: overrides.recordVersion ?? base.recordVersion ?? (base.revisions?.length || 1),
       firstName: overrides.firstName ?? (base.firstName || rawFirst || 'Patient'),
       lastName: overrides.lastName ?? (base.lastName || rawLast),
       clinicalProgressNote: overrides.clinicalProgressNote ?? currentNote,

@@ -206,6 +206,7 @@ export default function App() {
           if (currentUser?.id) {
             saveLocalConsultations(synced, currentUser.id);
           }
+          return saved;
         } else if (res.status === 409) {
           const conflict = await res.json().catch(() => ({}));
           setConsultationConflict({
@@ -214,24 +215,27 @@ export default function App() {
             currentVersion: conflict?.currentVersion,
             serverRecord: conflict?.serverConsultation || null,
           });
+          return stamped;
         } else {
           // A refused write is held on this device and the banner says so, rather
           // than a screen that merely looks saved.
           queuePendingSync(stamped);
           setPendingSyncCount(getPendingSync().length);
           if (res.status === 401 || res.status === 403) setSessionExpired(true);
+          return stamped;
         }
       } catch (err) {
         console.warn('Consultation save could not reach the clinic system; held on this device.', err);
         queuePendingSync(stamped);
         setPendingSyncCount(getPendingSync().length);
+        return stamped;
       } finally {
         inFlightSaveIdsRef.current.delete(stamped.id);
       }
     });
 
     saveChainMapRef.current.set(consult.id, nextPromise);
-    await nextPromise;
+    return await nextPromise;
   }, [applyConsultations, currentUser, activeClinic, authToken]);
 
   // A dead session and a queue of unsent records tell the clinician the same

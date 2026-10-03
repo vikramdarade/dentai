@@ -220,4 +220,107 @@ describe('useSignOff', () => {
     expect(hook.current.refusalMessage).toBe('Record has 2 ungrounded claims that must be verified.');
     expect(hook.current.lastRefusal?.code).toBe('GROUNDING_NOT_APPROVED');
   });
+
+  it('self-heals and auto-reconciles when server answers STALE_VERSION with currentVersion', async () => {
+    const consult: Consultation = {
+      id: 'c-stale-1',
+      date: '2026-10-03',
+      dentistId: 'd-1',
+      status: 'In Review',
+      recordVersion: 1,
+    } as unknown as Consultation;
+
+    // First attempt: rejected with 409 STALE_VERSION because pre-sign auto-save bumped to 2
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: false,
+      status: 409,
+      json: async () => ({
+        ok: false,
+        code: 'STALE_VERSION',
+        error: 'This record changed since your sign-off request was prepared.',
+        currentVersion: 2,
+      }),
+    });
+
+    // Retry attempt: succeeds with currentVersion: 2
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        ok: true,
+        seal: {
+          signatureHash: 'sha256-reconciled-seal',
+          signedBy: 'Dr. Test',
+          signedAt: '2026-10-03T12:00:00Z',
+          auditStatus: 'Verified from Audio',
+        },
+        recordVersion: 2,
+        signedAt: '2026-10-03T12:00:00Z',
+      }),
+    });
+
+    const onSignedMock = vi.fn();
+    const hook = createHookHarness(() => useSignOff({
+      consultation: consult,
+      authToken: 'valid-jwt',
+      onSigned: onSignedMock,
+    }));
+
+    const signResult = await hook.current.signRecord();
+    expect(signResult?.ok).toBe(true);
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+
+    // Verify second request used expectedVersion: 2
+    const secondCallBody = JSON.parse((global.fetch as any).mock.calls[1][1].body);
+    expect(secondCallBody.expectedVersion).toBe(2);
+
+    expect(onSignedMock).toHaveBeenCalledTimes(1);
+    expect(onSignedMock.mock.calls[0][0].attestation.signatureHash).toBe('sha256-reconciled-seal');
+  });
+
+  it('uses updated consultation returned by onBeforeSign', async () => {
+    const initialConsult: Consultation = {
+      id: 'c-pre-1',
+      date: '2026-10-03',
+      dentistId: 'd-1',
+      status: 'In Review',
+      recordVersion: 1,
+    } as unknown as Consultation;
+
+    const savedConsult: Consultation = {
+      ...initialConsult,
+      recordVersion: 2,
+      clinicalProgressNote: 'Updated note text before signing',
+    };
+
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        ok: true,
+        seal: {
+          signatureHash: 'sha256-pre-seal',
+          signedBy: 'Dr. Test',
+          signedAt: '2026-10-03T12:00:00Z',
+          auditStatus: 'Verified from Audio',
+        },
+        recordVersion: 2,
+        signedAt: '2026-10-03T12:00:00Z',
+      }),
+    });
+
+    const onBeforeSignMock = vi.fn().mockResolvedValue(savedConsult);
+    const hook = createHookHarness(() => useSignOff({
+      consultation: initialConsult,
+      authToken: 'valid-jwt',
+      onBeforeSign: onBeforeSignMock,
+    }));
+
+    const signResult = await hook.current.signRecord();
+    expect(signResult?.ok).toBe(true);
+    expect(onBeforeSignMock).toHaveBeenCalledTimes(1);
+
+    const callBody = JSON.parse((global.fetch as any).mock.calls[0][1].body);
+    expect(callBody.expectedVersion).toBe(2);
+  });
 });
