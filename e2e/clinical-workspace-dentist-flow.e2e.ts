@@ -126,12 +126,15 @@ describe('Clinical Workspace - Daily Dentist Persona & Operations', () => {
       // =========================================================================
       // 1. DENTIST MORNING LOGIN & FRESH WORKSPACE SETUP
       // =========================================================================
-      await page.goto(BASE_URL);
+      await page.goto(BASE_URL, { waitUntil: 'domcontentloaded' });
 
-      // Open Register Profile modal
-      await page.getByRole('button', { name: 'Register Profile' }).click();
+      // Wait for the Register Profile button to be visible before clicking
+      const registerProfileBtn = page.getByRole('button', { name: 'Register Profile' });
+      await registerProfileBtn.waitFor({ state: 'visible', timeout: 45_000 });
+      await registerProfileBtn.click();
+
       const registerForm = page.locator('form').filter({ hasText: 'Create Practitioner Account' });
-      await registerForm.waitFor({ state: 'visible' });
+      await registerForm.waitFor({ state: 'visible', timeout: 30_000 });
 
       // Fill dentist profile credentials
       await registerForm.locator('input[type="text"]').nth(0).fill('Dr. Marcus Vance');
@@ -164,23 +167,18 @@ describe('Clinical Workspace - Daily Dentist Persona & Operations', () => {
 
       // Add spoken lines through Quick Utterance Entry dock
       const utteranceInput = page.locator('#transcript-utterance-input');
-      const addUtteranceBtn = page.locator('#btn-add-utterance');
+      const addUtterance = async (text: string, matchText?: string) => {
+        await utteranceInput.fill(text);
+        await utteranceInput.press('Enter');
+        if (matchText) {
+          await expectVisible(page.getByText(matchText).first());
+        }
+      };
 
-      await utteranceInput.fill("Good morning Sarah, we'll start with a comprehensive examination and dental charting.");
-      await addUtteranceBtn.click();
-      await expectVisible(page.getByText("Good morning Sarah, we'll start with a comprehensive examination"));
-
-      await utteranceInput.fill('Tooth 16 has an existing composite with recurrent distal caries and marginal breakdown.');
-      await addUtteranceBtn.click();
-      await expectVisible(page.getByText('Tooth 16 has an existing composite with recurrent distal caries'));
-
-      await utteranceInput.fill('Tooth 26 sound. All other teeth examined sound. Light supragingival calculus lower lingual.');
-      await addUtteranceBtn.click();
-      await expectVisible(page.getByText('Tooth 26 sound'));
-
-      await utteranceInput.fill('Prophylaxis completed with fine pumice paste. Topical fluoride foam applied for 4 minutes.');
-      await addUtteranceBtn.click();
-      await expectVisible(page.getByText('Prophylaxis completed with fine pumice paste'));
+      await addUtterance("Good morning Sarah, we'll start with a comprehensive examination and dental charting.", "Good morning Sarah, we'll start with a comprehensive examination");
+      await addUtterance('Tooth 16 has an existing composite with recurrent distal caries and marginal breakdown.', 'Tooth 16 has an existing composite with recurrent distal caries');
+      await addUtterance('Tooth 26 sound. All other teeth examined sound. Light supragingival calculus lower lingual.', 'Tooth 26 sound');
+      await addUtterance('Prophylaxis completed with fine pumice paste. Topical fluoride foam applied for 4 minutes.', 'Prophylaxis completed with fine pumice paste');
 
       // Verify utterance count badge
       await expectVisible(page.getByText('4 utterances'));
@@ -220,21 +218,10 @@ describe('Clinical Workspace - Daily Dentist Persona & Operations', () => {
       // Transcript
       await page.getByRole('button', { name: /^Transcript/i }).click();
       await expectVisible(page.getByRole('heading', { name: 'Verbatim Speech Transcript' }));
-      await utteranceInput.fill('Local anaesthesia: 2.2mL Lignocaine 2% with 1:80,000 adrenaline via infiltration tooth 16.');
-      await addUtteranceBtn.click();
-      await expectVisible(page.getByText('Local anaesthesia: 2.2mL Lignocaine'));
-
-      await utteranceInput.fill('Rubber dam isolation applied tooth 16. Existing restoration and recurrent caries removed.');
-      await addUtteranceBtn.click();
-      await expectVisible(page.getByText('Rubber dam isolation applied tooth 16'));
-
-      await utteranceInput.fill('Acid etched with 37% phosphoric acid. Single bond applied and light cured for 20s.');
-      await addUtteranceBtn.click();
-      await expectVisible(page.getByText('Acid etched with 37% phosphoric acid'));
-
-      await utteranceInput.fill('Restored tooth 16 MO with Filtek Supreme composite shade A2. Finished with fine diamonds and polished.');
-      await addUtteranceBtn.click();
-      await expectVisible(page.getByText('Restored tooth 16 MO with Filtek Supreme'));
+      await addUtterance('Local anaesthesia: 2.2mL Lignocaine 2% with 1:80,000 adrenaline via infiltration tooth 16.', 'Local anaesthesia: 2.2mL Lignocaine');
+      await addUtterance('Rubber dam isolation applied tooth 16. Existing restoration and recurrent caries removed.', 'Rubber dam isolation applied tooth 16');
+      await addUtterance('Acid etched with 37% phosphoric acid. Single bond applied and light cured for 20s.', 'Acid etched with 37% phosphoric acid');
+      await addUtterance('Restored tooth 16 MO with Filtek Supreme composite shade A2. Finished with fine diamonds and polished.', 'Restored tooth 16 MO with Filtek Supreme');
 
       // Generate Note
       await page.getByRole('button', { name: /create note/i }).click();
@@ -292,21 +279,10 @@ describe('Clinical Workspace - Daily Dentist Persona & Operations', () => {
       // Transcript
       await page.getByRole('button', { name: /^Transcript/i }).click();
       await expectVisible(page.getByRole('heading', { name: 'Verbatim Speech Transcript' }));
-      await utteranceInput.fill('Inferior alveolar nerve block with 2.2mL Articaine 4% with 1:100,000 adrenaline. Profound anaesthesia confirmed.');
-      await addUtteranceBtn.click();
-      await expectVisible(page.getByText('Inferior alveolar nerve block'));
-
-      await utteranceInput.fill('Surgical extraction of tooth 48. Full thickness envelope flap raised. Buccal guttering with surgical bur under saline.');
-      await addUtteranceBtn.click();
-      await expectVisible(page.getByText('Surgical extraction of tooth 48'));
-
-      await utteranceInput.fill('Crown sectioned and roots delivered intact. Socket debrided and irrigated. Hemostasis achieved with Surgicel.');
-      await addUtteranceBtn.click();
-      await expectVisible(page.getByText('Crown sectioned and roots delivered intact'));
-
-      await utteranceInput.fill('Closed with 3-0 Vicryl resorbable sutures. Post-operative care instructions provided.');
-      await addUtteranceBtn.click();
-      await expectVisible(page.getByText('Closed with 3-0 Vicryl resorbable sutures'));
+      await addUtterance('Inferior alveolar nerve block with 2.2mL Articaine 4% with 1:100,000 adrenaline. Profound anaesthesia confirmed.', 'Inferior alveolar nerve block');
+      await addUtterance('Surgical extraction of tooth 48. Full thickness envelope flap raised. Buccal guttering with surgical bur under saline.', 'Surgical extraction of tooth 48');
+      await addUtterance('Crown sectioned and roots delivered intact. Socket debrided and irrigated. Hemostasis achieved with Surgicel.', 'Crown sectioned and roots delivered intact');
+      await addUtterance('Closed with 3-0 Vicryl resorbable sutures. Post-operative care instructions provided.', 'Closed with 3-0 Vicryl resorbable sutures');
 
       // Generate note
       await page.getByRole('button', { name: /create note/i }).click();
@@ -328,16 +304,9 @@ describe('Clinical Workspace - Daily Dentist Persona & Operations', () => {
 
       await page.getByRole('button', { name: /^Transcript/i }).click();
       await expectVisible(page.getByRole('heading', { name: 'Verbatim Speech Transcript' }));
-      await utteranceInput.fill('Tooth 24 tender to percussion. Lingering severe pain with cold test. Diagnosis: irreversible pulpitis tooth 24.');
-      await addUtteranceBtn.click();
-      await expectVisible(page.getByText('Tooth 24 tender to percussion'));
-
-      await utteranceInput.fill('Rubber dam placed. Access cavity prepared. Pulp tissue extirpated from buccal and palatal canals.');
-      await addUtteranceBtn.click();
-      await expectVisible(page.getByText('Rubber dam placed'));
-
-      await utteranceInput.fill('Canals copiously irrigated with 1% sodium hypochlorite. Odontopaste dressing placed. Sealed with Cavit temporary.');
-      await addUtteranceBtn.click();
+      await addUtterance('Tooth 24 tender to percussion. Lingering severe pain with cold test. Diagnosis: irreversible pulpitis tooth 24.', 'Tooth 24 tender to percussion');
+      await addUtterance('Rubber dam placed. Access cavity prepared. Pulp tissue extirpated from buccal and palatal canals.', 'Rubber dam placed');
+      await addUtterance('Canals copiously irrigated with 1% sodium hypochlorite. Odontopaste dressing placed. Sealed with Cavit temporary.', 'Canals copiously irrigated');
       await expectVisible(page.getByText('Canals copiously irrigated'));
 
       await page.getByRole('button', { name: /create note/i }).click();

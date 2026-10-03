@@ -117,7 +117,7 @@ export default function TranscriptTab({
   };
 
   const handleAddUtterance = () => {
-    const text = newUtteranceText.trim();
+    const text = (newUtteranceText || inputRef.current?.value || '').trim();
     if (!text) return;
     if (onAddUtterance) {
       onAddUtterance(text, inputSpeaker);
@@ -126,6 +126,9 @@ export default function TranscriptTab({
       commit(next);
     }
     setNewUtteranceText('');
+    if (inputRef.current) {
+      inputRef.current.value = '';
+    }
   };
 
   const handleInsertSampleTranscript = () => {
