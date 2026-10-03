@@ -195,11 +195,11 @@ describe('Clinical Workspace - Daily Dentist Persona & Operations', () => {
       await expectVisible(page.getByText(/subjective/i));
       await expectVisible(page.getByText(/16/));
 
-      // Verify PMS copy button
-      const copyBtn = page.getByRole('button', { name: 'Copy to PMS' });
+      // Verify Note copy button
+      const copyBtn = page.getByRole('button', { name: 'Copy', exact: true });
       await expectVisible(copyBtn);
       await copyBtn.click();
-      await expectVisible(page.getByText('Copied!'));
+      await expectVisible(page.getByText(/copied/i));
 
       // =========================================================================
       // 3. ENCOUNTER 2: OPERATIVE RESTORATION (16 MO COMPOSITE) & SIGN-OFF
@@ -394,18 +394,15 @@ describe('Clinical Workspace - Daily Dentist Persona & Operations', () => {
       await page.getByPlaceholder('Patient Name').waitFor({ state: 'visible', timeout: 30_000 });
       await expectVisible(page.getByText('Dr. Marcus Vance'));
 
-      // Verify Practice Hub navigation buttons
-      await expectVisible(page.getByRole('button', { name: 'Day Schedule' }));
-      await expectVisible(page.getByRole('button', { name: 'Treatment Pipeline' }));
-      await expectVisible(page.getByRole('button', { name: 'Practice Records' }));
+      // Verify Day Schedule, Treatment Pipeline, and Practice Records are removed to prevent state loss
+      expect(await page.getByRole('button', { name: 'Day Schedule' }).count()).toBe(0);
+      expect(await page.getByRole('button', { name: 'Treatment Pipeline' }).count()).toBe(0);
+      expect(await page.getByRole('button', { name: 'Practice Records' }).count()).toBe(0);
+      expect(await page.getByRole('button', { name: 'Copy to PMS' }).count()).toBe(0);
 
-      // Navigate to Treatment Pipeline Hub
-      await page.getByRole('button', { name: 'Treatment Pipeline' }).click();
-      await expectVisible(page.getByText(/treatment/i));
-
-      // Return to Workspace
-      await page.getByRole('button', { name: 'New Consultation' }).click();
-      await expectVisible(page.getByPlaceholder('Patient Name'));
+      // Verify Sessions drawer remains accessible and shows saved consultations
+      const sessionsBtn = page.getByRole('button', { name: /Sessions/i });
+      await expectVisible(sessionsBtn);
 
       // Final check: zero unexpected page errors occurred during the entire day
       expect(pageErrors, 'no unhandled exceptions in the entire clinical workflow').toEqual([]);

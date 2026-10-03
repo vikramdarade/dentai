@@ -20,7 +20,6 @@ import { splitConsultationTranscript, TranscriptSplit } from '../lib/sessionSepa
 import { reformatNoteIntoTemplate, DENTAL_TEMPLATES } from '../lib/templateEngine';
 import { markSessionDirty, getDirtySessionIds } from '../lib/sessionCache';
 import { normalizeSpokenDentalText } from '../lib/dentalPhoneticLexicon';
-import { convertMarkdownTablesToCleanText } from '../lib/pmsExporter';
 import { useNotePipeline } from '../hooks/useNotePipeline';
 import { getClinicTodayIso } from '../utils/date';
 import { blobToBase64, uploadAudioSegment, requestTranscription, isTranscriptionFailure } from '../lib/transcribeClient';
@@ -40,7 +39,6 @@ export interface ClinicalWorkspaceProps {
   onSaveConsultation: (consult: Consultation) => Promise<void> | void;
   pendingSyncCount?: number;
   initialSessionId?: string;
-  onNavigateToHub?: (tab?: 'schedule' | 'records' | 'pipeline') => void;
 }
 
 type TabType = 'context' | 'transcript' | 'note' | 'document';
@@ -60,7 +58,6 @@ export default function ClinicalWorkspace({
   onSaveConsultation,
   pendingSyncCount = 0,
   initialSessionId,
-  onNavigateToHub,
 }: ClinicalWorkspaceProps) {
   // Active Consultation Session State
   //
@@ -130,27 +127,12 @@ export default function ClinicalWorkspace({
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('ahpra-standard');
   const [currentNote, setCurrentNote] = useState<string>('');
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'dirty'>('saved');
-  const [copiedNote, setCopiedNote] = useState(false);
   const saveDebounceTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Template display name lookup for quick header badge
   const currentTemplateName = useMemo(() => {
     return DENTAL_TEMPLATES.find(t => t.id === selectedTemplateId)?.name || 'AHPRA Standard';
   }, [selectedTemplateId]);
-
-  // Fast 1-click copy note for PMS (clean text, no raw markdown tables)
-  const handleQuickCopyNote = useCallback(async () => {
-    if (!currentNote.trim()) return;
-    try {
-      const clean = convertMarkdownTablesToCleanText(currentNote);
-      await navigator.clipboard.writeText(clean);
-      setCopiedNote(true);
-      setToastMessage('✓ Copied note to clipboard (clean PMS format)');
-      setTimeout(() => setCopiedNote(false), 2000);
-    } catch {
-      setToastMessage('Could not copy to clipboard');
-    }
-  }, [currentNote]);
 
   // Canonical builder for the currently active consultation encounter (persisted or in-progress)
   const buildLiveConsultation = useCallback((overrides: Partial<Consultation> = {}): Consultation => {
@@ -955,52 +937,6 @@ export default function ClinicalWorkspace({
               </span>
             </button>
 
-            {onNavigateToHub && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => onNavigateToHub('schedule')}
-                  className="flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium text-slate-600 hover:bg-slate-100/70 hover:text-slate-900 transition-colors cursor-pointer"
-                  title="View daily schedule and import PMS daysheet (OCR)"
-                >
-                  <div className="flex items-center gap-3">
-                    <svg className="w-4 h-4 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                    </svg>
-                    <span>Day Schedule</span>
-                  </div>
-                  <span className="text-[10px] font-semibold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded">OCR</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => onNavigateToHub('pipeline')}
-                  className="flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium text-slate-600 hover:bg-slate-100/70 hover:text-slate-900 transition-colors cursor-pointer"
-                  title="View unbooked care opportunities and treatment recovery pipeline"
-                >
-                  <div className="flex items-center gap-3">
-                    <svg className="w-4 h-4 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-                    </svg>
-                    <span>Treatment Pipeline</span>
-                  </div>
-                  <span className="text-[10px] font-semibold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded">Care</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => onNavigateToHub('records')}
-                  className="flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium text-slate-600 hover:bg-slate-100/70 hover:text-slate-900 transition-colors cursor-pointer"
-                  title="Search and export practice clinical history"
-                >
-                  <svg className="w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-                  </svg>
-                  <span>Practice Records</span>
-                </button>
-              </>
-            )}
-
             <button
               type="button"
               onClick={() => setShowTemplatesModal(true)}
@@ -1120,32 +1056,6 @@ export default function ClinicalWorkspace({
 
           {/* Quick Header Actions */}
           <div className="flex items-center gap-2">
-            {/* Quick 1-click Copy Note for PMS */}
-            {currentNote.trim().length > 0 && (
-              <button
-                type="button"
-                onClick={handleQuickCopyNote}
-                className="flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-semibold rounded-lg shadow-xs transition-all cursor-pointer"
-                title="Copy formatted note to clipboard for D4W / Exact / Best Practice"
-              >
-                {copiedNote ? (
-                  <>
-                    <svg className="w-3.5 h-3.5 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                    </svg>
-                    <span className="text-emerald-700 font-bold">Copied!</span>
-                  </>
-                ) : (
-                  <>
-                    <svg className="w-3.5 h-3.5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
-                    </svg>
-                    <span>Copy to PMS</span>
-                  </>
-                )}
-              </button>
-            )}
-
             {/* Fast Next Patient Advance (⌘→) */}
             <button
               type="button"

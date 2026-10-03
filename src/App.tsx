@@ -814,10 +814,6 @@ export default function App() {
           onSaveConsultation={handleSaveConsultation}
           pendingSyncCount={pendingSyncCount}
           initialSessionId={selectedConsultation?.id}
-          onNavigateToHub={(tab) => {
-            setHubInitialTab(tab || 'schedule');
-            setView('history');
-          }}
         />
       )}
       {view === 'history' && (
