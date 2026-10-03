@@ -417,10 +417,12 @@ app.use('/api/notes/jobs', jobSubmitMetering);
 const signOffValidator = createSignOffValidator({
   loadConsultation: async (id: string, dentistId: string) => {
     if (dbEnabled) {
+      const direct = await dbGetConsultationById(id, dentistId);
+      if (direct) return direct;
       return (await dbListConsultations(dentistId)).find((c: any) => c.id === id) || null;
     }
     return (await readConsultationsDb()).consultations.find(
-      (c: any) => c.id === id && c.dentistId === dentistId
+      (c: any) => c.id === id && (!c.dentistId || c.dentistId === dentistId)
     ) || null;
   },
   logAudit,
@@ -437,7 +439,8 @@ const signOffValidator = createSignOffValidator({
   persistSeal: async (consultationId: string, dentistId: string, seal) => {
     try {
       if (dbEnabled) {
-        const existing = (await dbListConsultations(dentistId)).find((c: any) => c.id === consultationId);
+        const direct = await dbGetConsultationById(consultationId, dentistId);
+        const existing = direct || (await dbListConsultations(dentistId)).find((c: any) => c.id === consultationId);
         if (!existing) return false;
         const updated = {
           ...existing,
@@ -448,7 +451,7 @@ const signOffValidator = createSignOffValidator({
       }
       const data = await readConsultationsDb();
       const index = data.consultations.findIndex(
-        (c: any) => c.id === consultationId && c.dentistId === dentistId
+        (c: any) => c.id === consultationId && (!c.dentistId || c.dentistId === dentistId)
       );
       if (index === -1) return false;
       data.consultations[index] = {

@@ -7,6 +7,7 @@ export interface UseSignOffOptions {
   consultation: Consultation | null;
   authToken: string | null;
   onSigned?: (updatedConsultation: Consultation) => void;
+  onBeforeSign?: () => Promise<void>;
 }
 
 export interface UseSignOffReturn {
@@ -27,6 +28,7 @@ export function useSignOff({
   consultation,
   authToken,
   onSigned,
+  onBeforeSign,
 }: UseSignOffOptions): UseSignOffReturn {
   const [isSigning, setIsSigning] = useState(false);
   const [lastRefusal, setLastRefusal] = useState<{
@@ -74,6 +76,10 @@ export function useSignOff({
     setLastRefusal(null);
 
     try {
+      if (onBeforeSign) {
+        await onBeforeSign();
+      }
+
       const expectedVersion = typeof consultation.recordVersion === 'number'
         ? consultation.recordVersion
         : typeof (consultation as any).version === 'number'
@@ -134,7 +140,7 @@ export function useSignOff({
     } finally {
       setIsSigning(false);
     }
-  }, [consultation, authToken, isSigned, seal, onSigned]);
+  }, [consultation, authToken, isSigned, seal, onSigned, onBeforeSign]);
 
   return {
     isSigning,

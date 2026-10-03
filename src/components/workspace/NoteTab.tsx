@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
   Eye,
   Edit3,
@@ -34,6 +34,7 @@ interface NoteTabProps {
   consultation?: Consultation | null;
   authToken?: string | null;
   onSigned?: (updated: Consultation) => void;
+  onSaveConsultation?: (consultation: Consultation) => Promise<void> | void;
 }
 
 interface ParsedTable {
@@ -61,12 +62,25 @@ export default function NoteTab({
   consultation,
   authToken,
   onSigned,
+  onSaveConsultation,
 }: NoteTabProps) {
+  // Ensure the latest note edits are saved to the server before requesting cryptographic sign-off
+  const handleBeforeSign = useCallback(async () => {
+    if (onSaveConsultation && consultation) {
+      const record: Consultation = {
+        ...consultation,
+        clinicalProgressNote: noteText,
+      };
+      await onSaveConsultation(record);
+    }
+  }, [onSaveConsultation, consultation, noteText]);
+
   // Server-authoritative signing and evidentiary grounding review
   const { isSigning, isSigned, seal, refusalMessage, signRecord, clearRefusal } = useSignOff({
     consultation: consultation || null,
     authToken: authToken || null,
     onSigned,
+    onBeforeSign: handleBeforeSign,
   });
 
   const { badge, isApprovedForSigning, groundingExplanation } = useGroundingReview(

@@ -1287,6 +1287,7 @@ export default function ClinicalWorkspace({
               dentistName={dentistName}
               consultation={buildLiveConsultation()}
               authToken={authToken}
+              onSaveConsultation={onSaveConsultation}
               onSigned={(updated) => {
                 void onSaveConsultation(updated);
                 setToastMessage('Clinical note cryptographically signed & sealed.');

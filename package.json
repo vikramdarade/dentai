@@ -17,7 +17,7 @@
     "test": "vitest run --fileParallelism=false --test-timeout=60000",
     "test:integration": "vitest run tests/server.test.ts --run --test-timeout=60000",
     "test:postgres": "vitest run tests/postgres.test.ts --run --test-timeout=60000",
-    "test:e2e": "vitest run --config vitest.e2e.config.ts",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts --fileParallelism=false",
     "eval:notes": "tsx scripts/eval-notes.ts",
     "eval:benchmark": "tsx scripts/run-clinical-benchmark.ts",
     "eval:gold-set": "tsx scripts/eval-gold-set.ts",

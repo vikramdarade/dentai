@@ -163,7 +163,7 @@ export default function App() {
           bodyForServer.expectedVersion = stamped.recordVersion;
         }
 
-        const res = await fetch(url, {
+        let res = await fetch(url, {
           method: upsert.isNew ? 'POST' : 'PUT',
           headers: {
             'Content-Type': 'application/json',
@@ -171,6 +171,18 @@ export default function App() {
           },
           body: JSON.stringify(bodyForServer),
         });
+
+        // If PUT returned 404 (record does not exist on server), fall back to POST
+        if (res.status === 404 && !upsert.isNew) {
+          res = await fetch('/api/consultations', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${authToken}`,
+            },
+            body: JSON.stringify(stamped),
+          });
+        }
 
         if (res.ok) {
           const saved: Consultation = await res.json().catch(() => stamped);
