@@ -18,7 +18,7 @@ import KeyboardModal from './workspace/KeyboardModal';
 import { AudioRecorder } from '../lib/audioRecorder';
 import { splitConsultationTranscript, TranscriptSplit } from '../lib/sessionSeparator';
 import { reformatNoteIntoTemplate, DENTAL_TEMPLATES } from '../lib/templateEngine';
-import { markSessionDirty, getDirtySessionIds } from '../lib/sessionCache';
+import { markSessionDirty, clearSessionDirty, getDirtySessionIds } from '../lib/sessionCache';
 import { normalizeSpokenDentalText } from '../lib/dentalPhoneticLexicon';
 import { useNotePipeline } from '../hooks/useNotePipeline';
 import { getClinicTodayIso } from '../utils/date';
@@ -174,6 +174,7 @@ export default function ClinicalWorkspace({
       },
     };
 
+    const isRecordSigned = Boolean(overrides.attestation?.signatureHash || base.attestation?.signatureHash);
     return {
       ...base,
       recordVersion: overrides.recordVersion ?? base.recordVersion ?? (base.revisions?.length || 1),
@@ -181,6 +182,8 @@ export default function ClinicalWorkspace({
       lastName: overrides.lastName ?? (base.lastName || rawLast),
       clinicalProgressNote: overrides.clinicalProgressNote ?? currentNote,
       transcript: sessionTranscript,
+      attestation: overrides.attestation ?? base.attestation,
+      status: overrides.status ?? (isRecordSigned ? 'Completed' : base.status),
       findings: {
         ...(base.findings || defaultFindings),
         history: contextText,
@@ -227,6 +230,8 @@ export default function ClinicalWorkspace({
       try {
         const record = buildLiveConsultation({ clinicalProgressNote: newNote });
         await onSaveConsultation(record);
+        clearSessionDirty(activeSessionId);
+        setDirtySessionIds(getDirtySessionIds());
         setSaveStatus('saved');
       } catch {
         setSaveStatus('dirty');
@@ -254,6 +259,8 @@ export default function ClinicalWorkspace({
         });
         (record as any).patientName = newName;
         await onSaveConsultation(record);
+        clearSessionDirty(activeSessionId);
+        setDirtySessionIds(getDirtySessionIds());
         setSaveStatus('saved');
       } catch {
         setSaveStatus('dirty');
@@ -290,6 +297,8 @@ export default function ClinicalWorkspace({
           },
         });
         await onSaveConsultation(record);
+        clearSessionDirty(activeSessionId);
+        setDirtySessionIds(getDirtySessionIds());
         setSaveStatus('saved');
       } catch {
         setSaveStatus('dirty');
@@ -685,9 +694,9 @@ export default function ClinicalWorkspace({
           transcript,
           status: 'Completed',
         });
-        void onSaveConsultation(updatedConsult);
+        await onSaveConsultation(updatedConsult);
 
-        markSessionDirty(activeSessionId);
+        clearSessionDirty(activeSessionId);
         setDirtySessionIds(getDirtySessionIds());
       }
     } catch (err) {
@@ -778,9 +787,9 @@ export default function ClinicalWorkspace({
             clinicalProgressNote: data.result,
             transcript,
           });
-          void onSaveConsultation(updated);
+          await onSaveConsultation(updated);
 
-          markSessionDirty(activeSessionId);
+          clearSessionDirty(activeSessionId);
           setDirtySessionIds(getDirtySessionIds());
         }
       }
@@ -1158,7 +1167,10 @@ export default function ClinicalWorkspace({
                 markSessionDirty(activeSessionId);
                 setDirtySessionIds(getDirtySessionIds());
                 const record = buildLiveConsultation({ transcript: updated });
-                void onSaveConsultation(record);
+                void onSaveConsultation(record)?.then(() => {
+                  clearSessionDirty(activeSessionId);
+                  setDirtySessionIds(getDirtySessionIds());
+                });
               }}
               onSeparateMergedSession={() => setShowSplitModal(true)}
               onStartListening={() => void handleStartAudio(null, captureMode)}
@@ -1181,7 +1193,10 @@ export default function ClinicalWorkspace({
               authToken={authToken}
               onSaveConsultation={onSaveConsultation}
               onSigned={(updated) => {
-                void onSaveConsultation(updated);
+                void onSaveConsultation(updated)?.then(() => {
+                  clearSessionDirty(activeSessionId);
+                  setDirtySessionIds(getDirtySessionIds());
+                });
                 setToastMessage('Clinical note cryptographically signed & sealed.');
               }}
               onFeedback={(rating) => setToastMessage(rating === 'positive' ? 'Thank you! Note feedback recorded.' : 'Feedback recorded — you can ask copilot below to adjust note.')}

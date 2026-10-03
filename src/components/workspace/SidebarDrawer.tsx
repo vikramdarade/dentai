@@ -25,7 +25,7 @@ export default function SidebarDrawer({
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<FilterTab>('all');
 
-  // Categorize counts
+  // Categorize counts (mutually exclusive clinical lifecycle states)
   const counts = useMemo(() => {
     let inProgress = 0;
     let completed = 0;
@@ -34,30 +34,30 @@ export default function SidebarDrawer({
     for (const c of consultations) {
       if (c.attestation?.signatureHash) {
         signed++;
-      }
-      if (c.status === 'Completed' || (c.clinicalProgressNote && c.clinicalProgressNote.trim().length > 30)) {
+      } else if (c.status === 'Completed' || (c.clinicalProgressNote && c.clinicalProgressNote.trim().length > 30)) {
         completed++;
-      }
-      if (c.id === activeSessionId || (!c.attestation?.signatureHash && c.status !== 'Completed')) {
+      } else {
         inProgress++;
       }
     }
 
     return { all: consultations.length, inProgress, completed, signed };
-  }, [consultations, activeSessionId]);
+  }, [consultations]);
 
   // Filter consultations across tab, patient name, date, or clinical content
   const filteredSessions = useMemo(() => {
     return consultations.filter(c => {
       // 1. Tab filter
+      const isSigned = Boolean(c.attestation?.signatureHash);
+      const isCompleted = !isSigned && (c.status === 'Completed' || (c.clinicalProgressNote && c.clinicalProgressNote.trim().length > 30));
+      const isInProgress = !isSigned && !isCompleted;
+
       if (activeFilter === 'in_progress') {
-        const isInProgress = c.id === activeSessionId || (!c.attestation?.signatureHash && c.status !== 'Completed');
         if (!isInProgress) return false;
       } else if (activeFilter === 'completed') {
-        const isCompleted = c.status === 'Completed' || (c.clinicalProgressNote && c.clinicalProgressNote.trim().length > 30);
         if (!isCompleted) return false;
       } else if (activeFilter === 'signed') {
-        if (!c.attestation?.signatureHash) return false;
+        if (!isSigned) return false;
       }
 
       // 2. Search query filter
@@ -69,7 +69,7 @@ export default function SidebarDrawer({
       const complaint = (c.findings?.chiefComplaint || '').toLowerCase();
       return name.includes(query) || date.includes(query) || note.includes(query) || complaint.includes(query);
     });
-  }, [consultations, activeFilter, searchQuery, activeSessionId]);
+  }, [consultations, activeFilter, searchQuery]);
 
   if (!isOpen) return null;
 
@@ -204,9 +204,9 @@ export default function SidebarDrawer({
         ) : (
           filteredSessions.map((session) => {
             const isActive = session.id === activeSessionId;
-            const isDirty = dirtySessionIds.includes(session.id);
             const isSigned = Boolean(session.attestation?.signatureHash);
-            const isCompleted = session.status === 'Completed' || (session.clinicalProgressNote && session.clinicalProgressNote.trim().length > 30);
+            const isDirty = !isSigned && dirtySessionIds.includes(session.id);
+            const isCompleted = !isSigned && (session.status === 'Completed' || (session.clinicalProgressNote && session.clinicalProgressNote.trim().length > 30));
             const rawFirst = (session.firstName || '').trim();
             const rawLast = (session.lastName || '').trim();
             const fallbackName = (session as any).patientName || (session as any).name;
@@ -262,12 +262,7 @@ export default function SidebarDrawer({
 
                   {/* Status Badges */}
                   <div className="shrink-0 flex items-center gap-1">
-                    {isActive ? (
-                      <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-indigo-700 bg-indigo-100/90 px-1.5 py-0.5 rounded-full">
-                        <span className="w-1.5 h-1.5 rounded-full bg-indigo-600 animate-pulse" />
-                        In Progress
-                      </span>
-                    ) : isSigned ? (
+                    {isSigned ? (
                       <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded-full border border-emerald-200/60" title="Cryptographically sealed">
                         ✓ Signed
                       </span>
@@ -276,8 +271,14 @@ export default function SidebarDrawer({
                         Saved
                       </span>
                     ) : (
-                      <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded-full">
-                        Draft
+                      <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-indigo-700 bg-indigo-100/90 px-1.5 py-0.5 rounded-full">
+                        <span className="w-1.5 h-1.5 rounded-full bg-indigo-600 animate-pulse" />
+                        In Progress
+                      </span>
+                    )}
+                    {isActive && (
+                      <span className="inline-flex items-center text-[9px] font-bold text-indigo-700 bg-indigo-100/80 px-1.5 py-0.2 rounded-full border border-indigo-200">
+                        Active
                       </span>
                     )}
                   </div>
