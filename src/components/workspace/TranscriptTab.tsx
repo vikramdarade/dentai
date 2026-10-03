@@ -318,6 +318,8 @@ export default function TranscriptTab({
         </select>
         <input
           ref={inputRef}
+          id="transcript-utterance-input"
+          data-testid="utterance-input"
           type="text"
           value={newUtteranceText}
           onChange={(e) => setNewUtteranceText(e.target.value)}
@@ -336,6 +338,8 @@ export default function TranscriptTab({
         />
         <button
           type="button"
+          id="btn-add-utterance"
+          data-testid="add-utterance-btn"
           onClick={handleAddUtterance}
           disabled={!newUtteranceText.trim()}
           className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-semibold rounded-lg shadow-2xs transition-all cursor-pointer shrink-0"

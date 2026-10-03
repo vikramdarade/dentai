@@ -74,7 +74,9 @@ export function useSignOff({
     setLastRefusal(null);
 
     try {
-      const expectedVersion = typeof (consultation as any).version === 'number'
+      const expectedVersion = typeof consultation.recordVersion === 'number'
+        ? consultation.recordVersion
+        : typeof (consultation as any).version === 'number'
         ? (consultation as any).version
         : consultation.revisions?.length || 1;
 

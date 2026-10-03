@@ -89,6 +89,9 @@ export default function App() {
   // QLE-2026-0009: ids whose save has been sent but not settled. A poll response
   // that arrives in that window must not overwrite them.
   const inFlightSaveIdsRef = useRef<Set<string>>(new Set());
+  // Sequential per-record save queue: ensures subsequent rapid edits on the same device
+  // await the in-flight server response and inherit the latest stamped recordVersion.
+  const saveChainMapRef = useRef<Map<string, Promise<void>>>(new Map());
   const applyConsultations = useCallback(
     (updater: Consultation[] | ((prev: Consultation[]) => Consultation[])) => {
       setConsultations(consultationsStore.current.apply(updater));
@@ -125,73 +128,87 @@ export default function App() {
   // sidebar counted it, the toast confirmed it — and then vanished on reload,
   // because nothing had been written anywhere but this tab.
   const handleSaveConsultation = useCallback(async (consult: Consultation) => {
-    const stamped: Consultation = {
-      ...consult,
-      dentistId: consult.dentistId || currentUser?.id,
-      clinicId: consult.clinicId || activeClinic?.clinicId || undefined,
-    };
+    const priorPromise = saveChainMapRef.current.get(consult.id) || Promise.resolve();
 
-    const upsert = upsertConsultation(consultationsStore.current.read(), stamped);
-    applyConsultations(upsert.list);
-    if (currentUser?.id) {
-      saveLocalConsultations(upsert.list, currentUser.id);
-    }
+    const nextPromise = priorPromise.then(async () => {
+      const currentList = consultationsStore.current.read();
+      const existing = currentList.find(c => c.id === consult.id);
+      const latestVersion = typeof existing?.recordVersion === 'number'
+        ? (typeof consult.recordVersion === 'number' ? Math.max(consult.recordVersion, existing.recordVersion) : existing.recordVersion)
+        : consult.recordVersion;
 
-    if (!authToken) return;
+      const stamped: Consultation = {
+        ...consult,
+        dentistId: consult.dentistId || currentUser?.id,
+        clinicId: consult.clinicId || activeClinic?.clinicId || undefined,
+        recordVersion: latestVersion,
+      };
 
-    inFlightSaveIdsRef.current.add(stamped.id);
-    try {
-      const url = upsert.isNew ? '/api/consultations' : `/api/consultations/${stamped.id}`;
-      const bodyForServer: any = { ...stamped };
-      // Phase 12F: only a server-confirmed version is sent, so the server can
-      // refuse a stale write (409) rather than silently last-write-wins.
-      if (!upsert.isNew && typeof stamped.recordVersion === 'number') {
-        bodyForServer.expectedVersion = stamped.recordVersion;
+      const upsert = upsertConsultation(currentList, stamped);
+      applyConsultations(upsert.list);
+      if (currentUser?.id) {
+        saveLocalConsultations(upsert.list, currentUser.id);
       }
 
-      const res = await fetch(url, {
-        method: upsert.isNew ? 'POST' : 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${authToken}`,
-        },
-        body: JSON.stringify(bodyForServer),
-      });
+      if (!authToken) return;
 
-      if (res.ok) {
-        const saved: Consultation = await res.json().catch(() => stamped);
-        removePendingSync(stamped.id);
-        setPendingSyncCount(getPendingSync().length);
-        setSessionExpired(false);
-        // Merge the server echo into whatever the list is *now*: a newer save
-        // for another encounter may have landed while this write was in flight.
-        const synced = consultationsStore.current.read().map(c => (c.id === stamped.id ? saved : c));
-        applyConsultations(synced);
-        if (currentUser?.id) {
-          saveLocalConsultations(synced, currentUser.id);
+      inFlightSaveIdsRef.current.add(stamped.id);
+      try {
+        const url = upsert.isNew ? '/api/consultations' : `/api/consultations/${stamped.id}`;
+        const bodyForServer: any = { ...stamped };
+        // Phase 12F: only a server-confirmed version is sent, so the server can
+        // refuse a stale write (409) rather than silently last-write-wins.
+        if (!upsert.isNew && typeof stamped.recordVersion === 'number') {
+          bodyForServer.expectedVersion = stamped.recordVersion;
         }
-      } else if (res.status === 409) {
-        const conflict = await res.json().catch(() => ({}));
-        setConsultationConflict({
-          id: stamped.id,
-          message: conflict?.error || 'This record changed on another device since you opened it.',
-          currentVersion: conflict?.currentVersion,
-          serverRecord: conflict?.serverConsultation || null,
+
+        const res = await fetch(url, {
+          method: upsert.isNew ? 'POST' : 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${authToken}`,
+          },
+          body: JSON.stringify(bodyForServer),
         });
-      } else {
-        // A refused write is held on this device and the banner says so, rather
-        // than a screen that merely looks saved.
+
+        if (res.ok) {
+          const saved: Consultation = await res.json().catch(() => stamped);
+          removePendingSync(stamped.id);
+          setPendingSyncCount(getPendingSync().length);
+          setSessionExpired(false);
+          // Merge the server echo into whatever the list is *now*: a newer save
+          // for another encounter may have landed while this write was in flight.
+          const synced = consultationsStore.current.read().map(c => (c.id === stamped.id ? saved : c));
+          applyConsultations(synced);
+          if (currentUser?.id) {
+            saveLocalConsultations(synced, currentUser.id);
+          }
+        } else if (res.status === 409) {
+          const conflict = await res.json().catch(() => ({}));
+          setConsultationConflict({
+            id: stamped.id,
+            message: conflict?.error || 'This record changed on another device since you opened it.',
+            currentVersion: conflict?.currentVersion,
+            serverRecord: conflict?.serverConsultation || null,
+          });
+        } else {
+          // A refused write is held on this device and the banner says so, rather
+          // than a screen that merely looks saved.
+          queuePendingSync(stamped);
+          setPendingSyncCount(getPendingSync().length);
+          if (res.status === 401 || res.status === 403) setSessionExpired(true);
+        }
+      } catch (err) {
+        console.warn('Consultation save could not reach the clinic system; held on this device.', err);
         queuePendingSync(stamped);
         setPendingSyncCount(getPendingSync().length);
-        if (res.status === 401 || res.status === 403) setSessionExpired(true);
+      } finally {
+        inFlightSaveIdsRef.current.delete(stamped.id);
       }
-    } catch (err) {
-      console.warn('Consultation save could not reach the clinic system; held on this device.', err);
-      queuePendingSync(stamped);
-      setPendingSyncCount(getPendingSync().length);
-    } finally {
-      inFlightSaveIdsRef.current.delete(stamped.id);
-    }
+    });
+
+    saveChainMapRef.current.set(consult.id, nextPromise);
+    await nextPromise;
   }, [applyConsultations, currentUser, activeClinic, authToken]);
 
   // A dead session and a queue of unsent records tell the clinician the same
