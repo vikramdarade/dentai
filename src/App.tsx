@@ -16,6 +16,7 @@ import {
   getPendingSync,
   queuePendingSync,
   removePendingSync,
+  clearPendingSync,
   AuthUser
 } from './utils/storage';
 import { createConsultationListStore, upsertConsultation, mergeConsultationLists } from './lib/consultationList';
@@ -430,6 +431,60 @@ export default function App() {
   // clinic changes. An owner additionally sees every note recorded under the
   // clinics they own (cross-clinic view); switching away drops colleague
   // records so notes never leak between clinics.
+  // Re-upload any consultations that were queued while the backend was unreachable.
+  // Tries PUT first (record exists) and falls back to POST (record is new).
+  const flushPendingSync = useCallback(async (tokenOverride?: string, userOverride?: any) => {
+    const tk = tokenOverride || authToken;
+    const usr = userOverride || currentUser;
+    if (!tk || !usr) return;
+    const pending = getPendingSync();
+    if (pending.length === 0) {
+      setPendingSyncCount(0);
+      return;
+    }
+
+    const headers = {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${tk}`
+    };
+
+    for (const consult of pending) {
+      try {
+        const body = {
+          ...consult,
+          dentistId: consult.dentistId || usr.id
+        };
+
+        let res = await fetch(`/api/consultations/${consult.id}`, {
+          method: 'PUT',
+          headers,
+          body: JSON.stringify(body)
+        });
+        if (res.status === 404) {
+          res = await fetch('/api/consultations', {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(body)
+          });
+        }
+        if (res.ok || res.status === 409) {
+          // If 200/201 saved, or 409 (already exists on server), remove from local queue
+          removePendingSync(consult.id);
+        } else if (res.status === 401 || res.status === 403) {
+          setSessionExpired(true);
+          break;
+        }
+      } catch (err) {
+        console.warn('Pending sync flush interrupted; remaining items will retry on next load.', err);
+        break;
+      }
+    }
+
+    const remaining = getPendingSync().length;
+    setPendingSyncCount(remaining);
+    if (remaining === 0) setSessionExpired(false);
+  }, [authToken, currentUser]);
+
   useEffect(() => {
     if (!authToken || !currentUser) {
       applyConsultations([]);
@@ -459,11 +514,13 @@ export default function App() {
       if (document.hidden) return;
       fetchConsultations();
       syncActiveClinic();
+      flushPendingSync();
     }, 30_000);
     const onVisibilityChange = () => {
       if (!document.hidden) {
         fetchConsultations();
         syncActiveClinic();
+        flushPendingSync();
       }
     };
     document.addEventListener('visibilitychange', onVisibilityChange);
@@ -472,7 +529,7 @@ export default function App() {
       clearInterval(pollTimer);
       document.removeEventListener('visibilitychange', onVisibilityChange);
     };
-  }, [authToken, currentUser?.id, activeClinicId]);
+  }, [authToken, currentUser?.id, activeClinicId, flushPendingSync]);
 
   /** Records visible in the active clinic scope (owner view includes colleagues, own records always visible). */
   const visibleConsultations = useMemo(() => {
@@ -484,45 +541,6 @@ export default function App() {
     );
   }, [consultations, activeClinic, currentUser?.id]);
 
-  // Re-upload any consultations that were queued while the backend was unreachable.
-  // Tries PUT first (record exists) and falls back to POST (record is new).
-  const flushPendingSync = async () => {
-    if (!authToken || !currentUser) return;
-    const pending = getPendingSync();
-    if (pending.length === 0) return;
-
-    const headers = {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${authToken}`
-    };
-
-    for (const consult of pending) {
-      try {
-        let res = await fetch(`/api/consultations/${consult.id}`, {
-          method: 'PUT',
-          headers,
-          body: JSON.stringify(consult)
-        });
-        if (res.status === 404) {
-          res = await fetch('/api/consultations', {
-            method: 'POST',
-            headers,
-            body: JSON.stringify(consult)
-          });
-        }
-        if (res.ok) {
-          removePendingSync(consult.id);
-        }
-      } catch (err) {
-        console.warn('Pending sync flush interrupted; remaining items will retry on next load.', err);
-        break;
-      }
-    }
-
-    const remaining = getPendingSync().length;
-    setPendingSyncCount(remaining);
-    if (remaining === 0) setSessionExpired(false);
-  };
 
   const fetchConsultations = async (overrideToken?: string, overrideUser?: any) => {
     const tk = overrideToken || authToken;
@@ -581,6 +599,7 @@ export default function App() {
     // the authToken effect above also calls refreshClinics() on login.
     refreshClinics(token);
     fetchConsultations(token, dentist);
+    flushPendingSync(token, dentist);
     const local = getLocalConsultations(dentist.id);
     if (local) {
       applyConsultations(local);
@@ -688,20 +707,58 @@ export default function App() {
           schedule quietly rendered from cache. */}
       {(sessionExpired || pendingSyncCount > 0) && (
         <div
-          className="fixed top-3 left-1/2 -translate-x-1/2 z-[55] max-w-lg w-[calc(100%-1.5rem)] bg-rose-50 border border-rose-300 text-rose-900 rounded-xl shadow-lg px-4 py-3 text-xs"
+          className="fixed top-3 left-1/2 -translate-x-1/2 z-[55] max-w-xl w-[calc(100%-1.5rem)] bg-rose-50 border border-rose-300 text-rose-900 rounded-xl shadow-lg px-4 py-3 text-xs"
           data-testid="unsaved-records-banner"
           role="status"
         >
-          <div className="font-bold mb-0.5">
-            {sessionExpired ? 'Session expired — records are not reaching the clinic system' : 'Records held on this device only'}
-          </div>
-          <div className="text-rose-800">
-            {pendingSyncCount > 0
-              ? `${pendingSyncCount} record${pendingSyncCount === 1 ? '' : 's'} saved on this device but not yet in the clinic system. `
-              : ''}
-            {sessionExpired
-              ? 'Sign out and sign in again to upload them — nothing written from here is in the clinic record until then.'
-              : 'They upload automatically once the clinic system is reachable.'}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+            <div>
+              <div className="font-bold mb-0.5">
+                {sessionExpired ? 'Session expired — records are not reaching the clinic system' : 'Records held on this device only'}
+              </div>
+              <div className="text-rose-800">
+                {pendingSyncCount > 0
+                  ? `${pendingSyncCount} record${pendingSyncCount === 1 ? '' : 's'} saved on this device but not yet in the clinic system. `
+                  : ''}
+                {sessionExpired
+                  ? 'Sign out and sign in again to upload them — nothing written from here is in the clinic record until then.'
+                  : 'They upload automatically once the clinic system is reachable.'}
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              {!sessionExpired && pendingSyncCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => flushPendingSync()}
+                  className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white font-semibold rounded-lg shadow-xs transition-colors cursor-pointer text-xs"
+                  data-testid="sync-retry-btn"
+                >
+                  Retry Upload
+                </button>
+              )}
+              {sessionExpired && (
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white font-semibold rounded-lg shadow-xs transition-colors cursor-pointer text-xs"
+                  data-testid="sync-relogin-btn"
+                >
+                  Sign In Again
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  clearPendingSync();
+                  setPendingSyncCount(0);
+                }}
+                className="px-2.5 py-1 bg-white hover:bg-rose-100 text-rose-700 border border-rose-300 font-semibold rounded-lg transition-colors cursor-pointer text-xs"
+                data-testid="sync-discard-btn"
+                title="Discard records stored only on this device"
+              >
+                Discard Local
+              </button>
+            </div>
           </div>
         </div>
       )}

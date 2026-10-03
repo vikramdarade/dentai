@@ -177,3 +177,11 @@ export function queuePendingSync(consultation: Consultation): void {
 export function removePendingSync(consultationId: string): void {
   savePendingSync(getPendingSync().filter(c => c.id !== consultationId));
 }
+
+export function clearPendingSync(): void {
+  try {
+    localStorage.removeItem(STORAGE_KEYS.PENDING_SYNC);
+  } catch (err) {
+    console.error('[Storage] Failed to clear pending sync queue:', err);
+  }
+}
