@@ -951,7 +951,7 @@ export default function ClinicalWorkspace({
                 <span>Sessions</span>
               </div>
               <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-slate-200 text-slate-700">
-                {allDrawerSessions.length}
+                {consultations.length}
               </span>
             </button>
 
