@@ -23,6 +23,7 @@ import { normalizeSpokenDentalText } from '../lib/dentalPhoneticLexicon';
 import { useNotePipeline } from '../hooks/useNotePipeline';
 import { getClinicTodayIso } from '../utils/date';
 import { blobToBase64, uploadAudioSegment, requestTranscription, isTranscriptionFailure } from '../lib/transcribeClient';
+import { sortEncounters } from '../lib/encounterSession';
 
 export interface ClinicalWorkspaceProps {
   currentUser: AuthUser | null;
@@ -77,6 +78,9 @@ export default function ClinicalWorkspace({
   const [activeSessionId, setActiveSessionId] = useState<string>(() => {
     return consultations[0]?.id || `sess-${Date.now()}`;
   });
+  // Authoritative active session ref preventing async race conditions across patient boundaries (Phase 1)
+  const activeSessionIdRef = useRef<string>(activeSessionId);
+  activeSessionIdRef.current = activeSessionId;
 
   const [activeTab, setActiveTab] = useState<TabType>('note');
   const [showSessionsDrawer, setShowSessionsDrawer] = useState(false);
@@ -88,6 +92,7 @@ export default function ClinicalWorkspace({
   // Adopt initialSessionId when provided from external navigation (e.g. Schedule Queue or History)
   useEffect(() => {
     if (initialSessionId) {
+      activeSessionIdRef.current = initialSessionId;
       setActiveSessionId(initialSessionId);
     }
   }, [initialSessionId]);
@@ -99,6 +104,7 @@ export default function ClinicalWorkspace({
     if (userStartedSessionRef.current) return;
     if (consultations.length === 0) return;
     if (consultations.some(c => c.id === activeSessionId)) return;
+    activeSessionIdRef.current = consultations[0].id;
     setActiveSessionId(consultations[0].id);
   }, [consultations, activeSessionId]);
 
@@ -149,10 +155,12 @@ export default function ClinicalWorkspace({
       recallRequirements: '',
     };
 
-    const sessionTranscript = overrides.transcript ?? localLiveTranscriptsRef.current[activeSessionId] ?? transcript;
+    const targetId = overrides.id ?? activeSessionIdRef.current;
+    const sessionTranscript = overrides.transcript ?? localLiveTranscriptsRef.current[targetId] ?? transcript;
 
-    const base: Consultation = activeConsultation || {
-      id: activeSessionId,
+    const matchedConsult = consultations.find(c => c.id === targetId);
+    const base: Consultation = (matchedConsult || (activeConsultation && activeConsultation.id === targetId ? activeConsultation : null)) || {
+      id: targetId,
       dentistId: currentUser?.id,
       dentistName: currentUser?.name || dentistName,
       clinicId: activeClinicId || undefined,
@@ -220,7 +228,8 @@ export default function ClinicalWorkspace({
   // Auto-save on note edits
   const handleNoteChange = useCallback((newNote: string) => {
     setCurrentNote(newNote);
-    markSessionDirty(activeSessionId);
+    const targetSessionId = activeSessionIdRef.current;
+    markSessionDirty(targetSessionId);
     setDirtySessionIds(getDirtySessionIds());
     setSaveStatus('dirty');
 
@@ -228,21 +237,23 @@ export default function ClinicalWorkspace({
     setSaveStatus('saving');
     saveDebounceTimerRef.current = setTimeout(async () => {
       try {
-        const record = buildLiveConsultation({ clinicalProgressNote: newNote });
+        if (targetSessionId !== activeSessionIdRef.current) return;
+        const record = buildLiveConsultation({ id: targetSessionId, clinicalProgressNote: newNote });
         await onSaveConsultation(record);
-        clearSessionDirty(activeSessionId);
+        clearSessionDirty(targetSessionId);
         setDirtySessionIds(getDirtySessionIds());
         setSaveStatus('saved');
       } catch {
         setSaveStatus('dirty');
       }
     }, 1000);
-  }, [activeSessionId, buildLiveConsultation, onSaveConsultation]);
+  }, [buildLiveConsultation, onSaveConsultation]);
 
   // Auto-save on patient name edit
   const handlePatientNameChange = useCallback((newName: string) => {
     setPatientName(newName);
-    markSessionDirty(activeSessionId);
+    const targetSessionId = activeSessionIdRef.current;
+    markSessionDirty(targetSessionId);
     setDirtySessionIds(getDirtySessionIds());
     setSaveStatus('dirty');
 
@@ -253,25 +264,28 @@ export default function ClinicalWorkspace({
     setSaveStatus('saving');
     saveDebounceTimerRef.current = setTimeout(async () => {
       try {
+        if (targetSessionId !== activeSessionIdRef.current) return;
         const record = buildLiveConsultation({
+          id: targetSessionId,
           firstName: first || 'Patient',
           lastName: last,
         });
         (record as any).patientName = newName;
         await onSaveConsultation(record);
-        clearSessionDirty(activeSessionId);
+        clearSessionDirty(targetSessionId);
         setDirtySessionIds(getDirtySessionIds());
         setSaveStatus('saved');
       } catch {
         setSaveStatus('dirty');
       }
     }, 800);
-  }, [activeSessionId, buildLiveConsultation, onSaveConsultation]);
+  }, [buildLiveConsultation, onSaveConsultation]);
 
   // Auto-save on context edits
   const handleContextChange = useCallback((newContext: string) => {
     setContextText(newContext);
-    markSessionDirty(activeSessionId);
+    const targetSessionId = activeSessionIdRef.current;
+    markSessionDirty(targetSessionId);
     setDirtySessionIds(getDirtySessionIds());
     setSaveStatus('dirty');
 
@@ -279,6 +293,7 @@ export default function ClinicalWorkspace({
     setSaveStatus('saving');
     saveDebounceTimerRef.current = setTimeout(async () => {
       try {
+        if (targetSessionId !== activeSessionIdRef.current) return;
         const currentFindings = activeConsultation?.findings || {
           chiefComplaint: newContext,
           history: newContext,
@@ -290,6 +305,7 @@ export default function ClinicalWorkspace({
           recallRequirements: '',
         };
         const record = buildLiveConsultation({
+          id: targetSessionId,
           findings: {
             ...currentFindings,
             chiefComplaint: newContext,
@@ -297,14 +313,14 @@ export default function ClinicalWorkspace({
           },
         });
         await onSaveConsultation(record);
-        clearSessionDirty(activeSessionId);
+        clearSessionDirty(targetSessionId);
         setDirtySessionIds(getDirtySessionIds());
         setSaveStatus('saved');
       } catch {
         setSaveStatus('dirty');
       }
     }, 1000);
-  }, [activeSessionId, activeConsultation?.findings, buildLiveConsultation, onSaveConsultation]);
+  }, [activeConsultation?.findings, buildLiveConsultation, onSaveConsultation]);
 
   // Rehydrate state when active consultation changes (strictly on session switch)
   useEffect(() => {
@@ -357,6 +373,20 @@ export default function ClinicalWorkspace({
   const isRecordingRef = useRef(false);
   const isPausedRef = useRef(false);
 
+  // Transition state machine & debounce (D3 & D4)
+  const isTransitioningRef = useRef(false);
+  const [isTransitioning, setIsTransitioning] = useState(false);
+  const lastTransitionStartRef = useRef<number>(0);
+  const lastTransitionEndRef = useRef<number>(0);
+  const transitionSourceSessionIdRef = useRef<string | null>(null);
+  const TRANSITION_DEBOUNCE_MS = 600;
+
+  // Web Speech generation tracking (D5)
+  const speechGenerationRef = useRef<number>(0);
+
+  // In-flight audio chunk upload tracking & durability (D6)
+  const inFlightUploadsRef = useRef<Map<string, Set<Promise<boolean>>>>(new Map());
+
   // Keep refs in sync with state
   useEffect(() => {
     isRecordingRef.current = isRecording;
@@ -383,7 +413,8 @@ export default function ClinicalWorkspace({
 
   // Helper to append spoken or typed utterance with 0ms optimistic UI update & persistence
   const handleAppendTranscriptText = useCallback(
-    (text: string, sender: TranscriptItem['sender'] = 'Dialogue') => {
+    (text: string, sender: TranscriptItem['sender'] = 'Dialogue', explicitSessionId?: string) => {
+      const targetSessionId = explicitSessionId || activeSessionIdRef.current;
       if (!text.trim()) return;
       const normalized = normalizeSpokenDentalText(text.trim());
       if (!normalized) return;
@@ -396,26 +427,30 @@ export default function ClinicalWorkspace({
       const updatedItem: TranscriptItem = { sender, text: normalized };
 
       setLocalLiveTranscripts(prev => {
-        const list = prev[activeSessionId] || transcript || [];
-        return { ...prev, [activeSessionId]: [...list, updatedItem] };
+        const list = prev[targetSessionId] || [];
+        return { ...prev, [targetSessionId]: [...list, updatedItem] };
       });
 
-      setTranscript(prev => {
-        const updated = [...prev, updatedItem];
-        markSessionDirty(activeSessionId);
-        setDirtySessionIds(getDirtySessionIds());
-        setSaveStatus('saving');
-        const record = buildLiveConsultation({ transcript: updated });
-        void onSaveConsultation(record);
-        setSaveStatus('saved');
-        return updated;
-      });
+      // Only mutate active UI state and persisted consultation if target matches the active session
+      if (targetSessionId === activeSessionIdRef.current) {
+        setTranscript(prev => {
+          const updated = [...prev, updatedItem];
+          markSessionDirty(targetSessionId);
+          setDirtySessionIds(getDirtySessionIds());
+          setSaveStatus('saving');
+          const record = buildLiveConsultation({ id: targetSessionId, transcript: updated });
+          void onSaveConsultation(record);
+          setSaveStatus('saved');
+          return updated;
+        });
+      }
     },
-    [activeSessionId, transcript, buildLiveConsultation, onSaveConsultation]
+    [buildLiveConsultation, onSaveConsultation]
   );
 
   // Server-side audio diarisation & transcription via Whisper (Rule 16)
   const handleTranscribeRecordedAudio = useCallback(async () => {
+    const targetSessionId = activeSessionIdRef.current;
     if (!authToken) {
       setToastMessage('Sign in required for server-side audio diarisation.');
       return;
@@ -425,17 +460,24 @@ export default function ClinicalWorkspace({
     try {
       const res = await requestTranscription({
         authToken,
-        consultationId: activeSessionId,
+        consultationId: targetSessionId,
       });
+
+      // Phase 1.2: Hard async session ownership check. Discard stale response across patient boundary!
+      if (targetSessionId !== activeSessionIdRef.current) {
+        console.warn(`[BoundaryGuard] Discarding transcription response for prior session ${targetSessionId}; active is ${activeSessionIdRef.current}`);
+        return;
+      }
+
       if (res.ok && res.transcript && res.transcript.length > 0) {
         setLocalLiveTranscripts(prev => ({
           ...prev,
-          [activeSessionId]: res.transcript!,
+          [targetSessionId]: res.transcript!,
         }));
         setTranscript(res.transcript);
-        markSessionDirty(activeSessionId);
+        markSessionDirty(targetSessionId);
         setDirtySessionIds(getDirtySessionIds());
-        const record = buildLiveConsultation({ transcript: res.transcript });
+        const record = buildLiveConsultation({ id: targetSessionId, transcript: res.transcript });
         void onSaveConsultation(record);
         setToastMessage(`✓ Diarised transcript generated (${res.transcript.length} utterances).`);
       } else if (isTranscriptionFailure(res)) {
@@ -444,17 +486,208 @@ export default function ClinicalWorkspace({
         setToastMessage('No spoken dialogue found in recording.');
       }
     } catch {
-      setToastMessage('Transcription request failed.');
+      if (targetSessionId === activeSessionIdRef.current) {
+        setToastMessage('Transcription request failed.');
+      }
     } finally {
-      setIsTranscribingAudio(false);
+      if (targetSessionId === activeSessionIdRef.current) {
+        setIsTranscribingAudio(false);
+      }
     }
-  }, [authToken, activeSessionId, buildLiveConsultation, onSaveConsultation]);
+  }, [authToken, buildLiveConsultation, onSaveConsultation]);
+
+  // D6: Track in-flight audio chunk uploads per consultation ID to guarantee durability & prevent cross-patient re-attribution
+  const trackAudioChunkUpload = useCallback((consultationId: string, chunkIndex: number, blob: Blob) => {
+    if (!authToken) return Promise.resolve(false);
+
+    const uploadTask = (async () => {
+      const maxRetries = 2;
+      let attempt = 0;
+      let success = false;
+
+      while (attempt <= maxRetries && !success) {
+        attempt++;
+        try {
+          const base64 = await blobToBase64(blob);
+          success = await uploadAudioSegment({
+            authToken,
+            consultationId,
+            chunkIndex,
+            base64,
+            sizeBytes: blob.size,
+          });
+          if (success) break;
+        } catch (err) {
+          console.warn(`[AudioEngine] Chunk ${chunkIndex} upload attempt ${attempt} failed for ${consultationId}:`, err);
+        }
+        if (!success && attempt <= maxRetries) {
+          await new Promise(r => setTimeout(r, attempt * 150));
+        }
+      }
+
+      if (!success) {
+        console.error(`[AudioEngine] CRITICAL: Chunk ${chunkIndex} upload failed for consultation ${consultationId} after retries.`);
+        setToastMessage(`⚠️ Audio upload failed for consultation ${consultationId.slice(0, 8)} (Chunk ${chunkIndex}).`);
+      }
+      return success;
+    })();
+
+    const set = inFlightUploadsRef.current.get(consultationId) || new Set<Promise<boolean>>();
+    set.add(uploadTask);
+    inFlightUploadsRef.current.set(consultationId, set);
+
+    uploadTask.finally(() => {
+      const currentSet = inFlightUploadsRef.current.get(consultationId);
+      if (currentSet) {
+        currentSet.delete(uploadTask);
+        if (currentSet.size === 0) {
+          inFlightUploadsRef.current.delete(consultationId);
+        }
+      }
+    });
+
+    return uploadTask;
+  }, [authToken]);
+
+  // D6: Await all in-flight chunk uploads for a session before advancing or stopping
+  const waitForSessionUploads = useCallback(async (consultationId: string, timeoutMs = 4000) => {
+    const set = inFlightUploadsRef.current.get(consultationId);
+    if (!set || set.size === 0) return true;
+
+    const pending = Array.from(set);
+    let timer: NodeJS.Timeout;
+    const timeoutPromise = new Promise<boolean>((resolve) => {
+      timer = setTimeout(() => resolve(false), timeoutMs);
+    });
+
+    const allSettled = Promise.all(pending).then(() => true).catch(() => false);
+    const result = await Promise.race([allSettled, timeoutPromise]);
+    clearTimeout(timer!);
+    return result;
+  }, []);
+
+  // D5: Unified SpeechRecognition loop guarded strictly by session generation
+  const startSpeechRecognizer = useCallback((sessionId: string) => {
+    const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRec) {
+      setToastMessage('This browser cannot transcribe speech — audio is recording only. Use Chrome for live transcription.');
+      return;
+    }
+
+    if (speechRecognizerRef.current) {
+      try {
+        if (typeof speechRecognizerRef.current.abort === 'function') {
+          speechRecognizerRef.current.abort();
+        } else {
+          speechRecognizerRef.current.stop();
+        }
+      } catch {}
+      speechRecognizerRef.current = null;
+    }
+
+    const generation = ++speechGenerationRef.current;
+    const boundSessionId = sessionId;
+
+    try {
+      const recognizer = new SpeechRec();
+      recognizer.continuous = true;
+      recognizer.interimResults = true;
+      recognizer.lang = 'en-AU';
+
+      recognizer.onresult = (event: any) => {
+        // D5: Explicit generation & session guard
+        if (speechGenerationRef.current !== generation || activeSessionIdRef.current !== boundSessionId) {
+          console.warn(`[SpeechGuard] Dropping delayed SpeechRecognition result for session ${boundSessionId} gen ${generation}; active is ${activeSessionIdRef.current} gen ${speechGenerationRef.current}`);
+          return;
+        }
+
+        let interim = '';
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const res = event.results[i];
+          if (res.isFinal) {
+            lastInterimRef.current = '';
+            setInterimTranscript('');
+            const rawText = res[0].transcript.trim();
+            if (rawText) {
+              handleAppendTranscriptText(rawText, 'Dialogue', boundSessionId);
+            }
+          } else {
+            interim += res[0].transcript;
+          }
+        }
+        if (interim.trim()) {
+          const norm = normalizeSpokenDentalText(interim.trim());
+          lastInterimRef.current = norm;
+          setInterimTranscript(norm);
+        }
+      };
+
+      recognizer.onend = () => {
+        // D5: If recognizer belongs to an older session or older generation, NEVER restart and do NOT mutate!
+        if (speechGenerationRef.current !== generation || activeSessionIdRef.current !== boundSessionId) {
+          return;
+        }
+
+        // Flush pending interim speech if user stopped or paused
+        if (lastInterimRef.current.trim() && (!isRecordingRef.current || isPausedRef.current)) {
+          handleAppendTranscriptText(lastInterimRef.current.trim(), 'Dialogue', boundSessionId);
+          lastInterimRef.current = '';
+          setInterimTranscript('');
+        }
+
+        // Auto-restart loop while recording is active for this session
+        if (isRecordingRef.current && !isPausedRef.current && speechGenerationRef.current === generation) {
+          setTimeout(() => {
+            try {
+              if (isRecordingRef.current && !isPausedRef.current && speechGenerationRef.current === generation && activeSessionIdRef.current === boundSessionId) {
+                recognizer.start();
+              }
+            } catch (e) {
+              console.warn('[Speech] Auto-restart loop notice:', e);
+            }
+          }, 80);
+        }
+      };
+
+      recognizer.onerror = (e: any) => {
+        if (speechGenerationRef.current !== generation || activeSessionIdRef.current !== boundSessionId) {
+          return;
+        }
+        if (e.error !== 'no-speech') {
+          console.warn('[Speech] Recognition notice:', e.error);
+        }
+        if (e.error === 'network' || e.error === 'service-not-allowed' || e.error === 'not-allowed') {
+          setToastMessage('Audio is recording, but live transcription is unavailable — speech-to-text is not running.');
+        }
+      };
+
+      recognizer.start();
+      speechRecognizerRef.current = recognizer;
+      setToastMessage('Listening & taking notes chairside...');
+    } catch (e) {
+      console.warn('[Speech] Recognition start failed:', e);
+    }
+  }, [handleAppendTranscriptText]);
 
   // Audio start handler with continuous speech recognition and audio segment streaming
   const handleStartAudio = useCallback(async (deviceId: string | null, mode: CaptureMode) => {
+    // D3: Cannot start audio while transition is in progress
+    if (isTransitioningRef.current) {
+      console.warn('[BoundaryGuard] Cannot start audio while patient transition is in progress — ignoring command');
+      return;
+    }
+
     try {
       setCaptureMode(mode);
       recordedChunkCountRef.current = 0;
+      const initialConsultId = activeSessionIdRef.current;
+
+      // INV-3 & D2: Ensure initial consultation exists on server before audio chunk upload begins
+      const existing = consultations.find(c => c.id === initialConsultId);
+      if (!existing) {
+        const initialRecord = buildLiveConsultation({ id: initialConsultId });
+        await onSaveConsultation(initialRecord);
+      }
 
       // Start hardware audio recorder for waveform, silence detection & chunk streaming
       const recorder = new AudioRecorder({
@@ -473,21 +706,9 @@ export default function ClinicalWorkspace({
           setToastMessage('Auto-paused recording after 3 minutes of silence.');
         },
         onError: (err) => console.warn('[AudioEngine] Recorder warning:', err),
-        onChunk: async (blob, index) => {
+        onChunk: (blob, index) => {
           recordedChunkCountRef.current = index + 1;
-          if (!authToken) return;
-          try {
-            const base64 = await blobToBase64(blob);
-            await uploadAudioSegment({
-              authToken,
-              consultationId: activeSessionId,
-              chunkIndex: index,
-              base64,
-              sizeBytes: blob.size,
-            });
-          } catch (err) {
-            console.warn('[AudioEngine] Chunk upload notice:', err);
-          }
+          void trackAudioChunkUpload(initialConsultId, index, blob);
         },
       });
 
@@ -500,84 +721,16 @@ export default function ClinicalWorkspace({
       isPausedRef.current = false;
       setSilenceSeconds(undefined);
 
-      // Start Web Speech API with auto-restarting loop & interim handling
-      const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-      if (SpeechRec) {
-        if (speechRecognizerRef.current) {
-          try { speechRecognizerRef.current.stop(); } catch {}
-        }
-
-        const recognizer = new SpeechRec();
-        recognizer.continuous = true;
-        recognizer.interimResults = true;
-        recognizer.lang = 'en-AU';
-
-        recognizer.onresult = (event: any) => {
-          let interim = '';
-          for (let i = event.resultIndex; i < event.results.length; i++) {
-            const res = event.results[i];
-            if (res.isFinal) {
-              lastInterimRef.current = '';
-              setInterimTranscript('');
-              const rawText = res[0].transcript.trim();
-              if (rawText) {
-                handleAppendTranscriptText(rawText, 'Dialogue');
-              }
-            } else {
-              interim += res[0].transcript;
-            }
-          }
-          if (interim.trim()) {
-            const norm = normalizeSpokenDentalText(interim.trim());
-            lastInterimRef.current = norm;
-            setInterimTranscript(norm);
-          }
-        };
-
-        recognizer.onend = () => {
-          // Flush pending interim speech if user stopped or paused
-          if (lastInterimRef.current.trim() && (!isRecordingRef.current || isPausedRef.current)) {
-            handleAppendTranscriptText(lastInterimRef.current.trim(), 'Dialogue');
-            lastInterimRef.current = '';
-            setInterimTranscript('');
-          }
-
-          // Auto-restart loop while recording is active (browser speech API timeout resilience)
-          if (isRecordingRef.current && !isPausedRef.current) {
-            setTimeout(() => {
-              try {
-                if (isRecordingRef.current && !isPausedRef.current) {
-                  recognizer.start();
-                }
-              } catch (e) {
-                console.warn('[Speech] Auto-restart loop notice:', e);
-              }
-            }, 80);
-          }
-        };
-
-        recognizer.onerror = (e: any) => {
-          if (e.error !== 'no-speech') {
-            console.warn('[Speech] Recognition notice:', e.error);
-          }
-          if (e.error === 'network' || e.error === 'service-not-allowed' || e.error === 'not-allowed') {
-            setToastMessage('Audio is recording, but live transcription is unavailable — speech-to-text is not running.');
-          }
-        };
-
-        recognizer.start();
-        speechRecognizerRef.current = recognizer;
-        setToastMessage('Listening & taking notes chairside...');
-      } else {
-        setToastMessage('This browser cannot transcribe speech — audio is recording only. Use Chrome for live transcription.');
-      }
+      // D5: Initialize SpeechRecognition bound to this session
+      startSpeechRecognizer(initialConsultId);
     } catch (err) {
       console.warn('[AudioEngine] Start failed:', err);
       setToastMessage('Please allow microphone access in your browser.');
     }
-  }, [authToken, activeSessionId, handleAppendTranscriptText]);
+  }, [activeSessionId, consultations, buildLiveConsultation, onSaveConsultation, trackAudioChunkUpload, startSpeechRecognizer]);
 
   const handlePauseAudio = useCallback(() => {
+    if (isTransitioningRef.current) return;
     audioRecorderRef.current?.pause();
     setIsPaused(true);
     isPausedRef.current = true;
@@ -585,6 +738,7 @@ export default function ClinicalWorkspace({
   }, []);
 
   const handleResumeAudio = useCallback(() => {
+    if (isTransitioningRef.current) return;
     audioRecorderRef.current?.resume();
     setIsPaused(false);
     isPausedRef.current = false;
@@ -595,6 +749,12 @@ export default function ClinicalWorkspace({
   }, []);
 
   const handleStopAudio = useCallback(async () => {
+    // D3: Cannot stop audio while transition is in progress
+    if (isTransitioningRef.current) {
+      console.warn('[BoundaryGuard] Cannot stop audio while patient transition is in progress — ignoring conflicting stop command');
+      return;
+    }
+
     setIsRecording(false);
     setIsPaused(false);
     isRecordingRef.current = false;
@@ -603,16 +763,24 @@ export default function ClinicalWorkspace({
     setSilenceSeconds(undefined);
     setRecordingSeconds(0);
 
+    const stoppingSessionId = activeSessionIdRef.current;
+
     // Flush any pending interim speech
     if (lastInterimRef.current.trim()) {
-      handleAppendTranscriptText(lastInterimRef.current.trim(), 'Dialogue');
+      handleAppendTranscriptText(lastInterimRef.current.trim(), 'Dialogue', stoppingSessionId);
       lastInterimRef.current = '';
       setInterimTranscript('');
     }
 
+    // D5: Invalidate speech generation
+    speechGenerationRef.current += 1;
     if (speechRecognizerRef.current) {
       try {
-        speechRecognizerRef.current.stop();
+        if (typeof speechRecognizerRef.current.abort === 'function') {
+          speechRecognizerRef.current.abort();
+        } else {
+          speechRecognizerRef.current.stop();
+        }
       } catch {}
       speechRecognizerRef.current = null;
     }
@@ -620,29 +788,41 @@ export default function ClinicalWorkspace({
     if (audioRecorderRef.current) {
       try {
         await audioRecorderRef.current.stop();
+        // D6: Await final chunk upload for stopping session
+        await waitForSessionUploads(stoppingSessionId, 4000);
       } catch {}
       audioRecorderRef.current = null;
     }
 
     setToastMessage('Consultation recording finalized.');
-  }, [handleAppendTranscriptText]);
+  }, [handleAppendTranscriptText, waitForSessionUploads]);
 
-  // Patient switch handler (strictly enforcing Cross-Patient Boundary Isolation Rule 14)
+  // Patient switch handler (strictly enforcing Cross-Patient Boundary Isolation Rule 14 & D3)
   const handleSelectSession = useCallback((sessionId: string) => {
+    if (isTransitioningRef.current) {
+      console.warn('[BoundaryGuard] Cannot select session while patient transition is in progress — ignoring command');
+      return;
+    }
     if (isRecordingRef.current) {
       void handleStopAudio();
     }
+    activeSessionIdRef.current = sessionId;
     setActiveSessionId(sessionId);
     setShowSessionsDrawer(false);
   }, [handleStopAudio]);
 
-  // New Session Button (Instant Start)
-  const handleNewSession = useCallback(() => {
+  // New Session Button (Instant Start & D3)
+  const handleNewSession = useCallback(async () => {
+    if (isTransitioningRef.current) {
+      console.warn('[BoundaryGuard] Cannot start new session while patient transition is in progress — ignoring command');
+      return;
+    }
     userStartedSessionRef.current = true;
     if (isRecordingRef.current) {
-      void handleStopAudio();
+      await handleStopAudio();
     }
-    const newId = `sess-${Date.now()}`;
+    const newId = `walkin-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    activeSessionIdRef.current = newId;
     lastLoadedSessionIdRef.current = newId;
     setActiveSessionId(newId);
     setPatientName('New Patient');
@@ -656,16 +836,21 @@ export default function ClinicalWorkspace({
 
   // Handle Note Generation via Resilient 3-Tier Pipeline
   const handleCreateNote = async () => {
+    if (isTransitioningRef.current) {
+      console.warn('[BoundaryGuard] Cannot create note while patient transition is in progress — ignoring command');
+      return;
+    }
     if (isRecordingRef.current) {
       await handleStopAudio();
     }
 
+    const targetSessionId = activeSessionIdRef.current;
     setIsCopilotLoading(true);
     setToastMessage('Generating clinical note with ADA item codes (3-Tier Engine)...');
 
     try {
-      const currentConsult: Consultation = activeConsultation || ({
-        id: activeSessionId,
+      const currentConsult: Consultation = (consultations.find(c => c.id === targetSessionId) || activeConsultation) || ({
+        id: targetSessionId,
         firstName: patientName.split(' ')[0] || 'Patient',
         lastName: patientName.split(' ').slice(1).join(' ') || '',
         clinicalProgressNote: currentNote,
@@ -684,22 +869,30 @@ export default function ClinicalWorkspace({
         patientName,
       });
 
+      // Phase 1.3: Hard async session ownership check
+      if (targetSessionId !== activeSessionIdRef.current) {
+        console.warn(`[BoundaryGuard] Discarding generated note for prior session ${targetSessionId}; active is ${activeSessionIdRef.current}`);
+        return;
+      }
+
       if (generated && generated.trim().length > 0) {
         setCurrentNote(generated);
         setActiveTab('note');
         setToastMessage('Clinical note generated successfully!');
 
         const updatedConsult = buildLiveConsultation({
+          id: targetSessionId,
           clinicalProgressNote: generated,
           transcript,
           status: 'Completed',
         });
         await onSaveConsultation(updatedConsult);
 
-        clearSessionDirty(activeSessionId);
+        clearSessionDirty(targetSessionId);
         setDirtySessionIds(getDirtySessionIds());
       }
     } catch (err) {
+      if (targetSessionId !== activeSessionIdRef.current) return;
       console.warn('[Workspace] Note generation error, falling back to local template:', err);
       const synthesized = reformatNoteIntoTemplate(selectedTemplateId, {
         complaint: contextText,
@@ -710,51 +903,222 @@ export default function ClinicalWorkspace({
       setActiveTab('note');
       setToastMessage('Note formatted with template.');
     } finally {
-      setIsCopilotLoading(false);
+      if (targetSessionId === activeSessionIdRef.current) {
+        setIsCopilotLoading(false);
+      }
     }
   };
 
-  // Fast Back-to-Back Patient Advance (Atomic Boundary Isolation - Rule 14)
+  // Fast Back-to-Back Patient Advance (Virtual Continuous Recording Boundary - Rule 14 & D1-D6)
   const handleNextPatient = useCallback(async () => {
-    // 1. Rule 14: Halt active audio immediately
-    if (isRecordingRef.current) {
-      await handleStopAudio();
+    const now = Date.now();
+
+    // D3 & D4: Transition Mutex & Debounce guard
+    if (isTransitioningRef.current) {
+      console.warn('[BoundaryGuard] Next Patient transition already in progress — ignoring concurrent trigger');
+      return;
+    }
+    if (now - lastTransitionStartRef.current < TRANSITION_DEBOUNCE_MS || now - lastTransitionEndRef.current < TRANSITION_DEBOUNCE_MS) {
+      console.warn('[BoundaryGuard] Debounced rapid Next Patient trigger within debounce window');
+      return;
     }
 
-    // 2. Auto-save current consultation snapshot before leaving
-    const snapshot = buildLiveConsultation({
-      clinicalProgressNote: currentNote,
-      transcript,
-    });
-    void onSaveConsultation(snapshot);
+    const priorSessionId = activeSessionIdRef.current;
+    if (transitionSourceSessionIdRef.current === priorSessionId && (now - lastTransitionEndRef.current < 1000)) {
+      console.warn(`[BoundaryGuard] Session ${priorSessionId} was already advanced recently — ignoring duplicate trigger`);
+      return;
+    }
 
-    // 3. Reset recording timer to 00:00 (Rule 14)
-    setRecordingSeconds(0);
-    setAudioLevel(0);
-    setSilenceSeconds(undefined);
+    isTransitioningRef.current = true;
+    setIsTransitioning(true);
+    lastTransitionStartRef.current = now;
+    transitionSourceSessionIdRef.current = priorSessionId;
 
-    // 4. Advance to next uncompleted consultation if available on today's roster
-    const currentIndex = consultations.findIndex(c => c.id === activeSessionId);
-    const nextConsult = consultations.slice(currentIndex + 1).find(c => c.status !== 'Completed' && !c.attestation?.signatureHash);
+    try {
+      // 1. Flush any pending interim speech for the departing patient
+      if (lastInterimRef.current.trim()) {
+        handleAppendTranscriptText(lastInterimRef.current.trim(), 'Dialogue', priorSessionId);
+        lastInterimRef.current = '';
+        setInterimTranscript('');
+      }
 
-    if (nextConsult) {
+      // D5: Invalidate old speech recognition generation immediately so no lingering speech can touch prior or next session
+      speechGenerationRef.current += 1;
+      if (speechRecognizerRef.current) {
+        try {
+          if (typeof speechRecognizerRef.current.abort === 'function') {
+            speechRecognizerRef.current.abort();
+          } else {
+            speechRecognizerRef.current.stop();
+          }
+        } catch {}
+        speechRecognizerRef.current = null;
+      }
+
+      // 2. Auto-save current consultation snapshot before leaving
+      const departingSnapshot = buildLiveConsultation({
+        id: priorSessionId,
+        clinicalProgressNote: currentNote,
+        transcript: localLiveTranscriptsRef.current[priorSessionId] || transcript,
+      });
+      void onSaveConsultation(departingSnapshot);
+
+      // 3. Reset recording visual metrics for incoming patient
+      setRecordingSeconds(0);
+      setAudioLevel(0);
+      setSilenceSeconds(undefined);
+
+      // 4. D1: Determine next uncompleted consultation strictly forward — NO WRAPAROUND
+      const ordered = sortEncounters<Consultation>(consultations);
+      const currentIndex = ordered.findIndex(c => c.id === priorSessionId);
+      let nextConsult: Consultation | undefined = undefined;
+
+      if (currentIndex >= 0) {
+        // Strictly search AFTER currentIndex. NEVER fall back to index 0!
+        nextConsult = ordered.slice(currentIndex + 1).find(
+          c => c.status !== 'Completed' && !c.attestation?.signatureHash && c.id !== priorSessionId
+        );
+      }
+
+      let nextSessionId: string;
+      let nextPatientName = 'Patient';
+      let isNewWalkIn = false;
+
+      if (nextConsult) {
+        nextSessionId = nextConsult.id;
+        nextPatientName = nextConsult.firstName ? `${nextConsult.firstName} ${nextConsult.lastName || ''}`.trim() : 'Patient';
+      } else {
+        isNewWalkIn = true;
+        // Clean fresh walk-in consultation with persistent unique ID (A -> B -> C -> D -> E -> F)
+        nextSessionId = `walkin-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        nextPatientName = 'New Patient';
+      }
+
+      // 5. D2: If walk-in, PERSIST CONSULTATION ON SERVER BEFORE STARTING AUDIO
+      if (isNewWalkIn) {
+        const defaultFindings: ClinicalFindings = {
+          chiefComplaint: '',
+          history: '',
+          toothFindings: '',
+          findingsGingival: '',
+          diagnosis: '',
+          treatmentPerformed: '',
+          recommendations: '',
+          recallRequirements: '',
+        };
+
+        const walkInRecord: Consultation = {
+          id: nextSessionId,
+          dentistId: currentUser?.id,
+          dentistName: currentUser?.name || dentistName,
+          clinicId: activeClinicId || undefined,
+          firstName: nextPatientName,
+          lastName: '',
+          dob: '',
+          date: getClinicTodayIso(),
+          time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+          status: 'In Review',
+          findings: defaultFindings,
+          patientSummary: 'Walk-in consultation in progress',
+          appointmentType: 'examination',
+          transcript: [],
+          clinicalProgressNote: '',
+          consent: {
+            obtainedAt: new Date().toISOString(),
+            disclosureVersion: 'v1',
+            recordedBy: currentUser?.id || dentistName || 'Dentist',
+          },
+        };
+
+        try {
+          await onSaveConsultation(walkInRecord);
+        } catch (saveErr) {
+          console.error('[BoundaryGuard] Failed to persist walk-in consultation before audio rollover:', saveErr);
+          if (audioRecorderRef.current && isRecordingRef.current) {
+            await handleStopAudio();
+          }
+          setToastMessage('Could not create walk-in consultation on server. Recording stopped for patient safety.');
+          return;
+        }
+      }
+
+      // 6. Virtual Continuous Audio Rollover:
+      // If audio was actively recording, seamlessly roll over the MediaRecorder onto the persistent MediaStream
+      if (audioRecorderRef.current && isRecordingRef.current) {
+        try {
+          // Rollover MediaRecorder on persistent MediaStream
+          await audioRecorderRef.current.rollover({
+            sessionTag: nextSessionId,
+            onChunk: (blob, index) => {
+              recordedChunkCountRef.current = index + 1;
+              void trackAudioChunkUpload(nextSessionId, index, blob);
+            },
+          });
+
+          // D6: Wait for prior session's final chunk upload to be durably dispatched/settled
+          await waitForSessionUploads(priorSessionId, 4000);
+
+          // D5: Initialize clean generation-guarded SpeechRecognition for the new session
+          startSpeechRecognizer(nextSessionId);
+        } catch (rolloverErr) {
+          console.error('[AudioEngine] Rollover failed:', rolloverErr);
+          await handleStopAudio();
+          setToastMessage('Audio rollover encountered an issue — recording paused for patient safety.');
+          return;
+        }
+      }
+
+      // 7. Switch active session identity
       userStartedSessionRef.current = true;
-      setActiveSessionId(nextConsult.id);
+      activeSessionIdRef.current = nextSessionId;
+      setActiveSessionId(nextSessionId);
       setActiveTab('context');
-      const name = nextConsult.firstName ? `${nextConsult.firstName} ${nextConsult.lastName || ''}`.trim() : 'Patient';
-      setToastMessage(`Advanced to next patient: ${name}`);
-    } else {
-      // Clean fresh walk-in consultation
-      handleNewSession();
-      setToastMessage('Ready for next patient (New session created).');
+
+      if (nextConsult) {
+        lastLoadedSessionIdRef.current = nextSessionId;
+        setPatientName(nextPatientName);
+        setContextText(nextConsult.findings?.history || nextConsult.findings?.chiefComplaint || '');
+        const inMemory = localLiveTranscriptsRef.current[nextSessionId];
+        const nextTx = (inMemory && inMemory.length > 0) ? inMemory : (Array.isArray(nextConsult.transcript) ? nextConsult.transcript : []);
+        setTranscript(nextTx);
+        setCurrentNote(nextConsult.clinicalProgressNote || '');
+        setToastMessage(`Advanced to next patient: ${nextPatientName}`);
+      } else {
+        lastLoadedSessionIdRef.current = nextSessionId;
+        setPatientName('New Patient');
+        setContextText('');
+        setTranscript([]);
+        setLocalLiveTranscripts(prev => ({ ...prev, [nextSessionId]: [] }));
+        setCurrentNote('');
+        setToastMessage('Ready for next patient (Walk-in created on server).');
+      }
+    } finally {
+      lastTransitionEndRef.current = Date.now();
+      isTransitioningRef.current = false;
+      setIsTransitioning(false);
     }
-  }, [handleStopAudio, activeConsultation, currentNote, transcript, contextText, onSaveConsultation, consultations, activeSessionId, handleNewSession]);
+  }, [
+    handleStopAudio,
+    buildLiveConsultation,
+    currentNote,
+    transcript,
+    onSaveConsultation,
+    consultations,
+    handleAppendTranscriptText,
+    startSpeechRecognizer,
+    trackAudioChunkUpload,
+    waitForSessionUploads,
+    currentUser,
+    dentistName,
+    activeClinicId,
+  ]);
 
   // Handle Ask DentAI Copilot
   const handleAskCopilot = async (queryText?: string) => {
     const query = queryText || copilotInput;
     if (!query || query.trim().length === 0) return;
 
+    const targetSessionId = activeSessionIdRef.current;
     setIsCopilotLoading(true);
     setCopilotInput('');
 
@@ -773,8 +1137,15 @@ export default function ClinicalWorkspace({
           patientName,
           dentistName,
           appointmentType: selectedTemplateId,
+          consultationId: targetSessionId,
         }),
       });
+
+      // Phase 1.3: Hard async session ownership check
+      if (targetSessionId !== activeSessionIdRef.current) {
+        console.warn(`[BoundaryGuard] Discarding copilot response for prior session ${targetSessionId}; active is ${activeSessionIdRef.current}`);
+        return;
+      }
 
       if (res.ok) {
         const data = await res.json();
@@ -784,19 +1155,23 @@ export default function ClinicalWorkspace({
           setToastMessage('Clinical note updated by DentAI.');
 
           const updated = buildLiveConsultation({
+            id: targetSessionId,
             clinicalProgressNote: data.result,
             transcript,
           });
           await onSaveConsultation(updated);
 
-          clearSessionDirty(activeSessionId);
+          clearSessionDirty(targetSessionId);
           setDirtySessionIds(getDirtySessionIds());
         }
       }
     } catch (err) {
+      if (targetSessionId !== activeSessionIdRef.current) return;
       console.warn('Copilot error:', err);
     } finally {
-      setIsCopilotLoading(false);
+      if (targetSessionId === activeSessionIdRef.current) {
+        setIsCopilotLoading(false);
+      }
     }
   };
 
@@ -1050,11 +1425,12 @@ export default function ClinicalWorkspace({
             {/* Fast Next Patient Advance (⌘→) */}
             <button
               type="button"
+              disabled={isTransitioning}
               onClick={() => void handleNextPatient()}
-              className="flex items-center gap-1.5 px-3 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200/80 text-xs font-semibold rounded-lg shadow-2xs transition-all cursor-pointer active:scale-[0.98]"
+              className="flex items-center gap-1.5 px-3 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200/80 text-xs font-semibold rounded-lg shadow-2xs transition-all cursor-pointer active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
               title="Save current patient and advance to next consultation (⌘→)"
             >
-              <span>Next Patient</span>
+              <span>{isTransitioning ? 'Advancing...' : 'Next Patient'}</span>
               <kbd className="font-mono text-[10px] bg-indigo-200/70 text-indigo-900 px-1 py-0.2 rounded ml-0.5">⌘→</kbd>
             </button>
 

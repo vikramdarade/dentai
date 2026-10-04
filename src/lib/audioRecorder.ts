@@ -71,6 +71,13 @@ export interface AudioRecorderOptions {
   onChunk?: (chunk: Blob, index: number) => void;
 }
 
+export interface AudioRolloverOptions {
+  /** Optional replacement chunk callback for the new consultation/recording generation. */
+  onChunk?: (chunk: Blob, index: number) => void;
+  /** Optional session tag or consultationId for tracing */
+  sessionTag?: string;
+}
+
 /** Double-pip warning tone, matching SILENCE_WARN_CHIME_HZ. Exported for reuse. */
 export function playWarningChime(
   context: AudioContext,
@@ -139,12 +146,19 @@ export class AudioRecorder {
   private warned = false;
   private lastLevel = 0;
 
+  private recordingGeneration = 0;
+  private currentOnChunk?: (chunk: Blob, index: number) => void;
+
   constructor(options: AudioRecorderOptions = {}) {
     this.options = { silenceThreshold: 4, ...options };
   }
 
   getState(): RecorderState {
     return this.state;
+  }
+
+  getGeneration(): number {
+    return this.recordingGeneration;
   }
 
   isActive(): boolean {
@@ -190,6 +204,9 @@ export class AudioRecorder {
     this.warned = false;
     this.lastLevel = 0;
 
+    this.recordingGeneration = 1;
+    this.currentOnChunk = this.options.onChunk;
+
     const context = new AudioContextCtor();
     this.audioContext = context;
     const source = context.createMediaStreamSource(stream);
@@ -204,11 +221,12 @@ export class AudioRecorder {
     const mimeType = pickMimeType();
     const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
     let chunkCounter = 0;
+    const initialOnChunk = this.currentOnChunk;
     recorder.ondataavailable = (event: BlobEvent) => {
       if (event.data && event.data.size > 0) {
         this.chunks.push(event.data);
         const idx = chunkCounter++;
-        this.options.onChunk?.(event.data, idx);
+        initialOnChunk?.(event.data, idx);
       }
     };
     recorder.onerror = (event: Event) => {
@@ -220,6 +238,85 @@ export class AudioRecorder {
 
     this.state = 'recording';
     this.scheduleFrame();
+  }
+
+  /**
+   * Rollover the recording boundary (Virtual Continuous Recording):
+   * 1. Stops the current MediaRecorder and awaits its final chunk emission.
+   * 2. Resets chunk counters, elapsed time, and silence timers.
+   * 3. Creates and starts a new MediaRecorder on the same persistent MediaStream.
+   *
+   * Resolves with the previous session's assembled Blob (if any).
+   */
+  async rollover(options: AudioRolloverOptions = {}): Promise<Blob | null> {
+    if (!this.isActive() || !this.stream) {
+      throw new Error('Cannot rollover an inactive AudioRecorder.');
+    }
+
+    if (!this.stream.active) {
+      throw new Error('Microphone stream is no longer active.');
+    }
+
+    const priorRecorder = this.mediaRecorder;
+    let priorBlob: Blob | null = null;
+
+    if (priorRecorder) {
+      priorBlob = await new Promise<Blob | null>((resolve) => {
+        let settled = false;
+        const finalize = () => {
+          if (settled) return;
+          settled = true;
+          const type = priorRecorder.mimeType || this.chunks[0]?.type || 'audio/webm';
+          resolve(this.chunks.length > 0 ? new Blob(this.chunks, { type }) : null);
+        };
+        try {
+          priorRecorder.onstop = finalize;
+          if (priorRecorder.state === 'inactive') finalize();
+          else priorRecorder.stop();
+        } catch {
+          finalize();
+        }
+        setTimeout(finalize, 2000);
+      });
+    }
+
+    // Reset per-session counters and silence state (Rule 8 & invariant guarantees)
+    this.chunks = [];
+    this.accumulatedMs = 0;
+    this.activeSince = nowMs();
+    this.lastTickSecond = -1;
+    this.silenceStartedAt = null;
+    this.warned = false;
+    this.lastLevel = 0;
+
+    // Advance recording generation and instantiate next MediaRecorder
+    this.recordingGeneration += 1;
+    const nextOnChunk = options.onChunk ?? this.options.onChunk;
+    this.currentOnChunk = nextOnChunk;
+
+    const mimeType = pickMimeType();
+    const nextRecorder = mimeType
+      ? new MediaRecorder(this.stream, { mimeType })
+      : new MediaRecorder(this.stream);
+
+    let nextChunkCounter = 0;
+    nextRecorder.ondataavailable = (event: BlobEvent) => {
+      if (event.data && event.data.size > 0) {
+        this.chunks.push(event.data);
+        const idx = nextChunkCounter++;
+        nextOnChunk?.(event.data, idx);
+      }
+    };
+    nextRecorder.onerror = (event: Event) => {
+      const error = (event as Event & { error?: DOMException }).error;
+      this.options.onError?.(error instanceof Error ? error : new Error('Audio recording failed.'));
+    };
+
+    nextRecorder.start(1000);
+    this.mediaRecorder = nextRecorder;
+    this.state = 'recording';
+
+    return priorBlob;
   }
 
   /** Suspend capture without discarding the recording. */
@@ -317,6 +414,8 @@ export class AudioRecorder {
     this.cancelFrame();
     this.mediaRecorder = null;
     this.chunks = [];
+    this.recordingGeneration = 0;
+    this.currentOnChunk = undefined;
     if (this.sourceNode) {
       try {
         this.sourceNode.disconnect();
